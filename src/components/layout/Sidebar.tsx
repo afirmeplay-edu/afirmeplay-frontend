@@ -54,6 +54,10 @@ import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/context/authContext";
+import {
+  hasRestrictedStaffAccess,
+  isAplicadorRole,
+} from "@/utils/restrictedStaffAccess";
 import { useStudentPreferences } from "@/context/StudentPreferencesContext";
 import { Button } from "@/components/ui/button";
 import { useGamesCount } from "@/hooks/useGamesCount";
@@ -110,8 +114,8 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
 
   const navigate = useNavigate();
   const { logout, user } = useAuth();
-  const isCorretor = Boolean(user?.email?.toLowerCase().includes('corretor'));
-  // Contas "corretor(n)@afirmeplay.com.br" devem ver apenas Agenda e Cartão Resposta.
+  const isRestrictedNav = hasRestrictedStaffAccess(user);
+  // Filtro ao renderizar sidebar completa (corretor legado por e-mail).
   const corretorAllowedHrefs = new Set([
     '/app',
     '/app/avaliacoes',
@@ -252,13 +256,13 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
     },
     {
       name: "Modo offline",
-      role: ["admin", "tecadm", "diretor", "coordenador"],
+      role: ["admin", "tecadm", "diretor", "coordenador", "aplicador"],
       links: [
         {
           icon: Smartphone,
-          label: "Gerar código para o app",
+          label: "Aplicativo Offline",
           href: "/app/modo-offline",
-          role: ["admin", "tecadm", "diretor", "coordenador"],
+          role: ["admin", "tecadm", "diretor", "coordenador", "aplicador"],
         },
       ],
     },
@@ -311,10 +315,13 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
           ]
         },
         {
-          icon: ClipboardList,
-          label: "Lista de Frequência",
-          href: "/app/lista-frequencia",
-          role: ["admin", "professor", "diretor", "coordenador", "tecadm"]
+          icon: FileText,
+          label: "Documentos",
+          role: ["admin", "professor", "diretor", "coordenador", "tecadm"],
+          children: [
+            { icon: ClipboardList, label: "Lista de Frequência", href: "/app/lista-frequencia", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
+            { icon: FileText, label: "Impressão de Ata de Sala", href: "/app/documentos/ata-sala", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
+          ]
         },
         {
           icon: Target,
@@ -349,6 +356,7 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
             { icon: PieChart, label: "Análise das Avaliações", href: "/app/relatorios/analise-avaliacoes", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
             { icon: School, label: "Relatório Escolar", href: "/app/relatorios/relatorio-escolar", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
             { icon: Presentation, label: "Relatório Apresentação", href: "/app/relatorios/relatorio-apresentacao-19-slides", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
+            { icon: Medal, label: "Relatório de ranking", href: "/app/relatorios/ranking", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
           ]
         },
       ]
@@ -389,71 +397,79 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
     }
   ];
 
-  // Para contas "corretor(n)@afirmeplay.com.br": sidebar simplificada.
-  // Objetivo: mostrar apenas "Principal" e evitar duplicidades em "Cadastros"
-  // e o dropdown de "Cartão Resposta" (funções como links separados).
-  const corretorRole = user.role ?? 'tecadm';
-  const corretorSidebarCategories: SidebarCategory[] = [
+  // Corretor (e-mail) e aplicador (role): sidebar simplificada; aplicador inclui modo offline.
+  const restrictedNavRole = isAplicadorRole(user.role) ? 'aplicador' : (user.role ?? 'tecadm');
+  const restrictedSidebarLinks: SidebarCategory['links'] = [
+    {
+      icon: LayoutDashboard,
+      label: "Painel",
+      href: "/app",
+      role: [restrictedNavRole],
+    },
+    {
+      icon: CalendarDays,
+      label: "Agenda",
+      href: "/app/agenda",
+      role: [restrictedNavRole],
+    },
+    {
+      icon: ClipboardList,
+      label: "Avaliações",
+      href: "/app/avaliacoes",
+      role: [restrictedNavRole],
+    },
+    {
+      icon: FilePlus,
+      label: "Cadastrar Cartão Resposta",
+      href: "/app/cartao-resposta/cadastrar",
+      role: [restrictedNavRole],
+    },
+    {
+      icon: Ticket,
+      label: "Gerar cartões",
+      href: "/app/cartao-resposta/gerar",
+      role: [restrictedNavRole],
+    },
+    {
+      icon: ScanLine,
+      label: "Corrigir cartões",
+      href: "/app/cartao-resposta/corrigir",
+      role: [restrictedNavRole],
+    },
+    ...(isAplicadorRole(user.role)
+      ? [
+          {
+            icon: Smartphone,
+            label: "Aplicativo Offline",
+            href: "/app/modo-offline",
+            role: [restrictedNavRole],
+          },
+        ]
+      : []),
+    {
+      icon: Settings,
+      label: "Configurações",
+      href: "/app/configuracoes",
+      role: [restrictedNavRole],
+    },
+    {
+      icon: LogOut,
+      label: "Sair",
+      href: "/logout",
+      role: [restrictedNavRole],
+      divider: true,
+    },
+  ];
+  const restrictedSidebarCategories: SidebarCategory[] = [
     {
       name: "Principal",
-      role: [corretorRole],
-      links: [
-        {
-          icon: LayoutDashboard,
-          label: "Painel",
-          href: "/app",
-          role: [corretorRole],
-        },
-        {
-          icon: CalendarDays,
-          label: "Agenda",
-          href: "/app/agenda",
-          role: [corretorRole],
-        },
-        {
-          icon: ClipboardList,
-          label: "Avaliações",
-          href: "/app/avaliacoes",
-          role: [corretorRole],
-        },
-        // Funções de cartão resposta fora do dropdown "Cartão Resposta"
-        {
-          icon: FilePlus,
-          label: "Cadastrar Cartão Resposta",
-          href: "/app/cartao-resposta/cadastrar",
-          role: [corretorRole],
-        },
-        {
-          icon: Ticket,
-          label: "Gerar cartões",
-          href: "/app/cartao-resposta/gerar",
-          role: [corretorRole],
-        },
-        {
-          icon: ScanLine,
-          label: "Corrigir cartões",
-          href: "/app/cartao-resposta/corrigir",
-          role: [corretorRole],
-        },
-        {
-          icon: Settings,
-          label: "Configurações",
-          href: "/app/configuracoes",
-          role: [corretorRole],
-        },
-        {
-          icon: LogOut,
-          label: "Sair",
-          href: "/logout",
-          role: [corretorRole],
-          divider: true,
-        },
-      ],
+      role: [restrictedNavRole],
+      links: restrictedSidebarLinks,
     },
   ];
 
-  const sidebarCategoriesToRender = isCorretor
-    ? corretorSidebarCategories
+  const sidebarCategoriesToRender = isRestrictedNav
+    ? restrictedSidebarCategories
     : sidebarCategories;
 
   const UserInfo = () => {
@@ -857,11 +873,11 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
                 return null;
               };
 
-              const visibleLinks = isCorretor
+              const visibleLinks = isRestrictedNav
                 ? category.links.map(filterLink).filter((l): l is SidebarLink => Boolean(l))
                 : category.links;
 
-              if (isCorretor && visibleLinks.length === 0) return null;
+              if (isRestrictedNav && visibleLinks.length === 0) return null;
 
               return (
                 <div key={category.name}>

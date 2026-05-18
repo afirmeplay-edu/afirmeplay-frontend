@@ -40,7 +40,7 @@ import { useAuth } from "@/context/authContext";
 import type { AvatarConfig } from "@/context/authContext";
 import { AvatarPreview } from "@/components/profile/AvatarPreview";
 
-const ROLE_ORDER = ["admin", "tecadm", "diretor", "coordenador", "professor", "aluno"];
+const ROLE_ORDER = ["admin", "tecadm", "aplicador", "diretor", "coordenador", "professor", "aluno"];
 
 /** Mapeia nome de exibição ou slug da API para chave canônica (para ordenação) */
 function toCanonicalRole(role: string): string {
@@ -50,6 +50,7 @@ function toCanonicalRole(role: string): string {
     "técnico administrativo": "tecadm",
     "técnico administrador": "tecadm",
     "tec adm": "tecadm",
+    "aplicador": "aplicador",
     "diretor": "diretor",
     "coordenador": "coordenador",
     "professor": "professor",
@@ -79,7 +80,7 @@ interface MunicipioUser {
 }
 
 const ROLES_WITH_SCHOOL = ["diretor", "coordenador", "professor", "aluno"];
-const ROLES_WITH_CITY = ["tecadm"];
+const ROLES_WITH_CITY = ["tecadm", "aplicador"];
 
 /** Hierarquia: quem pode editar quem. Nenhum cargo pode selecionar cargo maior que o seu na edição. */
 const ROLES_EDITABLE_BY: Record<string, string[]> = {
@@ -184,6 +185,15 @@ export function InstituicaoUsersTab({
   });
   const [showTecAdminPassword, setShowTecAdminPassword] = useState(false);
   const [isSubmittingAddTecAdmin, setIsSubmittingAddTecAdmin] = useState(false);
+  const [addAplicadorOpen, setAddAplicadorOpen] = useState(false);
+  const [addAplicadorForm, setAddAplicadorForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+    registration: "",
+  });
+  const [showAplicadorPassword, setShowAplicadorPassword] = useState(false);
+  const [isSubmittingAddAplicador, setIsSubmittingAddAplicador] = useState(false);
   const [userToDelete, setUserToDelete] = useState<MunicipioUser | null>(null);
   const [isDeletingUser, setIsDeletingUser] = useState(false);
   const [isBatchDeleteDialogOpen, setIsBatchDeleteDialogOpen] = useState(false);
@@ -201,11 +211,17 @@ export function InstituicaoUsersTab({
       && onDeleteUsersInBatch
   );
 
-  const { checkedEmail } = useEmailCheck(addTecAdminForm.name, addTecAdminOpen);
+  const { checkedEmail: checkedTecAdminEmail } = useEmailCheck(addTecAdminForm.name, addTecAdminOpen);
   useEffect(() => {
-    if (!addTecAdminOpen || !checkedEmail) return;
-    setAddTecAdminForm((prev) => ({ ...prev, email: checkedEmail }));
-  }, [checkedEmail, addTecAdminOpen]);
+    if (!addTecAdminOpen || !checkedTecAdminEmail) return;
+    setAddTecAdminForm((prev) => ({ ...prev, email: checkedTecAdminEmail }));
+  }, [checkedTecAdminEmail, addTecAdminOpen]);
+
+  const { checkedEmail: checkedAplicadorEmail } = useEmailCheck(addAplicadorForm.name, addAplicadorOpen);
+  useEffect(() => {
+    if (!addAplicadorOpen || !checkedAplicadorEmail) return;
+    setAddAplicadorForm((prev) => ({ ...prev, email: checkedAplicadorEmail }));
+  }, [checkedAplicadorEmail, addAplicadorOpen]);
 
   const handleAddTecAdminNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newName = e.target.value;
@@ -246,6 +262,48 @@ export function InstituicaoUsersTab({
       toast({ title: "Erro", description: msg, variant: "destructive" });
     } finally {
       setIsSubmittingAddTecAdmin(false);
+    }
+  };
+
+  const handleAddAplicadorNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newName = e.target.value;
+    setAddAplicadorForm((prev) => ({
+      ...prev,
+      name: newName,
+      password: generatePasswordFromName(newName),
+    }));
+  };
+
+  const handleAddAplicadorSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const effectiveId = cityId || selectedCityId;
+    if (!effectiveId) return;
+    if (!addAplicadorForm.name.trim() || !addAplicadorForm.email.trim() || !addAplicadorForm.password.trim()) {
+      toast({ title: "Erro", description: "Preencha nome, e-mail e senha.", variant: "destructive" });
+      return;
+    }
+    setIsSubmittingAddAplicador(true);
+    try {
+      await api.post("/users", {
+        name: addAplicadorForm.name.trim(),
+        email: addAplicadorForm.email.trim(),
+        password: addAplicadorForm.password,
+        role: "aplicador",
+        city_id: effectiveId,
+        ...(addAplicadorForm.registration.trim() ? { registration: addAplicadorForm.registration.trim() } : {}),
+      });
+      toast({ title: "Sucesso", description: "Aplicador criado com sucesso." });
+      setAddAplicadorOpen(false);
+      setAddAplicadorForm({ name: "", email: "", password: "", registration: "" });
+      fetchUsers();
+    } catch (err) {
+      console.error("Erro ao criar aplicador:", err);
+      const msg = (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data?.error
+        || (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data?.message
+        || "Erro ao criar usuário.";
+      toast({ title: "Erro", description: msg, variant: "destructive" });
+    } finally {
+      setIsSubmittingAddAplicador(false);
     }
   };
 
@@ -421,7 +479,7 @@ export function InstituicaoUsersTab({
             const school = studentSchoolMap.get(u.id);
             if (school) return { ...u, school, school_name: school.name, school_id: school.id };
           }
-          if (roleCanon === "tecadm") {
+          if (roleCanon === "tecadm" || roleCanon === "aplicador") {
             const city = managersCityMap.get(u.id);
             if (city) return { ...u, city, city_name: city.name };
           }
@@ -591,6 +649,8 @@ export function InstituicaoUsersTab({
 
   const showCitySelector = isAdmin && cities.length > 0 && !cityId;
   const canCreateTecAdmin = authUser?.role === "admin" || authUser?.role === "tecadm";
+  const canCreateAplicador =
+    authUser?.role === "admin" || authUser?.role === "tecadm" || authUser?.role === "coordenador";
 
   return (
     <div className="space-y-6 mt-6">
@@ -625,6 +685,17 @@ export function InstituicaoUsersTab({
             >
               <UserPlus className="h-4 w-4 mr-2" />
               Adicionar Tec Admin
+            </Button>
+          )}
+          {canCreateAplicador && effectiveCityId && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setAddAplicadorOpen(true)}
+              className="shrink-0"
+            >
+              <UserPlus className="h-4 w-4 mr-2" />
+              Adicionar Aplicador
             </Button>
           )}
         </div>
@@ -1047,6 +1118,101 @@ export function InstituicaoUsersTab({
                   </>
                 ) : (
                   "Criar Tec Admin"
+                )}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addAplicadorOpen} onOpenChange={setAddAplicadorOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#7B3FE4]/10">
+                <UserPlus className="h-4 w-4 text-[#7B3FE4]" />
+              </div>
+              Adicionar Aplicador
+            </DialogTitle>
+            <DialogDescription>
+              Cria um usuário aplicador para gerar códigos do app offline no município. Login web usa a parte antes do @ do e-mail (ex.: joao.silva).
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleAddAplicadorSubmit} className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label htmlFor="add-aplicador-name">Nome completo *</Label>
+              <Input
+                id="add-aplicador-name"
+                value={addAplicadorForm.name}
+                onChange={handleAddAplicadorNameChange}
+                placeholder="Nome do aplicador"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="add-aplicador-email">E-mail *</Label>
+              <Input
+                id="add-aplicador-email"
+                type="email"
+                value={addAplicadorForm.email}
+                onChange={(e) => setAddAplicadorForm((prev) => ({ ...prev, email: e.target.value }))}
+                placeholder="joao.silva@afirmeplay.com.br"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="add-aplicador-password">Senha *</Label>
+              <div className="relative">
+                <Input
+                  id="add-aplicador-password"
+                  type={showAplicadorPassword ? "text" : "password"}
+                  value={addAplicadorForm.password}
+                  onChange={(e) => setAddAplicadorForm((prev) => ({ ...prev, password: e.target.value }))}
+                  placeholder="Mínimo 8 caracteres"
+                  required
+                  minLength={8}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowAplicadorPassword(!showAplicadorPassword)}
+                  aria-label={showAplicadorPassword ? "Ocultar senha" : "Ver senha"}
+                >
+                  {showAplicadorPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="add-aplicador-registration">Login curto (opcional)</Label>
+              <Input
+                id="add-aplicador-registration"
+                value={addAplicadorForm.registration}
+                onChange={(e) => setAddAplicadorForm((prev) => ({ ...prev, registration: e.target.value }))}
+                placeholder="joao.silva — padrão: parte antes do @"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAddAplicadorOpen(false)}
+                disabled={isSubmittingAddAplicador}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={isSubmittingAddAplicador}>
+                {isSubmittingAddAplicador ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Criando...
+                  </>
+                ) : (
+                  "Criar Aplicador"
                 )}
               </Button>
             </div>

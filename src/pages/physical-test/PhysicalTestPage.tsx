@@ -78,6 +78,7 @@ import { useBatchCorrection } from "@/hooks/useBatchCorrection";
 import { api } from "@/lib/api";
 import { fetchAuthenticatedDownload } from "@/lib/fetch-authenticated-download";
 import { useAuth } from "@/context/authContext";
+import { hasCorretorStyleEvalAccess } from "@/utils/restrictedStaffAccess";
 import { MultiSelect } from "@/components/ui/multi-select";
 import {
   Collapsible,
@@ -513,7 +514,7 @@ export default function PhysicalTestPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user } = useAuth();
-  const isCorretor = Boolean(user?.email?.toLowerCase().includes('corretor'));
+  const isCorretor = hasCorretorStyleEvalAccess(user);
 
   // Estados principais
   const [isLoading, setIsLoading] = useState(true);

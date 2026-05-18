@@ -5,6 +5,7 @@ export const ROLE_DISPLAY_MAPPING: { [key: string]: string } = {
   "diretor": "Diretor",
   "coordenador": "Coordenador",
   "tecadm": "Técnico Administrador",
+  "aplicador": "Aplicador",
   "aluno": "Aluno"
 };
 

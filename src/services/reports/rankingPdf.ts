@@ -6,6 +6,7 @@
 import { jsPDF } from 'jspdf';
 import type { UserOptions } from 'jspdf-autotable';
 import { urlToPngAsset } from '@/utils/pdfCityBranding';
+import type { RankingFilters, RankingResponse, RankingType } from '@/services/reports/rankingApi';
 import {
   normalizeProficiencyLevelLabel,
   type ReportProficiencyLabel,
@@ -98,7 +99,7 @@ function drawFiltersCard(
     return acc + wrapped.length * lineGap;
   }, 0);
   const cardH = titleLineH + bodyH + cardPad * 2 + 4;
-  let yTop = titleY;
+  const yTop = titleY;
 
   doc.setFillColor(...C.white);
   doc.rect(margin, yTop, innerW, cardH, 'F');
@@ -562,4 +563,407 @@ export async function generateRankingPdf(opts: {
       .toLowerCase() || `ranking-${opts.context}`;
 
   pdf.save(`${safeNameBase}-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+function rankingTypeLabel(rt: RankingType): string {
+  if (rt === 'general') return 'Ranking geral';
+  if (rt === 'specific_evaluation') return 'Ranking por avaliação';
+  if (rt === 'specific_answer_sheet') return 'Ranking por cartão-resposta';
+  return 'Ranking de professores';
+}
+
+type RankingApiPdfOptions = {
+  rankingType: RankingType;
+  data: RankingResponse;
+  filters: RankingFilters;
+  contextTitle?: string;
+  fileNameBase?: string;
+};
+
+export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Promise<void> {
+  const { data, rankingType, filters } = opts;
+  const rows = Array.isArray(data.items) ? data.items : [];
+  const generalStudentsRows = Array.isArray(data.students_items) ? data.students_items : [];
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const subtitleBand = 'RELATÓRIO DE RANKING';
+  const mainSubtitle = rankingTypeLabel(rankingType);
+  const cardLines: Array<{ label: string; value: string }> = [
+    { label: 'TIPO', value: rankingTypeLabel(rankingType) },
+    { label: 'ESCOPO', value: String(filters.scope || 'municipio') },
+    { label: 'ESTADO', value: String(filters.estado || 'Todos') },
+    { label: 'MUNICÍPIO', value: String(filters.municipio || 'Todos') },
+    { label: 'ESCOLA', value: String(filters.escola || 'Todas') },
+    { label: 'SÉRIE', value: String(filters.serie || 'Todas') },
+    { label: 'TURMA', value: String(filters.turma || 'Todas') },
+  ];
+
+  if (rankingType === 'specific_evaluation') {
+    cardLines.unshift({ label: 'AVALIAÇÃO', value: opts.contextTitle || String(filters.evaluation_id || '—') });
+  } else if (rankingType === 'specific_answer_sheet') {
+    cardLines.unshift({ label: 'GABARITO', value: opts.contextTitle || String(filters.answer_sheet_id || '—') });
+  }
+
+  await addRankingCoverPage(
+    doc,
+    'RANKING DE DESEMPENHO',
+    subtitleBand,
+    'RANKING',
+    mainSubtitle,
+    cardLines
+  );
+
+  doc.addPage();
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 15;
+  let y = 16;
+  const detailLines = [
+    `Tipo: ${rankingTypeLabel(rankingType)}`,
+    `Escopo: ${String(filters.scope || 'municipio')}`,
+    `Total de registros: ${String(data.totals?.count ?? rows.length)}${rankingType === 'general' ? ` escolas + ${String(data.students_totals?.count ?? generalStudentsRows.length)} alunos` : ''}`,
+    `Período: ${String(filters.periodo || 'Não informado')}`,
+  ];
+  y = drawFiltersCard(doc, margin, pageW, y, detailLines);
+  y = drawClassificationLegend(doc, margin, pageW, y);
+
+  const autoTable = (await import('jspdf-autotable')).default;
+  const drawSectionTitle = (title: string) => {
+    doc.setFontSize(11.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...C.primary);
+    doc.text(title, margin, y);
+    y += 6;
+  };
+
+  const renderTable = (
+    head: string[][],
+    body: Array<Array<string | number>>,
+    columnStyles: Record<number, any>,
+    levelColumnIndex?: number
+  ) => {
+    const emptyBody = [['—', 'Sem dados para os filtros selecionados']];
+    autoTable(doc, {
+      startY: y,
+      head,
+      body: body.length > 0 ? body : emptyBody,
+      theme: 'striped',
+      margin: { left: margin, right: margin, bottom: 18 },
+      headStyles: {
+        fillColor: C.primary,
+        textColor: C.white,
+        fontStyle: 'bold',
+        fontSize: 8.8,
+        halign: 'center',
+      },
+      bodyStyles: {
+        fontSize: 8.2,
+        textColor: C.textDark,
+        lineColor: C.borderLight,
+        lineWidth: 0.12,
+      },
+      alternateRowStyles: { fillColor: [253, 252, 254] as [number, number, number] },
+      didParseCell(hookData) {
+        if (body.length === 0 && hookData.section === 'body') {
+          hookData.cell.styles.fontStyle = 'italic';
+          hookData.cell.styles.textColor = C.textGray;
+        }
+        if (hookData.section === 'body' && hookData.column.index === 0) {
+          const pos = Number(hookData.cell.raw || 0);
+          const hi = positionHighlight(pos);
+          if (hi) {
+            hookData.cell.styles.fillColor = hi.fill;
+            hookData.cell.styles.textColor = hi.text;
+            hookData.cell.styles.fontStyle = 'bold';
+          }
+        }
+        if (
+          hookData.section === 'body' &&
+          typeof levelColumnIndex === 'number' &&
+          hookData.column.index === levelColumnIndex
+        ) {
+          const level = normalizeProficiencyLevelLabel(String(hookData.cell.raw || ''));
+          const styles = proficiencyTagStyles(level);
+          hookData.cell.styles.fillColor = styles.fill;
+          hookData.cell.styles.textColor = styles.text;
+          hookData.cell.styles.fontStyle = 'bold';
+        }
+      },
+      columnStyles,
+    });
+    y = ((doc as any).lastAutoTable?.finalY || y) + 9;
+  };
+
+  if (rankingType === 'general') {
+    const levelKeys = ['Abaixo do Básico', 'Básico', 'Adequado', 'Avançado'] as const;
+    const schoolRowsPrepared = rows.map((raw) => {
+      const r = raw as Record<string, any>;
+      const series = Array.isArray(r.series) ? r.series : [];
+      const bucket: Record<(typeof levelKeys)[number], number> = {
+        'Abaixo do Básico': 0,
+        'Básico': 0,
+        'Adequado': 0,
+        'Avançado': 0,
+      };
+      let totalWeight = 0;
+      for (const serie of series) {
+        const s = serie as Record<string, any>;
+        const classification = String(s.classification || '');
+        const studentsCount = Number(s.students_count || 0);
+        const weight = studentsCount > 0 ? studentsCount : 1;
+        if (levelKeys.includes(classification as (typeof levelKeys)[number])) {
+          bucket[classification as (typeof levelKeys)[number]] += weight;
+          totalWeight += weight;
+        }
+      }
+
+      const normalized = totalWeight > 0 ? totalWeight : 1;
+      const belowBasic = (bucket['Abaixo do Básico'] / normalized) * 100;
+      const basic = (bucket['Básico'] / normalized) * 100;
+      const adequate = (bucket['Adequado'] / normalized) * 100;
+      const advanced = (bucket['Avançado'] / normalized) * 100;
+
+      const totalStudents = Number(r.total_students ?? r.quantidade_alunos ?? r.students_count ?? 0);
+      const totalEvaluations = Number(r.total_evaluations ?? r.quantidade_avaliacoes ?? 0);
+      const fallbackParticipation = totalStudents > 0 ? Math.min(100, (totalEvaluations / totalStudents) * 100) : 0;
+      const participation = Number(r.participation_rate ?? r.completion_rate ?? r.taxa_conclusao ?? fallbackParticipation);
+
+      return {
+        position: Number(r.position || 0),
+        schoolName: String(r.school_name || '—'),
+        participation: Number.isFinite(participation) ? participation : 0,
+        averageProficiency: Number(r.average_proficiency ?? r.average_score ?? r.media ?? 0),
+        averageScore: Number(r.average_score ?? r.media ?? 0),
+        classification: String(r.classification || ''),
+        distribution: { belowBasic, basic, adequate, advanced },
+      };
+    });
+
+    const escolasAvaliadas = schoolRowsPrepared.length;
+    const mediaMunicipio =
+      escolasAvaliadas > 0
+        ? schoolRowsPrepared.reduce((acc, row) => acc + Number(row.averageScore || 0), 0) / escolasAvaliadas
+        : 0;
+    const escolasCriticas = schoolRowsPrepared.filter((row) => row.classification === 'Abaixo do Básico').length;
+
+    const cardsTopY = y;
+    const cardsGap = 5;
+    const cardsTotalW = pageW - margin * 2;
+    const cardW = (cardsTotalW - cardsGap * 2) / 3;
+    const cardH = 18;
+    const cardRows = [
+      { title: 'Escolas avaliadas', value: String(escolasAvaliadas), danger: false },
+      { title: 'Média do município', value: mediaMunicipio.toFixed(1), danger: false },
+      { title: 'Escolas em estado crítico', value: String(escolasCriticas), danger: true },
+    ];
+    for (let i = 0; i < cardRows.length; i++) {
+      const cx = margin + i * (cardW + cardsGap);
+      const c = cardRows[i];
+      doc.setFillColor(...C.white);
+      doc.setDrawColor(...(c.danger ? ([252, 165, 165] as [number, number, number]) : C.borderLight));
+      doc.setLineWidth(0.35);
+      doc.roundedRect(cx, cardsTopY, cardW, cardH, 2, 2, 'FD');
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.8);
+      doc.setTextColor(...(c.danger ? ([190, 24, 93] as [number, number, number]) : C.textGray));
+      doc.text(c.title.toUpperCase(), cx + 3, cardsTopY + 5);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(15);
+      doc.setTextColor(...(c.danger ? ([190, 24, 93] as [number, number, number]) : C.textDark));
+      doc.text(c.value, cx + 3, cardsTopY + 13);
+    }
+    y += cardH + 9;
+
+    drawSectionTitle('Ranking geral das escolas');
+    const schoolsBody = schoolRowsPrepared.map((row) => [
+      Number(row.position || 0),
+      row.schoolName,
+      `${Number(row.participation || 0).toFixed(1)}%`,
+      Number(row.averageProficiency || 0).toFixed(0),
+      Number(row.averageScore || 0).toFixed(1),
+      ' ',
+      row.classification || '—',
+    ]);
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Pos.', 'Escola', 'Participação', 'Proficiência', 'Nota', 'Distribuição por nível', 'Nível']],
+      body: schoolsBody.length > 0 ? schoolsBody : [['—', 'Sem dados para os filtros selecionados', '', '', '', '', '']],
+      theme: 'striped',
+      margin: { left: margin, right: margin, bottom: 18 },
+      headStyles: {
+        fillColor: [243, 244, 246],
+        textColor: [75, 85, 99],
+        fontStyle: 'bold',
+        fontSize: 8.2,
+        halign: 'center',
+      },
+      bodyStyles: {
+        fontSize: 8.2,
+        textColor: C.textDark,
+        lineColor: C.borderLight,
+        lineWidth: 0.12,
+      },
+      alternateRowStyles: { fillColor: [250, 250, 251] },
+      columnStyles: {
+        0: { cellWidth: 12, halign: 'center' },
+        1: { cellWidth: 70, halign: 'left' },
+        2: { cellWidth: 24, halign: 'center' },
+        3: { cellWidth: 22, halign: 'center' },
+        4: { cellWidth: 14, halign: 'center' },
+        5: { cellWidth: 40, halign: 'left' },
+        6: { cellWidth: 20, halign: 'center' },
+      },
+      didParseCell: (hookData) => {
+        if (schoolsBody.length === 0 && hookData.section === 'body') {
+          hookData.cell.styles.fontStyle = 'italic';
+          hookData.cell.styles.textColor = C.textGray;
+          return;
+        }
+        if (hookData.section !== 'body') return;
+
+        const rowIdx = hookData.row.index;
+        const rowModel = schoolRowsPrepared[rowIdx];
+        if (!rowModel) return;
+
+        if (rowModel.classification === 'Abaixo do Básico') {
+          hookData.cell.styles.fillColor = [255, 241, 242];
+        }
+        if (hookData.column.index === 0) {
+          const hi = positionHighlight(Number(rowModel.position || 0));
+          if (hi) {
+            hookData.cell.styles.fillColor = hi.fill;
+            hookData.cell.styles.textColor = hi.text;
+            hookData.cell.styles.fontStyle = 'bold';
+          }
+        }
+        if (hookData.column.index === 6) {
+          const lvl = normalizeProficiencyLevelLabel(rowModel.classification);
+          const styles = proficiencyTagStyles(lvl);
+          hookData.cell.styles.fillColor = styles.fill;
+          hookData.cell.styles.textColor = styles.text;
+          hookData.cell.styles.fontStyle = 'bold';
+        }
+      },
+      didDrawCell: (hookData) => {
+        if (hookData.section !== 'body' || hookData.column.index !== 5 || schoolsBody.length === 0) return;
+        const rowModel = schoolRowsPrepared[hookData.row.index];
+        if (!rowModel) return;
+
+        const x = hookData.cell.x + 2;
+        const yBar = hookData.cell.y + 3.8;
+        const w = hookData.cell.width - 4;
+        const h = 3.4;
+
+        const s1 = Math.max(0, Math.min(100, rowModel.distribution.belowBasic));
+        const s2 = Math.max(0, Math.min(100, rowModel.distribution.basic));
+        const s3 = Math.max(0, Math.min(100, rowModel.distribution.adequate));
+        const s4 = Math.max(0, Math.min(100, rowModel.distribution.advanced));
+        const total = s1 + s2 + s3 + s4 || 1;
+
+        const w1 = (w * s1) / total;
+        const w2 = (w * s2) / total;
+        const w3 = (w * s3) / total;
+        const w4 = (w * s4) / total;
+
+        let cursor = x;
+        doc.setFillColor(225, 29, 72);
+        doc.rect(cursor, yBar, w1, h, 'F');
+        cursor += w1;
+        doc.setFillColor(250, 204, 21);
+        doc.rect(cursor, yBar, w2, h, 'F');
+        cursor += w2;
+        doc.setFillColor(34, 197, 94);
+        doc.rect(cursor, yBar, w3, h, 'F');
+        cursor += w3;
+        doc.setFillColor(6, 95, 70);
+        doc.rect(cursor, yBar, w4, h, 'F');
+      },
+    });
+    y = ((doc as any).lastAutoTable?.finalY || y) + 9;
+
+    drawSectionTitle('Ranking de alunos (detalhe do recorte)');
+    const studentsBody = generalStudentsRows.map((r) => [
+      Number(r.position || 0),
+      String(r.name || '—'),
+      String(r.school_name || '—'),
+      String(r.serie || '—'),
+      String(r.class_name || '—'),
+      Number(r.average_score || 0).toFixed(2),
+      Number((r.average_proficiency ?? r.average_score) || 0).toFixed(2),
+      String(r.classification || '—'),
+    ]);
+    renderTable(
+      [['Pos.', 'Aluno', 'Escola', 'Série', 'Turma', 'Nota', 'Proficiência', 'Nível']],
+      studentsBody,
+      {
+        0: { cellWidth: 12, halign: 'center' },
+        1: { cellWidth: 30, halign: 'left' },
+        2: { cellWidth: 50, halign: 'left' },
+        3: { cellWidth: 14, halign: 'left' },
+        4: { cellWidth: 14, halign: 'left' },
+        5: { cellWidth: 14, halign: 'right' },
+        6: { cellWidth: 20, halign: 'right' },
+        7: { cellWidth: 26, halign: 'center' },
+      },
+      7
+    );
+  } else if (rankingType === 'teachers') {
+    drawSectionTitle('Ranking de professores');
+    const teachersBody = rows.map((r) => [
+      Number(r.position || 0),
+      String(r.teacher_name || '—'),
+      String(r.teacher_email || '—'),
+      Number(r.average_score || 0).toFixed(2),
+      Number(r.average_proficiency || 0).toFixed(2),
+      String(r.classification || '—'),
+      Number(r.total_evaluations || 0),
+      Number(r.classes_count || 0),
+    ]);
+    renderTable(
+      [['Pos.', 'Professor', 'E-mail', 'Nota', 'Proficiência', 'Nível', 'Avaliações', 'Turmas']],
+      teachersBody,
+      {
+        0: { cellWidth: 12, halign: 'center' },
+        1: { cellWidth: 28, halign: 'left' },
+        2: { cellWidth: 44, halign: 'left' },
+        3: { cellWidth: 12, halign: 'right' },
+        4: { cellWidth: 18, halign: 'right' },
+        5: { cellWidth: 24, halign: 'center' },
+        6: { cellWidth: 18, halign: 'center' },
+        7: { cellWidth: 14, halign: 'center' },
+      },
+      5
+    );
+  } else {
+    drawSectionTitle('Ranking de alunos');
+    const studentsBody = rows.map((r) => [
+      Number(r.position || 0),
+      String(r.name || '—'),
+      String(r.school_name || '—'),
+      String(r.serie || '—'),
+      String(r.class_name || '—'),
+      Number(r.average_score || 0).toFixed(2),
+      Number((r.average_proficiency ?? r.average_score) || 0).toFixed(2),
+      String(r.classification || '—'),
+    ]);
+    renderTable(
+      [['Pos.', 'Aluno', 'Escola', 'Série', 'Turma', 'Nota', 'Proficiência', 'Nível']],
+      studentsBody,
+      {
+        0: { cellWidth: 12, halign: 'center' },
+        1: { cellWidth: 30, halign: 'left' },
+        2: { cellWidth: 50, halign: 'left' },
+        3: { cellWidth: 14, halign: 'left' },
+        4: { cellWidth: 14, halign: 'left' },
+        5: { cellWidth: 14, halign: 'right' },
+        6: { cellWidth: 20, halign: 'right' },
+        7: { cellWidth: 26, halign: 'center' },
+      },
+      7
+    );
+  }
+
+  addFootersAllPages(doc);
+  const base = (opts.fileNameBase || `ranking-${rankingType}`).replace(/\s+/g, '-').toLowerCase();
+  doc.save(`${base}-${new Date().toISOString().slice(0, 10)}.pdf`);
 }

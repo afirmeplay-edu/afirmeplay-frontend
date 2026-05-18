@@ -75,6 +75,18 @@ export function StudentRanking({
       .slice(0, maxStudents);
   }, [backendRankingOrder, completedStudents, maxStudents, isCompetition, students]);
 
+  const maxProficiencyBySerie = useMemo(() => {
+    const serieToMax: Record<string, number> = {};
+    for (const student of completedStudents) {
+      const serie = String(student.serie || '').trim() || 'Sem série';
+      const prof = Number(student.proficiencia || 0);
+      if (serieToMax[serie] === undefined || prof > serieToMax[serie]) {
+        serieToMax[serie] = prof;
+      }
+    }
+    return serieToMax;
+  }, [completedStudents]);
+
   // Função para obter ícone do ranking
   const getRankingIcon = (position: number) => {
     const medalEmoji = getMedalEmoji(position);
@@ -159,24 +171,31 @@ export function StudentRanking({
 
                     {/* Informações do aluno */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-2 flex-wrap">
+                      <div className="mb-2 flex items-center gap-3 flex-wrap">
                         <h3 className={`font-semibold truncate text-base ${positionColor}`}>
                           {student.nome}
                         </h3>
-                        <Badge variant="outline" className="text-xs">
-                          {student.turma}
-                        </Badge>
-                        {(student.escola || student.serie) && (
-                          <span className="text-xs text-muted-foreground truncate max-w-[200px]" title={[student.escola, student.serie].filter(Boolean).join(' • ')}>
-                            {[student.escola, student.serie].filter(Boolean).join(' • ')}
-                          </span>
-                        )}
                         {position <= 3 && (
                           <Badge className="bg-yellow-100 dark:bg-yellow-950/30 text-yellow-800 dark:text-yellow-400 border-yellow-300 text-xs font-bold">
                             {position}º Lugar
                           </Badge>
                         )}
                       </div>
+
+                      {(student.escola || student.serie || student.turma) && (
+                        <div className="mb-2 space-y-1">
+                          {student.escola ? (
+                            <p className="text-xs leading-4 text-muted-foreground whitespace-normal break-words">
+                              {student.escola}
+                            </p>
+                          ) : null}
+                          <p className="text-xs text-muted-foreground">
+                            {student.serie ? `Série: ${student.serie}` : "Série: —"}
+                            {" • "}
+                            {student.turma ? `Turma: ${student.turma}` : "Turma: —"}
+                          </p>
+                        </div>
+                      )}
 
                       <div className="flex items-center gap-6 text-sm text-muted-foreground flex-wrap">
                         <div className="flex items-center gap-2">
@@ -188,6 +207,11 @@ export function StudentRanking({
                           <Star className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                           <span className="font-medium">Proficiência:</span>
                           <span className="font-semibold text-foreground">{Number(student.proficiencia || 0).toFixed(1)}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {`(Proeficiência máx. do ${student.serie || 'série'}: ${Number(
+                              maxProficiencyBySerie[String(student.serie || '').trim() || 'Sem série'] || 0
+                            ).toFixed(1)})`}
+                          </span>
                         </div>
                         {showCoins && student.moedas_ganhas !== undefined && (
                           <div className="flex items-center gap-2">
@@ -271,7 +295,16 @@ export function StudentRanking({
 
                   <div className="flex-1 min-w-0">
                     <h4 className="font-medium text-foreground truncate text-sm">{student.nome}</h4>
-                    <p className="text-xs text-muted-foreground">{student.turma}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {student.serie ? `Série: ${student.serie}` : "Série: —"}
+                      {" • "}
+                      {student.turma ? `Turma: ${student.turma}` : "Turma: —"}
+                    </p>
+                    {student.escola ? (
+                      <p className="text-xs leading-4 text-muted-foreground whitespace-normal break-words">
+                        {student.escola}
+                      </p>
+                    ) : null}
                   </div>
 
                   <Badge variant="outline" className="text-xs text-muted-foreground border-border">
