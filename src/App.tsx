@@ -93,6 +93,7 @@ const StoreAdminBatchForm = React.lazy(() => import("@/pages/store/StoreAdminBat
 const CoinHistory = React.lazy(() => import("@/pages/store/CoinHistory"));
 const CoinsAdmin = React.lazy(() => import("@/pages/store/CoinsAdmin"));
 const OfflinePackPage = React.lazy(() => import("@/pages/offline/OfflinePackPage"));
+const OfflinePackEditPage = React.lazy(() => import("@/pages/offline/OfflinePackEditPage"));
 
 // olimpiadas
 const Olimpiadas = React.lazy(() => import("@/pages/olimpiadas/Olimpiadas"));
@@ -372,6 +373,16 @@ const App = () => {
                   <PrivateRoute>
                     <RoleRoute allowed={['admin', 'tecadm', 'diretor', 'coordenador']}>
                       <OfflinePackPage />
+                    </RoleRoute>
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/app/modo-offline/:offline_pack_id/editar"
+                element={
+                  <PrivateRoute>
+                    <RoleRoute allowed={['admin', 'tecadm', 'diretor', 'coordenador']}>
+                      <OfflinePackEditPage />
                     </RoleRoute>
                   </PrivateRoute>
                 }

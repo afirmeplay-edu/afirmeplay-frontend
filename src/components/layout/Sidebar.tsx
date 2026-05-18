@@ -256,7 +256,7 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
       links: [
         {
           icon: Smartphone,
-          label: "Gerar código para o app",
+          label: "Aplicativo Offline",
           href: "/app/modo-offline",
           role: ["admin", "tecadm", "diretor", "coordenador"],
         },
