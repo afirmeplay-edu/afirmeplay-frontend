@@ -20,6 +20,7 @@ interface OfflinePackLocationCardProps {
   loadingStates: boolean;
   loadingCities: boolean;
   idPrefix?: string;
+  disabled?: boolean;
 }
 
 export function OfflinePackLocationCard({
@@ -32,6 +33,7 @@ export function OfflinePackLocationCard({
   loadingStates,
   loadingCities,
   idPrefix = 'offline',
+  disabled = false,
 }: OfflinePackLocationCardProps) {
   return (
     <Card className="border-border/80 shadow-sm">
@@ -48,7 +50,11 @@ export function OfflinePackLocationCard({
       <CardContent className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor={`${idPrefix}-state`}>Estado</Label>
-          <Select value={selectedStateId} onValueChange={onStateChange} disabled={loadingStates}>
+          <Select
+            value={selectedStateId}
+            onValueChange={onStateChange}
+            disabled={disabled || loadingStates}
+          >
             <SelectTrigger id={`${idPrefix}-state`}>
               <SelectValue placeholder={loadingStates ? 'Carregando…' : 'Selecione o estado'} />
             </SelectTrigger>
@@ -69,7 +75,7 @@ export function OfflinePackLocationCard({
           <Select
             value={selectedCityId}
             onValueChange={onCityChange}
-            disabled={selectedStateId === OFFLINE_SELECT_NONE || loadingCities}
+            disabled={disabled || selectedStateId === OFFLINE_SELECT_NONE || loadingCities}
           >
             <SelectTrigger id={`${idPrefix}-city`}>
               <SelectValue placeholder={loadingCities ? 'Carregando…' : 'Selecione o município'} />

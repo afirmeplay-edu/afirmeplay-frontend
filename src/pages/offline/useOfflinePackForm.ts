@@ -15,6 +15,7 @@ import {
 } from '@/services/mobile/offlinePackApi';
 import {
   OFFLINE_SELECT_NONE,
+  isValidSchoolCityId,
   applyScopeToSelectionState,
   normalizePackScope,
   normalizeToClassRows,
@@ -239,15 +240,17 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
   }, [user?.id, user?.role, states, initialCityId, user?.tenant_id, selectedStateId]);
 
   useEffect(() => {
-    if (selectedCityId === OFFLINE_SELECT_NONE) {
+    if (!isValidSchoolCityId(selectedCityId)) {
       setSchools([]);
+      setLoadingSchools(false);
       return;
     }
     setLoadingSchools(true);
-    const req = { meta: { cityId: selectedCityId } };
+    const cityId = selectedCityId.trim();
+    const req = { meta: { cityId } };
     api
       .get<SchoolRow[] | { schools: SchoolRow[]; data?: SchoolRow[] }>(
-        `/school/city/${selectedCityId}`,
+        `/school/city/${cityId}`,
         req
       )
       .then((res) => {

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ClipboardList } from "lucide-react";
 import { useAuth } from "@/context/authContext";
+import { hasCorretorStyleEvalAccess } from "@/utils/restrictedStaffAccess";
 import { useEvaluationStats } from "@/hooks/use-cache";
 import { EvaluationsStatsGrid } from "./EvaluationsStatsGrid";
 import { EvaluationsTabsPanel } from "./EvaluationsTabsPanel";
@@ -45,7 +46,7 @@ const EMPTY_STATS: EvaluationDashboardStats = {
  */
 export function EvaluationsStaffView() {
   const { user } = useAuth();
-  const isCorretor = Boolean(user?.email?.toLowerCase().includes("corretor"));
+  const isCorretor = hasCorretorStyleEvalAccess(user);
   const [activeTab, setActiveTab] = useState(isCorretor ? "correction" : "ready");
   const navigate = useNavigate();
   const { data: statsData, isLoading: isLoadingStats } = useEvaluationStats();

@@ -371,7 +371,7 @@ const App = () => {
                 path="/app/modo-offline"
                 element={
                   <PrivateRoute>
-                    <RoleRoute allowed={['admin', 'tecadm', 'diretor', 'coordenador']}>
+                    <RoleRoute allowed={['admin', 'tecadm', 'diretor', 'coordenador', 'aplicador']}>
                       <OfflinePackPage />
                     </RoleRoute>
                   </PrivateRoute>
@@ -381,7 +381,7 @@ const App = () => {
                 path="/app/modo-offline/:offline_pack_id/editar"
                 element={
                   <PrivateRoute>
-                    <RoleRoute allowed={['admin', 'tecadm', 'diretor', 'coordenador']}>
+                    <RoleRoute allowed={['admin', 'tecadm', 'diretor', 'coordenador', 'aplicador']}>
                       <OfflinePackEditPage />
                     </RoleRoute>
                   </PrivateRoute>

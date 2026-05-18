@@ -33,8 +33,13 @@ import {
   ClipboardList,
   Settings,
   Ticket,
+  Smartphone,
 } from "lucide-react";
 import { useAuth } from "@/context/authContext";
+import {
+  hasRestrictedStaffAccess,
+  isAplicadorRole,
+} from "@/utils/restrictedStaffAccess";
 import { useToast } from "@/hooks/use-toast";
 import ProfessorDashboard from "./ProfessorDashboard";
 import { fetchDashboardCountsByRole, DashboardCounts } from "@/lib/dashboard/fetch-dashboard-stats-by-role";
@@ -46,7 +51,8 @@ import type { AdminDashboard, DiretorDashboard } from "@/types/dashboard";
 const Index = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const isCorretor = Boolean(user?.email?.toLowerCase().includes("corretor"));
+  const isRestrictedStaff = hasRestrictedStaffAccess(user);
+  const isAplicador = isAplicadorRole(user?.role);
   const { toast } = useToast();
   const [counts, setCounts] = useState<DashboardCounts | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -64,7 +70,7 @@ const Index = () => {
     }
 
     const normalisedRole = String(user.role).toLowerCase();
-    if (isCorretor) return;
+    if (isRestrictedStaff) return;
     if (normalisedRole === "aluno" || normalisedRole === "professor") {
       return;
     }
@@ -107,7 +113,7 @@ const Index = () => {
     return () => {
       isMounted = false;
     };
-  }, [toast, user?.role, user?.id, isCorretor]);
+  }, [toast, user?.role, user?.id, isRestrictedStaff]);
 
   // Quantidade de avisos (admin e tecadm)
   useEffect(() => {
@@ -156,8 +162,8 @@ const Index = () => {
     return <ProfessorDashboard />;
   }
 
-  // Painel inicial simples para contas corretor(n)@afirmeplay.com.br
-  if (isCorretor) {
+  // Painel inicial simples para corretor (e-mail) e aplicador (role)
+  if (isRestrictedStaff) {
     const handleLogout = () => {
       logout().then(() => navigate("/"));
     };
@@ -180,7 +186,9 @@ const Index = () => {
               )}
             </div>
 
-            <div className="w-full grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div className={`w-full grid gap-3 sm:gap-4 ${
+                isAplicador ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5' : 'grid-cols-2 lg:grid-cols-4'
+              }`}>
               <Link
                 to="/app/cartao-resposta/corrigir"
                 className="rounded-xl border border-border/60 bg-background/40 hover:bg-accent/40 transition-colors px-2.5 py-4 flex flex-col items-center justify-center gap-2"
@@ -210,6 +218,18 @@ const Index = () => {
                   Avaliações
                 </span>
               </Link>
+
+              {isAplicador && (
+                <Link
+                  to="/app/modo-offline"
+                  className="rounded-xl border border-border/60 bg-background/40 hover:bg-accent/40 transition-colors px-3 py-4 flex flex-col items-center justify-center gap-2"
+                >
+                  <Smartphone className="h-11 w-11 text-purple-500" />
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Aplicativo Offline
+                  </span>
+                </Link>
+              )}
 
               <Link
                 to="/app/configuracoes"

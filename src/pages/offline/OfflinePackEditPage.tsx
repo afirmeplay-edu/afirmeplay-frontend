@@ -7,6 +7,7 @@ import {
   buildScopePayload,
   getOfflinePack,
   getOfflinePackApiError,
+  OFFLINE_PACK_EDIT_FORBIDDEN_MESSAGE,
   patchOfflinePack,
   type OfflinePackItem,
 } from '@/services/mobile/offlinePackApi';
@@ -142,9 +143,11 @@ function OfflinePackEditForm({
     }
   };
 
+  const canEdit = pack.can_edit === true;
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.canSubmit) return;
+    if (!canEdit || !form.canSubmit) return;
 
     setSaving(true);
     try {
@@ -159,7 +162,11 @@ function OfflinePackEditForm({
     } catch (err: unknown) {
       toast({
         title: 'Falha ao salvar',
-        description: getOfflinePackApiError(err, 'Verifique os dados e tente novamente.'),
+        description: getOfflinePackApiError(
+          err,
+          'Verifique os dados e tente novamente.',
+          OFFLINE_PACK_EDIT_FORBIDDEN_MESSAGE
+        ),
         variant: 'destructive',
       });
     } finally {
@@ -227,7 +234,15 @@ function OfflinePackEditForm({
         </CardContent>
       </Card>
 
-      {pack.is_expired && (
+      {!canEdit && (
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Sem permissão para editar</AlertTitle>
+          <AlertDescription>{OFFLINE_PACK_EDIT_FORBIDDEN_MESSAGE}</AlertDescription>
+        </Alert>
+      )}
+
+      {pack.is_expired && canEdit && (
         <Alert>
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>Pacote expirado</AlertTitle>
@@ -249,8 +264,9 @@ function OfflinePackEditForm({
           loadingStates={form.loadingStates}
           loadingCities={form.loadingCities}
           idPrefix="offline-edit"
+          disabled={!canEdit}
         />
-        <OfflinePackScopeForm form={form} />
+        <OfflinePackScopeForm form={form} readOnly={!canEdit} />
         <OfflinePackValidityCard
           ttlHours={form.ttlHours}
           onTtlChange={form.setTtlHours}
@@ -259,8 +275,9 @@ function OfflinePackEditForm({
           minMaxRedemptions={pack.redemptions_count}
           isExpired={pack.is_expired}
           idPrefix="offline-edit"
+          disabled={!canEdit}
         />
-        <Button type="submit" disabled={!form.canSubmit || saving} size="lg">
+        <Button type="submit" disabled={!canEdit || !form.canSubmit || saving} size="lg">
           {saving ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />

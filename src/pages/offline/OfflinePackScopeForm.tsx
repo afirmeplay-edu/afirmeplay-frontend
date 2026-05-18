@@ -39,9 +39,14 @@ type FormSlice = Pick<
 interface OfflinePackScopeFormProps {
   form: FormSlice;
   showValidation?: boolean;
+  readOnly?: boolean;
 }
 
-export function OfflinePackScopeForm({ form, showValidation = true }: OfflinePackScopeFormProps) {
+export function OfflinePackScopeForm({
+  form,
+  showValidation = true,
+  readOnly = false,
+}: OfflinePackScopeFormProps) {
   const {
     scopeMode,
     setScopeMode,
@@ -80,19 +85,24 @@ export function OfflinePackScopeForm({ form, showValidation = true }: OfflinePac
       <CardContent className="space-y-6">
         <RadioGroup
           value={scopeMode}
-          onValueChange={(v) => setScopeMode(v as 'municipality' | 'custom')}
+          onValueChange={(v) => {
+            if (readOnly) return;
+            setScopeMode(v as 'municipality' | 'custom');
+          }}
           className="grid gap-3 sm:grid-cols-2"
+          disabled={readOnly}
         >
           <label
             className={cn(
-              'flex cursor-pointer flex-col rounded-xl border p-4 transition-colors',
+              'flex flex-col rounded-xl border p-4 transition-colors',
+              readOnly ? 'cursor-default opacity-80' : 'cursor-pointer',
               scopeMode === 'municipality'
                 ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
                 : 'border-border hover:bg-muted/40'
             )}
           >
             <div className="flex items-start gap-3">
-              <RadioGroupItem value="municipality" id="scope-mun" className="mt-1" />
+              <RadioGroupItem value="municipality" id="scope-mun" className="mt-1" disabled={readOnly} />
               <div>
                 <span className="font-medium">Município inteiro</span>
                 <p className="text-muted-foreground mt-1 text-sm leading-snug">
@@ -103,14 +113,15 @@ export function OfflinePackScopeForm({ form, showValidation = true }: OfflinePac
           </label>
           <label
             className={cn(
-              'flex cursor-pointer flex-col rounded-xl border p-4 transition-colors',
+              'flex flex-col rounded-xl border p-4 transition-colors',
+              readOnly ? 'cursor-default opacity-80' : 'cursor-pointer',
               scopeMode === 'custom'
                 ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
                 : 'border-border hover:bg-muted/40'
             )}
           >
             <div className="flex items-start gap-3">
-              <RadioGroupItem value="custom" id="scope-custom" className="mt-1" />
+              <RadioGroupItem value="custom" id="scope-custom" className="mt-1" disabled={readOnly} />
               <div>
                 <span className="font-medium">Personalizado</span>
                 <p className="text-muted-foreground mt-1 text-sm leading-snug">
@@ -145,6 +156,7 @@ export function OfflinePackScopeForm({ form, showValidation = true }: OfflinePac
             singleClassIdForStudents={singleClassIdForStudents}
             showValidation={showValidation}
             customScopeValid={customScopeValid}
+            readOnly={readOnly}
           />
         )}
       </CardContent>
@@ -175,6 +187,7 @@ function CustomScopeFields(props: {
   singleClassIdForStudents: string | null;
   showValidation: boolean;
   customScopeValid: boolean;
+  readOnly?: boolean;
 }) {
   const {
     schools,
@@ -199,6 +212,7 @@ function CustomScopeFields(props: {
     singleClassIdForStudents,
     showValidation,
     customScopeValid,
+    readOnly = false,
   } = props;
 
   return (
@@ -228,6 +242,7 @@ function CustomScopeFields(props: {
                   className="flex cursor-pointer items-center gap-2 rounded-md py-1.5 hover:bg-muted/60"
                 >
                             <Checkbox
+                              disabled={readOnly}
                               checked={selectedSchoolIds.has(String(sch.id))}
                               onCheckedChange={(c) =>
                                 setSelectedSchoolIds((prev) =>
@@ -247,11 +262,17 @@ function CustomScopeFields(props: {
             variant="outline"
             size="sm"
             onClick={() => setSelectedSchoolIds(new Set(schools.map((s) => s.id)))}
-            disabled={schools.length === 0}
+            disabled={readOnly || schools.length === 0}
           >
             Marcar todas
           </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedSchoolIds(new Set())}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={readOnly}
+            onClick={() => setSelectedSchoolIds(new Set())}
+          >
             Limpar escolas
           </Button>
         </div>
@@ -270,6 +291,7 @@ function CustomScopeFields(props: {
                 className="flex cursor-pointer items-center gap-2 rounded-md py-1.5 hover:bg-muted/60"
               >
                 <Checkbox
+                  disabled={readOnly}
                   checked={selectedGradeIds.has(g.id)}
                   onCheckedChange={(c) =>
                     setSelectedGradeIds((prev) => toggleInSet(prev, g.id, c === true))
@@ -297,8 +319,9 @@ function CustomScopeFields(props: {
                   className="flex cursor-pointer items-center gap-2 rounded-md py-1.5 hover:bg-muted/60"
                 >
                   <Checkbox
-                              checked={selectedClassIds.has(String(cl.id))}
-                              onCheckedChange={(c) =>
+                    disabled={readOnly}
+                    checked={selectedClassIds.has(String(cl.id))}
+                    onCheckedChange={(c) =>
                                 setSelectedClassIds((prev) =>
                                   toggleInSet(prev, String(cl.id), c === true)
                                 )
@@ -321,11 +344,17 @@ function CustomScopeFields(props: {
             variant="outline"
             size="sm"
             onClick={() => setSelectedClassIds(new Set(visibleClasses.map((c) => c.id)))}
-            disabled={visibleClasses.length === 0}
+            disabled={readOnly || visibleClasses.length === 0}
           >
             Marcar turmas visíveis
           </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedClassIds(new Set())}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={readOnly}
+            onClick={() => setSelectedClassIds(new Set())}
+          >
             Limpar turmas
           </Button>
         </div>
@@ -349,6 +378,7 @@ function CustomScopeFields(props: {
                   className="flex cursor-pointer items-start gap-2 rounded-md py-1.5 hover:bg-muted/60"
                 >
                   <Checkbox
+                    disabled={readOnly}
                     checked={selectedTestIds.has(String(t.id))}
                     onCheckedChange={(c) =>
                       setSelectedTestIds((prev) => toggleInSet(prev, String(t.id), c === true))
@@ -382,6 +412,7 @@ function CustomScopeFields(props: {
                   className="flex cursor-pointer items-center gap-2 rounded-md py-1.5 hover:bg-muted/60"
                 >
                   <Checkbox
+                    disabled={readOnly}
                     checked={selectedStudentIds.has(st.id)}
                     onCheckedChange={(c) =>
                       setSelectedStudentIds((prev) => toggleInSet(prev, st.id, c === true))

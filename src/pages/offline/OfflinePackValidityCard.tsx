@@ -19,6 +19,7 @@ interface OfflinePackValidityCardProps {
   idPrefix?: string;
   /** Na edição de pacote expirado, destacar renovação por TTL. */
   isExpired?: boolean;
+  disabled?: boolean;
 }
 
 export function OfflinePackValidityCard({
@@ -30,6 +31,7 @@ export function OfflinePackValidityCard({
   ttlHint,
   idPrefix = 'offline',
   isExpired = false,
+  disabled = false,
 }: OfflinePackValidityCardProps) {
   return (
     <Card className="border-border/80 shadow-sm">
@@ -56,6 +58,7 @@ export function OfflinePackValidityCard({
             max={OFFLINE_PACK_TTL_MAX}
             value={ttlHours}
             onChange={(e) => onTtlChange(Number(e.target.value) || 0)}
+            disabled={disabled}
           />
           <p className="text-muted-foreground text-xs">
             {ttlHint ?? `Entre ${OFFLINE_PACK_TTL_MIN} e ${OFFLINE_PACK_TTL_MAX} horas (até 14 dias).`}
@@ -70,6 +73,7 @@ export function OfflinePackValidityCard({
             max={OFFLINE_PACK_MAX_REDEMPTIONS_MAX}
             value={maxRedemptions}
             onChange={(e) => onMaxRedemptionsChange(Number(e.target.value) || 0)}
+            disabled={disabled}
           />
           <p className="text-muted-foreground text-xs">
             Entre {minMaxRedemptions} e {OFFLINE_PACK_MAX_REDEMPTIONS_MAX.toLocaleString('pt-BR')}{' '}

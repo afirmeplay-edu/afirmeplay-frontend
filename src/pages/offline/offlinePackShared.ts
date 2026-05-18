@@ -2,6 +2,14 @@ import type { OfflinePackScope } from '@/services/mobile/offlinePackApi';
 
 export const OFFLINE_SELECT_NONE = '__offline_none__';
 
+/** UUID de município válido para GET /school/city/{city_id} (evita /school/city/ vazio). */
+export function isValidSchoolCityId(cityId: string | undefined): boolean {
+  if (!cityId || cityId === OFFLINE_SELECT_NONE) return false;
+  const trimmed = cityId.trim();
+  if (trimmed.length < 32) return false;
+  return /^[0-9a-f-]{36}$/i.test(trimmed);
+}
+
 export interface StateOption {
   id: string;
   name: string;

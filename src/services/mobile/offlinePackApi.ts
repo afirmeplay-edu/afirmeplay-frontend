@@ -39,6 +39,9 @@ export interface OfflinePackItem {
   revoked_at: string | null;
   created_at: string | null;
   is_expired: boolean;
+  can_edit: boolean;
+  can_delete: boolean;
+  created_by_user_id: string | null;
 }
 
 export interface OfflinePackListResponse {
@@ -125,7 +128,14 @@ export interface DeleteOfflinePackResponse {
 export interface BulkDeleteOfflinePacksResponse {
   deleted: string[];
   not_found: string[];
+  forbidden: string[];
 }
+
+export const OFFLINE_PACK_DELETE_FORBIDDEN_MESSAGE =
+  'Sem permissão — apenas o criador ou administrador pode excluir este código.';
+
+export const OFFLINE_PACK_EDIT_FORBIDDEN_MESSAGE =
+  'Sem permissão — apenas o criador ou administrador pode editar este código.';
 
 export async function deleteOfflinePack(
   offlinePackId: string,
@@ -171,7 +181,19 @@ export function buildScopePayload(
   };
 }
 
-export function getOfflinePackApiError(err: unknown, fallback: string): string {
+export function isOfflinePackForbiddenError(err: unknown): boolean {
+  const ax = err as { response?: { status?: number } };
+  return ax.response?.status === 403;
+}
+
+export function getOfflinePackApiError(
+  err: unknown,
+  fallback: string,
+  forbiddenFallback?: string
+): string {
   const ax = err as { response?: { data?: { message?: string; error?: string } } };
+  if (isOfflinePackForbiddenError(err) && forbiddenFallback) {
+    return forbiddenFallback;
+  }
   return String(ax.response?.data?.error || ax.response?.data?.message || fallback);
 }
