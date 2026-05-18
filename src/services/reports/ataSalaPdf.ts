@@ -615,7 +615,7 @@ function drawPage2(doc: jsPDF, data: AtaSalaPdfData): void {
   let y = M + 6;
   y = drawValueLineItem(doc, "7", "Quantidade de estudantes presentes que responderam ao teste.", y, data.options.q7Responded);
   y = drawValueLineItem(doc, "8", "Quantidade de estudantes presentes que NÃO responderam ao teste.", y, data.options.q8NotResponded);
-  y = drawValueLineItem(doc, "9", "Quantidade de tabletes que foram utilizados nesta sala.", y, data.options.q9Tablets);
+  y = drawValueLineItem(doc, "9", "Quantidade de tablets/cadernos que foram utilizados nesta sala.", y, data.options.q9Tablets);
   y = drawValueLineItem(
     doc,
     "10",

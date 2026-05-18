@@ -365,6 +365,7 @@ interface ResultadosAgregadosResponse {
 const norm = (o: FilterOption) => o.nome ?? o.name ?? o.titulo ?? o.id;
 
 const FILTERS_STORAGE_KEY = 'answer_sheet_results_filters';
+const RESULTADOS_AGREGADOS_PER_PAGE = 200;
 
 type AnswerSheetStoredFilters = {
   estado: string;
@@ -671,6 +672,8 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     params.set('estado', estado);
     params.set('municipio', municipio);
     params.set('gabarito', gabarito);
+    params.set('page', '1');
+    params.set('per_page', String(RESULTADOS_AGREGADOS_PER_PAGE));
     if (periodoApi) params.set('periodo', periodoApi);
     if (escola && escola !== 'all') params.set('escola', escola);
     if (serie && serie !== 'all') params.set('serie', serie);

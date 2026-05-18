@@ -686,7 +686,8 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
 
   // Estados de paginação
   const currentPage = 1;
-  const perPage = 10;
+  // Busca mais itens por página para não ocultar escolas na aba de estatísticas.
+  const perPage = 200;
 
   // Extrai nome de disciplina de respostas variadas (string ou objeto)
   const extractSubjectName = useCallback((subject: unknown): string => {

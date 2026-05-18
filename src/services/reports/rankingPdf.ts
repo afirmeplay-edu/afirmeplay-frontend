@@ -583,7 +583,6 @@ type RankingApiPdfOptions = {
 export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Promise<void> {
   const { data, rankingType, filters } = opts;
   const rows = Array.isArray(data.items) ? data.items : [];
-  const generalStudentsRows = Array.isArray(data.students_items) ? data.students_items : [];
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const subtitleBand = 'RELATÓRIO DE RANKING';
@@ -620,7 +619,7 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
   const detailLines = [
     `Tipo: ${rankingTypeLabel(rankingType)}`,
     `Escopo: ${String(filters.scope || 'municipio')}`,
-    `Total de registros: ${String(data.totals?.count ?? rows.length)}${rankingType === 'general' ? ` escolas + ${String(data.students_totals?.count ?? generalStudentsRows.length)} alunos` : ''}`,
+    `Total de registros: ${String(data.totals?.count ?? rows.length)}${rankingType === 'general' ? ` escolas + ${String(data.students_totals?.count ?? 0)} alunos` : ''}`,
     `Período: ${String(filters.periodo || 'Não informado')}`,
   ];
   y = drawFiltersCard(doc, margin, pageW, y, detailLines);
@@ -694,219 +693,134 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
   };
 
   if (rankingType === 'general') {
-    const levelKeys = ['Abaixo do Básico', 'Básico', 'Adequado', 'Avançado'] as const;
-    const schoolRowsPrepared = rows.map((raw) => {
-      const r = raw as Record<string, any>;
-      const series = Array.isArray(r.series) ? r.series : [];
-      const bucket: Record<(typeof levelKeys)[number], number> = {
-        'Abaixo do Básico': 0,
-        'Básico': 0,
-        'Adequado': 0,
-        'Avançado': 0,
-      };
-      let totalWeight = 0;
-      for (const serie of series) {
-        const s = serie as Record<string, any>;
-        const classification = String(s.classification || '');
-        const studentsCount = Number(s.students_count || 0);
-        const weight = studentsCount > 0 ? studentsCount : 1;
-        if (levelKeys.includes(classification as (typeof levelKeys)[number])) {
-          bucket[classification as (typeof levelKeys)[number]] += weight;
-          totalWeight += weight;
+    const rankings = data.general_rankings;
+    const visibility = rankings?.visibility || {
+      schools_by_course: true,
+      series_by_school_and_course: false,
+      classes_by_series: false,
+      students_by_course: true,
+    };
+    const schoolsByCourse = rankings?.schools_by_course?.sections || data.course_sections || [];
+    const seriesBySchool = rankings?.series_by_school_and_course?.schools || [];
+    const classesBySeries = rankings?.classes_by_series?.sections || [];
+    const studentsByCourse = rankings?.students_by_course?.sections || [];
+
+    if (visibility.schools_by_course) {
+      for (const section of schoolsByCourse) {
+        drawSectionTitle(`Ranking de escolas - ${String(section.course_label || 'Curso')}`);
+        const schoolsBody = (section.items || []).map((r: Record<string, any>) => [
+          Number(r.position || 0),
+          String(r.school_name || '—'),
+          `${Number(r.participating_students || 0)}/${Number(r.total_students || 0)}`,
+          Number(r.average_proficiency || 0).toFixed(1),
+          Number(r.average_score || 0).toFixed(1),
+          String(r.classification || '—'),
+        ]);
+        renderTable(
+          [['Pos.', 'Escola', 'Participação', 'Proficiência', 'Nota', 'Nível']],
+          schoolsBody,
+          {
+            0: { cellWidth: 12, halign: 'center' },
+            1: { cellWidth: 70, halign: 'left' },
+            2: { cellWidth: 24, halign: 'center' },
+            3: { cellWidth: 22, halign: 'right' },
+            4: { cellWidth: 14, halign: 'right' },
+            5: { cellWidth: 24, halign: 'center' },
+          },
+          5
+        );
+      }
+    }
+
+    if (visibility.series_by_school_and_course) {
+      for (const school of seriesBySchool) {
+        for (const course of school.course_sections || []) {
+          drawSectionTitle(
+            `Ranking de séries - ${String(school.school_name || 'Escola')} (${String(course.course_label || 'Curso')})`
+          );
+          const seriesBody = (course.items || []).map((r: Record<string, any>) => [
+            Number(r.position || 0),
+            String(r.grade_name || '—'),
+            `${Number(r.participating_students || 0)}/${Number(r.total_students || 0)}`,
+            Number(r.average_proficiency || 0).toFixed(1),
+            Number(r.average_score || 0).toFixed(1),
+            String(r.classification || '—'),
+          ]);
+          renderTable(
+            [['Pos.', 'Série', 'Participação', 'Proficiência', 'Nota', 'Nível']],
+            seriesBody,
+            {
+              0: { cellWidth: 12, halign: 'center' },
+              1: { cellWidth: 70, halign: 'left' },
+              2: { cellWidth: 24, halign: 'center' },
+              3: { cellWidth: 22, halign: 'right' },
+              4: { cellWidth: 14, halign: 'right' },
+              5: { cellWidth: 24, halign: 'center' },
+            },
+            5
+          );
         }
       }
-
-      const normalized = totalWeight > 0 ? totalWeight : 1;
-      const belowBasic = (bucket['Abaixo do Básico'] / normalized) * 100;
-      const basic = (bucket['Básico'] / normalized) * 100;
-      const adequate = (bucket['Adequado'] / normalized) * 100;
-      const advanced = (bucket['Avançado'] / normalized) * 100;
-
-      const totalStudents = Number(r.total_students ?? r.quantidade_alunos ?? r.students_count ?? 0);
-      const totalEvaluations = Number(r.total_evaluations ?? r.quantidade_avaliacoes ?? 0);
-      const fallbackParticipation = totalStudents > 0 ? Math.min(100, (totalEvaluations / totalStudents) * 100) : 0;
-      const participation = Number(r.participation_rate ?? r.completion_rate ?? r.taxa_conclusao ?? fallbackParticipation);
-
-      return {
-        position: Number(r.position || 0),
-        schoolName: String(r.school_name || '—'),
-        participation: Number.isFinite(participation) ? participation : 0,
-        averageProficiency: Number(r.average_proficiency ?? r.average_score ?? r.media ?? 0),
-        averageScore: Number(r.average_score ?? r.media ?? 0),
-        classification: String(r.classification || ''),
-        distribution: { belowBasic, basic, adequate, advanced },
-      };
-    });
-
-    const escolasAvaliadas = schoolRowsPrepared.length;
-    const mediaMunicipio =
-      escolasAvaliadas > 0
-        ? schoolRowsPrepared.reduce((acc, row) => acc + Number(row.averageScore || 0), 0) / escolasAvaliadas
-        : 0;
-    const escolasCriticas = schoolRowsPrepared.filter((row) => row.classification === 'Abaixo do Básico').length;
-
-    const cardsTopY = y;
-    const cardsGap = 5;
-    const cardsTotalW = pageW - margin * 2;
-    const cardW = (cardsTotalW - cardsGap * 2) / 3;
-    const cardH = 18;
-    const cardRows = [
-      { title: 'Escolas avaliadas', value: String(escolasAvaliadas), danger: false },
-      { title: 'Média do município', value: mediaMunicipio.toFixed(1), danger: false },
-      { title: 'Escolas em estado crítico', value: String(escolasCriticas), danger: true },
-    ];
-    for (let i = 0; i < cardRows.length; i++) {
-      const cx = margin + i * (cardW + cardsGap);
-      const c = cardRows[i];
-      doc.setFillColor(...C.white);
-      doc.setDrawColor(...(c.danger ? ([252, 165, 165] as [number, number, number]) : C.borderLight));
-      doc.setLineWidth(0.35);
-      doc.roundedRect(cx, cardsTopY, cardW, cardH, 2, 2, 'FD');
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.8);
-      doc.setTextColor(...(c.danger ? ([190, 24, 93] as [number, number, number]) : C.textGray));
-      doc.text(c.title.toUpperCase(), cx + 3, cardsTopY + 5);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(15);
-      doc.setTextColor(...(c.danger ? ([190, 24, 93] as [number, number, number]) : C.textDark));
-      doc.text(c.value, cx + 3, cardsTopY + 13);
     }
-    y += cardH + 9;
 
-    drawSectionTitle('Ranking geral das escolas');
-    const schoolsBody = schoolRowsPrepared.map((row) => [
-      Number(row.position || 0),
-      row.schoolName,
-      `${Number(row.participation || 0).toFixed(1)}%`,
-      Number(row.averageProficiency || 0).toFixed(0),
-      Number(row.averageScore || 0).toFixed(1),
-      ' ',
-      row.classification || '—',
-    ]);
-
-    autoTable(doc, {
-      startY: y,
-      head: [['Pos.', 'Escola', 'Participação', 'Proficiência', 'Nota', 'Distribuição por nível', 'Nível']],
-      body: schoolsBody.length > 0 ? schoolsBody : [['—', 'Sem dados para os filtros selecionados', '', '', '', '', '']],
-      theme: 'striped',
-      margin: { left: margin, right: margin, bottom: 18 },
-      headStyles: {
-        fillColor: [243, 244, 246],
-        textColor: [75, 85, 99],
-        fontStyle: 'bold',
-        fontSize: 8.2,
-        halign: 'center',
-      },
-      bodyStyles: {
-        fontSize: 8.2,
-        textColor: C.textDark,
-        lineColor: C.borderLight,
-        lineWidth: 0.12,
-      },
-      alternateRowStyles: { fillColor: [250, 250, 251] },
-      columnStyles: {
-        0: { cellWidth: 12, halign: 'center' },
-        1: { cellWidth: 70, halign: 'left' },
-        2: { cellWidth: 24, halign: 'center' },
-        3: { cellWidth: 22, halign: 'center' },
-        4: { cellWidth: 14, halign: 'center' },
-        5: { cellWidth: 40, halign: 'left' },
-        6: { cellWidth: 20, halign: 'center' },
-      },
-      didParseCell: (hookData) => {
-        if (schoolsBody.length === 0 && hookData.section === 'body') {
-          hookData.cell.styles.fontStyle = 'italic';
-          hookData.cell.styles.textColor = C.textGray;
-          return;
-        }
-        if (hookData.section !== 'body') return;
-
-        const rowIdx = hookData.row.index;
-        const rowModel = schoolRowsPrepared[rowIdx];
-        if (!rowModel) return;
-
-        if (rowModel.classification === 'Abaixo do Básico') {
-          hookData.cell.styles.fillColor = [255, 241, 242];
-        }
-        if (hookData.column.index === 0) {
-          const hi = positionHighlight(Number(rowModel.position || 0));
-          if (hi) {
-            hookData.cell.styles.fillColor = hi.fill;
-            hookData.cell.styles.textColor = hi.text;
-            hookData.cell.styles.fontStyle = 'bold';
+    if (visibility.classes_by_series) {
+      for (const section of classesBySeries) {
+        drawSectionTitle(`Ranking de turmas - ${String(section.grade_name || 'Série')}`);
+        const classesBody = (section.items || []).map((r: Record<string, any>) => [
+          Number(r.position || 0),
+          String(r.class_name || '—'),
+          Number(r.average_score || 0).toFixed(1),
+          `${Number(r.accuracy_percent || 0).toFixed(1)}%`,
+          `${Number(r.completion_rate || 0).toFixed(1)}%`,
+          Number(r.students_count || 0),
+          Number(r.evaluations_count || 0),
+        ]);
+        renderTable(
+          [['Pos.', 'Turma', 'Nota', 'Acerto %', 'Conclusão', 'Alunos', 'Avaliações']],
+          classesBody,
+          {
+            0: { cellWidth: 12, halign: 'center' },
+            1: { cellWidth: 44, halign: 'left' },
+            2: { cellWidth: 14, halign: 'right' },
+            3: { cellWidth: 18, halign: 'right' },
+            4: { cellWidth: 18, halign: 'right' },
+            5: { cellWidth: 16, halign: 'center' },
+            6: { cellWidth: 20, halign: 'center' },
           }
-        }
-        if (hookData.column.index === 6) {
-          const lvl = normalizeProficiencyLevelLabel(rowModel.classification);
-          const styles = proficiencyTagStyles(lvl);
-          hookData.cell.styles.fillColor = styles.fill;
-          hookData.cell.styles.textColor = styles.text;
-          hookData.cell.styles.fontStyle = 'bold';
-        }
-      },
-      didDrawCell: (hookData) => {
-        if (hookData.section !== 'body' || hookData.column.index !== 5 || schoolsBody.length === 0) return;
-        const rowModel = schoolRowsPrepared[hookData.row.index];
-        if (!rowModel) return;
+        );
+      }
+    }
 
-        const x = hookData.cell.x + 2;
-        const yBar = hookData.cell.y + 3.8;
-        const w = hookData.cell.width - 4;
-        const h = 3.4;
-
-        const s1 = Math.max(0, Math.min(100, rowModel.distribution.belowBasic));
-        const s2 = Math.max(0, Math.min(100, rowModel.distribution.basic));
-        const s3 = Math.max(0, Math.min(100, rowModel.distribution.adequate));
-        const s4 = Math.max(0, Math.min(100, rowModel.distribution.advanced));
-        const total = s1 + s2 + s3 + s4 || 1;
-
-        const w1 = (w * s1) / total;
-        const w2 = (w * s2) / total;
-        const w3 = (w * s3) / total;
-        const w4 = (w * s4) / total;
-
-        let cursor = x;
-        doc.setFillColor(225, 29, 72);
-        doc.rect(cursor, yBar, w1, h, 'F');
-        cursor += w1;
-        doc.setFillColor(250, 204, 21);
-        doc.rect(cursor, yBar, w2, h, 'F');
-        cursor += w2;
-        doc.setFillColor(34, 197, 94);
-        doc.rect(cursor, yBar, w3, h, 'F');
-        cursor += w3;
-        doc.setFillColor(6, 95, 70);
-        doc.rect(cursor, yBar, w4, h, 'F');
-      },
-    });
-    y = ((doc as any).lastAutoTable?.finalY || y) + 9;
-
-    drawSectionTitle('Ranking de alunos (detalhe do recorte)');
-    const studentsBody = generalStudentsRows.map((r) => [
-      Number(r.position || 0),
-      String(r.name || '—'),
-      String(r.school_name || '—'),
-      String(r.serie || '—'),
-      String(r.class_name || '—'),
-      Number(r.average_score || 0).toFixed(2),
-      Number((r.average_proficiency ?? r.average_score) || 0).toFixed(2),
-      String(r.classification || '—'),
-    ]);
-    renderTable(
-      [['Pos.', 'Aluno', 'Escola', 'Série', 'Turma', 'Nota', 'Proficiência', 'Nível']],
-      studentsBody,
-      {
-        0: { cellWidth: 12, halign: 'center' },
-        1: { cellWidth: 30, halign: 'left' },
-        2: { cellWidth: 50, halign: 'left' },
-        3: { cellWidth: 14, halign: 'left' },
-        4: { cellWidth: 14, halign: 'left' },
-        5: { cellWidth: 14, halign: 'right' },
-        6: { cellWidth: 20, halign: 'right' },
-        7: { cellWidth: 26, halign: 'center' },
-      },
-      7
-    );
+    if (visibility.students_by_course) {
+      for (const section of studentsByCourse) {
+        drawSectionTitle(`Ranking de alunos - ${String(section.course_label || 'Curso')}`);
+        const studentsBody = (section.items || []).map((r: Record<string, any>) => [
+          Number(r.position || 0),
+          String(r.name || '—'),
+          String(r.school_name || '—'),
+          String(r.serie || '—'),
+          String(r.class_name || '—'),
+          Number(r.average_score || 0).toFixed(2),
+          Number((r.average_proficiency ?? r.average_score) || 0).toFixed(2),
+          String(r.classification || '—'),
+        ]);
+        renderTable(
+          [['Pos.', 'Aluno', 'Escola', 'Série', 'Turma', 'Nota', 'Proficiência', 'Nível']],
+          studentsBody,
+          {
+            0: { cellWidth: 12, halign: 'center' },
+            1: { cellWidth: 30, halign: 'left' },
+            2: { cellWidth: 50, halign: 'left' },
+            3: { cellWidth: 14, halign: 'left' },
+            4: { cellWidth: 14, halign: 'left' },
+            5: { cellWidth: 14, halign: 'right' },
+            6: { cellWidth: 20, halign: 'right' },
+            7: { cellWidth: 26, halign: 'center' },
+          },
+          7
+        );
+      }
+    }
   } else if (rankingType === 'teachers') {
     drawSectionTitle('Ranking de professores');
     const teachersBody = rows.map((r) => [
