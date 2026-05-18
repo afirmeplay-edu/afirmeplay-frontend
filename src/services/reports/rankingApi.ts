@@ -20,6 +20,11 @@ export interface RankingResponseItem {
   [key: string]: unknown;
 }
 
+export interface RankingSection<T = Record<string, unknown>> {
+  totals?: Record<string, number>;
+  items: T[];
+}
+
 export interface RankingResponse {
   ranking_type: RankingType;
   scope: {
@@ -44,6 +49,89 @@ export interface RankingResponse {
     average_score: number;
     average_proficiency: number;
     classification: string;
+  }>;
+  course_sections?: Array<{
+    course_label: string;
+    totals: {
+      count: number;
+      average_score: number;
+      critical_schools_count: number;
+    };
+    items: Array<{
+      position: number;
+      school_id?: string;
+      school_name?: string;
+      average_score?: number;
+      average_proficiency?: number;
+      classification?: string;
+      participation_rate?: number;
+      participating_students?: number;
+      students_count?: number;
+      total_students?: number;
+      series?: Array<Record<string, unknown>>;
+    }>;
+  }>;
+  general_rankings?: {
+    visibility?: {
+      schools_by_course?: boolean;
+      series_by_school_and_course?: boolean;
+      classes_by_series?: boolean;
+      students_by_course?: boolean;
+    };
+    schools_by_course?: {
+      sections: Array<{
+        course_label: string;
+        totals?: { count?: number; average_score?: number; critical_schools_count?: number };
+        items: Array<Record<string, unknown>>;
+      }>;
+      totals?: Record<string, number>;
+    };
+    series_by_school_and_course?: {
+      schools: Array<{
+        school_id?: string;
+        school_name?: string;
+        school_position?: number;
+        totals?: Record<string, number>;
+        course_sections: Array<{
+          course_label: string;
+          totals?: Record<string, number>;
+          items: Array<Record<string, unknown>>;
+        }>;
+      }>;
+      totals?: Record<string, number>;
+    };
+    classes_by_series?: {
+      sections: Array<{
+        grade_name: string;
+        totals?: Record<string, number>;
+        items: Array<Record<string, unknown>>;
+      }>;
+      totals?: Record<string, number>;
+    };
+    students_by_course?: {
+      sections: Array<{
+        course_label: string;
+        totals?: Record<string, number>;
+        items: Array<Record<string, unknown>>;
+      }>;
+      totals?: Record<string, number>;
+    };
+  };
+  teacher_course_sections?: Array<{
+    course_label: string;
+    totals?: { count?: number };
+    items: Array<{
+      position: number;
+      teacher_id?: string;
+      teacher_name?: string;
+      teacher_email?: string;
+      average_score?: number;
+      average_proficiency?: number;
+      classification?: string;
+      total_evaluations?: number;
+      classes_count?: number;
+      grade_names?: string[];
+    }>;
   }>;
   totals: { count: number };
   pagination: {

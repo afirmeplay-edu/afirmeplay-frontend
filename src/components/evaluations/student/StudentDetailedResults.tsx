@@ -40,6 +40,8 @@ interface StudentEvaluation {
 interface StudentData {
     student_name?: string;
     nome?: string;
+    school_name?: string;
+    class_name?: string;
     total_questions?: number;
     correct_answers?: number;
     grade?: number;
@@ -51,6 +53,7 @@ interface StudentInfo {
     id: string;
     nome?: string;
     name?: string;
+    escola?: string;
     grade?: string;
     serie?: string;
     turma?: string;
@@ -193,6 +196,7 @@ function StudentDetailedResultsContent({ onBack }: StudentDetailedResultsProps) 
                     
                                          if (currentStudentData) {
                          classInfo = {
+                            school: (currentStudentData as any).escola || 'Não informada',
                              grade: currentStudentData.grade || (currentStudentData as any).serie || 'Não informada',
                              class: currentStudentData.turma || 'Não informada'
                          };
@@ -241,9 +245,9 @@ function StudentDetailedResultsContent({ onBack }: StudentDetailedResultsProps) 
                 titulo: evaluationInfo?.titulo || 'Avaliação',
                 data_aplicacao: evaluationInfo?.data_aplicacao || new Date().toISOString(),
                 disciplina: evaluationInfo?.disciplina || 'N/A',
-                escola: evaluationInfo?.escola || 'Não informada',
+                escola: classInfo?.school || currentResult.school_name || evaluationInfo?.escola || 'Não informada',
                 serie: classInfo?.grade || evaluationInfo?.serie || 'Não informada',
-                turma: classInfo?.class || 'Não informada'
+                turma: classInfo?.class || currentResult.class_name || 'Não informada'
             };
 
             setStudentEvaluations([finalEvaluationData]);
