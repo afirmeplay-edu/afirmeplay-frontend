@@ -1,5 +1,24 @@
 import { api } from '@/lib/api';
 
+export const OFFLINE_PACK_TTL_MIN = 1;
+export const OFFLINE_PACK_TTL_MAX = 336;
+export const OFFLINE_PACK_TTL_DEFAULT = 48;
+export const OFFLINE_PACK_MAX_REDEMPTIONS_MIN = 1;
+export const OFFLINE_PACK_MAX_REDEMPTIONS_MAX = 10000;
+export const OFFLINE_PACK_MAX_REDEMPTIONS_DEFAULT = 50;
+
+export type OfflinePackScopeMunicipality = { type: 'municipality' };
+
+export type OfflinePackScopeCustom = {
+  type: 'custom';
+  school_ids?: string[];
+  test_ids?: string[];
+  class_ids?: string[];
+  student_ids?: string[];
+};
+
+export type OfflinePackScope = OfflinePackScopeMunicipality | OfflinePackScopeCustom;
+
 export type OfflinePackScopePayload =
   | { type: 'municipality' }
   | {
@@ -9,6 +28,26 @@ export type OfflinePackScopePayload =
       class_ids: string[];
       student_ids: string[];
     };
+
+export interface OfflinePackItem {
+  offline_pack_id: string;
+  code: string | null;
+  scope: OfflinePackScope;
+  expires_at: string;
+  max_redemptions: number;
+  redemptions_count: number;
+  revoked_at: string | null;
+  created_at: string | null;
+  is_expired: boolean;
+  can_edit: boolean;
+  can_delete: boolean;
+  created_by_user_id: string | null;
+}
+
+export interface OfflinePackListResponse {
+  items: OfflinePackItem[];
+  total: number;
+}
 
 export interface RegisterOfflinePackRequest {
   scope: OfflinePackScopePayload;
@@ -21,24 +60,140 @@ export interface RegisterOfflinePackResponse {
   offline_pack_id: string;
   expires_at: string;
   max_redemptions: number;
-  scope: { type: string };
+  scope: OfflinePackScope;
 }
 
-/**
- * Registra pacote offline. O header `X-City-ID` só deve ser enviado para **admin**
- * operando em um município escolhido (igual às demais rotas tenant); demais perfis
- * usam o tenant do token e não precisam desse header neste endpoint.
- */
+export interface PatchOfflinePackRequest {
+  scope?: OfflinePackScopePayload;
+  ttl_hours?: number;
+  max_redemptions?: number;
+}
+
+function offlinePackConfig(cityIdForAdmin?: string) {
+  return cityIdForAdmin ? { meta: { cityId: cityIdForAdmin } } : {};
+}
+
 export async function registerOfflinePack(
   body: RegisterOfflinePackRequest,
-  /** Obrigatório só quando `user.role === 'admin'`: UUID do município (tenant) ativo. */
   cityIdForAdmin?: string
 ): Promise<RegisterOfflinePackResponse> {
-  const config = cityIdForAdmin ? { meta: { cityId: cityIdForAdmin } } : {};
   const { data } = await api.post<RegisterOfflinePackResponse>(
     '/mobile/v1/offline-pack/register',
     body,
-    config
+    offlinePackConfig(cityIdForAdmin)
   );
   return data;
+}
+
+export async function listOfflinePacks(
+  includeExpired = true,
+  cityIdForAdmin?: string
+): Promise<OfflinePackListResponse> {
+  const { data } = await api.get<OfflinePackListResponse>('/mobile/v1/offline-pack', {
+    params: includeExpired ? { include_expired: 1 } : undefined,
+    ...offlinePackConfig(cityIdForAdmin),
+  });
+  return data;
+}
+
+export async function getOfflinePack(
+  offlinePackId: string,
+  cityIdForAdmin?: string
+): Promise<OfflinePackItem> {
+  const { data } = await api.get<OfflinePackItem>(
+    `/mobile/v1/offline-pack/${offlinePackId}`,
+    offlinePackConfig(cityIdForAdmin)
+  );
+  return data;
+}
+
+export async function patchOfflinePack(
+  offlinePackId: string,
+  body: PatchOfflinePackRequest,
+  cityIdForAdmin?: string
+): Promise<OfflinePackItem> {
+  const { data } = await api.patch<OfflinePackItem>(
+    `/mobile/v1/offline-pack/${offlinePackId}`,
+    body,
+    offlinePackConfig(cityIdForAdmin)
+  );
+  return data;
+}
+
+export interface DeleteOfflinePackResponse {
+  deleted: boolean;
+  offline_pack_id: string;
+}
+
+export interface BulkDeleteOfflinePacksResponse {
+  deleted: string[];
+  not_found: string[];
+  forbidden: string[];
+}
+
+export const OFFLINE_PACK_DELETE_FORBIDDEN_MESSAGE =
+  'Sem permissão — apenas o criador ou administrador pode excluir este código.';
+
+export const OFFLINE_PACK_EDIT_FORBIDDEN_MESSAGE =
+  'Sem permissão — apenas o criador ou administrador pode editar este código.';
+
+export async function deleteOfflinePack(
+  offlinePackId: string,
+  cityIdForAdmin?: string
+): Promise<DeleteOfflinePackResponse> {
+  const { data } = await api.delete<DeleteOfflinePackResponse>(
+    `/mobile/v1/offline-pack/${offlinePackId}`,
+    offlinePackConfig(cityIdForAdmin)
+  );
+  return data;
+}
+
+export async function bulkDeleteOfflinePacks(
+  offlinePackIds: string[],
+  cityIdForAdmin?: string
+): Promise<BulkDeleteOfflinePacksResponse> {
+  const { data } = await api.post<BulkDeleteOfflinePacksResponse>(
+    '/mobile/v1/offline-pack/bulk-delete',
+    { offline_pack_ids: offlinePackIds },
+    offlinePackConfig(cityIdForAdmin)
+  );
+  return data;
+}
+
+export function buildScopePayload(
+  scopeMode: 'municipality' | 'custom',
+  selections: {
+    schoolIds: Set<string>;
+    testIds: Set<string>;
+    classIds: Set<string>;
+    studentIds: Set<string>;
+  }
+): OfflinePackScopePayload {
+  if (scopeMode === 'municipality') {
+    return { type: 'municipality' };
+  }
+  return {
+    type: 'custom',
+    school_ids: [...selections.schoolIds],
+    test_ids: [...selections.testIds],
+    class_ids: [...selections.classIds],
+    student_ids: [...selections.studentIds],
+  };
+}
+
+export function isOfflinePackForbiddenError(err: unknown): boolean {
+  const ax = err as { response?: { status?: number } };
+  return ax.response?.status === 403;
+}
+
+export function getOfflinePackApiError(
+  err: unknown,
+  fallback: string,
+  forbiddenFallback?: string
+): string {
+  const ax = err as { response?: { data?: { message?: string; error?: string } } };
+  if (isOfflinePackForbiddenError(err) && forbiddenFallback) {
+    return forbiddenFallback;
+  }
+  return String(ax.response?.data?.error || ax.response?.data?.message || fallback);
 }

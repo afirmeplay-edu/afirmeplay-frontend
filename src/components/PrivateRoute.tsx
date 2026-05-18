@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/authContext';
+import { hasRestrictedStaffAccess, isAplicadorRole } from '@/utils/restrictedStaffAccess';
 
 interface PrivateRouteProps {
   children: ReactNode;
@@ -45,12 +46,8 @@ export function PrivateRoute({ children }: PrivateRouteProps) {
     return null;
   }
 
-  // Contas "corretor(n)@afirmeplay.com.br" (TEC admin) devem acessar
-  // somente cartão resposta, agenda, configurações e correção de prova física;
-  // todo o resto é redirecionado.
-  const email = user?.email?.toLowerCase();
-  const isCorretor = Boolean(email?.includes('corretor'));
-  if (isCorretor) {
+  // Corretor (e-mail) e aplicador (role): mesmas rotas base; aplicador inclui modo offline.
+  if (hasRestrictedStaffAccess(user)) {
     const pathname = location.pathname;
     const allowed =
       pathname === '/app' ||
@@ -71,7 +68,10 @@ export function PrivateRoute({ children }: PrivateRouteProps) {
       pathname === '/app/configuracoes' ||
       pathname.startsWith('/app/configuracoes/') ||
       (pathname.startsWith('/app/avaliacao/') && pathname.endsWith('/fisica')) ||
-      pathname.startsWith('/app/provas-fisicas/');
+      pathname.startsWith('/app/provas-fisicas/') ||
+      (isAplicadorRole(user?.role) &&
+        (pathname === '/app/modo-offline' ||
+          pathname.startsWith('/app/modo-offline/')));
 
     if (!allowed) {
       return <Navigate to="/app/cartao-resposta/corrigir" replace />;
