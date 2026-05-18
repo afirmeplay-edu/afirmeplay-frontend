@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, Download, Filter, Medal, RefreshCw, ScanLine, Trophy, Users } from "lucide-react";
+import { BookOpen, Calendar as CalendarIcon, Download, Filter, Medal, RefreshCw, ScanLine, Trophy, Users } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +14,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FormFiltersApiService } from "@/services/formFiltersApi";
 import {
   EvaluationResultsApiService,
@@ -27,10 +28,19 @@ import {
 } from "@/services/reports/rankingApi";
 import { generateRankingReportPdf } from "@/services/reports/rankingPdf";
 import { useToast } from "@/hooks/use-toast";
-import { RankingGeneralPanel } from "@/components/ranking/RankingGeneralPanel";
+import RankingGeneralPanel from "@/components/ranking/RankingGeneralPanel";
 import { RankingEvaluationPanel } from "@/components/ranking/RankingEvaluationPanel";
 import { RankingAnswerSheetPanel } from "@/components/ranking/RankingAnswerSheetPanel";
 import { RankingTeachersPanel } from "@/components/ranking/RankingTeachersPanel";
+import { cn } from "@/lib/utils";
+import { format, parse } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import {
+  RESULTS_MONTH_NAMES_PT,
+  RESULTS_PERIOD_YEAR_MIN,
+  getResultsPeriodYearMax,
+  normalizeResultsPeriodYm,
+} from "@/utils/resultsPeriod";
 
 type RankingTab = "geral" | "avaliacao" | "cartao" | "professores";
 type FilterOption = { id: string; name: string };
@@ -75,6 +85,11 @@ export default function RankingHub() {
   const [series, setSeries] = useState<FilterOption[]>([]);
   const [turmas, setTurmas] = useState<FilterOption[]>([]);
   const [rankingItems, setRankingItems] = useState<RankingItemOption[]>([]);
+  const [periodPickerOpen, setPeriodPickerOpen] = useState(false);
+  const [periodDraft, setPeriodDraft] = useState(() => {
+    const now = new Date();
+    return { y: now.getFullYear(), m: now.getMonth() };
+  });
   const [loadingFilters, setLoadingFilters] = useState({
     estados: false,
     municipios: false,
@@ -101,6 +116,14 @@ export default function RankingHub() {
   const canLoadRankingItems = Boolean(filters.municipio);
   const derivedScope = deriveScope(filters);
   const requestFilters = useMemo<RankingFilters>(() => ({ ...filters, scope: derivedScope }), [filters, derivedScope]);
+  const normalizedSelectedPeriod = useMemo(
+    () => (filters.periodo ? normalizeResultsPeriodYm(filters.periodo) : "all"),
+    [filters.periodo]
+  );
+  const periodCalendarSelected = useMemo(() => {
+    if (normalizedSelectedPeriod === "all") return undefined;
+    return parse(`${normalizedSelectedPeriod}-01`, "yyyy-MM-dd", new Date());
+  }, [normalizedSelectedPeriod]);
 
   const setFilters = (
     updates: Partial<Record<keyof RankingFilters, string>>,
@@ -114,6 +137,17 @@ export default function RankingHub() {
     clearKeys.forEach((k) => next.delete(k));
     setSearchParams(next, { replace: true });
   };
+
+  useEffect(() => {
+    if (!periodPickerOpen) return;
+    if (normalizedSelectedPeriod !== "all") {
+      const [yy, mm] = normalizedSelectedPeriod.split("-").map(Number);
+      setPeriodDraft({ y: yy, m: mm - 1 });
+      return;
+    }
+    const now = new Date();
+    setPeriodDraft({ y: now.getFullYear(), m: now.getMonth() });
+  }, [periodPickerOpen, normalizedSelectedPeriod]);
 
   useEffect(() => {
     let cancelled = false;
@@ -254,7 +288,7 @@ export default function RankingHub() {
 
   const generalQuery = useQuery({
     queryKey: ["ranking", "general", requestFilters],
-    queryFn: () => RankingApiService.getGeneralRanking(requestFilters, 1, 50),
+    queryFn: () => RankingApiService.getGeneralRanking(requestFilters, 1, 100),
     enabled: tab === "geral" && hasBaseFilters,
   });
 
@@ -517,13 +551,133 @@ export default function RankingHub() {
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="periodo">Período</Label>
-            <Input
-              id="periodo"
-              type="month"
-              value={filters.periodo || ""}
-              onChange={(e) => setFilters({ periodo: e.target.value })}
-            />
+            <Label>Período (mês/ano)</Label>
+            <Popover open={periodPickerOpen} onOpenChange={setPeriodPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!filters.municipio}
+                  className={cn(
+                    "w-full justify-start text-left font-normal",
+                    normalizedSelectedPeriod === "all" && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                  <span className="truncate">
+                    {periodCalendarSelected
+                      ? format(periodCalendarSelected, "MMMM 'de' yyyy", { locale: ptBR })
+                      : "Selecionar mês e ano"}
+                  </span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-auto max-w-[min(100vw-1rem,20rem)] overflow-hidden border-border bg-popover p-0 text-popover-foreground shadow-lg"
+                align="start"
+              >
+                <div className="grid grid-cols-2 gap-2 border-b border-border px-3 pb-2 pt-3">
+                  <div className="min-w-0 space-y-1">
+                    <span className="text-xs font-medium text-muted-foreground">Mês</span>
+                    <Select
+                      value={String(periodDraft.m)}
+                      onValueChange={(v) => {
+                        const mi = parseInt(v, 10);
+                        const y = periodDraft.y;
+                        setPeriodDraft({ y, m: mi });
+                        const p = normalizeResultsPeriodYm(`${y}-${String(mi + 1).padStart(2, "0")}`);
+                        if (p !== "all") setFilters({ periodo: p });
+                      }}
+                    >
+                      <SelectTrigger className="h-9 w-full min-w-0">
+                        <SelectValue placeholder="Mês" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {RESULTS_MONTH_NAMES_PT.map((name, i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            {name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="min-w-0 space-y-1">
+                    <span className="text-xs font-medium text-muted-foreground">Ano</span>
+                    <Select
+                      value={String(periodDraft.y)}
+                      onValueChange={(v) => {
+                        const y = parseInt(v, 10);
+                        const mi = periodDraft.m;
+                        setPeriodDraft({ y, m: mi });
+                        const p = normalizeResultsPeriodYm(`${y}-${String(mi + 1).padStart(2, "0")}`);
+                        if (p !== "all") setFilters({ periodo: p });
+                      }}
+                    >
+                      <SelectTrigger className="h-9 w-full min-w-0">
+                        <SelectValue placeholder="Ano" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60">
+                        {Array.from(
+                          { length: getResultsPeriodYearMax() - RESULTS_PERIOD_YEAR_MIN + 1 },
+                          (_, i) => RESULTS_PERIOD_YEAR_MIN + i
+                        ).map((y) => (
+                          <SelectItem key={y} value={String(y)}>
+                            {y}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <Calendar
+                  mode="single"
+                  locale={ptBR}
+                  month={new Date(periodDraft.y, periodDraft.m, 1)}
+                  onMonthChange={(d) => {
+                    const y = d.getFullYear();
+                    const m = d.getMonth();
+                    setPeriodDraft({ y, m });
+                    const p = normalizeResultsPeriodYm(`${y}-${String(m + 1).padStart(2, "0")}`);
+                    if (p !== "all") setFilters({ periodo: p });
+                  }}
+                  selected={periodCalendarSelected}
+                  captionLayout="buttons"
+                  fromYear={RESULTS_PERIOD_YEAR_MIN}
+                  toYear={getResultsPeriodYearMax()}
+                  className="rounded-none border-0 bg-transparent p-0 text-popover-foreground shadow-none"
+                  onSelect={(date) => {
+                    if (!date) return;
+                    const y = date.getFullYear();
+                    const m = date.getMonth();
+                    setPeriodDraft({ y, m });
+                    const p = normalizeResultsPeriodYm(format(date, "yyyy-MM"));
+                    if (p !== "all") {
+                      setFilters({ periodo: p });
+                      setPeriodPickerOpen(false);
+                    }
+                  }}
+                  initialFocus
+                />
+                <div className="space-y-2 border-t border-border bg-muted/15 px-3 py-2.5 dark:bg-muted/25">
+                  <p className="text-center text-xs leading-snug text-muted-foreground">
+                    Altere mês ou ano nos seletores, use as setas do calendário ou toque em um dia para aplicar e
+                    fechar.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-full text-muted-foreground hover:text-foreground"
+                    disabled={normalizedSelectedPeriod === "all"}
+                    onClick={() => {
+                      setFilters({ periodo: "" });
+                      setPeriodPickerOpen(false);
+                    }}
+                  >
+                    Limpar período
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="scope">Escopo detectado</Label>

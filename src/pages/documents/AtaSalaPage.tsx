@@ -543,6 +543,9 @@ export default function AtaSalaPage() {
     if (header.nome_prova_ano && (!isModoAplicada || selectedAvaliacaoId === "all")) {
       setNomeAvaliacao(header.nome_prova_ano);
     }
+    if (header.lista_presenca_curso?.trim()) {
+      setCursoLabel(header.lista_presenca_curso);
+    }
     setEscola(header.nome_escola || selectedSchoolLabel);
     setSerieTurma([header.serie, header.turma || header.serie_turma].filter(Boolean).join(" "));
     setTurno(header.turno || "");
@@ -916,12 +919,24 @@ export default function AtaSalaPage() {
             </p>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2 md:col-span-2">
-                <Label>Nome da avaliação</Label>
-                <Input value={nomeAvaliacao} readOnly className="bg-background" />
+                <Label htmlFor="ata-nome-avaliacao">Nome da avaliação</Label>
+                <Input
+                  id="ata-nome-avaliacao"
+                  value={nomeAvaliacao}
+                  onChange={(e) => setNomeAvaliacao(e.target.value)}
+                  placeholder="Editável antes de gerar o PDF"
+                  className="bg-background"
+                />
               </div>
               <div className="space-y-2 md:col-span-2">
-                <Label>Curso</Label>
-                <Input value={cursoLabel} readOnly className="bg-background" />
+                <Label htmlFor="ata-curso-label">Curso</Label>
+                <Input
+                  id="ata-curso-label"
+                  value={cursoLabel}
+                  onChange={(e) => setCursoLabel(e.target.value)}
+                  placeholder="Ex.: ANOS INICIAIS OU FINAIS"
+                  className="bg-background"
+                />
               </div>
               <div className="space-y-2">
                 <Label>Município/UF</Label>
@@ -1075,7 +1090,7 @@ export default function AtaSalaPage() {
                 [
                   ["q7Responded", "7. Quantidade de estudantes presentes que responderam ao teste."] as const,
                   ["q8NotResponded", "8. Quantidade de estudantes presentes que NÃO responderam ao teste."] as const,
-                  ["q9Tablets", "9. Quantidade de tabletes que foram utilizados nesta sala."] as const,
+                  ["q9Tablets", "9. Quantidade de tablets/cadernos que foram utilizados nesta sala."] as const,
                   [
                     "q10SpecialStayed",
                     "10. Quantidade de estudantes com necessidades específicas que permaneceram na sala.",
