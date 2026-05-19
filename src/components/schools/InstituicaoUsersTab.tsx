@@ -84,8 +84,8 @@ const ROLES_WITH_CITY = ["tecadm", "aplicador"];
 
 /** Hierarquia: quem pode editar quem. Nenhum cargo pode selecionar cargo maior que o seu na edição. */
 const ROLES_EDITABLE_BY: Record<string, string[]> = {
-  admin: ["admin", "tecadm", "diretor", "coordenador", "professor", "aluno"],
-  tecadm: ["tecadm", "diretor", "coordenador", "professor", "aluno"],
+  admin: ["admin", "tecadm", "aplicador", "diretor", "coordenador", "professor", "aluno"],
+  tecadm: ["tecadm", "aplicador", "diretor", "coordenador", "professor", "aluno"],
   diretor: ["coordenador", "professor", "aluno"],
   coordenador: ["professor", "aluno"],
   professor: [],
@@ -516,7 +516,7 @@ export function InstituicaoUsersTab({
       await api.put(`/users/${idStr}`, userData);
       toast({ title: "Sucesso", description: "Usuário atualizado com sucesso." });
       setEditingUser(null);
-      fetchUsers();
+      await fetchUsers();
     } catch (err) {
       console.error("Erro ao atualizar usuário:", err);
       toast({ title: "Erro", description: "Erro ao atualizar usuário.", variant: "destructive" });
@@ -987,7 +987,12 @@ export function InstituicaoUsersTab({
       </Dialog>
 
       {/* Modal Editar usuário */}
-      <Dialog open={!!editingUser} onOpenChange={(open) => !open && setEditingUser(null)}>
+      <Dialog
+        open={!!editingUser}
+        onOpenChange={(open) => {
+          if (!open && !isSaving) setEditingUser(null);
+        }}
+      >
         <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1001,7 +1006,17 @@ export function InstituicaoUsersTab({
             </DialogDescription>
           </DialogHeader>
           {editingUser && (
-            <div className="space-y-6 pt-2">
+            <div className="relative space-y-6 pt-2">
+              {isSaving && (
+                <div
+                  className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-lg bg-background/80 backdrop-blur-[1px]"
+                  aria-live="polite"
+                  aria-busy="true"
+                >
+                  <Loader2 className="h-8 w-8 animate-spin text-[#7B3FE4]" />
+                  <p className="text-sm font-medium text-foreground">Salvando alterações...</p>
+                </div>
+              )}
               {ROLES_WITH_SCHOOL.includes(editingUser.role) && getSchoolDisplay(editingUser) && (
                 <div className="rounded-lg border border-[#E5D5EA] dark:border-white/10 bg-muted/30 px-4 py-3">
                   <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5 mb-1">
@@ -1023,6 +1038,7 @@ export function InstituicaoUsersTab({
                 allowedRoles={getAllowedRolesForEditor(authUser?.role ?? "")}
                 showCitySelect={isAdmin}
                 layout="modal"
+                isSubmitting={isSaving}
               />
             </div>
           )}
