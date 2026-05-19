@@ -4,21 +4,19 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RankingResponse } from "@/services/reports/rankingApi";
 import { LevelTag, PosBadge, formatPt } from "@/components/ranking/RankingVisualPrimitives";
+import { RankingContentShell, RankingLoadingState } from "@/components/ranking/RankingLoadingState";
 
 type Props = {
   data?: RankingResponse;
   isLoading: boolean;
+  isRefreshing?: boolean;
   errorMessage?: string;
   gradeLabel?: string;
 };
 
-export default function RankingClassesPanel({ data, isLoading, errorMessage, gradeLabel }: Props) {
+export default function RankingClassesPanel({ data, isLoading, isRefreshing, errorMessage, gradeLabel }: Props) {
   if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="py-10 text-sm text-muted-foreground">Carregando ranking de turmas...</CardContent>
-      </Card>
-    );
+    return <RankingLoadingState message="Carregando ranking de turmas..." variant="table" />;
   }
   if (errorMessage) {
     return (
@@ -33,6 +31,7 @@ export default function RankingClassesPanel({ data, isLoading, errorMessage, gra
   const titleGrade = gradeLabel || data?.classes_ranking?.grade_name || "Série";
 
   return (
+    <RankingContentShell isRefreshing={isRefreshing} refreshingMessage="Atualizando ranking de turmas...">
     <Card className="overflow-hidden border border-border/70">
       <CardHeader className="bg-primary text-primary-foreground">
         <CardTitle className="flex items-center justify-between gap-2">
@@ -90,6 +89,7 @@ export default function RankingClassesPanel({ data, isLoading, errorMessage, gra
         )}
       </CardContent>
     </Card>
+    </RankingContentShell>
   );
 }
 

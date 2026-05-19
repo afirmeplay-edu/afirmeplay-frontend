@@ -8,10 +8,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { RankingResponse } from "@/services/reports/rankingApi";
 import RankingClassesPanel from "@/components/ranking/RankingClassesPanel";
 import { LevelTag, PosBadge, formatPt } from "@/components/ranking/RankingVisualPrimitives";
+import { RankingContentShell, RankingLoadingState } from "@/components/ranking/RankingLoadingState";
 
 type Props = {
   data?: RankingResponse;
   isLoading: boolean;
+  isRefreshing?: boolean;
   errorMessage?: string;
   filterSchoolId?: string;
   filterSerieId?: string;
@@ -22,6 +24,7 @@ type Props = {
 export default function RankingSchoolClassPanel({
   data,
   isLoading,
+  isRefreshing,
   errorMessage,
   filterSchoolId,
   filterSerieId,
@@ -67,13 +70,7 @@ export default function RankingSchoolClassPanel({
   }, [selectedSchoolId]);
 
   if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="py-10 text-sm text-muted-foreground">
-          Carregando ranking por escola/turma...
-        </CardContent>
-      </Card>
-    );
+    return <RankingLoadingState message="Carregando ranking por escola/série..." variant="table" />;
   }
   if (errorMessage) {
     return (
@@ -89,6 +86,7 @@ export default function RankingSchoolClassPanel({
       <RankingClassesPanel
         data={data}
         isLoading={isLoading}
+        isRefreshing={isRefreshing}
         errorMessage={errorMessage}
         gradeLabel={filterSerieName}
       />
@@ -99,6 +97,7 @@ export default function RankingSchoolClassPanel({
     filterSchoolName || options.find((option) => option.id === selectedSchoolId)?.name || "Selecione a escola";
 
   return (
+    <RankingContentShell isRefreshing={isRefreshing} refreshingMessage="Atualizando ranking por escola/série...">
     <div className="space-y-4">
       {!lockedSchoolId ? (
         <Card className="border border-border/70">
@@ -216,5 +215,6 @@ export default function RankingSchoolClassPanel({
         </CardContent>
       </Card>
     </div>
+    </RankingContentShell>
   );
 }

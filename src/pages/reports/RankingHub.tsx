@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calendar as CalendarIcon, Download, Filter, RefreshCw, School, Trophy, Users } from "lucide-react";
+import { Calendar as CalendarIcon, Download, Filter, Loader2, RefreshCw, School, Trophy, Users } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -357,10 +357,16 @@ export default function RankingHub() {
   }, [hasBaseFilters, hasEntitySelection, rankingQuery.data?.discipline_options, queryClient, requestFilters]);
 
   const rankingError = rankingQuery.error ? getApiError(rankingQuery.error, "Erro ao carregar relatório de ranking.") : undefined;
+  const rankingInitialLoading = rankingQuery.isLoading && !rankingQuery.data;
+  const rankingRefreshing = rankingQuery.isFetching && !rankingInitialLoading;
+  const isAnyFilterLoading = Object.values(loadingFilters).some(Boolean);
 
   const gradeOptionsFromApi = rankingQuery.data?.grade_options || [];
   const useApiGradeOptions = hasSchoolFilter && hasEntitySelection;
   const serieOptions = useApiGradeOptions ? gradeOptionsFromApi : series;
+  const serieFilterLoading = useApiGradeOptions
+    ? rankingQuery.isLoading || rankingQuery.isFetching
+    : loadingFilters.series;
 
   useEffect(() => {
     if (!useApiGradeOptions || !filters.serie) return;
@@ -498,7 +504,12 @@ export default function RankingHub() {
             <Trophy className="h-6 w-6 text-primary" aria-hidden />
             Relatório de ranking
           </h1>
-          <Badge variant="outline">{currentCount ?? 0} registros</Badge>
+          <Badge variant="outline" className="gap-1.5">
+            {rankingInitialLoading || rankingRefreshing ? (
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+            ) : null}
+            {rankingInitialLoading ? "Carregando..." : `${currentCount ?? 0} registros`}
+          </Badge>
         </div>
         <p className="text-sm text-muted-foreground">
           Visão geral, ranking municipal, escola/turma e top professores com o mesmo recorte de filtros.
@@ -529,9 +540,16 @@ export default function RankingHub() {
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
+          {isAnyFilterLoading ? (
+            <div className="col-span-full flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary">
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+              <span>Carregando opções dos filtros...</span>
+            </div>
+          ) : null}
           <div className="space-y-1.5">
             <Label htmlFor="estado">Estado</Label>
             <Select
+              disabled={loadingFilters.estados}
               value={filters.estado || "all"}
               onValueChange={(value) =>
                 setFilters(
@@ -541,7 +559,7 @@ export default function RankingHub() {
               }
             >
               <SelectTrigger id="estado">
-                <SelectValue placeholder="Selecione o estado" />
+                <SelectValue placeholder={loadingFilters.estados ? "Carregando estados..." : "Selecione o estado"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Selecione</SelectItem>
@@ -567,7 +585,9 @@ export default function RankingHub() {
               disabled={!filters.estado || loadingFilters.municipios}
             >
               <SelectTrigger id="municipio">
-                <SelectValue placeholder="Selecione o município" />
+                <SelectValue
+                  placeholder={loadingFilters.municipios ? "Carregando municípios..." : "Selecione o município"}
+                />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Selecione</SelectItem>
@@ -597,7 +617,9 @@ export default function RankingHub() {
                 disabled={!filters.municipio || loadingFilters.avaliacao}
               >
                 <SelectTrigger id="evaluation_id">
-                  <SelectValue placeholder="Selecione a avaliação" />
+                  <SelectValue
+                    placeholder={loadingFilters.avaliacao ? "Carregando avaliações..." : "Selecione a avaliação"}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas as avaliações</SelectItem>
@@ -621,7 +643,9 @@ export default function RankingHub() {
                 disabled={!filters.municipio || loadingFilters.cartao}
               >
                 <SelectTrigger id="answer_sheet_id">
-                  <SelectValue placeholder="Selecione o cartão resposta" />
+                  <SelectValue
+                    placeholder={loadingFilters.cartao ? "Carregando cartões..." : "Selecione o cartão resposta"}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos os cartões</SelectItem>
@@ -645,7 +669,7 @@ export default function RankingHub() {
               disabled={!filters.municipio || loadingFilters.escolas}
             >
               <SelectTrigger id="escola">
-                <SelectValue placeholder="Selecione a escola" />
+                <SelectValue placeholder={loadingFilters.escolas ? "Carregando escolas..." : "Selecione a escola"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas as escolas</SelectItem>
@@ -663,14 +687,16 @@ export default function RankingHub() {
             <Select
               value={filters.serie || "all"}
               onValueChange={(value) => setFilters({ serie: value === "all" ? "" : value }, ["turma"])}
-              disabled={!filters.escola || (useApiGradeOptions ? rankingQuery.isLoading : loadingFilters.series)}
+              disabled={!filters.escola || serieFilterLoading}
             >
               <SelectTrigger id="serie">
                 <SelectValue
                   placeholder={
-                    useApiGradeOptions
-                      ? "Séries com participação na avaliação"
-                      : "Selecione a série"
+                    serieFilterLoading
+                      ? "Carregando séries..."
+                      : useApiGradeOptions
+                        ? "Séries com participação na avaliação"
+                        : "Selecione a série"
                   }
                 />
               </SelectTrigger>
@@ -693,7 +719,7 @@ export default function RankingHub() {
               disabled={!filters.serie || loadingFilters.turmas}
             >
               <SelectTrigger id="turma">
-                <SelectValue placeholder="Selecione a turma" />
+                <SelectValue placeholder={loadingFilters.turmas ? "Carregando turmas..." : "Selecione a turma"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas as turmas</SelectItem>
@@ -840,8 +866,16 @@ export default function RankingHub() {
               <RefreshCw className="mr-2 h-4 w-4" />
               Limpar filtros
             </Button>
-            <Button type="button" onClick={handleExportPdf}>
-              <Download className="mr-2 h-4 w-4" />
+            <Button
+              type="button"
+              onClick={handleExportPdf}
+              disabled={!hasEntitySelection || rankingInitialLoading || rankingRefreshing}
+            >
+              {rankingInitialLoading || rankingRefreshing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
               Exportar PDF
             </Button>
           </div>
@@ -885,27 +919,37 @@ export default function RankingHub() {
         </TabsList>
 
         {hasEntitySelection && (rankingQuery.data?.discipline_options?.length || 0) > 0 ? (
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Resultado</span>
-            <Button
-              type="button"
-              size="sm"
-              variant={!filters.disciplina ? "default" : "outline"}
-              onClick={() => setFilters({ disciplina: "" })}
-            >
-              Geral
-            </Button>
-            {(rankingQuery.data?.discipline_options || []).map((discipline) => (
+          <div className="mt-4 space-y-3">
+            {rankingRefreshing ? (
+              <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                <span>Atualizando dados do ranking...</span>
+              </div>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Resultado</span>
               <Button
-                key={discipline.id}
                 type="button"
                 size="sm"
-                variant={filters.disciplina === discipline.id ? "default" : "outline"}
-                onClick={() => setFilters({ disciplina: discipline.id })}
+                variant={!filters.disciplina ? "default" : "outline"}
+                disabled={rankingRefreshing}
+                onClick={() => setFilters({ disciplina: "" })}
               >
-                {discipline.name}
+                Geral
               </Button>
-            ))}
+              {(rankingQuery.data?.discipline_options || []).map((discipline) => (
+                <Button
+                  key={discipline.id}
+                  type="button"
+                  size="sm"
+                  variant={filters.disciplina === discipline.id ? "default" : "outline"}
+                  disabled={rankingRefreshing}
+                  onClick={() => setFilters({ disciplina: discipline.id })}
+                >
+                  {discipline.name}
+                </Button>
+              ))}
+            </div>
           </div>
         ) : null}
 
@@ -921,20 +965,31 @@ export default function RankingHub() {
           <>
             {!hasSchoolFilter ? (
               <TabsContent value="visao-geral" className="mt-6">
-                <RankingOverviewPanel data={rankingQuery.data} isLoading={rankingQuery.isLoading} errorMessage={rankingError} />
+                <RankingOverviewPanel
+                  data={rankingQuery.data}
+                  isLoading={rankingInitialLoading}
+                  isRefreshing={rankingRefreshing}
+                  errorMessage={rankingError}
+                />
               </TabsContent>
             ) : null}
 
             {!hasSchoolFilter ? (
               <TabsContent value="municipal" className="mt-6">
-                <RankingMunicipalPanel data={rankingQuery.data} isLoading={rankingQuery.isLoading} errorMessage={rankingError} />
+                <RankingMunicipalPanel
+                  data={rankingQuery.data}
+                  isLoading={rankingInitialLoading}
+                  isRefreshing={rankingRefreshing}
+                  errorMessage={rankingError}
+                />
               </TabsContent>
             ) : null}
 
             <TabsContent value="escola-turma" className="mt-6">
               <RankingSchoolClassPanel
                 data={rankingQuery.data}
-                isLoading={rankingQuery.isLoading}
+                isLoading={rankingInitialLoading}
+                isRefreshing={rankingRefreshing}
                 errorMessage={rankingError}
                 filterSchoolId={filters.escola}
                 filterSerieId={filters.serie}
@@ -946,7 +1001,8 @@ export default function RankingHub() {
             <TabsContent value="professores" className="mt-6">
               <RankingTeachersPanel
                 data={rankingQuery.data}
-                isLoading={rankingQuery.isLoading}
+                isLoading={rankingInitialLoading}
+                isRefreshing={rankingRefreshing}
                 errorMessage={rankingError}
               />
             </TabsContent>

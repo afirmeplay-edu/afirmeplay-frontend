@@ -4,20 +4,18 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RankingResponse } from "@/services/reports/rankingApi";
 import { LevelTag, PosBadge, formatPt } from "@/components/ranking/RankingVisualPrimitives";
+import { RankingContentShell, RankingLoadingState } from "@/components/ranking/RankingLoadingState";
 
 type Props = {
   data?: RankingResponse;
   isLoading: boolean;
+  isRefreshing?: boolean;
   errorMessage?: string;
 };
 
-export function RankingTeachersPanel({ data, isLoading, errorMessage }: Props) {
+export function RankingTeachersPanel({ data, isLoading, isRefreshing, errorMessage }: Props) {
   if (isLoading) {
-    return (
-      <Card className="border border-border/70">
-        <CardContent className="py-10 text-sm text-muted-foreground">Carregando ranking de professores...</CardContent>
-      </Card>
-    );
+    return <RankingLoadingState message="Carregando ranking de professores..." variant="table" />;
   }
 
   if (errorMessage) {
@@ -51,6 +49,7 @@ export function RankingTeachersPanel({ data, isLoading, errorMessage }: Props) {
           ]
         );
   return (
+    <RankingContentShell isRefreshing={isRefreshing} refreshingMessage="Atualizando ranking de professores...">
     <div className="space-y-6">
       {courseSections.map((section) => (
         <Card key={section.course_label} className="overflow-hidden border border-border/70">
@@ -133,5 +132,6 @@ export function RankingTeachersPanel({ data, isLoading, errorMessage }: Props) {
         </Card>
       ))}
     </div>
+    </RankingContentShell>
   );
 }

@@ -4,20 +4,18 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RankingResponse } from "@/services/reports/rankingApi";
 import { LevelTag, NivelBar, PosBadge, SummaryCard, formatPt } from "@/components/ranking/RankingVisualPrimitives";
+import { RankingContentShell, RankingLoadingState } from "@/components/ranking/RankingLoadingState";
 
 type Props = {
   data?: RankingResponse;
   isLoading: boolean;
+  isRefreshing?: boolean;
   errorMessage?: string;
 };
 
-export default function RankingMunicipalPanel({ data, isLoading, errorMessage }: Props) {
+export default function RankingMunicipalPanel({ data, isLoading, isRefreshing, errorMessage }: Props) {
   if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="py-10 text-sm text-muted-foreground">Carregando ranking municipal...</CardContent>
-      </Card>
-    );
+    return <RankingLoadingState message="Carregando ranking municipal..." variant="cards" />;
   }
   if (errorMessage) {
     return (
@@ -39,6 +37,7 @@ export default function RankingMunicipalPanel({ data, isLoading, errorMessage }:
   const topSchool = items[0];
 
   return (
+    <RankingContentShell isRefreshing={isRefreshing} refreshingMessage="Atualizando ranking municipal...">
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-4">
         <SummaryCard label="Escolas avaliadas" value={String(totalSchools)} />
@@ -123,5 +122,6 @@ export default function RankingMunicipalPanel({ data, isLoading, errorMessage }:
         </CardContent>
       </Card>
     </div>
+    </RankingContentShell>
   );
 }

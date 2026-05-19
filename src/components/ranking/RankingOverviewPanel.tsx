@@ -5,10 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RankingResponse } from "@/services/reports/rankingApi";
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { LevelTag, PosBadge, SummaryCard, formatPt } from "@/components/ranking/RankingVisualPrimitives";
+import { RankingContentShell, RankingLoadingState } from "@/components/ranking/RankingLoadingState";
 
 type Props = {
   data?: RankingResponse;
   isLoading: boolean;
+  isRefreshing?: boolean;
   errorMessage?: string;
 };
 
@@ -61,13 +63,9 @@ function ChartTooltip({
   );
 }
 
-export default function RankingOverviewPanel({ data, isLoading, errorMessage }: Props) {
+export default function RankingOverviewPanel({ data, isLoading, isRefreshing, errorMessage }: Props) {
   if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="py-10 text-sm text-muted-foreground">Carregando visão geral...</CardContent>
-      </Card>
-    );
+    return <RankingLoadingState message="Carregando visão geral..." variant="overview" />;
   }
 
   if (errorMessage) {
@@ -95,6 +93,7 @@ export default function RankingOverviewPanel({ data, isLoading, errorMessage }: 
   }
 
   return (
+    <RankingContentShell isRefreshing={isRefreshing} refreshingMessage="Atualizando visão geral...">
     <div className="space-y-6">
       <div className="grid gap-3 md:grid-cols-3">
         <SummaryCard label="Escolas avaliadas" value={String(Number(summary?.total_schools || 0))} />
@@ -234,5 +233,6 @@ export default function RankingOverviewPanel({ data, isLoading, errorMessage }: 
         );
       })}
     </div>
+    </RankingContentShell>
   );
 }
