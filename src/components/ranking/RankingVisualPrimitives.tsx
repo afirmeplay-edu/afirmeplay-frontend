@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- utilitários compartilhados com componentes visuais */
 import { Award, Medal, Trophy } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 

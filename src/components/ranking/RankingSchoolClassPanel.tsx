@@ -31,8 +31,14 @@ export default function RankingSchoolClassPanel({
   filterSchoolName,
   filterSerieName,
 }: Props) {
-  const options = data?.school_class_ranking?.school_options || [];
-  const itemsBySchool = data?.school_class_ranking?.items_by_school || {};
+  const options = useMemo(
+    () => data?.school_class_ranking?.school_options || [],
+    [data?.school_class_ranking?.school_options]
+  );
+  const itemsBySchool = useMemo(
+    () => data?.school_class_ranking?.items_by_school || {},
+    [data?.school_class_ranking?.items_by_school]
+  );
   const lockedSchoolId = filterSchoolId || "";
   const initialSchoolId = lockedSchoolId || options[0]?.id || "";
   const [selectedSchoolId, setSelectedSchoolId] = useState(initialSchoolId);
