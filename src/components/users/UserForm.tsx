@@ -34,6 +34,7 @@ const roleMapping: { [key: string]: string } = {
   "Coordenador": "coordenador",
   "Diretor": "diretor",
   "Técnico Administrador": "tecadm",
+  "Aplicador": "aplicador",
   "Aluno": "aluno"
 };
 
@@ -88,9 +89,18 @@ interface UserFormProps {
   showCitySelect?: boolean; // Se deve mostrar o campo de seleção de município
   /** Layout "modal" agrupa em seções e usa grid para melhor leitura em modais */
   layout?: "default" | "modal";
+  /** Estado de envio controlado pelo pai (ex.: PUT + recarregar lista) */
+  isSubmitting?: boolean;
 }
 
-export default function UserForm({ user, onSubmit, allowedRoles, showCitySelect = true, layout = "default" }: UserFormProps) {
+export default function UserForm({
+  user,
+  onSubmit,
+  allowedRoles,
+  showCitySelect = true,
+  layout = "default",
+  isSubmitting = false,
+}: UserFormProps) {
   const isEditing = !!user;
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -145,12 +155,12 @@ export default function UserForm({ user, onSubmit, allowedRoles, showCitySelect 
           // If password field is empty during edit, remove it from the data
           const { password, ...dataWithoutPassword } = dataToSend;
           if (onSubmit) {
-            onSubmit({ ...dataWithoutPassword, id: user.id });
+            await onSubmit({ ...dataWithoutPassword, id: user.id });
           }
         } else {
           // Password was provided during edit
           if (onSubmit) {
-            onSubmit({ ...dataToSend, id: user.id });
+            await onSubmit({ ...dataToSend, id: user.id });
           }
         }
       } else {
@@ -176,6 +186,7 @@ export default function UserForm({ user, onSubmit, allowedRoles, showCitySelect 
   })) : [];
 
   const isModalLayout = layout === "modal";
+  const busy = isLoading || isSubmitting;
 
   return (
     <Form {...form}>
@@ -427,6 +438,7 @@ export default function UserForm({ user, onSubmit, allowedRoles, showCitySelect 
                 const allRoles = [
                   { value: "Administrador", label: "Administrador" },
                   { value: "Técnico Administrador", label: "Técnico Administrador" },
+                  { value: "Aplicador", label: "Aplicador" },
                   { value: "Diretor", label: "Diretor" },
                   { value: "Coordenador", label: "Coordenador" },
                   { value: "Professor", label: "Professor" },
@@ -558,6 +570,7 @@ export default function UserForm({ user, onSubmit, allowedRoles, showCitySelect 
               const allRoles = [
                 { value: "Administrador", label: "Administrador" },
                 { value: "Técnico Administrador", label: "Técnico Administrador" },
+                { value: "Aplicador", label: "Aplicador" },
                 { value: "Diretor", label: "Diretor" },
                 { value: "Coordenador", label: "Coordenador" },
                 { value: "Professor", label: "Professor" },
@@ -587,8 +600,17 @@ export default function UserForm({ user, onSubmit, allowedRoles, showCitySelect 
         )}
 
         <div className={isModalLayout ? "flex justify-end gap-2 pt-2 border-t" : "flex justify-end"}>
-          <Button type="submit" disabled={isLoading}>
-            {isLoading ? "Salvando..." : isEditing ? "Salvar alterações" : "Cadastrar"}
+          <Button type="submit" disabled={busy}>
+            {busy ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Salvando...
+              </>
+            ) : isEditing ? (
+              "Salvar alterações"
+            ) : (
+              "Cadastrar"
+            )}
           </Button>
         </div>
       </form>
