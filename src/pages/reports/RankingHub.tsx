@@ -1,56 +1,44 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { BookOpen, Calendar as CalendarIcon, Download, Filter, Medal, RefreshCw, ScanLine, Trophy, Users } from "lucide-react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Calendar as CalendarIcon, Download, Filter, RefreshCw, School, Trophy, Users } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FormFiltersApiService } from "@/services/formFiltersApi";
-import {
-  EvaluationResultsApiService,
-  REPORT_ENTITY_TYPE_ANSWER_SHEET,
-} from "@/services/evaluation/evaluationResultsApi";
-import {
-  RankingApiService,
-  type RankingFilters,
-  type RankingScope,
-} from "@/services/reports/rankingApi";
+import { EvaluationResultsApiService, REPORT_ENTITY_TYPE_ANSWER_SHEET } from "@/services/evaluation/evaluationResultsApi";
+import { RankingApiService, type RankingFilters, type RankingScope } from "@/services/reports/rankingApi";
 import { generateRankingReportPdf } from "@/services/reports/rankingPdf";
 import { useToast } from "@/hooks/use-toast";
-import RankingGeneralPanel from "@/components/ranking/RankingGeneralPanel";
-import { RankingEvaluationPanel } from "@/components/ranking/RankingEvaluationPanel";
-import { RankingAnswerSheetPanel } from "@/components/ranking/RankingAnswerSheetPanel";
 import { RankingTeachersPanel } from "@/components/ranking/RankingTeachersPanel";
+import RankingOverviewPanel from "@/components/ranking/RankingOverviewPanel";
+import RankingMunicipalPanel from "@/components/ranking/RankingMunicipalPanel";
+import RankingSchoolClassPanel from "@/components/ranking/RankingSchoolClassPanel";
 import { cn } from "@/lib/utils";
 import { format, parse } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import {
-  RESULTS_MONTH_NAMES_PT,
-  RESULTS_PERIOD_YEAR_MIN,
-  getResultsPeriodYearMax,
-  normalizeResultsPeriodYm,
-} from "@/utils/resultsPeriod";
+import { RESULTS_MONTH_NAMES_PT, RESULTS_PERIOD_YEAR_MIN, getResultsPeriodYearMax, normalizeResultsPeriodYm } from "@/utils/resultsPeriod";
 
-type RankingTab = "geral" | "avaliacao" | "cartao" | "professores";
+type RankingTab = "visao-geral" | "municipal" | "escola-turma" | "professores";
+type RankingEntityTab = "avaliacao" | "cartao";
 type FilterOption = { id: string; name: string };
 type RankingItemOption = { id: string; label: string };
 
 function resolveTab(value: string | null): RankingTab {
-  if (value === "avaliacao") return "avaliacao";
-  if (value === "cartao") return "cartao";
+  if (value === "municipal") return "municipal";
+  if (value === "escola-turma") return "escola-turma";
   if (value === "professores") return "professores";
-  return "geral";
+  return "visao-geral";
+}
+
+function resolveEntityTab(value: string | null): RankingEntityTab {
+  if (value === "cartao") return "cartao";
+  return "avaliacao";
 }
 
 function normalizeParam(value: string | null): string {
@@ -69,22 +57,19 @@ function getApiError(error: unknown, fallback: string): string {
   return maybe?.response?.data?.error || maybe?.response?.data?.details || maybe?.message || fallback;
 }
 
-function sanitizeRankingLabel(item: { id: string; titulo?: string }): string {
-  const raw = (item.titulo || "").trim();
-  if (!raw || raw === item.id) return "Item sem título";
-  return raw;
-}
-
 export default function RankingHub() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = resolveTab(searchParams.get("tipo"));
+  const rankingEntityTab = resolveEntityTab(searchParams.get("entidade"));
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [estados, setEstados] = useState<FilterOption[]>([]);
   const [municipios, setMunicipios] = useState<FilterOption[]>([]);
   const [schools, setSchools] = useState<FilterOption[]>([]);
   const [series, setSeries] = useState<FilterOption[]>([]);
   const [turmas, setTurmas] = useState<FilterOption[]>([]);
-  const [rankingItems, setRankingItems] = useState<RankingItemOption[]>([]);
+  const [evaluationItems, setEvaluationItems] = useState<RankingItemOption[]>([]);
+  const [answerSheetItems, setAnswerSheetItems] = useState<RankingItemOption[]>([]);
   const [periodPickerOpen, setPeriodPickerOpen] = useState(false);
   const [periodDraft, setPeriodDraft] = useState(() => {
     const now = new Date();
@@ -96,7 +81,8 @@ export default function RankingHub() {
     escolas: false,
     series: false,
     turmas: false,
-    rankingItems: false,
+    avaliacao: false,
+    cartao: false,
   });
 
   const filters = useMemo<RankingFilters>(
@@ -107,13 +93,15 @@ export default function RankingHub() {
       serie: normalizeParam(searchParams.get("serie")),
       turma: normalizeParam(searchParams.get("turma")),
       periodo: normalizeParam(searchParams.get("periodo")),
+      disciplina: normalizeParam(searchParams.get("disciplina")),
       evaluation_id: normalizeParam(searchParams.get("evaluation_id")),
       answer_sheet_id: normalizeParam(searchParams.get("answer_sheet_id")),
     }),
     [searchParams]
   );
   const hasBaseFilters = Boolean(filters.estado && filters.municipio);
-  const canLoadRankingItems = Boolean(filters.municipio);
+  const hasEntitySelection = Boolean(filters.evaluation_id || filters.answer_sheet_id);
+  const hasSchoolFilter = Boolean(filters.escola);
   const derivedScope = deriveScope(filters);
   const requestFilters = useMemo<RankingFilters>(() => ({ ...filters, scope: derivedScope }), [filters, derivedScope]);
   const normalizedSelectedPeriod = useMemo(
@@ -125,6 +113,23 @@ export default function RankingHub() {
     return parse(`${normalizedSelectedPeriod}-01`, "yyyy-MM-dd", new Date());
   }, [normalizedSelectedPeriod]);
 
+  useEffect(() => {
+    if (!filters.evaluation_id || !filters.answer_sheet_id) return;
+    setFilters({ answer_sheet_id: "" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.evaluation_id, filters.answer_sheet_id]);
+
+  useEffect(() => {
+    if (filters.answer_sheet_id && rankingEntityTab !== "cartao") {
+      setEntityTab("cartao");
+      return;
+    }
+    if (filters.evaluation_id && rankingEntityTab !== "avaliacao") {
+      setEntityTab("avaliacao");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.answer_sheet_id, filters.evaluation_id, rankingEntityTab]);
+
   const setFilters = (
     updates: Partial<Record<keyof RankingFilters, string>>,
     clearKeys: (keyof RankingFilters)[] = []
@@ -135,6 +140,12 @@ export default function RankingHub() {
       else next.delete(k);
     });
     clearKeys.forEach((k) => next.delete(k));
+    setSearchParams(next, { replace: true });
+  };
+
+  const setEntityTab = (value: RankingEntityTab) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("entidade", value);
     setSearchParams(next, { replace: true });
   };
 
@@ -216,6 +227,9 @@ export default function RankingHub() {
       setTurmas([]);
       return;
     }
+    if (hasEntitySelection) {
+      return;
+    }
     let cancelled = false;
     setLoadingFilters((s) => ({ ...s, series: true }));
     FormFiltersApiService.getFormFilterGrades({
@@ -233,7 +247,7 @@ export default function RankingHub() {
     return () => {
       cancelled = true;
     };
-  }, [filters.estado, filters.municipio, filters.escola]);
+  }, [filters.estado, filters.municipio, filters.escola, hasEntitySelection]);
 
   useEffect(() => {
     if (!filters.estado || !filters.municipio || !filters.escola || !filters.serie) {
@@ -261,71 +275,135 @@ export default function RankingHub() {
   }, [filters.estado, filters.municipio, filters.escola, filters.serie]);
 
   useEffect(() => {
-    const needRankingItem = tab === "avaliacao" || tab === "cartao";
-    if (!needRankingItem || !canLoadRankingItems) {
-      setRankingItems([]);
+    if (!filters.estado || !filters.municipio) {
+      setEvaluationItems([]);
       return;
     }
     let cancelled = false;
-    setLoadingFilters((s) => ({ ...s, rankingItems: true }));
+    setLoadingFilters((s) => ({ ...s, avaliacao: true }));
     EvaluationResultsApiService.getFilterEvaluations({
-      estado: filters.estado || "",
-      municipio: filters.municipio || "",
+      estado: filters.estado,
+      municipio: filters.municipio,
       ...(filters.escola ? { escola: filters.escola } : {}),
-      ...(tab === "cartao" ? { report_entity_type: REPORT_ENTITY_TYPE_ANSWER_SHEET } : {}),
+      ...(filters.periodo ? { periodo: filters.periodo } : {}),
     })
       .then((list) => {
         if (cancelled) return;
-        setRankingItems((list || []).map((item) => ({ id: item.id, label: sanitizeRankingLabel(item) })));
+        setEvaluationItems((list || []).map((item) => ({ id: item.id, label: item.titulo || item.id })));
       })
       .finally(() => {
-        if (!cancelled) setLoadingFilters((s) => ({ ...s, rankingItems: false }));
+        if (!cancelled) setLoadingFilters((s) => ({ ...s, avaliacao: false }));
       });
     return () => {
       cancelled = true;
     };
-  }, [tab, canLoadRankingItems, filters.estado, filters.municipio, filters.escola]);
+  }, [filters.estado, filters.municipio, filters.escola, filters.periodo]);
 
-  const generalQuery = useQuery({
-    queryKey: ["ranking", "general", requestFilters],
-    queryFn: () => RankingApiService.getGeneralRanking(requestFilters, 1, 100),
-    enabled: tab === "geral" && hasBaseFilters,
+  useEffect(() => {
+    if (!filters.estado || !filters.municipio) {
+      setAnswerSheetItems([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingFilters((s) => ({ ...s, cartao: true }));
+    EvaluationResultsApiService.getFilterEvaluations({
+      estado: filters.estado,
+      municipio: filters.municipio,
+      ...(filters.escola ? { escola: filters.escola } : {}),
+      report_entity_type: REPORT_ENTITY_TYPE_ANSWER_SHEET,
+      ...(filters.periodo ? { periodo: filters.periodo } : {}),
+    })
+      .then((list) => {
+        if (cancelled) return;
+        setAnswerSheetItems((list || []).map((item) => ({ id: item.id, label: item.titulo || item.id })));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingFilters((s) => ({ ...s, cartao: false }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [filters.estado, filters.municipio, filters.escola, filters.periodo]);
+
+  const rankingQuery = useQuery({
+    queryKey: ["ranking", "model", requestFilters],
+    queryFn: () => RankingApiService.getGeneralRanking(requestFilters, 1, 200),
+    enabled: hasBaseFilters && hasEntitySelection,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
   });
 
-  const evaluationQuery = useQuery({
-    queryKey: ["ranking", "evaluation", requestFilters],
-    queryFn: () => RankingApiService.getSpecificEvaluationRanking(requestFilters, 1, 100),
-    enabled: tab === "avaliacao" && hasBaseFilters && !!filters.evaluation_id,
-  });
+  useEffect(() => {
+    if (!hasBaseFilters || !hasEntitySelection) return;
+    const disciplines = rankingQuery.data?.discipline_options || [];
+    if (!disciplines.length) return;
 
-  const answerSheetQuery = useQuery({
-    queryKey: ["ranking", "answer-sheet", requestFilters],
-    queryFn: () => RankingApiService.getSpecificAnswerSheetRanking(requestFilters, 1, 100),
-    enabled: tab === "cartao" && hasBaseFilters && !!filters.answer_sheet_id,
-  });
+    const baseFilters: RankingFilters = {
+      ...requestFilters,
+      disciplina: "",
+    };
 
-  const teachersQuery = useQuery({
-    queryKey: ["ranking", "teachers", requestFilters],
-    queryFn: () => RankingApiService.getTeacherRanking(requestFilters, 1, 50),
-    enabled: tab === "professores" && hasBaseFilters,
-  });
+    disciplines.forEach((discipline) => {
+      const disciplineFilters: RankingFilters = {
+        ...baseFilters,
+        disciplina: discipline.id,
+      };
+      queryClient.prefetchQuery({
+        queryKey: ["ranking", "model", disciplineFilters],
+        queryFn: () => RankingApiService.getGeneralRanking(disciplineFilters, 1, 200),
+        staleTime: 5 * 60 * 1000,
+      });
+    });
+  }, [hasBaseFilters, hasEntitySelection, rankingQuery.data?.discipline_options, queryClient, requestFilters]);
 
-  const evaluationError = evaluationQuery.error ? getApiError(evaluationQuery.error, "Erro ao carregar ranking por avaliação.") : undefined;
-  const answerError = answerSheetQuery.error ? getApiError(answerSheetQuery.error, "Erro ao carregar ranking por cartão.") : undefined;
-  const generalError = generalQuery.error ? getApiError(generalQuery.error, "Erro ao carregar ranking geral.") : undefined;
-  const teachersError = teachersQuery.error ? getApiError(teachersQuery.error, "Erro ao carregar ranking de professores.") : undefined;
+  const rankingError = rankingQuery.error ? getApiError(rankingQuery.error, "Erro ao carregar relatório de ranking.") : undefined;
+
+  const gradeOptionsFromApi = rankingQuery.data?.grade_options || [];
+  const useApiGradeOptions = hasSchoolFilter && hasEntitySelection;
+  const serieOptions = useApiGradeOptions ? gradeOptionsFromApi : series;
+
+  useEffect(() => {
+    if (!useApiGradeOptions || !filters.serie) return;
+    const valid = gradeOptionsFromApi.some((item) => item.id === filters.serie);
+    if (!valid) {
+      setFilters({ serie: "" }, ["turma"]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useApiGradeOptions, gradeOptionsFromApi, filters.serie]);
+
+  useEffect(() => {
+    if (!hasSchoolFilter) return;
+    if (tab === "visao-geral" || tab === "municipal") {
+      const next = new URLSearchParams(searchParams);
+      next.set("tipo", "escola-turma");
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasSchoolFilter, tab]);
 
   const currentCount =
-    tab === "geral"
-      ? generalQuery.data?.totals.count
-      : tab === "avaliacao"
-        ? evaluationQuery.data?.totals.count
-        : tab === "cartao"
-          ? answerSheetQuery.data?.totals.count
-          : teachersQuery.data?.totals.count;
+    tab === "visao-geral"
+      ? Number(rankingQuery.data?.overview?.summary?.total_schools || 0)
+      : tab === "municipal"
+        ? Number(rankingQuery.data?.municipal_ranking?.totals?.count || 0)
+        : tab === "escola-turma"
+          ? filters.serie
+            ? Number(rankingQuery.data?.classes_ranking?.items?.length || 0)
+            : Number(rankingQuery.data?.school_class_ranking?.school_options?.length || 0)
+          : Number(rankingQuery.data?.teachers_top?.totals?.count || 0);
   const estadoNome = estados.find((item) => item.id === filters.estado)?.name || "";
   const municipioNome = municipios.find((item) => item.id === filters.municipio)?.name || "";
+  const escolaNome = schools.find((item) => item.id === filters.escola)?.name || "";
+  const serieNome =
+    serieOptions.find((item) => item.id === filters.serie)?.name ||
+    rankingQuery.data?.classes_ranking?.grade_name ||
+    "";
+  const turmaNome = turmas.find((item) => item.id === filters.turma)?.name || "";
   const recorteLabel = [estadoNome, municipioNome].filter(Boolean).join(" / ");
+  const periodoLabel =
+    normalizedSelectedPeriod !== "all" && periodCalendarSelected
+      ? format(periodCalendarSelected, "MMMM 'de' yyyy", { locale: ptBR })
+      : "Todos os períodos";
 
   const clearFilters = () => {
     const next = new URLSearchParams(searchParams);
@@ -336,6 +414,7 @@ export default function RankingHub() {
       "serie",
       "turma",
       "periodo",
+      "disciplina",
       "evaluation_id",
       "answer_sheet_id",
       "scope",
@@ -345,28 +424,21 @@ export default function RankingHub() {
 
   const handleExportPdf = async () => {
     try {
-      const tabToRankingType =
-        tab === "geral"
-          ? "general"
-          : tab === "avaliacao"
-            ? "specific_evaluation"
-            : tab === "cartao"
-              ? "specific_answer_sheet"
-              : "teachers";
-
-      const data =
-        tab === "geral"
-          ? generalQuery.data
-          : tab === "avaliacao"
-            ? evaluationQuery.data
-            : tab === "cartao"
-              ? answerSheetQuery.data
-              : teachersQuery.data;
+      const data = rankingQuery.data;
 
       if (!hasBaseFilters) {
         toast({
           title: "Filtros obrigatórios",
           description: "Selecione estado e município para exportar o ranking.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!hasEntitySelection) {
+        toast({
+          title: "Seleção obrigatória",
+          description: "Selecione uma avaliação ou um cartão-resposta para visualizar e exportar o ranking.",
           variant: "destructive",
         });
         return;
@@ -381,17 +453,29 @@ export default function RankingHub() {
         return;
       }
 
+      const entityTitle = filters.evaluation_id
+        ? evaluationItems.find((item) => item.id === filters.evaluation_id)?.label
+        : answerSheetItems.find((item) => item.id === filters.answer_sheet_id)?.label;
+      const disciplinaNome =
+        data.discipline_options?.find((item) => item.id === filters.disciplina)?.name ||
+        (filters.disciplina ? "Disciplina selecionada" : "Geral");
+
       await generateRankingReportPdf({
-        rankingType: tabToRankingType,
+        rankingType: "general",
         data,
         filters: requestFilters,
-        contextTitle:
-          tab === "avaliacao"
-            ? filters.evaluation_id
-            : tab === "cartao"
-              ? filters.answer_sheet_id
-              : undefined,
-        fileNameBase: `ranking-${tab}`,
+        contextTitle: entityTitle,
+        filterLabels: {
+          estado: estadoNome || "Todos",
+          municipio: municipioNome || "Todos",
+          escola: escolaNome || "Todas",
+          serie: serieNome || "Todas",
+          turma: turmaNome || "Todas",
+          periodo: periodoLabel,
+          avaliacao: entityTitle || "—",
+          disciplina: disciplinaNome,
+        },
+        fileNameBase: "ranking-completo",
       });
       toast({
         title: "PDF gerado",
@@ -408,29 +492,40 @@ export default function RankingHub() {
 
   return (
     <div className="w-full min-w-0 space-y-6 pb-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <header className="space-y-1.5">
-          <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold tracking-tight sm:gap-3 sm:text-3xl">
-            <Trophy className="h-7 w-7 shrink-0 text-primary sm:h-8 sm:w-8" aria-hidden />
+      <header className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight sm:text-3xl">
+            <Trophy className="h-6 w-6 text-primary" aria-hidden />
             Relatório de ranking
           </h1>
-          <p className="max-w-3xl text-sm text-muted-foreground sm:text-base">
-            Compare desempenho por município, escola, série e turma entre ranking geral, avaliação específica,
-            cartão-resposta e professores.
-          </p>
-        </header>
-        <div className="shrink-0 rounded-lg border border-border bg-card px-4 py-3 text-center sm:text-right">
-          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Registros no recorte</span>
-          <div className="text-2xl font-bold tabular-nums text-foreground">{currentCount ?? 0}</div>
-          <p className="text-xs text-muted-foreground">Escopo aplicado: {derivedScope}</p>
+          <Badge variant="outline">{currentCount ?? 0} registros</Badge>
         </div>
-      </div>
+        <p className="text-sm text-muted-foreground">
+          Visão geral, ranking municipal, escola/turma e top professores com o mesmo recorte de filtros.
+        </p>
+        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <span>{recorteLabel || "Sem recorte municipal"}</span>
+          <span className="text-border">•</span>
+          <span className="capitalize">{periodoLabel}</span>
+        </div>
+      </header>
+
+      <Tabs value={rankingEntityTab} onValueChange={(value) => setEntityTab(value as RankingEntityTab)} className="w-full">
+        <TabsList className="mb-0 w-full max-w-md">
+          <TabsTrigger value="avaliacao" className="flex-1">
+            Avaliação online
+          </TabsTrigger>
+          <TabsTrigger value="cartao" className="flex-1">
+            Cartão-resposta
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-lg">
             <Filter className="h-5 w-5 text-primary" />
-            Filtros principais
+            Filtros
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
@@ -441,7 +536,7 @@ export default function RankingHub() {
               onValueChange={(value) =>
                 setFilters(
                   { estado: value === "all" ? "" : value },
-                  ["municipio", "escola", "serie", "turma", "evaluation_id", "answer_sheet_id"]
+                  ["municipio", "escola", "serie", "turma", "evaluation_id", "answer_sheet_id", "disciplina"]
                 )
               }
             >
@@ -466,7 +561,7 @@ export default function RankingHub() {
               onValueChange={(value) =>
                 setFilters(
                   { municipio: value === "all" ? "" : value },
-                  ["escola", "serie", "turma", "evaluation_id", "answer_sheet_id"]
+                  ["escola", "serie", "turma", "evaluation_id", "answer_sheet_id", "disciplina"]
                 )
               }
               disabled={!filters.estado || loadingFilters.municipios}
@@ -486,11 +581,66 @@ export default function RankingHub() {
           </div>
 
           <div className="space-y-1.5">
+            <Label htmlFor={rankingEntityTab === "avaliacao" ? "evaluation_id" : "answer_sheet_id"}>
+              {rankingEntityTab === "avaliacao" ? "Avaliação" : "Cartão resposta"}
+            </Label>
+            {rankingEntityTab === "avaliacao" ? (
+              <Select
+                value={filters.evaluation_id || "all"}
+                onValueChange={(value) =>
+                  setFilters({
+                    evaluation_id: value === "all" ? "" : value,
+                    answer_sheet_id: "",
+                      disciplina: "",
+                  })
+                }
+                disabled={!filters.municipio || loadingFilters.avaliacao}
+              >
+                <SelectTrigger id="evaluation_id">
+                  <SelectValue placeholder="Selecione a avaliação" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as avaliações</SelectItem>
+                  {evaluationItems.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Select
+                value={filters.answer_sheet_id || "all"}
+                onValueChange={(value) =>
+                  setFilters({
+                    answer_sheet_id: value === "all" ? "" : value,
+                    evaluation_id: "",
+                      disciplina: "",
+                  })
+                }
+                disabled={!filters.municipio || loadingFilters.cartao}
+              >
+                <SelectTrigger id="answer_sheet_id">
+                  <SelectValue placeholder="Selecione o cartão resposta" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os cartões</SelectItem>
+                  {answerSheetItems.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
             <Label htmlFor="escola">Escola</Label>
             <Select
               value={filters.escola || "all"}
               onValueChange={(value) =>
-                setFilters({ escola: value === "all" ? "" : value }, ["serie", "turma", "evaluation_id", "answer_sheet_id"])
+                setFilters({ escola: value === "all" ? "" : value }, ["serie", "turma"])
               }
               disabled={!filters.municipio || loadingFilters.escolas}
             >
@@ -513,14 +663,20 @@ export default function RankingHub() {
             <Select
               value={filters.serie || "all"}
               onValueChange={(value) => setFilters({ serie: value === "all" ? "" : value }, ["turma"])}
-              disabled={!filters.escola || loadingFilters.series}
+              disabled={!filters.escola || (useApiGradeOptions ? rankingQuery.isLoading : loadingFilters.series)}
             >
               <SelectTrigger id="serie">
-                <SelectValue placeholder="Selecione a série" />
+                <SelectValue
+                  placeholder={
+                    useApiGradeOptions
+                      ? "Séries com participação na avaliação"
+                      : "Selecione a série"
+                  }
+                />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas as séries</SelectItem>
-                {series.map((serie) => (
+                {serieOptions.map((serie) => (
                   <SelectItem key={serie.id} value={serie.id}>
                     {serie.name}
                   </SelectItem>
@@ -679,19 +835,6 @@ export default function RankingHub() {
               </PopoverContent>
             </Popover>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="scope">Escopo detectado</Label>
-            <Select value={derivedScope} disabled>
-              <SelectTrigger id="scope">
-                <SelectValue placeholder="Escopo aplicado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="municipio">Município</SelectItem>
-                <SelectItem value="escola">Escola</SelectItem>
-                <SelectItem value="turma">Turma</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
           <div className="flex items-end gap-2 md:col-span-3">
             <Button type="button" variant="outline" onClick={clearFilters}>
               <RefreshCw className="mr-2 h-4 w-4" />
@@ -713,18 +856,27 @@ export default function RankingHub() {
           setSearchParams(next, { replace: true });
         }}
       >
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1 md:grid-cols-4">
-          <TabsTrigger value="geral" className="gap-2">
-            <Trophy className="h-4 w-4" />
-            Ranking geral
-          </TabsTrigger>
-          <TabsTrigger value="avaliacao" className="gap-2">
-            <BookOpen className="h-4 w-4" />
-            Avaliação específica
-          </TabsTrigger>
-          <TabsTrigger value="cartao" className="gap-2">
-            <ScanLine className="h-4 w-4" />
-            Cartão específico
+        <TabsList
+          className={cn(
+            "sticky top-2 z-10 grid h-auto w-full gap-1 rounded-xl border border-border bg-background/90 p-1 backdrop-blur",
+            hasSchoolFilter ? "grid-cols-2" : "grid-cols-2 md:grid-cols-4"
+          )}
+        >
+          {!hasSchoolFilter ? (
+            <>
+              <TabsTrigger value="visao-geral" className="gap-2">
+                <Trophy className="h-4 w-4" />
+                Visão geral
+              </TabsTrigger>
+              <TabsTrigger value="municipal" className="gap-2">
+                <School className="h-4 w-4" />
+                Ranking municipal
+              </TabsTrigger>
+            </>
+          ) : null}
+          <TabsTrigger value="escola-turma" className="gap-2">
+            <Filter className="h-4 w-4" />
+            {filters.serie ? "Ranking de turmas" : "Por escola/série"}
           </TabsTrigger>
           <TabsTrigger value="professores" className="gap-2">
             <Users className="h-4 w-4" />
@@ -732,90 +884,74 @@ export default function RankingHub() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="geral" className="mt-6">
-          <RankingGeneralPanel
-            data={generalQuery.data}
-            isLoading={generalQuery.isLoading}
-            errorMessage={generalError}
-            recorteLabel={recorteLabel}
-          />
-        </TabsContent>
-
-        <TabsContent value="avaliacao" className="mt-6 space-y-4">
-          <Card>
-            <CardContent className="space-y-3 pt-6">
-              <Badge variant="secondary" className="w-fit">
-                <Medal className="mr-1 h-3 w-3" />
-                Ranking por avaliação
-              </Badge>
-              <Label htmlFor="evaluation_id">Avaliação</Label>
-              <Select
-                value={filters.evaluation_id || "all"}
-                onValueChange={(value) => setFilters({ evaluation_id: value === "all" ? "" : value })}
-                disabled={!canLoadRankingItems || loadingFilters.rankingItems}
+        {hasEntitySelection && (rankingQuery.data?.discipline_options?.length || 0) > 0 ? (
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Resultado</span>
+            <Button
+              type="button"
+              size="sm"
+              variant={!filters.disciplina ? "default" : "outline"}
+              onClick={() => setFilters({ disciplina: "" })}
+            >
+              Geral
+            </Button>
+            {(rankingQuery.data?.discipline_options || []).map((discipline) => (
+              <Button
+                key={discipline.id}
+                type="button"
+                size="sm"
+                variant={filters.disciplina === discipline.id ? "default" : "outline"}
+                onClick={() => setFilters({ disciplina: discipline.id })}
               >
-                <SelectTrigger id="evaluation_id">
-                  <SelectValue placeholder="Selecione a avaliação" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Selecione</SelectItem>
-                  {rankingItems.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
-          <RankingEvaluationPanel
-            data={evaluationQuery.data}
-            isLoading={evaluationQuery.isLoading}
-            errorMessage={evaluationError}
-          />
-        </TabsContent>
+                {discipline.name}
+              </Button>
+            ))}
+          </div>
+        ) : null}
 
-        <TabsContent value="cartao" className="mt-6 space-y-4">
-          <Card>
-            <CardContent className="space-y-3 pt-6">
-              <Badge variant="secondary" className="w-fit">
-                <ScanLine className="mr-1 h-3 w-3" />
-                Ranking por cartão-resposta
-              </Badge>
-              <Label htmlFor="answer_sheet_id">Cartão resposta</Label>
-              <Select
-                value={filters.answer_sheet_id || "all"}
-                onValueChange={(value) => setFilters({ answer_sheet_id: value === "all" ? "" : value })}
-                disabled={!canLoadRankingItems || loadingFilters.rankingItems}
-              >
-                <SelectTrigger id="answer_sheet_id">
-                  <SelectValue placeholder="Selecione o cartão resposta" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Selecione</SelectItem>
-                  {rankingItems.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
-          <RankingAnswerSheetPanel
-            data={answerSheetQuery.data}
-            isLoading={answerSheetQuery.isLoading}
-            errorMessage={answerError}
-          />
-        </TabsContent>
+        {!hasEntitySelection ? (
+          <div className="mt-6">
+            <Card className="border border-dashed border-border/70">
+              <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                Selecione uma avaliação ou um cartão-resposta para exibir as informações do ranking.
+              </CardContent>
+            </Card>
+          </div>
+        ) : (
+          <>
+            {!hasSchoolFilter ? (
+              <TabsContent value="visao-geral" className="mt-6">
+                <RankingOverviewPanel data={rankingQuery.data} isLoading={rankingQuery.isLoading} errorMessage={rankingError} />
+              </TabsContent>
+            ) : null}
 
-        <TabsContent value="professores" className="mt-6">
-          <RankingTeachersPanel
-            data={teachersQuery.data}
-            isLoading={teachersQuery.isLoading}
-            errorMessage={teachersError}
-          />
-        </TabsContent>
+            {!hasSchoolFilter ? (
+              <TabsContent value="municipal" className="mt-6">
+                <RankingMunicipalPanel data={rankingQuery.data} isLoading={rankingQuery.isLoading} errorMessage={rankingError} />
+              </TabsContent>
+            ) : null}
+
+            <TabsContent value="escola-turma" className="mt-6">
+              <RankingSchoolClassPanel
+                data={rankingQuery.data}
+                isLoading={rankingQuery.isLoading}
+                errorMessage={rankingError}
+                filterSchoolId={filters.escola}
+                filterSerieId={filters.serie}
+                filterSchoolName={escolaNome}
+                filterSerieName={serieNome}
+              />
+            </TabsContent>
+
+            <TabsContent value="professores" className="mt-6">
+              <RankingTeachersPanel
+                data={rankingQuery.data}
+                isLoading={rankingQuery.isLoading}
+                errorMessage={rankingError}
+              />
+            </TabsContent>
+          </>
+        )}
       </Tabs>
     </div>
   );

@@ -11,6 +11,7 @@ export interface RankingFilters {
   serie?: string;
   turma?: string;
   periodo?: string;
+  disciplina?: string;
   evaluation_id?: string;
   answer_sheet_id?: string;
 }
@@ -139,6 +140,118 @@ export interface RankingResponse {
     per_page: number;
     total: number;
     total_pages: number;
+  };
+  overview?: {
+    by_course?: Record<
+      string,
+      {
+        target_score: number;
+        counts_by_status: {
+          destaque: number;
+          desenvolvimento: number;
+          atencao: number;
+        };
+        chart_rows: Array<{
+          position: number;
+          school_id?: string;
+          school_name?: string;
+          average_score: number;
+          average_proficiency?: number;
+          status: "destaque" | "desenvolvimento" | "atencao";
+        }>;
+        table_rows: Array<{
+          position: number;
+          school_id?: string;
+          school_name?: string;
+          average_score: number;
+          average_proficiency?: number;
+          status: "destaque" | "desenvolvimento" | "atencao";
+          level_tag?: string;
+          is_critical?: boolean;
+        }>;
+      }
+    >;
+    summary?: {
+      total_schools: number;
+      total_students: number;
+      participating_students: number;
+      participation_rate: number;
+      top_school?: Record<string, unknown> | null;
+    };
+  };
+  municipal_ranking?: {
+    items: Array<{
+      position: number;
+      school_id?: string;
+      school_name?: string;
+      participation_rate: number;
+      participating_students: number;
+      total_students: number;
+      average_proficiency: number;
+      average_score: number;
+      adequado_avancado_count?: number;
+      adequado_avancado_pct: number;
+      best_class_name?: string;
+      level_tag?: string;
+      is_critical?: boolean;
+    }>;
+    totals?: { count: number };
+  };
+  school_class_ranking?: {
+    school_options?: Array<{ id: string; name: string }>;
+    items_by_school?: Record<
+      string,
+      Array<{
+        position: number;
+        course_label?: string;
+        series_class_name: string;
+        teacher_name: string;
+        participation_rate: number;
+        participating_students: number;
+        total_students: number;
+        average_proficiency: number;
+        average_score: number;
+        adequado_avancado_pct: number;
+        level_tag?: string;
+        is_critical?: boolean;
+      }>
+    >;
+  };
+  teachers_top?: {
+    items: Array<{
+      position: number;
+      teacher_id?: string;
+      teacher_name?: string;
+      teacher_email?: string;
+      school_name?: string;
+      series_class_name?: string;
+      adequado_avancado_pct?: number;
+      average_proficiency?: number;
+      average_score?: number;
+      classification?: string;
+      is_critical?: boolean;
+    }>;
+    totals?: { count: number };
+  };
+  discipline_options?: Array<{ id: string; name: string }>;
+  selected_discipline?: string | null;
+  grade_options?: Array<{ id: string; name: string }>;
+  classes_ranking?: {
+    grade_name?: string | null;
+    items: Array<{
+      position: number;
+      class_id?: string;
+      class_name?: string;
+      grade_name?: string;
+      participation_rate: number;
+      participating_students: number;
+      total_students: number;
+      average_proficiency: number;
+      average_score: number;
+      level_tag?: string;
+      is_critical?: boolean;
+    }>;
+    totals?: { count: number };
   };
 }
 

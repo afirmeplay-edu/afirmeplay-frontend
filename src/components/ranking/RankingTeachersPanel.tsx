@@ -1,10 +1,9 @@
-import { AlertCircle, Award, Medal, Star, Trophy, TrendingUp, Users } from "lucide-react";
+import { AlertCircle, Star, Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RankingResponse } from "@/services/reports/rankingApi";
-import { getReportProficiencyTagClass } from "@/utils/report/reportTagStyles";
-import { getMedalEmoji, getPositionHighlightClass, getPositionTextColor } from "@/utils/coins";
+import { LevelTag, PosBadge, formatPt } from "@/components/ranking/RankingVisualPrimitives";
 
 type Props = {
   data?: RankingResponse;
@@ -30,53 +29,45 @@ export function RankingTeachersPanel({ data, isLoading, errorMessage }: Props) {
     );
   }
 
-  const items = data?.items || [];
+  const modelTeachers = data?.teachers_top?.items || [];
+  const items = modelTeachers.length > 0 ? modelTeachers : (data?.items || []);
   const courseSections =
-    data?.teacher_course_sections ||
-    [
-      {
-        course_label: "Geral",
-        totals: { count: items.length },
-        items,
-      },
-    ];
-  const getRankingIcon = (position: number) => {
-    const medalEmoji = getMedalEmoji(position);
-    if (medalEmoji) return <span className="text-2xl">{medalEmoji}</span>;
-    if (position === 1) return <Trophy className="h-6 w-6 text-amber-500" />;
-    if (position === 2) return <Medal className="h-6 w-6 text-muted-foreground" />;
-    if (position === 3) return <Award className="h-6 w-6 text-amber-600 dark:text-amber-500" />;
-    return <span className="text-lg font-bold text-muted-foreground">{position}</span>;
-  };
-
-  const getRankingBackground = (position: number) => {
-    const highlightClass = getPositionHighlightClass(position);
-    if (highlightClass) return highlightClass;
-    return "bg-card border-border";
-  };
-
+    modelTeachers.length > 0
+      ? [
+          {
+            course_label: "Top professores",
+            totals: { count: modelTeachers.length },
+            items: modelTeachers,
+          },
+        ]
+      : (
+          data?.teacher_course_sections ||
+          [
+            {
+              course_label: "Geral",
+              totals: { count: items.length },
+              items,
+            },
+          ]
+        );
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {courseSections.map((section) => (
-        <Card key={section.course_label} className="border border-border shadow-lg">
-          <CardHeader className="bg-gradient-to-r from-purple-700 to-purple-600 text-white">
+        <Card key={section.course_label} className="overflow-hidden border border-border/70">
+          <CardHeader className="bg-primary text-primary-foreground">
             <CardTitle className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/10">
-                  <Trophy className="h-6 w-6 text-purple-200" />
+                  <Trophy className="h-6 w-6 text-primary-foreground" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-semibold">Ranking de professores - {section.course_label}</h1>
-                  <p className="text-sm text-purple-100">Classificação por proficiência média</p>
+                  <h1 className="text-xl font-semibold">Top professores</h1>
+                  <p className="text-sm text-primary-foreground/90">Classificação por níveis, proficiência e nota média</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 text-purple-100">
-                <Users className="h-4 w-4" />
-                <span className="text-sm font-medium">
-                  {Number(section.totals?.count || section.items.length)}{" "}
-                  {Number(section.totals?.count || section.items.length) === 1 ? "professor" : "professores"}
-                </span>
-              </div>
+              <Badge className="bg-primary-foreground/10 text-primary-foreground border-primary-foreground/20">
+                {Number(section.totals?.count || section.items.length)} professores
+              </Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-6">
@@ -87,65 +78,51 @@ export function RankingTeachersPanel({ data, isLoading, errorMessage }: Props) {
                 <p className="text-muted-foreground">Não há dados de desempenho para os filtros selecionados.</p>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
                 {section.items.map((item) => {
                   const position = Number(item.position || 0);
-                  const positionColor = getPositionTextColor(position);
                   return (
                     <div
                       key={String(item.teacher_id || item.position)}
-                      className={`flex flex-col items-start gap-4 rounded-lg border p-4 transition-all duration-200 hover:shadow-md sm:flex-row sm:items-center ${getRankingBackground(position)}`}
+                      className="rounded-xl border border-border/70 bg-card p-4 shadow-sm transition-all duration-200 hover:shadow-md"
                     >
-                      <div
-                        className={`flex h-12 w-12 items-center justify-center self-center rounded-lg border-2 bg-card shadow-sm sm:self-auto ${
-                          position <= 3 ? "border-yellow-400 dark:border-yellow-600" : "border-border"
-                        }`}
-                      >
-                        {getRankingIcon(position)}
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="mb-2 flex flex-wrap items-center gap-3">
-                          <h3 className={`truncate text-base font-semibold ${positionColor}`}>
-                            {String(item.teacher_name || "Professor")}
-                          </h3>
-                          {position <= 3 ? (
-                            <Badge className="border-yellow-300 bg-yellow-100 text-xs font-bold text-yellow-800 dark:bg-yellow-950/30 dark:text-yellow-400">
-                              {position}º Lugar
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <p className="mb-2 text-xs text-muted-foreground">{String(item.teacher_email || "E-mail não informado")}</p>
-
-                        <div className="flex flex-wrap items-center gap-6 text-sm text-muted-foreground">
-                          <div className="flex items-center gap-2">
-                            <TrendingUp className="h-4 w-4 text-blue-500 dark:text-blue-400" />
-                            <span className="font-medium">Nota:</span>
-                            <span className="font-semibold text-foreground">{Number(item.average_score || 0).toFixed(1)}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Star className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-                            <span className="font-medium">Proficiência:</span>
-                            <span className="font-semibold text-foreground">{Number(item.average_proficiency || 0).toFixed(1)}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Users className="h-4 w-4 text-muted-foreground" />
-                            <span className="font-medium">Avaliações:</span>
-                            <span className="font-semibold text-foreground">{Number(item.total_evaluations || 0)}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Users className="h-4 w-4 text-muted-foreground" />
-                            <span className="font-medium">Turmas:</span>
-                            <span className="font-semibold text-foreground">{Number(item.classes_count || 0)}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col items-start gap-1 sm:items-end">
-                        <div className="text-xs font-medium text-muted-foreground">Nível</div>
-                        <Badge className={getReportProficiencyTagClass(String(item.classification || ""))}>
-                          {String(item.classification || "—")}
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <PosBadge position={position} />
+                        <Badge className="border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-300">
+                          {String(item.series_class_name || "N/A")}
                         </Badge>
+                      </div>
+
+                      <div className="space-y-1">
+                        <h3 className="truncate text-base font-semibold text-foreground">
+                          {String(item.teacher_name || "Professor")}
+                        </h3>
+                        <p className="text-xs text-muted-foreground">{String(item.school_name || "Escola não informada")}</p>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <div className="rounded-lg bg-muted/40 p-2 text-center">
+                          <p className="text-[11px] text-muted-foreground">Níveis</p>
+                          <p className="text-sm font-bold text-foreground">
+                            {formatPt(Number(item.adequado_avancado_pct || 0))}%
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-muted/40 p-2 text-center">
+                          <p className="text-[11px] text-muted-foreground">Proficiência</p>
+                          <p className="text-sm font-bold text-foreground">{formatPt(Number(item.average_proficiency || 0))}</p>
+                        </div>
+                        <div className="rounded-lg bg-muted/40 p-2 text-center">
+                          <p className="text-[11px] text-muted-foreground">Nota</p>
+                          <p className="text-sm font-bold text-primary">{formatPt(Number(item.average_score || 0))}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between">
+                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          <Star className="h-3.5 w-3.5" />
+                          Nível
+                        </span>
+                        <LevelTag value={item.classification} />
                       </div>
                     </div>
                   );
