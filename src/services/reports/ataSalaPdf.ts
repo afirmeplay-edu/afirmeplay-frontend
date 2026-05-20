@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 
 type AtaOptions = {
+  applicationDayLabel: string;
   dateDay: string;
   dateMonth: string;
   dateYear: string;
@@ -405,8 +406,9 @@ function drawPage1(doc: jsPDF, data: AtaSalaPdfData): void {
   );
   y += SECTION_V_GAP;
 
+  const dayLabel = (data.options.applicationDayLabel || "1º dia de aplicação").trim() || "1º dia de aplicação";
   drawPinkRect(doc, M, y, contentW, 18);
-  drawText(doc, "1. Data do 1º dia de aplicação.", M + 2, y + 6, 7.4);
+  drawText(doc, `1. Data do ${dayLabel}.`, M + 2, y + 6, 7.4);
   const dateBoxW = 4.6;
   const dateFieldW = dateBoxW * 8 + 2 * 3.6;
   const dateX = rightX - dateFieldW - 2;
@@ -429,12 +431,12 @@ function drawPage1(doc: jsPDF, data: AtaSalaPdfData): void {
   const q3TextX = q3FieldX - 56;
   const q2FieldX = q3TextX - hmFieldW - 16;
 
-  drawText(doc, "2. Início do 1º dia de aplicação.", M + 2, y + 6, 7.0);
+  drawText(doc, `2. Início do ${dayLabel}.`, M + 2, y + 6, 7.0);
   drawCodeBoxes(doc, q2FieldX, y + 3, [data.options.startHour[0] || "", data.options.startHour[1] || ""], timeBoxW, 7);
   drawText(doc, ":", q2FieldX + timeBoxW * 2 + 0.9, y + 6.5, 9, "bold", "center", "middle");
   drawCodeBoxes(doc, q2FieldX + timeBoxW * 2 + 2.1, y + 3, [data.options.startMinute[0] || "", data.options.startMinute[1] || ""], timeBoxW, 7);
 
-  drawText(doc, "3. Término do 1º dia de aplicação.", q3TextX, y + 6, 7.0);
+  drawText(doc, `3. Término do ${dayLabel}.`, q3TextX, y + 6, 7.0);
   drawCodeBoxes(doc, q3FieldX, y + 3, [data.options.endHour[0] || "", data.options.endHour[1] || ""], timeBoxW, 7);
   drawText(doc, ":", q3FieldX + timeBoxW * 2 + 0.9, y + 6.5, 9, "bold", "center", "middle");
   drawCodeBoxes(doc, q3FieldX + timeBoxW * 2 + 2.1, y + 3, [data.options.endMinute[0] || "", data.options.endMinute[1] || ""], timeBoxW, 7);

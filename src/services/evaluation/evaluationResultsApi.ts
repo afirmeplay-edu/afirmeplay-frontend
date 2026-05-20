@@ -2066,6 +2066,7 @@ export class EvaluationResultsApiService {
   }): Promise<Array<{
     id: string;
     titulo: string;
+    disciplina?: string;
   }>> {
     try {
       const response = await this.getFilterOptions({

@@ -31,6 +31,7 @@ import {
 
 type Option = { id: string; name: string };
 type Mode = "turma" | "avaliacao" | "cartao_resposta";
+type EvaluationOption = { id: string; titulo: string; disciplina?: string };
 
 type AtaOptions = AtaSalaPdfData["options"];
 
@@ -125,6 +126,7 @@ function sanitizeAtaDay(rawDigits: string, monthStr: string, yearStr: string): s
 }
 
 const DEFAULT_OPTIONS: AtaOptions = {
+  applicationDayLabel: "1º dia de aplicação",
   dateDay: "",
   dateMonth: "",
   dateYear: "",
@@ -201,7 +203,8 @@ export default function AtaSalaPage() {
   const [selectedSerie, setSelectedSerie] = useState("all");
   const [selectedTurma, setSelectedTurma] = useState("all");
   const [modoLista, setModoLista] = useState<Mode>("turma");
-  const [avaliacoes, setAvaliacoes] = useState<{ id: string; titulo: string }[]>([]);
+  const [avaliacoes, setAvaliacoes] = useState<EvaluationOption[]>([]);
+  const [disciplinasEscola, setDisciplinasEscola] = useState<Option[]>([]);
   const [selectedAvaliacaoId, setSelectedAvaliacaoId] = useState("all");
   const [turmasAvaliacao, setTurmasAvaliacao] = useState<Option[]>([]);
 
@@ -211,6 +214,7 @@ export default function AtaSalaPage() {
     escolas: false,
     series: false,
     turmas: false,
+    disciplinas: false,
     avaliacoes: false,
     turmasAvaliacao: false,
     lista: false,
@@ -337,6 +341,33 @@ export default function AtaSalaPage() {
   }, [selectedSchool, selectedMunicipio, selectedEstado]);
 
   useEffect(() => {
+    if (!selectedSchool || selectedSchool === "all") {
+      setDisciplinasEscola([]);
+      setDisciplina("");
+      return;
+    }
+    let cancelled = false;
+    setLoading((s) => ({ ...s, disciplinas: true }));
+    FormFiltersApiService.getSchoolSubjects(selectedSchool)
+      .then((list) => {
+        if (cancelled) return;
+        const mapped = list.map((item) => ({ id: item.id, name: item.nome }));
+        setDisciplinasEscola(mapped);
+        setDisciplina((prev) => {
+          if (!prev) return "";
+          const exists = mapped.some((item) => item.name === prev);
+          return exists ? prev : "";
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading((s) => ({ ...s, disciplinas: false }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSchool]);
+
+  useEffect(() => {
     if (
       !selectedSerie ||
       selectedSerie === "all" ||
@@ -409,7 +440,7 @@ export default function AtaSalaPage() {
     })
       .then((items) => {
         if (cancelled) return;
-        setAvaliacoes((items ?? []).map((a) => ({ id: a.id, titulo: a.titulo || a.id })));
+        setAvaliacoes((items ?? []).map((a) => ({ id: a.id, titulo: a.titulo || a.id, disciplina: a.disciplina || "" })));
       })
       .finally(() => {
         if (!cancelled) setLoading((s) => ({ ...s, avaliacoes: false }));
@@ -499,6 +530,14 @@ export default function AtaSalaPage() {
   );
   const hasContextForAta = selectedEstado !== "all" && selectedMunicipio !== "all" && selectedSchool !== "all";
   const turmaOptions = isModoAplicada ? turmasAvaliacao : turmas;
+  const disciplinasDisponiveis = useMemo(() => {
+    const base = [...disciplinasEscola];
+    const current = (disciplina || "").trim();
+    if (current && !base.some((item) => item.name === current)) {
+      base.push({ id: `custom:${current.toLowerCase()}`, name: current });
+    }
+    return base.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  }, [disciplinasEscola, disciplina]);
 
   useEffect(() => {
     if (!selectedMunicipioLabel && !selectedEstadoLabel) {
@@ -523,6 +562,15 @@ export default function AtaSalaPage() {
       setNomeAvaliacao(selectedAvaliacaoTitulo);
     }
   }, [isModoAplicada, selectedAvaliacaoTitulo]);
+
+  useEffect(() => {
+    if (!isModoAplicada || !selectedAvaliacaoId || selectedAvaliacaoId === "all") return;
+    const avaliacao = avaliacoes.find((item) => item.id === selectedAvaliacaoId);
+    const disciplinaDaAvaliacao = (avaliacao?.disciplina || "").trim();
+    if (disciplinaDaAvaliacao) {
+      setDisciplina(disciplinaDaAvaliacao);
+    }
+  }, [isModoAplicada, selectedAvaliacaoId, avaliacoes]);
 
   const applyAtaAutofill = (results: ListaFrequenciaResponse[]) => {
     if (!results.length) {
@@ -965,23 +1013,48 @@ export default function AtaSalaPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="ata-disciplina">Disciplina</Label>
-                <Input
-                  id="ata-disciplina"
-                  value={disciplina}
-                  onChange={(e) => setDisciplina(e.target.value)}
-                  placeholder="Preencha se não veio da lista"
-                  className="bg-background"
-                />
+                <Label>Disciplina</Label>
+                <Select
+                  value={disciplina || "all"}
+                  onValueChange={(value) => setDisciplina(value === "all" ? "" : value)}
+                  disabled={selectedSchool === "all" || loading.disciplinas}
+                >
+                  <SelectTrigger className="bg-background">
+                    <SelectValue
+                      placeholder={
+                        selectedSchool === "all"
+                          ? "Selecione uma escola"
+                          : loading.disciplinas
+                            ? "Carregando disciplinas..."
+                            : "Selecione"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Selecione</SelectItem>
+                    {disciplinasDisponiveis.map((item) => (
+                      <SelectItem key={item.id} value={item.name}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label>1º dia de aplicação (data)</Label>
-            <p className="text-xs text-muted-foreground">
-              Ano {ATA_YEAR_MIN}–{ATA_YEAR_MAX};
-            </p>
+            <Label htmlFor="ata-application-day-label">Texto do dia de aplicação</Label>
+            <Input
+              id="ata-application-day-label"
+              value={options.applicationDayLabel}
+              onChange={(e) => setOpt("applicationDayLabel", e.target.value)}
+              placeholder="Ex.: 1º dia de aplicação, 2º dia de aplicação..."
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Data</Label>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <div className="space-y-1.5">
                 <Label htmlFor="ata-date-day">Dia</Label>

@@ -580,6 +580,10 @@ export default function ListaFrequencia() {
       const textGray: [number, number, number] = [80, 80, 80];
       const pink: [number, number, number] = [236, 72, 153];
       const pinkLight: [number, number, number] = [251, 207, 232];
+      // Círculos no mesmo tom das linhas da tabela (mais uniforme visualmente).
+      const statusCircleOn: [number, number, number] = [95, 95, 95];
+      const statusCircleOff: [number, number, number] = [95, 95, 95];
+      const statusHeaderText: [number, number, number] = [72, 18, 50];
       const contentWidth = pageWidth - 2 * margin;
 
       data.forEach((item, sectionIndex) => {
@@ -679,13 +683,13 @@ export default function ListaFrequencia() {
             fontSize: 8,
             cellPadding: 2,
             textColor: textBlack,
-            lineColor: [200, 200, 200],
-            lineWidth: 0.1,
+            lineColor: [140, 140, 140],
+            lineWidth: 0.18,
             overflow: 'linebreak',
           },
           headStyles: {
             fillColor: pinkLight,
-            textColor: pink,
+            textColor: statusHeaderText,
             fontStyle: 'bold',
           },
           columnStyles: {
@@ -710,14 +714,15 @@ export default function ListaFrequencia() {
               (!isAusente || provaExpirada === true);
             const cx = data.cell.x + data.cell.width / 2;
             const cy = data.cell.y + data.cell.height / 2;
-            const r = 2;
+            const r = 2.2;
+            data.doc.setLineWidth(0.18);
             if (mostrarPreenchido) {
-              data.doc.setFillColor(...pink);
+              data.doc.setFillColor(...statusCircleOn);
               data.doc.circle(cx, cy, r, 'F');
-              data.doc.setDrawColor(...pink);
+              data.doc.setDrawColor(...statusCircleOn);
               data.doc.circle(cx, cy, r, 'S');
             } else {
-              data.doc.setDrawColor(180, 180, 180);
+              data.doc.setDrawColor(...statusCircleOff);
               data.doc.circle(cx, cy, r, 'S');
             }
           },

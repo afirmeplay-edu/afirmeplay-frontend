@@ -208,5 +208,26 @@ export class FormFiltersApiService {
       return null;
     }
   }
+
+  /**
+   * Buscar disciplinas relacionadas à escola selecionada.
+   */
+  static async getSchoolSubjects(schoolId: string): Promise<Array<{
+    id: string;
+    nome: string;
+  }>> {
+    try {
+      if (!schoolId || schoolId === 'all') return [];
+      const response = await api.get(`/subjects/by-school/${schoolId}`);
+      const subjects = response.data || [];
+      if (!Array.isArray(subjects)) return [];
+      return subjects.map((subject: any) => ({
+        id: String(subject.id || ''),
+        nome: subject.nome || subject.name || '',
+      })).filter((subject: { id: string; nome: string }) => subject.nome !== '');
+    } catch (error) {
+      return [];
+    }
+  }
 }
 
