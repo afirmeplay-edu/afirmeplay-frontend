@@ -391,11 +391,6 @@ export default function AtaSalaPage() {
         if (cancelled) return;
         const mapped = list.map((item) => ({ id: item.id, name: item.nome }));
         setDisciplinasEscola(mapped);
-        setDisciplina((prev) => {
-          if (!prev) return "";
-          const exists = mapped.some((item) => item.name === prev);
-          return exists ? prev : "";
-        });
       })
       .finally(() => {
         if (!cancelled) setLoading((s) => ({ ...s, disciplinas: false }));
@@ -570,15 +565,6 @@ export default function AtaSalaPage() {
   );
   const hasContextForAta = selectedEstado !== "all" && selectedMunicipio !== "all" && selectedSchool !== "all";
   const turmaOptions = isModoAplicada ? turmasAvaliacao : turmas;
-  const disciplinasDisponiveis = useMemo(() => {
-    const base = [...disciplinasEscola];
-    const current = (disciplina || "").trim();
-    if (current && !base.some((item) => item.name === current)) {
-      base.push({ id: `custom:${current.toLowerCase()}`, name: current });
-    }
-    return base.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-  }, [disciplinasEscola, disciplina]);
-
   useEffect(() => {
     if (!selectedMunicipioLabel && !selectedEstadoLabel) {
       setMunicipioUf("");
@@ -1185,32 +1171,25 @@ export default function AtaSalaPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Disciplina</Label>
-                <Select
-                  value={disciplina || "all"}
-                  onValueChange={(value) => setDisciplina(value === "all" ? "" : value)}
-                  disabled={selectedSchool === "all" || loading.disciplinas}
-                >
-                  <SelectTrigger className="bg-background">
-                    <SelectValue
-                      placeholder={
-                        selectedSchool === "all"
-                          ? "Selecione uma escola"
-                          : loading.disciplinas
-                            ? "Carregando disciplinas..."
-                            : "Selecione"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Selecione</SelectItem>
-                    {disciplinasDisponiveis.map((item) => (
-                      <SelectItem key={item.id} value={item.name}>
-                        {item.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="ata-disciplina">Disciplina</Label>
+                <Input
+                  id="ata-disciplina"
+                  value={disciplina}
+                  onChange={(e) => setDisciplina(e.target.value)}
+                  list="ata-disciplina-sugestoes"
+                  disabled={selectedSchool === "all"}
+                  placeholder={
+                    selectedSchool === "all"
+                      ? "Selecione uma escola"
+                      : "Digite a disciplina (ex.: Língua Portuguesa, Matemática…)"
+                  }
+                  className="bg-background"
+                />
+                <datalist id="ata-disciplina-sugestoes">
+                  {disciplinasEscola.map((item) => (
+                    <option key={item.id} value={item.name} />
+                  ))}
+                </datalist>
               </div>
             </div>
           </div>
