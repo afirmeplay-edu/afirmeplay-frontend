@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calendar as CalendarIcon, Download, Filter, Loader2, RefreshCw, School, Trophy, Users } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Calendar as CalendarIcon, Download, Filter, Loader2, RefreshCw, Trophy, Users } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -13,24 +13,22 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { FormFiltersApiService } from "@/services/formFiltersApi";
 import { EvaluationResultsApiService, REPORT_ENTITY_TYPE_ANSWER_SHEET } from "@/services/evaluation/evaluationResultsApi";
 import { RankingApiService, type RankingFilters, type RankingScope } from "@/services/reports/rankingApi";
-import { generateRankingReportPdf } from "@/services/reports/rankingPdf";
+import { formatRankingDisciplinaLabel, generateRankingReportPdf } from "@/services/reports/rankingPdf";
 import { useToast } from "@/hooks/use-toast";
 import { RankingTeachersPanel } from "@/components/ranking/RankingTeachersPanel";
 import RankingOverviewPanel from "@/components/ranking/RankingOverviewPanel";
-import RankingMunicipalPanel from "@/components/ranking/RankingMunicipalPanel";
 import RankingSchoolClassPanel from "@/components/ranking/RankingSchoolClassPanel";
 import { cn } from "@/lib/utils";
 import { format, parse } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { RESULTS_MONTH_NAMES_PT, RESULTS_PERIOD_YEAR_MIN, getResultsPeriodYearMax, normalizeResultsPeriodYm } from "@/utils/resultsPeriod";
 
-type RankingTab = "visao-geral" | "municipal" | "escola-turma" | "professores";
+type RankingTab = "visao-geral" | "escola-turma" | "professores";
 type RankingEntityTab = "avaliacao" | "cartao";
 type FilterOption = { id: string; name: string };
 type RankingItemOption = { id: string; label: string };
 
 function resolveTab(value: string | null): RankingTab {
-  if (value === "municipal") return "municipal";
   if (value === "escola-turma") return "escola-turma";
   if (value === "professores") return "professores";
   return "visao-geral";
@@ -104,6 +102,35 @@ export default function RankingHub() {
   const hasSchoolFilter = Boolean(filters.escola);
   const derivedScope = deriveScope(filters);
   const requestFilters = useMemo<RankingFilters>(() => ({ ...filters, scope: derivedScope }), [filters, derivedScope]);
+  const rankingQueryKey = useMemo(
+    () =>
+      [
+        "ranking",
+        "model",
+        filters.estado,
+        filters.municipio,
+        filters.escola,
+        filters.serie,
+        filters.turma,
+        filters.periodo,
+        filters.evaluation_id,
+        filters.answer_sheet_id,
+        derivedScope,
+        filters.disciplina || "",
+      ] as const,
+    [
+      filters.estado,
+      filters.municipio,
+      filters.escola,
+      filters.serie,
+      filters.turma,
+      filters.periodo,
+      filters.evaluation_id,
+      filters.answer_sheet_id,
+      filters.disciplina,
+      derivedScope,
+    ]
+  );
   const normalizedSelectedPeriod = useMemo(
     () => (filters.periodo ? normalizeResultsPeriodYm(filters.periodo) : "all"),
     [filters.periodo]
@@ -326,39 +353,52 @@ export default function RankingHub() {
   }, [filters.estado, filters.municipio, filters.escola, filters.periodo]);
 
   const rankingQuery = useQuery({
-    queryKey: ["ranking", "model", requestFilters],
-    queryFn: () => RankingApiService.getGeneralRanking(requestFilters, 1, 200),
+    queryKey: rankingQueryKey,
+    queryFn: () =>
+      RankingApiService.getGeneralRanking(
+        { ...filters, scope: derivedScope },
+        1,
+        200
+      ),
     enabled: hasBaseFilters && hasEntitySelection,
-    staleTime: 5 * 60 * 1000,
-    placeholderData: keepPreviousData,
+    staleTime: 0,
   });
+
+  const activeDiscipline = filters.disciplina ?? rankingQuery.data?.selected_discipline ?? "";
+  const disciplineDataPending =
+    hasEntitySelection &&
+    rankingQuery.isFetching &&
+    (filters.disciplina || "") !== (rankingQuery.data?.selected_discipline ?? "");
 
   useEffect(() => {
     if (!hasBaseFilters || !hasEntitySelection) return;
     const disciplines = rankingQuery.data?.discipline_options || [];
     if (!disciplines.length) return;
 
-    const baseFilters: RankingFilters = {
-      ...requestFilters,
-      disciplina: "",
-    };
-
     disciplines.forEach((discipline) => {
       const disciplineFilters: RankingFilters = {
-        ...baseFilters,
+        ...requestFilters,
         disciplina: discipline.id,
       };
       queryClient.prefetchQuery({
-        queryKey: ["ranking", "model", disciplineFilters],
+        queryKey: [...rankingQueryKey.slice(0, -1), discipline.id],
         queryFn: () => RankingApiService.getGeneralRanking(disciplineFilters, 1, 200),
-        staleTime: 5 * 60 * 1000,
+        staleTime: 60 * 1000,
       });
     });
-  }, [hasBaseFilters, hasEntitySelection, rankingQuery.data?.discipline_options, queryClient, requestFilters]);
+  }, [
+    hasBaseFilters,
+    hasEntitySelection,
+    rankingQuery.data?.discipline_options,
+    queryClient,
+    requestFilters,
+    rankingQueryKey,
+  ]);
 
   const rankingError = rankingQuery.error ? getApiError(rankingQuery.error, "Erro ao carregar relatório de ranking.") : undefined;
   const rankingInitialLoading = rankingQuery.isLoading && !rankingQuery.data;
-  const rankingRefreshing = rankingQuery.isFetching && !rankingInitialLoading;
+  const rankingRefreshing =
+    disciplineDataPending || (rankingQuery.isFetching && !rankingInitialLoading);
   const isAnyFilterLoading = Object.values(loadingFilters).some(Boolean);
 
   const gradeOptionsFromApi = rankingQuery.data?.grade_options || [];
@@ -379,7 +419,7 @@ export default function RankingHub() {
 
   useEffect(() => {
     if (!hasSchoolFilter) return;
-    if (tab === "visao-geral" || tab === "municipal") {
+    if (tab === "visao-geral") {
       const next = new URLSearchParams(searchParams);
       next.set("tipo", "escola-turma");
       setSearchParams(next, { replace: true });
@@ -390,9 +430,7 @@ export default function RankingHub() {
   const currentCount =
     tab === "visao-geral"
       ? Number(rankingQuery.data?.overview?.summary?.total_schools || 0)
-      : tab === "municipal"
-        ? Number(rankingQuery.data?.municipal_ranking?.totals?.count || 0)
-        : tab === "escola-turma"
+      : tab === "escola-turma"
           ? filters.serie
             ? Number(rankingQuery.data?.classes_ranking?.items?.length || 0)
             : Number(rankingQuery.data?.school_class_ranking?.school_options?.length || 0)
@@ -462,9 +500,7 @@ export default function RankingHub() {
       const entityTitle = filters.evaluation_id
         ? evaluationItems.find((item) => item.id === filters.evaluation_id)?.label
         : answerSheetItems.find((item) => item.id === filters.answer_sheet_id)?.label;
-      const disciplinaNome =
-        data.discipline_options?.find((item) => item.id === filters.disciplina)?.name ||
-        (filters.disciplina ? "Disciplina selecionada" : "Geral");
+      const disciplinaNome = formatRankingDisciplinaLabel(data, filters);
 
       await generateRankingReportPdf({
         rankingType: "general",
@@ -512,7 +548,7 @@ export default function RankingHub() {
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground">
-          Visão geral, ranking municipal, escola/turma e top professores com o mesmo recorte de filtros.
+          Visão geral, escola/turma e ranking de professores com o mesmo recorte de filtros.
         </p>
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <span>{recorteLabel || "Sem recorte municipal"}</span>
@@ -594,138 +630,6 @@ export default function RankingHub() {
                 {municipios.map((municipio) => (
                   <SelectItem key={municipio.id} value={municipio.id}>
                     {municipio.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor={rankingEntityTab === "avaliacao" ? "evaluation_id" : "answer_sheet_id"}>
-              {rankingEntityTab === "avaliacao" ? "Avaliação" : "Cartão resposta"}
-            </Label>
-            {rankingEntityTab === "avaliacao" ? (
-              <Select
-                value={filters.evaluation_id || "all"}
-                onValueChange={(value) =>
-                  setFilters({
-                    evaluation_id: value === "all" ? "" : value,
-                    answer_sheet_id: "",
-                      disciplina: "",
-                  })
-                }
-                disabled={!filters.municipio || loadingFilters.avaliacao}
-              >
-                <SelectTrigger id="evaluation_id">
-                  <SelectValue
-                    placeholder={loadingFilters.avaliacao ? "Carregando avaliações..." : "Selecione a avaliação"}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas as avaliações</SelectItem>
-                  {evaluationItems.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Select
-                value={filters.answer_sheet_id || "all"}
-                onValueChange={(value) =>
-                  setFilters({
-                    answer_sheet_id: value === "all" ? "" : value,
-                    evaluation_id: "",
-                      disciplina: "",
-                  })
-                }
-                disabled={!filters.municipio || loadingFilters.cartao}
-              >
-                <SelectTrigger id="answer_sheet_id">
-                  <SelectValue
-                    placeholder={loadingFilters.cartao ? "Carregando cartões..." : "Selecione o cartão resposta"}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os cartões</SelectItem>
-                  {answerSheetItems.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="escola">Escola</Label>
-            <Select
-              value={filters.escola || "all"}
-              onValueChange={(value) =>
-                setFilters({ escola: value === "all" ? "" : value }, ["serie", "turma"])
-              }
-              disabled={!filters.municipio || loadingFilters.escolas}
-            >
-              <SelectTrigger id="escola">
-                <SelectValue placeholder={loadingFilters.escolas ? "Carregando escolas..." : "Selecione a escola"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as escolas</SelectItem>
-                {schools.map((school) => (
-                  <SelectItem key={school.id} value={school.id}>
-                    {school.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="serie">Série</Label>
-            <Select
-              value={filters.serie || "all"}
-              onValueChange={(value) => setFilters({ serie: value === "all" ? "" : value }, ["turma"])}
-              disabled={!filters.escola || serieFilterLoading}
-            >
-              <SelectTrigger id="serie">
-                <SelectValue
-                  placeholder={
-                    serieFilterLoading
-                      ? "Carregando séries..."
-                      : useApiGradeOptions
-                        ? "Séries com participação na avaliação"
-                        : "Selecione a série"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as séries</SelectItem>
-                {serieOptions.map((serie) => (
-                  <SelectItem key={serie.id} value={serie.id}>
-                    {serie.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="turma">Turma</Label>
-            <Select
-              value={filters.turma || "all"}
-              onValueChange={(value) => setFilters({ turma: value === "all" ? "" : value })}
-              disabled={!filters.serie || loadingFilters.turmas}
-            >
-              <SelectTrigger id="turma">
-                <SelectValue placeholder={loadingFilters.turmas ? "Carregando turmas..." : "Selecione a turma"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as turmas</SelectItem>
-                {turmas.map((turma) => (
-                  <SelectItem key={turma.id} value={turma.id}>
-                    {turma.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -861,6 +765,139 @@ export default function RankingHub() {
               </PopoverContent>
             </Popover>
           </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor={rankingEntityTab === "avaliacao" ? "evaluation_id" : "answer_sheet_id"}>
+              {rankingEntityTab === "avaliacao" ? "Avaliação" : "Cartão resposta"}
+            </Label>
+            {rankingEntityTab === "avaliacao" ? (
+              <Select
+                value={filters.evaluation_id || "all"}
+                onValueChange={(value) =>
+                  setFilters({
+                    evaluation_id: value === "all" ? "" : value,
+                    answer_sheet_id: "",
+                      disciplina: "",
+                  })
+                }
+                disabled={!filters.municipio || loadingFilters.avaliacao}
+              >
+                <SelectTrigger id="evaluation_id">
+                  <SelectValue
+                    placeholder={loadingFilters.avaliacao ? "Carregando avaliações..." : "Selecione a avaliação"}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as avaliações</SelectItem>
+                  {evaluationItems.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Select
+                value={filters.answer_sheet_id || "all"}
+                onValueChange={(value) =>
+                  setFilters({
+                    answer_sheet_id: value === "all" ? "" : value,
+                    evaluation_id: "",
+                      disciplina: "",
+                  })
+                }
+                disabled={!filters.municipio || loadingFilters.cartao}
+              >
+                <SelectTrigger id="answer_sheet_id">
+                  <SelectValue
+                    placeholder={loadingFilters.cartao ? "Carregando cartões..." : "Selecione o cartão resposta"}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os cartões</SelectItem>
+                  {answerSheetItems.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="escola">Escola</Label>
+            <Select
+              value={filters.escola || "all"}
+              onValueChange={(value) =>
+                setFilters({ escola: value === "all" ? "" : value }, ["serie", "turma"])
+              }
+              disabled={!filters.municipio || loadingFilters.escolas}
+            >
+              <SelectTrigger id="escola">
+                <SelectValue placeholder={loadingFilters.escolas ? "Carregando escolas..." : "Selecione a escola"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as escolas</SelectItem>
+                {schools.map((school) => (
+                  <SelectItem key={school.id} value={school.id}>
+                    {school.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="serie">Série</Label>
+            <Select
+              value={filters.serie || "all"}
+              onValueChange={(value) => setFilters({ serie: value === "all" ? "" : value }, ["turma"])}
+              disabled={!filters.escola || serieFilterLoading}
+            >
+              <SelectTrigger id="serie">
+                <SelectValue
+                  placeholder={
+                    serieFilterLoading
+                      ? "Carregando séries..."
+                      : useApiGradeOptions
+                        ? "Séries com participação na avaliação"
+                        : "Selecione a série"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as séries</SelectItem>
+                {serieOptions.map((serie) => (
+                  <SelectItem key={serie.id} value={serie.id}>
+                    {serie.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="turma">Turma</Label>
+            <Select
+              value={filters.turma || "all"}
+              onValueChange={(value) => setFilters({ turma: value === "all" ? "" : value })}
+              disabled={!filters.serie || loadingFilters.turmas}
+            >
+              <SelectTrigger id="turma">
+                <SelectValue placeholder={loadingFilters.turmas ? "Carregando turmas..." : "Selecione a turma"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as turmas</SelectItem>
+                {turmas.map((turma) => (
+                  <SelectItem key={turma.id} value={turma.id}>
+                    {turma.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="flex items-end gap-2 md:col-span-3">
             <Button type="button" variant="outline" onClick={clearFilters}>
               <RefreshCw className="mr-2 h-4 w-4" />
@@ -893,20 +930,14 @@ export default function RankingHub() {
         <TabsList
           className={cn(
             "sticky top-2 z-10 grid h-auto w-full gap-1 rounded-xl border border-border bg-background/90 p-1 backdrop-blur",
-            hasSchoolFilter ? "grid-cols-2" : "grid-cols-2 md:grid-cols-4"
+            hasSchoolFilter ? "grid-cols-2" : "grid-cols-1 sm:grid-cols-3"
           )}
         >
           {!hasSchoolFilter ? (
-            <>
-              <TabsTrigger value="visao-geral" className="gap-2">
-                <Trophy className="h-4 w-4" />
-                Visão geral
-              </TabsTrigger>
-              <TabsTrigger value="municipal" className="gap-2">
-                <School className="h-4 w-4" />
-                Ranking municipal
-              </TabsTrigger>
-            </>
+            <TabsTrigger value="visao-geral" className="gap-2">
+              <Trophy className="h-4 w-4" />
+              Visão geral
+            </TabsTrigger>
           ) : null}
           <TabsTrigger value="escola-turma" className="gap-2">
             <Filter className="h-4 w-4" />
@@ -927,11 +958,11 @@ export default function RankingHub() {
               </div>
             ) : null}
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Resultado</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Disciplina</span>
               <Button
                 type="button"
                 size="sm"
-                variant={!filters.disciplina ? "default" : "outline"}
+                variant={!activeDiscipline ? "default" : "outline"}
                 disabled={rankingRefreshing}
                 onClick={() => setFilters({ disciplina: "" })}
               >
@@ -942,7 +973,7 @@ export default function RankingHub() {
                   key={discipline.id}
                   type="button"
                   size="sm"
-                  variant={filters.disciplina === discipline.id ? "default" : "outline"}
+                  variant={activeDiscipline === discipline.id ? "default" : "outline"}
                   disabled={rankingRefreshing}
                   onClick={() => setFilters({ disciplina: discipline.id })}
                 >
@@ -966,17 +997,6 @@ export default function RankingHub() {
             {!hasSchoolFilter ? (
               <TabsContent value="visao-geral" className="mt-6">
                 <RankingOverviewPanel
-                  data={rankingQuery.data}
-                  isLoading={rankingInitialLoading}
-                  isRefreshing={rankingRefreshing}
-                  errorMessage={rankingError}
-                />
-              </TabsContent>
-            ) : null}
-
-            {!hasSchoolFilter ? (
-              <TabsContent value="municipal" className="mt-6">
-                <RankingMunicipalPanel
                   data={rankingQuery.data}
                   isLoading={rankingInitialLoading}
                   isRefreshing={rankingRefreshing}

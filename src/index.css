@@ -1393,33 +1393,64 @@
     max-width: 100vw;
   }
 
-  /* Barra de rolagem moderna para lista do ranking */
+  /* Barra de rolagem moderna — tabelas e listas do ranking */
+  .ranking-table-scroll,
   .ranking-list-scroll {
+    scroll-behavior: smooth;
+    scrollbar-gutter: stable;
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+    scrollbar-color: hsl(var(--primary) / 0.45) transparent;
   }
+  .ranking-table-scroll::-webkit-scrollbar,
   .ranking-list-scroll::-webkit-scrollbar {
+    height: 8px;
     width: 8px;
   }
-  .ranking-list-scroll::-webkit-scrollbar-track {
+  .ranking-table-scroll::-webkit-scrollbar-button,
+  .ranking-list-scroll::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  .ranking-table-scroll::-webkit-scrollbar-corner,
+  .ranking-list-scroll::-webkit-scrollbar-corner {
     background: transparent;
-    border-radius: 4px;
   }
+  .ranking-table-scroll::-webkit-scrollbar-track,
+  .ranking-list-scroll::-webkit-scrollbar-track {
+    background: hsl(var(--muted) / 0.2);
+    border-radius: 9999px;
+  }
+  .ranking-table-scroll::-webkit-scrollbar-thumb,
   .ranking-list-scroll::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted-foreground) / 0.35);
-    border-radius: 4px;
+    background-color: hsl(var(--primary) / 0.42);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
+  .ranking-table-scroll::-webkit-scrollbar-thumb:hover,
   .ranking-list-scroll::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.5);
+    background-color: hsl(var(--primary) / 0.62);
   }
+  .ranking-table-scroll::-webkit-scrollbar-thumb:active,
+  .ranking-list-scroll::-webkit-scrollbar-thumb:active {
+    background-color: hsl(var(--primary) / 0.78);
+  }
+  .dark .ranking-table-scroll,
   .dark .ranking-list-scroll {
-    scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
+    scrollbar-color: hsl(var(--primary) / 0.5) transparent;
   }
+  .dark .ranking-table-scroll::-webkit-scrollbar-track,
+  .dark .ranking-list-scroll::-webkit-scrollbar-track {
+    background: hsl(var(--muted) / 0.35);
+  }
+  .dark .ranking-table-scroll::-webkit-scrollbar-thumb,
   .dark .ranking-list-scroll::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted-foreground) / 0.25);
+    background-color: hsl(var(--primary) / 0.48);
   }
+  .dark .ranking-table-scroll::-webkit-scrollbar-thumb:hover,
   .dark .ranking-list-scroll::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.4);
+    background-color: hsl(var(--primary) / 0.68);
   }
 
   @keyframes ranking-loading {

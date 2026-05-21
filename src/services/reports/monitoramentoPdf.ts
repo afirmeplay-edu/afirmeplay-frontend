@@ -66,9 +66,9 @@ const borderFromFill = (fill: [number, number, number]): [number, number, number
 const proficiencyTagStyles = (level: ReportProficiencyLabel) => {
   switch (level) {
     case "Avançado":
-      return { fill: [167, 243, 208] as [number, number, number], text: [6, 78, 59] as [number, number, number] };
+      return { fill: [22, 101, 52] as [number, number, number], text: [240, 253, 244] as [number, number, number] };
     case "Adequado":
-      return { fill: [209, 250, 229] as [number, number, number], text: [22, 101, 52] as [number, number, number] };
+      return { fill: [220, 252, 231] as [number, number, number], text: [22, 101, 52] as [number, number, number] };
     case "Básico":
       return { fill: [254, 249, 195] as [number, number, number], text: [113, 63, 18] as [number, number, number] };
     case "Abaixo do Básico":

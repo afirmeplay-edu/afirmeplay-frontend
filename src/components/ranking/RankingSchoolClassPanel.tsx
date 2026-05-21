@@ -7,8 +7,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { RankingResponse } from "@/services/reports/rankingApi";
 import RankingClassesPanel from "@/components/ranking/RankingClassesPanel";
-import { LevelTag, PosBadge, formatPt } from "@/components/ranking/RankingVisualPrimitives";
+import {
+  RankingMetricsTableHead,
+  RankingMetricsTableRow,
+  RANKING_TABLE_SCROLL_CLASS,
+} from "@/components/ranking/RankingMetricsTable";
 import { RankingContentShell, RankingLoadingState } from "@/components/ranking/RankingLoadingState";
+import { RankingSortControls } from "@/components/ranking/RankingSortControls";
+import { useRankingSort } from "@/components/ranking/useRankingSort";
 
 type Props = {
   data?: RankingResponse;
@@ -31,6 +37,7 @@ export default function RankingSchoolClassPanel({
   filterSchoolName,
   filterSerieName,
 }: Props) {
+  const { sortBy, sortDir, setSortBy, setSortDir, sortRows } = useRankingSort();
   const options = useMemo(
     () => data?.school_class_ranking?.school_options || [],
     [data?.school_class_ranking?.school_options]
@@ -42,24 +49,29 @@ export default function RankingSchoolClassPanel({
   const lockedSchoolId = filterSchoolId || "";
   const initialSchoolId = lockedSchoolId || options[0]?.id || "";
   const [selectedSchoolId, setSelectedSchoolId] = useState(initialSchoolId);
-  const [selectedCourseLabel, setSelectedCourseLabel] = useState("all");
+  const [selectedTurma, setSelectedTurma] = useState("all");
 
   const selectedSchoolRows = useMemo(() => {
     if (!selectedSchoolId) return [];
     return itemsBySchool[selectedSchoolId] || [];
   }, [itemsBySchool, selectedSchoolId]);
 
-  const courseOptions = useMemo(() => {
+  const turmaOptions = useMemo(() => {
     const unique = Array.from(
-      new Set(selectedSchoolRows.map((row) => String(row.course_label || "").trim()).filter(Boolean))
+      new Set(selectedSchoolRows.map((row) => String(row.series_class_name || "").trim()).filter(Boolean))
     );
-    return unique.sort((a, b) => a.localeCompare(b));
+    return unique.sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [selectedSchoolRows]);
 
-  const selectedRows = useMemo(() => {
-    if (selectedCourseLabel === "all") return selectedSchoolRows;
-    return selectedSchoolRows.filter((row) => String(row.course_label || "") === selectedCourseLabel);
-  }, [selectedSchoolRows, selectedCourseLabel]);
+  const filteredRows = useMemo(() => {
+    if (selectedTurma === "all") return selectedSchoolRows;
+    return selectedSchoolRows.filter((row) => String(row.series_class_name || "") === selectedTurma);
+  }, [selectedSchoolRows, selectedTurma]);
+
+  const selectedRows = useMemo(
+    () => sortRows(filteredRows as Array<Record<string, unknown>>),
+    [filteredRows, sortRows]
+  );
 
   useEffect(() => {
     if (lockedSchoolId) {
@@ -72,7 +84,7 @@ export default function RankingSchoolClassPanel({
   }, [selectedSchoolId, options, lockedSchoolId]);
 
   useEffect(() => {
-    setSelectedCourseLabel("all");
+    setSelectedTurma("all");
   }, [selectedSchoolId]);
 
   if (isLoading) {
@@ -133,20 +145,20 @@ export default function RankingSchoolClassPanel({
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="ranking-course-select">Disciplina</Label>
+                <Label htmlFor="ranking-turma-select">Turma</Label>
                 <Select
-                  value={selectedCourseLabel}
-                  onValueChange={setSelectedCourseLabel}
-                  disabled={courseOptions.length === 0}
+                  value={selectedTurma}
+                  onValueChange={setSelectedTurma}
+                  disabled={turmaOptions.length === 0}
                 >
-                  <SelectTrigger id="ranking-course-select">
-                    <SelectValue placeholder="Selecione a disciplina" />
+                  <SelectTrigger id="ranking-turma-select">
+                    <SelectValue placeholder="Selecione a turma" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todas</SelectItem>
-                    {courseOptions.map((course) => (
-                      <SelectItem key={course} value={course}>
-                        {course}
+                    {turmaOptions.map((turma) => (
+                      <SelectItem key={turma} value={turma}>
+                        {turma}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -156,6 +168,13 @@ export default function RankingSchoolClassPanel({
           </CardHeader>
         </Card>
       ) : null}
+
+      <RankingSortControls
+        sortBy={sortBy}
+        sortDir={sortDir}
+        onSortByChange={setSortBy}
+        onSortDirChange={setSortDir}
+      />
 
       <Card className="overflow-hidden border border-border/70">
         <CardHeader className="bg-primary text-primary-foreground">
@@ -173,46 +192,35 @@ export default function RankingSchoolClassPanel({
         </CardHeader>
         <CardContent className="p-4">
           {selectedRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nenhum dado de série para a escola selecionada.</p>
+            <p className="text-sm text-muted-foreground">
+              Nenhuma turma encontrada para a escola{selectedTurma !== "all" ? " e turma selecionadas" : " selecionada"}.
+            </p>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-border/70">
-              <table className="w-full min-w-[980px] text-sm border-collapse">
+            <div className={RANKING_TABLE_SCROLL_CLASS}>
+              <table className="w-full min-w-[1200px] text-sm border-collapse">
                 <thead>
-                  <tr className="bg-primary text-primary-foreground">
-                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase">Pos.</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase">Série</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase">Professor(a)</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase">Disciplina</th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold uppercase">Participação</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase">Proficiência</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase">Nota</th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold uppercase">Nível</th>
-                  </tr>
+                  <RankingMetricsTableHead
+                    nameHeader="Série / Turma"
+                    leadingHeaders={
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-primary-foreground">
+                        Professor(a)
+                      </th>
+                    }
+                  />
                 </thead>
                 <tbody>
                   {selectedRows.map((row) => (
-                    <tr
+                    <RankingMetricsTableRow
                       key={`${selectedSchoolId}-${row.position}-${row.series_class_name}`}
-                      className="border-t border-border/60 odd:bg-muted/20"
-                    >
-                      <td className="px-3 py-2">
-                        <PosBadge position={Number(row.position || 0)} />
-                      </td>
-                      <td className="px-3 py-2 font-semibold">{row.series_class_name}</td>
-                      <td className="px-3 py-2">
-                        <Badge variant="secondary">{row.teacher_name || "N/A"}</Badge>
-                      </td>
-                      <td className="px-3 py-2">{String(row.course_label || "—")}</td>
-                      <td className="px-3 py-2 text-center">
-                        {formatPt(Number(row.participation_rate || 0))}% ({Number(row.participating_students || 0)}/
-                        {Number(row.total_students || 0)})
-                      </td>
-                      <td className="px-3 py-2 text-right font-semibold">{formatPt(Number(row.average_proficiency || 0))}</td>
-                      <td className="px-3 py-2 text-right font-semibold text-primary">{formatPt(Number(row.average_score || 0))}</td>
-                      <td className="px-3 py-2 text-center">
-                        <LevelTag value={row.level_tag} />
-                      </td>
-                    </tr>
+                      rowKey={`${selectedSchoolId}-${row.position}-${row.series_class_name}`}
+                      row={row}
+                      nameCell={row.series_class_name}
+                      leadingCells={
+                        <td className="px-3 py-2">
+                          <Badge variant="secondary">{row.teacher_name || "N/A"}</Badge>
+                        </td>
+                      }
+                    />
                   ))}
                 </tbody>
               </table>
