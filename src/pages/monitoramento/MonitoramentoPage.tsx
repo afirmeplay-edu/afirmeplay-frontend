@@ -1,0 +1,1575 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
+import {
+  Calendar as CalendarIcon,
+  Activity,
+  AlertCircle,
+  ArrowLeft,
+  ArrowUpDown,
+  Building2,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardCheck,
+  Download,
+  Eye,
+  FileClock,
+  Filter,
+  History,
+  Loader2,
+  RefreshCw,
+  RotateCcw,
+  Save,
+  Search,
+  ShieldCheck,
+  Users,
+  X,
+} from "lucide-react";
+
+import ModernStatCard from "@/components/dashboard/ModernStatCard";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/authContext";
+import { cn } from "@/lib/utils";
+import { DisciplineTag } from "@/components/ui/discipline-tag";
+import { getReportProficiencyTagClass } from "@/utils/report/reportTagStyles";
+import {
+  type MonitoringActionPayload,
+  type MonitoringFilters,
+  type MonitoringSourceType,
+  type MonitoringStudentItem,
+  MonitoramentoApiService,
+} from "@/services/monitoramento/monitoramentoApi";
+import { generateMonitoringPdf } from "@/services/reports/monitoramentoPdf";
+import { format, parse } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import {
+  RESULTS_MONTH_NAMES_PT,
+  RESULTS_PERIOD_YEAR_MIN,
+  getResultsPeriodYearMax,
+  normalizeResultsPeriodYm,
+} from "@/utils/resultsPeriod";
+
+const defaultFilters: MonitoringFilters = {
+  tipo_origem: "avaliacao",
+  periodo: "",
+  estado: "",
+  municipio: "",
+  escola_id: "",
+  avaliacao_id: "",
+  gabarito_id: "",
+  disciplina: "",
+  serie_id: "",
+  turma_id: "",
+  coordenador_id: "",
+  page: 1,
+  page_size: 20,
+};
+
+const statusOptions = [
+  { id: "pendente", label: "Pendente" },
+  { id: "sendo_realizada", label: "Sendo realizada" },
+  { id: "nao_realizado", label: "Não realizado" },
+] as const;
+
+const formatDateToInput = (date?: string | null) => (date ? date.slice(0, 10) : "");
+
+const isAbaixoBasico = (nivel: string) => nivel.toLowerCase().includes("abaixo");
+
+const getMonitoringStatusClass = (status: string) => {
+  switch (status) {
+    case "sendo_realizada":
+      return "border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950/30 dark:text-yellow-400";
+    case "nao_realizado":
+      return "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400";
+    default:
+      return "border-border bg-muted text-muted-foreground";
+  }
+};
+
+const getApiErrorMessage = (error: unknown, fallback: string) => {
+  const maybe = error as { response?: { data?: { error?: string; details?: string } } };
+  return maybe?.response?.data?.error || maybe?.response?.data?.details || fallback;
+};
+
+const MonitoringPage = () => {
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const defaultsAppliedRef = useRef(false);
+
+  const [filters, setFilters] = useState<MonitoringFilters>(defaultFilters);
+  const [selectedSchoolId, setSelectedSchoolId] = useState<string>("");
+  const [searchText, setSearchText] = useState("");
+  const [debouncedSearchText, setDebouncedSearchText] = useState("");
+  const [historyActionId, setHistoryActionId] = useState<string>("");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, Partial<MonitoringStudentItem>>>({});
+  const [schoolPage, setSchoolPage] = useState(1);
+  const [studentPage, setStudentPage] = useState(1);
+  const [savingRowId, setSavingRowId] = useState<string | null>(null);
+  const [schoolSort, setSchoolSort] = useState<{ by: string; order: "asc" | "desc" }>({
+    by: "escola_nome",
+    order: "asc",
+  });
+  const [periodPickerOpen, setPeriodPickerOpen] = useState(false);
+  const [periodDraft, setPeriodDraft] = useState(() => {
+    const now = new Date();
+    return { y: now.getFullYear(), m: now.getMonth() };
+  });
+
+  const normalizedSelectedPeriod = useMemo(
+    () => (filters.periodo ? normalizeResultsPeriodYm(filters.periodo) : "all"),
+    [filters.periodo]
+  );
+
+  const periodCalendarSelected = useMemo(() => {
+    if (normalizedSelectedPeriod === "all") return undefined;
+    try {
+      return parse(`${normalizedSelectedPeriod}-01`, "yyyy-MM-dd", new Date());
+    } catch {
+      return undefined;
+    }
+  }, [normalizedSelectedPeriod]);
+
+  useEffect(() => {
+    if (!periodPickerOpen) return;
+    if (normalizedSelectedPeriod !== "all") {
+      const [y, m] = normalizedSelectedPeriod.split("-").map((v) => parseInt(v, 10));
+      if (y && m) setPeriodDraft({ y, m: m - 1 });
+    }
+  }, [periodPickerOpen, normalizedSelectedPeriod]);
+
+  useEffect(() => {
+    const aba = searchParams.get("aba");
+    if (aba === "cartao") {
+      setFilters((prev) =>
+        prev.tipo_origem === "cartao_resposta"
+          ? prev
+          : { ...prev, tipo_origem: "cartao_resposta", avaliacao_id: "", gabarito_id: "" }
+      );
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchText(searchText.trim().toLowerCase());
+      setStudentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
+  const selectedSourceId =
+    filters.tipo_origem === "avaliacao" ? filters.avaliacao_id || "" : filters.gabarito_id || "";
+  const geoFiltersReady = Boolean(filters.estado && filters.municipio);
+
+  const optionsQuery = useQuery({
+    queryKey: [
+      "monitoramento-options",
+      filters.tipo_origem,
+      filters.periodo,
+      filters.estado,
+      filters.municipio,
+      filters.avaliacao_id,
+      filters.gabarito_id,
+      filters.escola_id,
+    ],
+    queryFn: () => MonitoramentoApiService.getFilterOptions(filters),
+  });
+
+  const filterDefaults = optionsQuery.data?.defaults;
+  const escolaLocked = Boolean(filterDefaults?.lock_escola);
+  const municipioLocked = Boolean(filterDefaults?.lock_municipio);
+  const canMarkSemed = user?.role === "admin" || user?.role === "tecadm";
+
+  useEffect(() => {
+    const d = optionsQuery.data?.defaults;
+    if (!d || defaultsAppliedRef.current) return;
+    if (!d.lock_municipio && !d.lock_escola) return;
+    defaultsAppliedRef.current = true;
+    setFilters((prev) => {
+      const next = { ...prev };
+      if (d.lock_municipio) {
+        if (d.estado && !prev.estado) next.estado = d.estado;
+        if (d.municipio && !prev.municipio) next.municipio = d.municipio;
+        if (next.municipio && !next.estado) {
+          const city = optionsQuery.data?.municipios?.find((m) => m.id === next.municipio);
+          if (city?.state) next.estado = city.state;
+        }
+      }
+      return next;
+    });
+  }, [optionsQuery.data?.defaults, optionsQuery.data?.municipios]);
+
+  useEffect(() => {
+    const d = optionsQuery.data?.defaults;
+    if (!d?.lock_escola || !d.escola_id || !selectedSourceId) return;
+    setFilters((prev) => {
+      if (prev.escola_id === d.escola_id) return prev;
+      setSelectedSchoolId(d.escola_id);
+      return { ...prev, escola_id: d.escola_id };
+    });
+  }, [optionsQuery.data?.defaults, selectedSourceId]);
+
+  const schoolsFilters = useMemo(
+    () => ({
+      ...filters,
+      page: schoolPage,
+      page_size: 20,
+      sort_by: schoolSort.by,
+      sort_order: schoolSort.order,
+    }),
+    [filters, schoolPage, schoolSort.by, schoolSort.order]
+  );
+
+  const schoolsQuery = useQuery({
+    queryKey: ["monitoramento-schools", schoolsFilters],
+    queryFn: () => MonitoramentoApiService.getSchools(schoolsFilters),
+    enabled: geoFiltersReady && Boolean(selectedSourceId),
+  });
+
+  const activeSchoolId = selectedSchoolId || filters.escola_id || "";
+
+  const studentFilters = useMemo(
+    () => ({
+      ...filters,
+      q: debouncedSearchText,
+      escola_id: activeSchoolId,
+      page: studentPage,
+      page_size: 30,
+    }),
+    [filters, activeSchoolId, debouncedSearchText, studentPage]
+  );
+
+  const studentsQuery = useQuery({
+    queryKey: ["monitoramento-students", studentFilters],
+    queryFn: () => MonitoramentoApiService.getStudents(studentFilters),
+    enabled: Boolean(activeSchoolId),
+  });
+
+  const historyQuery = useQuery({
+    queryKey: ["monitoramento-history", historyActionId],
+    queryFn: () => MonitoramentoApiService.getHistory(historyActionId),
+    enabled: historyOpen && Boolean(historyActionId),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: { actionId: string | null; body: MonitoringActionPayload; rowId: string }) =>
+      MonitoramentoApiService.updateAction(payload.actionId, payload.body),
+    onMutate: ({ rowId }) => setSavingRowId(rowId),
+    onSuccess: (_data, variables) => {
+      toast({ title: "Ação pedagógica salva", description: "As alterações foram registradas no histórico." });
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[variables.rowId];
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ["monitoramento-students"] });
+      queryClient.invalidateQueries({ queryKey: ["monitoramento-schools"] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Erro ao salvar ação",
+        description: getApiErrorMessage(error, "Não foi possível salvar as informações de monitoramento."),
+        variant: "destructive",
+      });
+    },
+    onSettled: () => setSavingRowId(null),
+  });
+
+  const resetAfterSource = (next: MonitoringFilters) => {
+    next.escola_id = "";
+    next.disciplina = "";
+    next.serie_id = "";
+    next.turma_id = "";
+    setSelectedSchoolId("");
+  };
+
+  const resetFromMunicipio = (next: MonitoringFilters) => {
+    next.avaliacao_id = "";
+    next.gabarito_id = "";
+    resetAfterSource(next);
+  };
+
+  const handleFilterChange = useCallback((key: keyof MonitoringFilters, value: string) => {
+    setFilters((prev) => {
+      const next = { ...prev, [key]: value, page: 1 };
+      setSchoolPage(1);
+      setStudentPage(1);
+      if (key === "tipo_origem") {
+        next.avaliacao_id = "";
+        next.gabarito_id = "";
+        resetAfterSource(next);
+      }
+      if (key === "periodo" || key === "estado" || key === "municipio") {
+        resetFromMunicipio(next);
+      }
+      if (key === "avaliacao_id") {
+        next.gabarito_id = "";
+        resetAfterSource(next);
+      }
+      if (key === "gabarito_id") {
+        next.avaliacao_id = "";
+        resetAfterSource(next);
+      }
+      if (key === "escola_id") {
+        next.serie_id = "";
+        next.turma_id = "";
+        setSelectedSchoolId(value);
+        setStudentPage(1);
+      }
+      if (key === "serie_id") {
+        next.turma_id = "";
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const disciplinas = optionsQuery.data?.disciplinas ?? [];
+    if (!selectedSourceId || disciplinas.length !== 1) return;
+    const only = disciplinas[0];
+    if (filters.disciplina === only.name) return;
+    handleFilterChange("disciplina", only.name);
+  }, [optionsQuery.data?.disciplinas, selectedSourceId, filters.disciplina, handleFilterChange]);
+
+  const handleOriginTabChange = useCallback(
+    (value: string) => {
+      const tipo = value as MonitoringSourceType;
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set("aba", tipo === "cartao_resposta" ? "cartao" : "avaliacao");
+      setSearchParams(nextParams, { replace: true });
+      handleFilterChange("tipo_origem", tipo);
+    },
+    [handleFilterChange, searchParams, setSearchParams]
+  );
+
+  const clearAllFilters = useCallback(() => {
+    defaultsAppliedRef.current = false;
+    setFilters(defaultFilters);
+    setSelectedSchoolId("");
+    setSearchText("");
+    setSchoolPage(1);
+    setStudentPage(1);
+    setDrafts({});
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("aba", "avaliacao");
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  const backToSemedView = useCallback(() => {
+    setSelectedSchoolId("");
+    setFilters((prev) => ({ ...prev, escola_id: "" }));
+    setStudentPage(1);
+    setSearchText("");
+  }, []);
+
+  const getDraftValue = <K extends keyof MonitoringStudentItem>(
+    row: MonitoringStudentItem,
+    key: K
+  ): MonitoringStudentItem[K] => {
+    const draft = drafts[row.aluno_id];
+    if (draft && key in draft) return draft[key] as MonitoringStudentItem[K];
+    return row[key];
+  };
+
+  const updateDraft = (row: MonitoringStudentItem, patch: Partial<MonitoringStudentItem>) => {
+    setDrafts((prev) => ({
+      ...prev,
+      [row.aluno_id]: {
+        ...prev[row.aluno_id],
+        ...patch,
+      },
+    }));
+  };
+
+  const canEdit = Boolean(filters.coordenador_id);
+
+  const saveRow = (row: MonitoringStudentItem) => {
+    if (!canEdit) {
+      toast({
+        title: "Coordenador não selecionado",
+        description: "Selecione o coordenador nos filtros antes de registrar alterações.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const actionPayload: MonitoringActionPayload = {
+      source_type: row.source_type,
+      source_id: row.source_id,
+      student_id: row.aluno_id,
+      school_id: row.escola_id,
+      disciplina: row.disciplina,
+      acao_pedagogica: String(getDraftValue(row, "acao_pedagogica") || ""),
+      responsavel_id: (getDraftValue(row, "responsavel_id") as string | null) || null,
+      coordenador_id: filters.coordenador_id || null,
+      prazo: (getDraftValue(row, "prazo") as string | null) || null,
+      status: (getDraftValue(row, "status") as MonitoringActionPayload["status"]) || "pendente",
+      realizada_em: (getDraftValue(row, "realizada_em") as string | null) || null,
+      feita_pela_escola: Boolean(getDraftValue(row, "feita_pela_escola")),
+      vista_pela_semed: Boolean(getDraftValue(row, "vista_pela_semed")),
+    };
+    saveMutation.mutate({ actionId: row.acao_id, body: actionPayload, rowId: row.aluno_id });
+  };
+
+  const handleGeneratePdf = async (periodicidade: "semanal" | "mensal") => {
+    try {
+      setIsGeneratingPdf(true);
+      const payload = await MonitoramentoApiService.getReportData({
+        ...studentFilters,
+        periodicidade,
+      });
+      await generateMonitoringPdf({
+        payload,
+        periodicidade,
+        title: periodicidade === "semanal" ? "Relatório Semanal" : "Relatório Mensal",
+        filterLines: [
+          `Recorte: ${recorteLabel}`,
+          `Tipo: ${filters.tipo_origem === "avaliacao" ? "Avaliação online" : "Cartão-resposta"}`,
+          `Periodicidade: ${periodicidade === "semanal" ? "Semanal" : "Mensal"}`,
+          filters.coordenador_id
+            ? `Coordenador (editor): ${
+                optionsQuery.data?.coordenadores.find((c) => c.id === filters.coordenador_id)?.name ||
+                filters.coordenador_id
+              }`
+            : "Coordenador (editor): não informado",
+          `Gerado por: ${payload.metadata.usuario_gerador || "—"}`,
+        ],
+        coverCardLines: [
+          { label: "RECORTE", value: recorteLabel },
+          {
+            label: "TIPO",
+            value: filters.tipo_origem === "avaliacao" ? "Avaliação online" : "Cartão-resposta",
+          },
+          {
+            label: "PERIODICIDADE",
+            value: periodicidade === "semanal" ? "Semanal" : "Mensal",
+          },
+          {
+            label: "RESUMO",
+            value: `${payload.resumo_geral.total_alunos} alunos · ${payload.resumo_geral.total_escolas} escolas · ${payload.resumo_geral.total_acoes} ações`,
+          },
+        ],
+      });
+      toast({ title: "PDF gerado com sucesso", description: "O relatório de monitoramento foi exportado." });
+    } catch {
+      toast({
+        title: "Erro ao gerar PDF",
+        description: "Não foi possível gerar o relatório de monitoramento.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  const sourceSelectValue =
+    filters.tipo_origem === "avaliacao" ? filters.avaliacao_id || "all" : filters.gabarito_id || "all";
+  const sourceItems =
+    filters.tipo_origem === "avaliacao"
+      ? optionsQuery.data?.avaliacoes ?? []
+      : optionsQuery.data?.gabaritos ?? [];
+
+  const schoolsPagination = schoolsQuery.data?.pagination;
+  const studentsPagination = studentsQuery.data?.pagination;
+  const schoolsFrom =
+    (schoolsPagination?.total || 0) > 0
+      ? ((schoolsPagination?.page || 1) - 1) * (schoolsPagination?.page_size || 20) + 1
+      : 0;
+  const schoolsTo = Math.min(
+    (schoolsPagination?.page || 1) * (schoolsPagination?.page_size || 20),
+    schoolsPagination?.total || 0
+  );
+  const studentsFrom =
+    (studentsPagination?.total || 0) > 0
+      ? ((studentsPagination?.page || 1) - 1) * (studentsPagination?.page_size || 30) + 1
+      : 0;
+  const studentsTo = Math.min(
+    (studentsPagination?.page || 1) * (studentsPagination?.page_size || 30),
+    studentsPagination?.total || 0
+  );
+
+  const summary = schoolsQuery.data?.summary;
+  const acoesPct =
+    summary && summary.total_alunos > 0
+      ? Math.round((summary.total_acoes / summary.total_alunos) * 100)
+      : 0;
+
+  const activeSchoolName = useMemo(() => {
+    if (!activeSchoolId) return null;
+    const fromSchools = schoolsQuery.data?.items.find((s) => s.escola_id === activeSchoolId)?.escola_nome;
+    if (fromSchools) return fromSchools;
+    const fromOptions = optionsQuery.data?.escolas.find((e) => e.id === activeSchoolId)?.name;
+    if (fromOptions) return fromOptions;
+    return studentsQuery.data?.items?.[0]?.escola_nome || "Escola selecionada";
+  }, [activeSchoolId, schoolsQuery.data, optionsQuery.data, studentsQuery.data?.items]);
+
+  const recorteLabel = useMemo(() => {
+    const parts: string[] = [];
+    if (periodCalendarSelected) {
+      parts.push(format(periodCalendarSelected, "MMMM 'de' yyyy", { locale: ptBR }));
+    } else if (filters.periodo) {
+      parts.push(`Período ${filters.periodo}`);
+    }
+    const estado = optionsQuery.data?.estados.find((e) => e.id === filters.estado);
+    if (estado) parts.push(estado.name);
+    const municipio = optionsQuery.data?.municipios.find((m) => m.id === filters.municipio);
+    if (municipio) parts.push(municipio.name);
+    if (activeSchoolName) parts.push(activeSchoolName);
+    else parts.push("Todas as escolas (visão SEMED)");
+    if (filters.disciplina) parts.push(filters.disciplina);
+    return parts.join(" · ");
+  }, [filters.periodo, filters.estado, filters.municipio, filters.disciplina, optionsQuery.data, activeSchoolName, periodCalendarSelected]);
+
+  const activeFilterBadges = useMemo(() => {
+    const badges: Array<{ key: string; label: string; onClear: () => void }> = [];
+    if (filters.periodo) {
+      const periodLabel = periodCalendarSelected
+        ? format(periodCalendarSelected, "MMMM 'de' yyyy", { locale: ptBR })
+        : filters.periodo;
+      badges.push({ key: "periodo", label: `Período: ${periodLabel}`, onClear: () => handleFilterChange("periodo", "") });
+    }
+    if (filters.estado) {
+      const name = optionsQuery.data?.estados.find((e) => e.id === filters.estado)?.name || filters.estado;
+      badges.push({ key: "estado", label: `Estado: ${name}`, onClear: () => handleFilterChange("estado", "") });
+    }
+    if (filters.municipio) {
+      const name = optionsQuery.data?.municipios.find((m) => m.id === filters.municipio)?.name || filters.municipio;
+      badges.push({ key: "municipio", label: `Município: ${name}`, onClear: () => handleFilterChange("municipio", "") });
+    }
+    if (filters.escola_id || selectedSchoolId) {
+      badges.push({
+        key: "escola",
+        label: `Escola: ${activeSchoolName || "Selecionada"}`,
+        onClear: backToSemedView,
+      });
+    }
+    if (filters.disciplina) {
+      badges.push({ key: "disciplina", label: `Disciplina: ${filters.disciplina}`, onClear: () => handleFilterChange("disciplina", "") });
+    }
+    if (filters.coordenador_id) {
+      const name = optionsQuery.data?.coordenadores.find((c) => c.id === filters.coordenador_id)?.name || "Coordenador";
+      badges.push({ key: "coordenador", label: `Editor: ${name}`, onClear: () => handleFilterChange("coordenador_id", "") });
+    }
+    return badges;
+  }, [
+    filters,
+    selectedSchoolId,
+    optionsQuery.data,
+    activeSchoolName,
+    periodCalendarSelected,
+    handleFilterChange,
+    backToSemedView,
+  ]);
+
+  const isLoadingFilters = optionsQuery.isLoading || optionsQuery.isFetching;
+  const studentsRows = studentsQuery.data?.items ?? [];
+
+  return (
+    <>
+      <div className="w-full min-w-0 space-y-6 pb-8">
+        <header className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold tracking-tight sm:gap-3 sm:text-3xl">
+              <Activity className="h-7 w-7 shrink-0 text-primary sm:h-8 sm:w-8" aria-hidden />
+              Monitoramento
+            </h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="gap-1.5">
+                {schoolsQuery.isLoading || schoolsQuery.isFetching ? (
+                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                ) : null}
+                {summary?.total_alunos ?? 0} alunos monitorados
+              </Badge>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" disabled={isGeneratingPdf}>
+                    {isGeneratingPdf ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="mr-2 h-4 w-4" />
+                    )}
+                    Exportar PDF
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 p-2">
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">Escolha a periodicidade</p>
+                  <div className="grid gap-2">
+                    <Button variant="outline" size="sm" onClick={() => handleGeneratePdf("semanal")}>
+                      Semanal
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => handleGeneratePdf("mensal")}>
+                      Mensal
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+          <p className="max-w-3xl text-sm text-muted-foreground sm:text-base">
+            Acompanhe ações pedagógicas por escola e aluno, com histórico de alterações e relatório oficial.
+          </p>
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <span>{recorteLabel}</span>
+            <span className="text-border">•</span>
+            <span>{filters.tipo_origem === "avaliacao" ? "Avaliação online" : "Cartão-resposta"}</span>
+          </div>
+        </header>
+
+        <Tabs value={filters.tipo_origem} onValueChange={handleOriginTabChange} className="w-full">
+          <TabsList className="mb-0 w-full max-w-md">
+            <TabsTrigger value="avaliacao" className="flex-1">
+              Avaliação online
+            </TabsTrigger>
+            <TabsTrigger value="cartao_resposta" className="flex-1">
+              Cartão-resposta
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <ModernStatCard
+            icon={<Building2 className="h-5 w-5" />}
+            title="Escolas no recorte"
+            value={summary?.total_escolas ?? 0}
+            isLoading={schoolsQuery.isLoading}
+            delay={0}
+          />
+          <ModernStatCard
+            icon={<Users className="h-5 w-5" />}
+            title="Alunos monitorados"
+            value={summary?.total_alunos ?? 0}
+            isLoading={schoolsQuery.isLoading}
+            delay={80}
+          />
+          <ModernStatCard
+            icon={<CheckCircle2 className="h-5 w-5" />}
+            title="Ações realizadas"
+            value={summary?.total_acoes ?? 0}
+            subtitle={summary ? `${acoesPct}% do total` : undefined}
+            isLoading={schoolsQuery.isLoading}
+            delay={160}
+          />
+          <ModernStatCard
+            icon={<Eye className="h-5 w-5" />}
+            title="Vistos pela SEMED"
+            value={summary?.total_vistos_semed ?? 0}
+            isLoading={schoolsQuery.isLoading}
+            delay={240}
+          />
+        </div>
+
+        {summary && summary.total_alunos > 0 ? (
+          <Card>
+            <CardContent className="space-y-2 pt-6">
+              <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <ClipboardCheck className="h-3.5 w-3.5" />
+                  Progresso geral de execução das ações
+                </span>
+                <span className="tabular-nums">{acoesPct}%</span>
+              </div>
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-primary to-emerald-500 transition-all"
+                  style={{ width: `${acoesPct}%` }}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        <Card className="overflow-visible">
+          <CardHeader className="pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Filter className="h-5 w-5 text-primary" />
+                Filtros
+              </CardTitle>
+              {activeFilterBadges.length > 0 ? (
+                <Button variant="ghost" size="sm" onClick={clearAllFilters}>
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Limpar filtros
+                </Button>
+              ) : null}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4 overflow-visible">
+            {isLoadingFilters ? (
+              <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                <span>Carregando opções dos filtros...</span>
+              </div>
+            ) : null}
+
+            {activeFilterBadges.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {activeFilterBadges.map((badge) => (
+                  <Badge key={badge.key} variant="secondary" className="gap-1 pr-1">
+                    {badge.label}
+                    <button
+                      type="button"
+                      className="rounded-sm p-0.5 hover:bg-muted"
+                      onClick={badge.onClear}
+                      aria-label={`Remover filtro ${badge.label}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="monitoramento-estado">Estado</Label>
+                <Select
+                  value={filters.estado || "all"}
+                  onValueChange={(v) => handleFilterChange("estado", v === "all" ? "" : v)}
+                  disabled={isLoadingFilters || municipioLocked}
+                >
+                  <SelectTrigger id="monitoramento-estado" className="w-full min-w-0">
+                    <SelectValue placeholder="Selecione o estado" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    {(optionsQuery.data?.estados || []).map((state) => (
+                      <SelectItem key={state.id} value={state.id}>
+                        {state.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="monitoramento-municipio">Município</Label>
+                <Select
+                  value={filters.municipio || "all"}
+                  onValueChange={(v) => handleFilterChange("municipio", v === "all" ? "" : v)}
+                  disabled={!filters.estado || isLoadingFilters || municipioLocked}
+                >
+                  <SelectTrigger id="monitoramento-municipio" className="w-full min-w-0">
+                    <SelectValue
+                      placeholder={!filters.estado ? "Selecione o estado antes" : "Selecione o município"}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    {(optionsQuery.data?.municipios || []).map((city) => (
+                      <SelectItem key={city.id} value={city.id}>
+                        {city.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Período (mês/ano)</Label>
+                <Popover open={periodPickerOpen} onOpenChange={setPeriodPickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={cn(
+                        "w-full min-w-0 justify-start text-left font-normal",
+                        normalizedSelectedPeriod === "all" && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                      <span className="truncate">
+                        {periodCalendarSelected
+                          ? format(periodCalendarSelected, "MMMM 'de' yyyy", { locale: ptBR })
+                          : "Selecionar mês e ano"}
+                      </span>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-auto max-w-[min(100vw-1rem,20rem)] overflow-hidden border-border bg-popover p-0 text-popover-foreground shadow-lg"
+                    align="start"
+                  >
+                    <div className="grid grid-cols-2 gap-2 border-b border-border px-3 pb-2 pt-3">
+                      <div className="min-w-0 space-y-1">
+                        <span className="text-xs font-medium text-muted-foreground">Mês</span>
+                        <Select
+                          value={String(periodDraft.m)}
+                          onValueChange={(v) => {
+                            const mi = parseInt(v, 10);
+                            const y = periodDraft.y;
+                            setPeriodDraft({ y, m: mi });
+                            const p = normalizeResultsPeriodYm(`${y}-${String(mi + 1).padStart(2, "0")}`);
+                            if (p !== "all") handleFilterChange("periodo", p);
+                          }}
+                        >
+                          <SelectTrigger className="h-9 w-full min-w-0">
+                            <SelectValue placeholder="Mês" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {RESULTS_MONTH_NAMES_PT.map((name, i) => (
+                              <SelectItem key={name} value={String(i)}>
+                                {name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="min-w-0 space-y-1">
+                        <span className="text-xs font-medium text-muted-foreground">Ano</span>
+                        <Select
+                          value={String(periodDraft.y)}
+                          onValueChange={(v) => {
+                            const y = parseInt(v, 10);
+                            const mi = periodDraft.m;
+                            setPeriodDraft({ y, m: mi });
+                            const p = normalizeResultsPeriodYm(`${y}-${String(mi + 1).padStart(2, "0")}`);
+                            if (p !== "all") handleFilterChange("periodo", p);
+                          }}
+                        >
+                          <SelectTrigger className="h-9 w-full min-w-0">
+                            <SelectValue placeholder="Ano" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-60">
+                            {Array.from(
+                              { length: getResultsPeriodYearMax() - RESULTS_PERIOD_YEAR_MIN + 1 },
+                              (_, i) => RESULTS_PERIOD_YEAR_MIN + i
+                            ).map((y) => (
+                              <SelectItem key={y} value={String(y)}>
+                                {y}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <Calendar
+                      mode="single"
+                      locale={ptBR}
+                      month={new Date(periodDraft.y, periodDraft.m, 1)}
+                      onMonthChange={(d) => {
+                        const y = d.getFullYear();
+                        const m = d.getMonth();
+                        setPeriodDraft({ y, m });
+                        const p = normalizeResultsPeriodYm(`${y}-${String(m + 1).padStart(2, "0")}`);
+                        if (p !== "all") handleFilterChange("periodo", p);
+                      }}
+                      selected={periodCalendarSelected}
+                      captionLayout="buttons"
+                      fromYear={RESULTS_PERIOD_YEAR_MIN}
+                      toYear={getResultsPeriodYearMax()}
+                      className="rounded-none border-0 bg-transparent p-0 text-popover-foreground shadow-none"
+                      onSelect={(date) => {
+                        if (!date) return;
+                        const y = date.getFullYear();
+                        const m = date.getMonth();
+                        setPeriodDraft({ y, m });
+                        const p = normalizeResultsPeriodYm(format(date, "yyyy-MM"));
+                        if (p !== "all") {
+                          handleFilterChange("periodo", p);
+                          setPeriodPickerOpen(false);
+                        }
+                      }}
+                      initialFocus
+                    />
+                    <div className="space-y-2 border-t border-border bg-muted/15 px-3 py-2.5 dark:bg-muted/25">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => {
+                          handleFilterChange("periodo", "");
+                          setPeriodPickerOpen(false);
+                        }}
+                      >
+                        Limpar período
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="monitoramento-origem">
+                  {filters.tipo_origem === "avaliacao" ? "Avaliação" : "Cartão-resposta"}
+                </Label>
+                <Select
+                  value={sourceSelectValue}
+                  onValueChange={(value) => {
+                    const nextValue = value === "all" ? "" : value;
+                    if (filters.tipo_origem === "avaliacao") handleFilterChange("avaliacao_id", nextValue);
+                    else handleFilterChange("gabarito_id", nextValue);
+                  }}
+                  disabled={!geoFiltersReady || isLoadingFilters}
+                >
+                  <SelectTrigger id="monitoramento-origem" className="w-full min-w-0">
+                    <SelectValue
+                      placeholder={
+                        !geoFiltersReady
+                          ? "Selecione estado e município antes"
+                          : "Selecione a avaliação ou cartão"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Selecione</SelectItem>
+                    {sourceItems.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="monitoramento-escola">Escola</Label>
+                <Select
+                  value={filters.escola_id || selectedSchoolId || "all"}
+                  onValueChange={(v) => handleFilterChange("escola_id", v === "all" ? "" : v)}
+                  disabled={!selectedSourceId || isLoadingFilters || escolaLocked}
+                >
+                  <SelectTrigger id="monitoramento-escola" className="w-full min-w-0">
+                    <SelectValue
+                      placeholder={
+                        !selectedSourceId
+                          ? "Selecione a avaliação ou cartão antes"
+                          : "Todas as escolas"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas as escolas</SelectItem>
+                    {(optionsQuery.data?.escolas || []).map((school) => (
+                      <SelectItem key={school.id} value={school.id}>
+                        {school.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="monitoramento-disciplina">Disciplina</Label>
+                <Select
+                  value={filters.disciplina || "all"}
+                  onValueChange={(v) => handleFilterChange("disciplina", v === "all" ? "" : v)}
+                  disabled={!selectedSourceId || isLoadingFilters}
+                >
+                  <SelectTrigger id="monitoramento-disciplina" className="w-full min-w-0">
+                    <SelectValue
+                      placeholder={
+                        !selectedSourceId ? "Selecione a avaliação ou cartão antes" : "Todas"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
+                    {(optionsQuery.data?.disciplinas || []).map((item) => (
+                      <SelectItem key={item.id} value={item.name}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="monitoramento-serie">Série</Label>
+                <Select
+                  value={filters.serie_id || "all"}
+                  onValueChange={(v) => handleFilterChange("serie_id", v === "all" ? "" : v)}
+                  disabled={!activeSchoolId}
+                >
+                  <SelectTrigger id="monitoramento-serie" className="w-full min-w-0">
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
+                    {(optionsQuery.data?.series || []).map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="monitoramento-turma">Turma</Label>
+                <Select
+                  value={filters.turma_id || "all"}
+                  onValueChange={(v) => handleFilterChange("turma_id", v === "all" ? "" : v)}
+                  disabled={!filters.serie_id}
+                >
+                  <SelectTrigger id="monitoramento-turma" className="w-full min-w-0">
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
+                    {(optionsQuery.data?.turmas || []).map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="monitoramento-coordenador">Coordenador (editando)</Label>
+                <Select
+                  value={filters.coordenador_id || "all"}
+                  onValueChange={(v) => handleFilterChange("coordenador_id", v === "all" ? "" : v)}
+                  disabled={!selectedSourceId}
+                >
+                  <SelectTrigger id="monitoramento-coordenador" className="w-full min-w-0">
+                    <SelectValue
+                      placeholder={
+                        !selectedSourceId ? "Selecione a avaliação ou cartão antes" : "Selecione o coordenador"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Selecione</SelectItem>
+                    {(optionsQuery.data?.coordenadores || []).map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {!canEdit ? (
+              <Alert className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30">
+                <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                <AlertDescription>
+                  Selecione o coordenador antes de editar — toda alteração ficará registrada no histórico em nome dele.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="space-y-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Building2 className="h-5 w-5 text-primary" />
+                  Tabela de Monitoramento
+                </CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Linhas destacadas indicam escolas com ≥20% dos alunos em Abaixo do Básico.
+                </p>
+              </div>
+              {!activeSchoolId ? (
+                <Badge variant="outline" className="gap-1.5 border-primary/30 bg-primary/5 text-primary">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Visão SEMED
+                </Badge>
+              ) : null}
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {!activeSchoolId ? (
+              <div className="border-b bg-primary/5 px-4 py-3 text-xs font-medium text-primary">
+                Visão SEMED · agregada por escola — selecione uma escola para detalhar séries, turmas e alunos.
+              </div>
+            ) : null}
+
+            {schoolsQuery.isLoading ? (
+              <div className="space-y-2 p-4">
+                {Array.from({ length: 4 }).map((_, idx) => (
+                  <Skeleton key={idx} className="h-10 w-full" />
+                ))}
+              </div>
+            ) : schoolsQuery.isError ? (
+              <div className="p-6 text-center">
+                <p className="text-sm text-muted-foreground">Erro ao carregar dados de escolas.</p>
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => schoolsQuery.refetch()}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Tentar novamente
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto max-w-full results-table-scroll">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/40">
+                        <TableHead>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-1 text-xs uppercase tracking-wide"
+                            onClick={() =>
+                              setSchoolSort((prev) => ({
+                                by: "escola_nome",
+                                order: prev.by === "escola_nome" && prev.order === "asc" ? "desc" : "asc",
+                              }))
+                            }
+                          >
+                            Escola
+                            <ArrowUpDown className="ml-1 h-3 w-3" />
+                          </Button>
+                        </TableHead>
+                        <TableHead className="text-center text-xs uppercase tracking-wide">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-1 text-xs uppercase tracking-wide"
+                            onClick={() =>
+                              setSchoolSort((prev) => ({
+                                by: "total_alunos",
+                                order: prev.by === "total_alunos" && prev.order === "asc" ? "desc" : "asc",
+                              }))
+                            }
+                          >
+                            Alunos
+                            <ArrowUpDown className="ml-1 h-3 w-3" />
+                          </Button>
+                        </TableHead>
+                        <TableHead className="text-center text-xs uppercase tracking-wide">Abaixo Básico</TableHead>
+                        <TableHead className="text-center text-xs uppercase tracking-wide">Básico</TableHead>
+                        <TableHead className="text-center text-xs uppercase tracking-wide">Adequado</TableHead>
+                        <TableHead className="text-center text-xs uppercase tracking-wide">Avançado</TableHead>
+                        <TableHead className="text-center text-xs uppercase tracking-wide">Ações</TableHead>
+                        <TableHead className="text-center text-xs uppercase tracking-wide">Vistos SEMED</TableHead>
+                        <TableHead className="text-right text-xs uppercase tracking-wide">Detalhar</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(schoolsQuery.data?.items || []).map((school) => {
+                        const pctAbaixo = school.total_alunos
+                          ? (school.abaixo_basico / school.total_alunos) * 100
+                          : 0;
+                        const isCritical = pctAbaixo >= 20;
+                        const isSelected = activeSchoolId === school.escola_id;
+
+                        return (
+                          <TableRow
+                            key={school.escola_id}
+                            className={cn(
+                              "transition-colors hover:bg-muted/30",
+                              isSelected && "bg-primary/5",
+                              isCritical && "bg-destructive/5"
+                            )}
+                          >
+                            <TableCell className="font-medium">{school.escola_nome}</TableCell>
+                            <TableCell className="text-center tabular-nums">{school.total_alunos}</TableCell>
+                            <TableCell className="text-center tabular-nums">
+                              <Badge
+                                variant="outline"
+                                className="border-destructive/20 bg-destructive/10 font-semibold text-destructive"
+                              >
+                                {school.abaixo_basico} · {pctAbaixo.toFixed(0)}%
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-center tabular-nums">{school.basico}</TableCell>
+                            <TableCell className="text-center tabular-nums">{school.adequado}</TableCell>
+                            <TableCell className="text-center tabular-nums">{school.avancado}</TableCell>
+                            <TableCell className="text-center tabular-nums">
+                              {school.acoes_realizadas}/{school.total_alunos}
+                            </TableCell>
+                            <TableCell className="text-center tabular-nums">
+                              {school.vistos_semed}/{school.total_alunos}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant={isSelected ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedSchoolId(school.escola_id);
+                                  setFilters((prev) => ({ ...prev, escola_id: school.escola_id }));
+                                  setStudentPage(1);
+                                }}
+                              >
+                                {isSelected ? "Selecionada" : "Abrir"}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                      {!schoolsQuery.data?.items?.length && (
+                        <TableRow>
+                          <TableCell colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
+                            Nenhum resultado encontrado para os filtros selecionados.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className="flex items-center justify-between border-t px-4 py-3">
+                  <p className="text-xs text-muted-foreground">
+                    Mostrando {schoolsFrom}-{schoolsTo} de {schoolsPagination?.total || 0}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!schoolsPagination || schoolsPagination.page <= 1}
+                      onClick={() => setSchoolPage((prev) => Math.max(1, prev - 1))}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!schoolsPagination || schoolsPagination.page >= schoolsPagination.total_pages}
+                      onClick={() => setSchoolPage((prev) => prev + 1)}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="space-y-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Users className="h-5 w-5 text-primary" />
+                  Detalhamento de Alunos
+                </CardTitle>
+                {activeSchoolName ? (
+                  <p className="text-xs text-muted-foreground">{activeSchoolName}</p>
+                ) : null}
+              </div>
+              {activeSchoolId ? (
+                <Button variant="ghost" size="sm" onClick={backToSemedView}>
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Voltar para visão SEMED
+                </Button>
+              ) : null}
+            </div>
+            {activeSchoolId ? (
+              <div className="relative max-w-md">
+                <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input
+                  className="pl-9"
+                  placeholder="Buscar por aluno, turma ou série"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                />
+              </div>
+            ) : null}
+          </CardHeader>
+          <CardContent className="p-0">
+            {!activeSchoolId ? (
+              <div className="px-6 py-10 text-center text-sm text-muted-foreground">
+                Selecione uma escola na tabela acima para visualizar os alunos e registrar ações pedagógicas.
+              </div>
+            ) : studentsQuery.isLoading ? (
+              <div className="space-y-2 p-4">
+                {Array.from({ length: 6 }).map((_, idx) => (
+                  <Skeleton key={idx} className="h-12 w-full" />
+                ))}
+              </div>
+            ) : studentsQuery.isError ? (
+              <div className="p-6 text-center">
+                <p className="text-sm text-muted-foreground">Erro ao carregar detalhamento de alunos.</p>
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => studentsQuery.refetch()}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Tentar novamente
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="border-b bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+                  Linhas em destaque = <strong>Abaixo do Básico</strong> · salve cada linha para registrar no histórico.
+                </div>
+                <div className="overflow-x-auto max-w-full results-table-scroll">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/40">
+                        <TableHead className="text-xs uppercase tracking-wide">Aluno</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wide">Nota</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wide">Nível</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wide">Ação pedagógica</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wide">Responsável</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wide">Prazo</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wide">Status</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wide">Realizada em</TableHead>
+                        <TableHead className="text-center text-xs uppercase tracking-wide">Esc.</TableHead>
+                        <TableHead className="text-center text-xs uppercase tracking-wide">SEMED</TableHead>
+                        <TableHead className="text-right text-xs uppercase tracking-wide">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {studentsRows.map((row) => {
+                        const rowStatus = (getDraftValue(row, "status") as string) || "pendente";
+                        const isSaving = savingRowId === row.aluno_id;
+
+                        return (
+                          <TableRow
+                            key={row.aluno_id}
+                            className={cn(
+                              "transition-colors hover:bg-muted/30",
+                              isAbaixoBasico(row.nivel) && "bg-destructive/5"
+                            )}
+                          >
+                            <TableCell className="min-w-[220px]">
+                              <p className="font-medium">{row.aluno_nome}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {row.serie} · {row.turma}
+                              </p>
+                              {row.disciplina ? (
+                                <div className="mt-2">
+                                  <DisciplineTag name={row.disciplina} />
+                                </div>
+                              ) : null}
+                              {row.descritores_criticos.length ? (
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                  Críticos: {row.descritores_criticos.join(", ")}
+                                </p>
+                              ) : null}
+                            </TableCell>
+                            <TableCell className="font-semibold tabular-nums">
+                              {Number(row.nota || 0).toFixed(1).replace(".", ",")}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                className={cn(getReportProficiencyTagClass(row.nivel), "normal-case tracking-normal")}
+                              >
+                                {row.nivel}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="min-w-[240px]">
+                              <Textarea
+                                value={String(getDraftValue(row, "acao_pedagogica") || "")}
+                                onChange={(e) => updateDraft(row, { acao_pedagogica: e.target.value })}
+                                placeholder="Descreva a ação pedagógica..."
+                                className="min-h-[84px] text-sm"
+                                disabled={!canEdit}
+                              />
+                            </TableCell>
+                            <TableCell className="min-w-[180px]">
+                              <Select
+                                value={(getDraftValue(row, "responsavel_id") as string | null) || "none"}
+                                onValueChange={(value) =>
+                                  updateDraft(row, {
+                                    responsavel_id: value === "none" ? null : value,
+                                    responsavel_nome:
+                                      value === "none"
+                                        ? ""
+                                        : optionsQuery.data?.coordenadores.find((item) => item.id === value)?.name ||
+                                          "",
+                                  })
+                                }
+                                disabled={!canEdit}
+                              >
+                                <SelectTrigger className="w-full min-w-0">
+                                  <SelectValue placeholder="Responsável" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">Não definido</SelectItem>
+                                  {(optionsQuery.data?.coordenadores || []).map((item) => (
+                                    <SelectItem key={item.id} value={item.id}>
+                                      {item.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                type="date"
+                                value={formatDateToInput(getDraftValue(row, "prazo") as string | null)}
+                                onChange={(e) => updateDraft(row, { prazo: e.target.value || null })}
+                                disabled={!canEdit}
+                                className="min-w-[140px]"
+                              />
+                            </TableCell>
+                            <TableCell className="min-w-[160px]">
+                              <Select
+                                value={rowStatus}
+                                onValueChange={(value) =>
+                                  updateDraft(row, { status: value as MonitoringStudentItem["status"] })
+                                }
+                                disabled={!canEdit}
+                              >
+                                <SelectTrigger
+                                  className={cn("w-full min-w-0 font-medium", getMonitoringStatusClass(rowStatus))}
+                                >
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {statusOptions.map((status) => (
+                                    <SelectItem key={status.id} value={status.id}>
+                                      {status.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                type="date"
+                                value={formatDateToInput(getDraftValue(row, "realizada_em") as string | null)}
+                                onChange={(e) => updateDraft(row, { realizada_em: e.target.value || null })}
+                                disabled={!canEdit}
+                                className="min-w-[140px]"
+                              />
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <Checkbox
+                                checked={Boolean(getDraftValue(row, "feita_pela_escola"))}
+                                onCheckedChange={(checked) =>
+                                  updateDraft(row, { feita_pela_escola: Boolean(checked) })
+                                }
+                                disabled={!canEdit}
+                                aria-label="Feita pela escola"
+                              />
+                            </TableCell>
+                            <TableCell className="text-center">
+                            <Checkbox
+                              checked={Boolean(getDraftValue(row, "vista_pela_semed"))}
+                              onCheckedChange={(checked) =>
+                                updateDraft(row, { vista_pela_semed: Boolean(checked) })
+                              }
+                              disabled={!canEdit || !canMarkSemed}
+                              aria-label="Vista pela SEMED"
+                            />
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => saveRow(row)}
+                                  disabled={!canEdit || isSaving}
+                                  aria-label="Salvar ação pedagógica"
+                                >
+                                  {isSaving ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Save className="h-4 w-4" />
+                                  )}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={!row.acao_id}
+                                  onClick={() => {
+                                    if (!row.acao_id) return;
+                                    setHistoryActionId(row.acao_id);
+                                    setHistoryOpen(true);
+                                  }}
+                                  aria-label="Ver histórico"
+                                >
+                                  <History className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                      {!studentsRows.length && (
+                        <TableRow>
+                          <TableCell colSpan={11} className="py-8 text-center text-sm text-muted-foreground">
+                            Nenhum aluno encontrado no recorte selecionado.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className="flex items-center justify-between border-t px-4 py-3">
+                  <p className="text-xs text-muted-foreground">
+                    Mostrando {studentsFrom}-{studentsTo} de {studentsPagination?.total || 0}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!studentsPagination || studentsPagination.page <= 1}
+                      onClick={() => setStudentPage((prev) => Math.max(1, prev - 1))}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={
+                        !studentsPagination || studentsPagination.page >= studentsPagination.total_pages
+                      }
+                      onClick={() => setStudentPage((prev) => prev + 1)}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileClock className="h-4 w-4 text-primary" />
+              Histórico da ação pedagógica
+            </DialogTitle>
+          </DialogHeader>
+          {historyQuery.isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, idx) => (
+                <Skeleton key={idx} className="h-14 w-full" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {(historyQuery.data?.items || []).map((entry) => (
+                <Card key={entry.id}>
+                  <CardContent className="pt-4 text-sm">
+                    <p className="font-medium">{entry.changed_by_name || "Usuário"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(entry.changed_at).toLocaleString("pt-BR")}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {(entry.changed_fields || []).map((field) => (
+                        <Badge key={field} variant="outline">
+                          {field}
+                        </Badge>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              {!historyQuery.data?.items?.length && (
+                <p className="text-sm text-muted-foreground">Ainda não há histórico para esta ação.</p>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+};
+
+export default MonitoringPage;
