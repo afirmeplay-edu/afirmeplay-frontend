@@ -58,6 +58,24 @@ const scaledSize = (iw: number, ih: number, desiredW: number) => {
   return { w: desiredW, h: (ih * desiredW) / iw };
 };
 
+type ColumnStyle = { cellWidth?: number; [key: string]: unknown };
+
+const scaleColumnWidths = (
+  columnStyles: Record<number, ColumnStyle>,
+  availableWidth: number
+): Record<number, ColumnStyle> => {
+  const entries = Object.entries(columnStyles);
+  const sum = entries.reduce((acc, [, style]) => acc + (style.cellWidth ?? 0), 0);
+  if (sum <= 0 || sum <= availableWidth) return columnStyles;
+  const factor = availableWidth / sum;
+  return Object.fromEntries(
+    entries.map(([key, style]) => [
+      key,
+      { ...style, cellWidth: (style.cellWidth ?? 0) * factor },
+    ])
+  );
+};
+
 const borderFromFill = (fill: [number, number, number]): [number, number, number] => {
   const [r, g, b] = fill;
   return [Math.max(0, r - 35), Math.max(0, g - 35), Math.max(0, b - 35)];
@@ -687,12 +705,15 @@ export async function generateMonitoringPdf(opts: {
         lineWidth: 0.12,
         textColor: C.textDark,
       },
-      columnStyles: {
-        0: { cellWidth: 42, halign: "left", fontStyle: "bold" },
-        1: { cellWidth: 24, halign: "center" },
-        2: { cellWidth: 38, halign: "center" },
-        3: { cellWidth: 38, halign: "center" },
-      },
+      columnStyles: scaleColumnWidths(
+        {
+          0: { cellWidth: 42, halign: "left", fontStyle: "bold" },
+          1: { cellWidth: 24, halign: "center" },
+          2: { cellWidth: 38, halign: "center" },
+          3: { cellWidth: 38, halign: "center" },
+        },
+        pageW - margin * 2
+      ),
     } as UserOptions);
 
     y = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
@@ -746,16 +767,19 @@ export async function generateMonitoringPdf(opts: {
       valign: "middle",
     },
     alternateRowStyles: { fillColor: [253, 252, 254] },
-    columnStyles: {
-      0: { cellWidth: 54, halign: "left" },
-      1: { cellWidth: 14, halign: "center", fontStyle: "bold" },
-      2: { cellWidth: 16, halign: "center" },
-      3: { cellWidth: 14, halign: "center" },
-      4: { cellWidth: 16, halign: "center" },
-      5: { cellWidth: 16, halign: "center" },
-      6: { cellWidth: 18, halign: "center" },
-      7: { cellWidth: 18, halign: "center" },
-    },
+    columnStyles: scaleColumnWidths(
+      {
+        0: { cellWidth: 54, halign: "left" },
+        1: { cellWidth: 14, halign: "center", fontStyle: "bold" },
+        2: { cellWidth: 16, halign: "center" },
+        3: { cellWidth: 14, halign: "center" },
+        4: { cellWidth: 16, halign: "center" },
+        5: { cellWidth: 16, halign: "center" },
+        6: { cellWidth: 18, halign: "center" },
+        7: { cellWidth: 18, halign: "center" },
+      },
+      pageW - margin * 2
+    ),
     didParseCell: (hookData) => {
       if (hookData.section !== "body" || !schoolsBody.length) return;
       const school = opts.payload.tabela_escolas[hookData.row.index];
@@ -844,21 +868,24 @@ export async function generateMonitoringPdf(opts: {
       cellPadding: { top: 2.5, bottom: 2.5, left: 2, right: 2 },
     },
     alternateRowStyles: { fillColor: [253, 252, 254] },
-    columnStyles: {
-      0: { cellWidth: 34 },
-      1: { cellWidth: 24 },
-      2: { cellWidth: 10, halign: "right", fontStyle: "bold", textColor: C.primary },
-      3: { cellWidth: 10, halign: "right", fontStyle: "bold", textColor: C.primary },
-      4: { cellWidth: 20, halign: "center" },
-      5: { cellWidth: 28 },
-      6: { cellWidth: 42 },
-      7: { cellWidth: 22 },
-      8: { cellWidth: 14, halign: "center" },
-      9: { cellWidth: 18, halign: "center" },
-      10: { cellWidth: 14, halign: "center" },
-      11: { cellWidth: 9, halign: "center" },
-      12: { cellWidth: 10, halign: "center" },
-    },
+    columnStyles: scaleColumnWidths(
+      {
+        0: { cellWidth: 34 },
+        1: { cellWidth: 24 },
+        2: { cellWidth: 10, halign: "right", fontStyle: "bold", textColor: C.primary },
+        3: { cellWidth: 10, halign: "right", fontStyle: "bold", textColor: C.primary },
+        4: { cellWidth: 20, halign: "center" },
+        5: { cellWidth: 28 },
+        6: { cellWidth: 42 },
+        7: { cellWidth: 22 },
+        8: { cellWidth: 14, halign: "center" },
+        9: { cellWidth: 18, halign: "center" },
+        10: { cellWidth: 14, halign: "center" },
+        11: { cellWidth: 9, halign: "center" },
+        12: { cellWidth: 10, halign: "center" },
+      },
+      pageW - margin * 2
+    ),
     didParseCell: (hookData) => {
       if (hookData.section !== "body" || !studentsBody.length) return;
       const row = opts.payload.tabela_alunos[hookData.row.index];

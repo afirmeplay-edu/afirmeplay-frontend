@@ -118,7 +118,7 @@ export type MonitoringActionPayload = {
   grade_id?: string;
   disciplina?: string;
   acao_pedagogica: string;
-  responsavel_id: string | null;
+  responsavel_nome: string;
   coordenador_id?: string | null;
   prazo: string | null;
   status: "pendente" | "sendo_realizada" | "nao_realizado";

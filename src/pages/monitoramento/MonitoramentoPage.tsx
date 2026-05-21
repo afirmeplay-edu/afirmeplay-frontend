@@ -5,10 +5,11 @@ import {
   Calendar as CalendarIcon,
   Activity,
   AlertCircle,
-  ArrowLeft,
   ArrowUpDown,
   Building2,
+  Check,
   CheckCircle2,
+  ChevronsUpDown,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
@@ -24,7 +25,6 @@ import {
   Search,
   ShieldCheck,
   Users,
-  X,
 } from "lucide-react";
 
 import ModernStatCard from "@/components/dashboard/ModernStatCard";
@@ -36,6 +36,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -47,7 +55,10 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/authContext";
 import { cn } from "@/lib/utils";
 import { DisciplineTag } from "@/components/ui/discipline-tag";
-import { getReportProficiencyTagClass } from "@/utils/report/reportTagStyles";
+import {
+  getReportProficiencyTagClass,
+  type ReportProficiencyLabel,
+} from "@/utils/report/reportTagStyles";
 import {
   type MonitoringActionPayload,
   type MonitoringFilters,
@@ -107,6 +118,54 @@ const getApiErrorMessage = (error: unknown, fallback: string) => {
   return maybe?.response?.data?.error || maybe?.response?.data?.details || fallback;
 };
 
+const MonitoringSortableHead = ({
+  label,
+  sortKey,
+  activeSort,
+  onSort,
+  align = "left",
+}: {
+  label: string;
+  sortKey: string;
+  activeSort: { by: string; order: "asc" | "desc" };
+  onSort: (key: string) => void;
+  align?: "left" | "center" | "right";
+}) => (
+  <TableHead className={cn(align === "center" && "text-center", align === "right" && "text-right")}>
+    <Button
+      variant="ghost"
+      size="sm"
+      className={cn(
+        "h-7 px-1 text-xs uppercase tracking-wide",
+        activeSort.by === sortKey && "bg-muted/60",
+        align === "center" && "mx-auto flex",
+        align === "right" && "ml-auto flex"
+      )}
+      onClick={() => onSort(sortKey)}
+    >
+      {label}
+      <ArrowUpDown className="ml-1 h-3 w-3 shrink-0" />
+    </Button>
+  </TableHead>
+);
+
+const MonitoringLevelCount = ({
+  count,
+  total,
+  nivel,
+}: {
+  count: number;
+  total: number;
+  nivel: ReportProficiencyLabel;
+}) => {
+  const pct = total > 0 ? (count / total) * 100 : 0;
+  return (
+    <Badge variant="outline" className={cn(getReportProficiencyTagClass(nivel), "font-semibold tabular-nums")}>
+      {count} · {pct.toFixed(0)}%
+    </Badge>
+  );
+};
+
 const MonitoringPage = () => {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -116,6 +175,7 @@ const MonitoringPage = () => {
 
   const [filters, setFilters] = useState<MonitoringFilters>(defaultFilters);
   const [selectedSchoolId, setSelectedSchoolId] = useState<string>("");
+  const [studentsModalOpen, setStudentsModalOpen] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [debouncedSearchText, setDebouncedSearchText] = useState("");
   const [historyActionId, setHistoryActionId] = useState<string>("");
@@ -129,7 +189,12 @@ const MonitoringPage = () => {
     by: "escola_nome",
     order: "asc",
   });
+  const [studentSort, setStudentSort] = useState<{ by: string; order: "asc" | "desc" }>({
+    by: "aluno_nome",
+    order: "asc",
+  });
   const [periodPickerOpen, setPeriodPickerOpen] = useState(false);
+  const [editorComboOpen, setEditorComboOpen] = useState(false);
   const [periodDraft, setPeriodDraft] = useState(() => {
     const now = new Date();
     return { y: now.getFullYear(), m: now.getMonth() };
@@ -179,19 +244,29 @@ const MonitoringPage = () => {
   const selectedSourceId =
     filters.tipo_origem === "avaliacao" ? filters.avaliacao_id || "" : filters.gabarito_id || "";
   const geoFiltersReady = Boolean(filters.estado && filters.municipio);
+  const editorSchoolId = filters.escola_id || selectedSchoolId || "";
+  const editorFieldLabel = editorSchoolId ? "Coordenador" : "Tec Admin";
+
+  const optionsFilters = useMemo(
+    () => ({
+      ...filters,
+      escola_id: editorSchoolId,
+    }),
+    [filters, editorSchoolId]
+  );
 
   const optionsQuery = useQuery({
     queryKey: [
       "monitoramento-options",
-      filters.tipo_origem,
-      filters.periodo,
-      filters.estado,
-      filters.municipio,
-      filters.avaliacao_id,
-      filters.gabarito_id,
-      filters.escola_id,
+      optionsFilters.tipo_origem,
+      optionsFilters.periodo,
+      optionsFilters.estado,
+      optionsFilters.municipio,
+      optionsFilters.avaliacao_id,
+      optionsFilters.gabarito_id,
+      optionsFilters.escola_id,
     ],
-    queryFn: () => MonitoramentoApiService.getFilterOptions(filters),
+    queryFn: () => MonitoramentoApiService.getFilterOptions(optionsFilters),
   });
 
   const filterDefaults = optionsQuery.data?.defaults;
@@ -223,7 +298,6 @@ const MonitoringPage = () => {
     if (!d?.lock_escola || !d.escola_id || !selectedSourceId) return;
     setFilters((prev) => {
       if (prev.escola_id === d.escola_id) return prev;
-      setSelectedSchoolId(d.escola_id);
       return { ...prev, escola_id: d.escola_id };
     });
   }, [optionsQuery.data?.defaults, selectedSourceId]);
@@ -245,23 +319,23 @@ const MonitoringPage = () => {
     enabled: geoFiltersReady && Boolean(selectedSourceId),
   });
 
-  const activeSchoolId = selectedSchoolId || filters.escola_id || "";
-
   const studentFilters = useMemo(
     () => ({
       ...filters,
       q: debouncedSearchText,
-      escola_id: activeSchoolId,
+      escola_id: selectedSchoolId,
       page: studentPage,
       page_size: 30,
+      sort_by: studentSort.by,
+      sort_order: studentSort.order,
     }),
-    [filters, activeSchoolId, debouncedSearchText, studentPage]
+    [filters, selectedSchoolId, debouncedSearchText, studentPage, studentSort.by, studentSort.order]
   );
 
   const studentsQuery = useQuery({
     queryKey: ["monitoramento-students", studentFilters],
     queryFn: () => MonitoramentoApiService.getStudents(studentFilters),
-    enabled: Boolean(activeSchoolId),
+    enabled: studentsModalOpen && Boolean(selectedSchoolId),
   });
 
   const historyQuery = useQuery({
@@ -300,6 +374,7 @@ const MonitoringPage = () => {
     next.serie_id = "";
     next.turma_id = "";
     setSelectedSchoolId("");
+    setStudentsModalOpen(false);
   };
 
   const resetFromMunicipio = (next: MonitoringFilters) => {
@@ -332,7 +407,9 @@ const MonitoringPage = () => {
       if (key === "escola_id") {
         next.serie_id = "";
         next.turma_id = "";
-        setSelectedSchoolId(value);
+        next.coordenador_id = "";
+        setSelectedSchoolId("");
+        setStudentsModalOpen(false);
         setStudentPage(1);
       }
       if (key === "serie_id") {
@@ -365,6 +442,7 @@ const MonitoringPage = () => {
     defaultsAppliedRef.current = false;
     setFilters(defaultFilters);
     setSelectedSchoolId("");
+    setStudentsModalOpen(false);
     setSearchText("");
     setSchoolPage(1);
     setStudentPage(1);
@@ -374,11 +452,14 @@ const MonitoringPage = () => {
     setSearchParams(nextParams, { replace: true });
   }, [searchParams, setSearchParams]);
 
-  const backToSemedView = useCallback(() => {
-    setSelectedSchoolId("");
-    setFilters((prev) => ({ ...prev, escola_id: "" }));
+  const openSchoolDetail = useCallback((schoolId: string) => {
+    setSelectedSchoolId(schoolId);
     setStudentPage(1);
-    setSearchText("");
+    setStudentsModalOpen(true);
+    setFilters((prev) => ({
+      ...prev,
+      coordenador_id: prev.escola_id === schoolId ? prev.coordenador_id : "",
+    }));
   }, []);
 
   const getDraftValue = <K extends keyof MonitoringStudentItem>(
@@ -400,13 +481,63 @@ const MonitoringPage = () => {
     }));
   };
 
-  const canEdit = Boolean(filters.coordenador_id);
+  const userRole = (user?.role || "").toLowerCase();
+  const isSemedEditor = userRole === "admin" || userRole === "tecadm";
+  const isSchoolEditor = userRole === "diretor" || userRole === "coordenador";
+
+  const resolveCoordinatorId = useCallback((): string | null => {
+    if (filters.coordenador_id) return filters.coordenador_id;
+    if ((isSemedEditor || isSchoolEditor) && user?.id) return user.id;
+    return null;
+  }, [filters.coordenador_id, isSemedEditor, isSchoolEditor, user?.id]);
+
+  const canEdit =
+    Boolean(editorSchoolId) &&
+    (isSemedEditor || isSchoolEditor || Boolean(filters.coordenador_id));
+
+  const editorOptions = useMemo(() => {
+    const base = optionsQuery.data?.coordenadores ?? [];
+    if (!isSemedEditor || !user?.id || !editorSchoolId) return base;
+    if (base.some((item) => item.id === user.id)) return base;
+    return [{ id: user.id, name: user.name || "Você" }, ...base];
+  }, [optionsQuery.data?.coordenadores, isSemedEditor, user?.id, user?.name, editorSchoolId]);
+
+  const effectiveEditorId =
+    filters.coordenador_id || (isSemedEditor && user?.id ? user.id : "") || "";
+
+  const selectedEditorLabel = useMemo(() => {
+    if (!effectiveEditorId) return null;
+    const item = editorOptions.find((option) => option.id === effectiveEditorId);
+    const name = item?.name || user?.name || "";
+    if (!name) return null;
+    return effectiveEditorId === user?.id ? `${name} (você)` : name;
+  }, [editorOptions, effectiveEditorId, user?.id, user?.name]);
+
+  const editorLabel = useMemo(() => {
+    if (!filters.coordenador_id && !(isSemedEditor && user?.id)) return null;
+    return selectedEditorLabel;
+  }, [filters.coordenador_id, isSemedEditor, user?.id, selectedEditorLabel]);
+
+  useEffect(() => {
+    setEditorComboOpen(false);
+  }, [editorSchoolId]);
+
+  useEffect(() => {
+    if (!editorSchoolId || !isSchoolEditor || !user?.id) return;
+    if (filters.coordenador_id === user.id) return;
+    const onList = editorOptions.some((item) => item.id === user.id);
+    if (!onList) return;
+    setFilters((prev) => ({ ...prev, coordenador_id: user.id }));
+  }, [editorSchoolId, editorOptions, filters.coordenador_id, isSchoolEditor, user?.id]);
 
   const saveRow = (row: MonitoringStudentItem) => {
-    if (!canEdit) {
+    const coordinatorId = resolveCoordinatorId();
+    if (!canEdit || !coordinatorId) {
       toast({
-        title: "Coordenador não selecionado",
-        description: "Selecione o coordenador nos filtros antes de registrar alterações.",
+        title: "Edição não habilitada",
+        description: editorSchoolId
+          ? `Selecione o ${editorFieldLabel.toLowerCase()} ou use um perfil com permissão de edição.`
+          : "Selecione uma escola (filtro ou Abrir na tabela) para habilitar a edição.",
         variant: "destructive",
       });
       return;
@@ -419,8 +550,8 @@ const MonitoringPage = () => {
       school_id: row.escola_id,
       disciplina: row.disciplina,
       acao_pedagogica: String(getDraftValue(row, "acao_pedagogica") || ""),
-      responsavel_id: (getDraftValue(row, "responsavel_id") as string | null) || null,
-      coordenador_id: filters.coordenador_id || null,
+      responsavel_nome: String(getDraftValue(row, "responsavel_nome") || "").trim(),
+      coordenador_id: coordinatorId,
       prazo: (getDraftValue(row, "prazo") as string | null) || null,
       status: (getDraftValue(row, "status") as MonitoringActionPayload["status"]) || "pendente",
       realizada_em: (getDraftValue(row, "realizada_em") as string | null) || null,
@@ -446,11 +577,11 @@ const MonitoringPage = () => {
           `Tipo: ${filters.tipo_origem === "avaliacao" ? "Avaliação online" : "Cartão-resposta"}`,
           `Periodicidade: ${periodicidade === "semanal" ? "Semanal" : "Mensal"}`,
           filters.coordenador_id
-            ? `Coordenador (editor): ${
+            ? `${editorFieldLabel}: ${
                 optionsQuery.data?.coordenadores.find((c) => c.id === filters.coordenador_id)?.name ||
                 filters.coordenador_id
               }`
-            : "Coordenador (editor): não informado",
+            : `${editorFieldLabel}: não informado`,
           `Gerado por: ${payload.metadata.usuario_gerador || "—"}`,
         ],
         coverCardLines: [
@@ -488,6 +619,19 @@ const MonitoringPage = () => {
       ? optionsQuery.data?.avaliacoes ?? []
       : optionsQuery.data?.gabaritos ?? [];
 
+  const isLoadingFilters = optionsQuery.isLoading || optionsQuery.isFetching;
+
+  const noSourceItems =
+    geoFiltersReady &&
+    !isLoadingFilters &&
+    !optionsQuery.isError &&
+    sourceItems.length === 0;
+
+  const sourceEmptyLabel =
+    filters.tipo_origem === "avaliacao"
+      ? "Nenhuma avaliação neste município (verifique o período)"
+      : "Nenhum cartão-resposta neste município (verifique o período)";
+
   const schoolsPagination = schoolsQuery.data?.pagination;
   const studentsPagination = studentsQuery.data?.pagination;
   const schoolsFrom =
@@ -514,13 +658,13 @@ const MonitoringPage = () => {
       : 0;
 
   const activeSchoolName = useMemo(() => {
-    if (!activeSchoolId) return null;
-    const fromSchools = schoolsQuery.data?.items.find((s) => s.escola_id === activeSchoolId)?.escola_nome;
+    if (!selectedSchoolId) return null;
+    const fromSchools = schoolsQuery.data?.items.find((s) => s.escola_id === selectedSchoolId)?.escola_nome;
     if (fromSchools) return fromSchools;
-    const fromOptions = optionsQuery.data?.escolas.find((e) => e.id === activeSchoolId)?.name;
+    const fromOptions = optionsQuery.data?.escolas.find((e) => e.id === selectedSchoolId)?.name;
     if (fromOptions) return fromOptions;
     return studentsQuery.data?.items?.[0]?.escola_nome || "Escola selecionada";
-  }, [activeSchoolId, schoolsQuery.data, optionsQuery.data, studentsQuery.data?.items]);
+  }, [selectedSchoolId, schoolsQuery.data, optionsQuery.data, studentsQuery.data?.items]);
 
   const recorteLabel = useMemo(() => {
     const parts: string[] = [];
@@ -539,49 +683,23 @@ const MonitoringPage = () => {
     return parts.join(" · ");
   }, [filters.periodo, filters.estado, filters.municipio, filters.disciplina, optionsQuery.data, activeSchoolName, periodCalendarSelected]);
 
-  const activeFilterBadges = useMemo(() => {
-    const badges: Array<{ key: string; label: string; onClear: () => void }> = [];
-    if (filters.periodo) {
-      const periodLabel = periodCalendarSelected
-        ? format(periodCalendarSelected, "MMMM 'de' yyyy", { locale: ptBR })
-        : filters.periodo;
-      badges.push({ key: "periodo", label: `Período: ${periodLabel}`, onClear: () => handleFilterChange("periodo", "") });
-    }
-    if (filters.estado) {
-      const name = optionsQuery.data?.estados.find((e) => e.id === filters.estado)?.name || filters.estado;
-      badges.push({ key: "estado", label: `Estado: ${name}`, onClear: () => handleFilterChange("estado", "") });
-    }
-    if (filters.municipio) {
-      const name = optionsQuery.data?.municipios.find((m) => m.id === filters.municipio)?.name || filters.municipio;
-      badges.push({ key: "municipio", label: `Município: ${name}`, onClear: () => handleFilterChange("municipio", "") });
-    }
-    if (filters.escola_id || selectedSchoolId) {
-      badges.push({
-        key: "escola",
-        label: `Escola: ${activeSchoolName || "Selecionada"}`,
-        onClear: backToSemedView,
-      });
-    }
-    if (filters.disciplina) {
-      badges.push({ key: "disciplina", label: `Disciplina: ${filters.disciplina}`, onClear: () => handleFilterChange("disciplina", "") });
-    }
-    if (filters.coordenador_id) {
-      const name = optionsQuery.data?.coordenadores.find((c) => c.id === filters.coordenador_id)?.name || "Coordenador";
-      badges.push({ key: "coordenador", label: `Editor: ${name}`, onClear: () => handleFilterChange("coordenador_id", "") });
-    }
-    return badges;
-  }, [
-    filters,
-    selectedSchoolId,
-    optionsQuery.data,
-    activeSchoolName,
-    periodCalendarSelected,
-    handleFilterChange,
-    backToSemedView,
-  ]);
-
-  const isLoadingFilters = optionsQuery.isLoading || optionsQuery.isFetching;
   const studentsRows = studentsQuery.data?.items ?? [];
+
+  const handleSchoolSort = useCallback((by: string) => {
+    setSchoolPage(1);
+    setSchoolSort((prev) => ({
+      by,
+      order: prev.by === by && prev.order === "asc" ? "desc" : "asc",
+    }));
+  }, []);
+
+  const handleStudentSort = useCallback((by: string) => {
+    setStudentPage(1);
+    setStudentSort((prev) => ({
+      by,
+      order: prev.by === by && prev.order === "asc" ? "desc" : "asc",
+    }));
+  }, []);
 
   return (
     <>
@@ -704,12 +822,10 @@ const MonitoringPage = () => {
                 <Filter className="h-5 w-5 text-primary" />
                 Filtros
               </CardTitle>
-              {activeFilterBadges.length > 0 ? (
-                <Button variant="ghost" size="sm" onClick={clearAllFilters}>
-                  <RotateCcw className="mr-2 h-4 w-4" />
-                  Limpar filtros
-                </Button>
-              ) : null}
+              <Button variant="ghost" size="sm" onClick={clearAllFilters}>
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Limpar filtros
+              </Button>
             </div>
           </CardHeader>
           <CardContent className="space-y-4 overflow-visible">
@@ -720,22 +836,22 @@ const MonitoringPage = () => {
               </div>
             ) : null}
 
-            {activeFilterBadges.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {activeFilterBadges.map((badge) => (
-                  <Badge key={badge.key} variant="secondary" className="gap-1 pr-1">
-                    {badge.label}
-                    <button
-                      type="button"
-                      className="rounded-sm p-0.5 hover:bg-muted"
-                      onClick={badge.onClear}
-                      aria-label={`Remover filtro ${badge.label}`}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
+            {optionsQuery.isError ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    {getApiErrorMessage(
+                      optionsQuery.error,
+                      "Não foi possível carregar os filtros. Verifique se o servidor está em execução."
+                    )}
+                  </span>
+                  <Button variant="outline" size="sm" onClick={() => optionsQuery.refetch()}>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Tentar novamente
+                  </Button>
+                </AlertDescription>
+              </Alert>
             ) : null}
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -915,19 +1031,27 @@ const MonitoringPage = () => {
                     if (filters.tipo_origem === "avaliacao") handleFilterChange("avaliacao_id", nextValue);
                     else handleFilterChange("gabarito_id", nextValue);
                   }}
-                  disabled={!geoFiltersReady || isLoadingFilters}
+                  disabled={!geoFiltersReady || isLoadingFilters || optionsQuery.isError}
                 >
                   <SelectTrigger id="monitoramento-origem" className="w-full min-w-0">
                     <SelectValue
                       placeholder={
                         !geoFiltersReady
                           ? "Selecione estado e município antes"
-                          : "Selecione a avaliação ou cartão"
+                          : noSourceItems
+                            ? sourceEmptyLabel
+                            : "Selecione a avaliação ou cartão"
                       }
                     />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Selecione</SelectItem>
+                    {noSourceItems ? (
+                      <SelectItem value="all" disabled>
+                        {sourceEmptyLabel}
+                      </SelectItem>
+                    ) : (
+                      <SelectItem value="all">Selecione</SelectItem>
+                    )}
                     {sourceItems.map((item) => (
                       <SelectItem key={item.id} value={item.id}>
                         {item.name}
@@ -940,7 +1064,7 @@ const MonitoringPage = () => {
               <div className="space-y-1.5">
                 <Label htmlFor="monitoramento-escola">Escola</Label>
                 <Select
-                  value={filters.escola_id || selectedSchoolId || "all"}
+                  value={filters.escola_id || "all"}
                   onValueChange={(v) => handleFilterChange("escola_id", v === "all" ? "" : v)}
                   disabled={!selectedSourceId || isLoadingFilters || escolaLocked}
                 >
@@ -994,7 +1118,7 @@ const MonitoringPage = () => {
                 <Select
                   value={filters.serie_id || "all"}
                   onValueChange={(v) => handleFilterChange("serie_id", v === "all" ? "" : v)}
-                  disabled={!activeSchoolId}
+                  disabled={!studentsModalOpen || !selectedSchoolId}
                 >
                   <SelectTrigger id="monitoramento-serie" className="w-full min-w-0">
                     <SelectValue placeholder="Todas" />
@@ -1032,28 +1156,85 @@ const MonitoringPage = () => {
               </div>
 
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="monitoramento-coordenador">Coordenador (editando)</Label>
-                <Select
-                  value={filters.coordenador_id || "all"}
-                  onValueChange={(v) => handleFilterChange("coordenador_id", v === "all" ? "" : v)}
-                  disabled={!selectedSourceId}
-                >
-                  <SelectTrigger id="monitoramento-coordenador" className="w-full min-w-0">
-                    <SelectValue
-                      placeholder={
-                        !selectedSourceId ? "Selecione a avaliação ou cartão antes" : "Selecione o coordenador"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Selecione</SelectItem>
-                    {(optionsQuery.data?.coordenadores || []).map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {item.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="monitoramento-coordenador">{editorFieldLabel}</Label>
+                <Popover open={editorComboOpen} onOpenChange={setEditorComboOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      id="monitoramento-coordenador"
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={editorComboOpen}
+                      disabled={!selectedSourceId || !editorSchoolId}
+                      className="h-10 w-full min-w-0 justify-between font-normal"
+                    >
+                      <span className="truncate">
+                        {selectedEditorLabel ||
+                          (!selectedSourceId
+                            ? "Selecione a avaliação ou cartão antes"
+                            : !editorSchoolId
+                              ? "Visão de todas as escolas — selecione uma escola"
+                              : editorOptions.length
+                                ? `Buscar ${editorFieldLabel.toLowerCase()}...`
+                                : `Nenhum ${editorFieldLabel.toLowerCase()} disponível`)}
+                      </span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar por nome..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum nome encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          {!isSemedEditor ? (
+                            <CommandItem
+                              value="__clear__"
+                              onSelect={() => {
+                                handleFilterChange("coordenador_id", "");
+                                setEditorComboOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  !filters.coordenador_id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              Selecione
+                            </CommandItem>
+                          ) : null}
+                          {editorOptions.map((item) => (
+                            <CommandItem
+                              key={item.id}
+                              value={`${item.name} ${item.id}`}
+                              onSelect={() => {
+                                handleFilterChange("coordenador_id", item.id);
+                                setEditorComboOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  effectiveEditorId === item.id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <span className="truncate">
+                                {item.name}
+                                {item.id === user?.id ? " (você)" : ""}
+                              </span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+                {isSemedEditor && canEdit && !filters.coordenador_id && user?.name ? (
+                  <p className="text-xs text-muted-foreground">
+                    Usando <strong>{user.name}</strong> como {editorFieldLabel.toLowerCase()}. Escolha outro nome na lista, se
+                    necessário.
+                  </p>
+                ) : null}
               </div>
             </div>
 
@@ -1061,13 +1242,20 @@ const MonitoringPage = () => {
               <Alert className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30">
                 <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                 <AlertDescription>
-                  Selecione o coordenador antes de editar — toda alteração ficará registrada no histórico em nome dele.
+                  {!editorSchoolId
+                    ? "Na visão de todas as escolas, selecione uma escola no filtro ou em Abrir para escolher o Coordenador. Sem coordenador na escola, listamos Tec Admin do município."
+                    : `Selecione o ${editorFieldLabel} no campo acima.`}
                 </AlertDescription>
               </Alert>
+            ) : editorLabel ? (
+              <p className="text-xs text-muted-foreground">
+                {editorFieldLabel}: <strong>{editorLabel}</strong>
+              </p>
             ) : null}
           </CardContent>
         </Card>
 
+        {selectedSourceId ? (
         <Card>
           <CardHeader className="space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1080,7 +1268,7 @@ const MonitoringPage = () => {
                   Linhas destacadas indicam escolas com ≥20% dos alunos em Abaixo do Básico.
                 </p>
               </div>
-              {!activeSchoolId ? (
+              {!filters.escola_id ? (
                 <Badge variant="outline" className="gap-1.5 border-primary/30 bg-primary/5 text-primary">
                   <ShieldCheck className="h-3.5 w-3.5" />
                   Visão SEMED
@@ -1089,9 +1277,10 @@ const MonitoringPage = () => {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            {!activeSchoolId ? (
+            {!filters.escola_id ? (
               <div className="border-b bg-primary/5 px-4 py-3 text-xs font-medium text-primary">
-                Visão SEMED · agregada por escola — selecione uma escola para detalhar séries, turmas e alunos.
+                Visão SEMED · agregada por escola — clique em <strong>Abrir</strong> para ver os alunos em um modal (a lista de
+                escolas permanece visível).
               </div>
             ) : null}
 
@@ -1119,38 +1308,86 @@ const MonitoringPage = () => {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-7 px-1 text-xs uppercase tracking-wide"
-                            onClick={() =>
-                              setSchoolSort((prev) => ({
-                                by: "escola_nome",
-                                order: prev.by === "escola_nome" && prev.order === "asc" ? "desc" : "asc",
-                              }))
-                            }
+                            className={cn(
+                              "h-7 px-1 text-xs uppercase tracking-wide",
+                              schoolSort.by === "escola_nome" && "bg-muted/60"
+                            )}
+                            onClick={() => handleSchoolSort("escola_nome")}
                           >
                             Escola
                             <ArrowUpDown className="ml-1 h-3 w-3" />
                           </Button>
                         </TableHead>
-                        <TableHead className="text-center text-xs uppercase tracking-wide">
+                        <TableHead className="text-center">
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-7 px-1 text-xs uppercase tracking-wide"
-                            onClick={() =>
-                              setSchoolSort((prev) => ({
-                                by: "total_alunos",
-                                order: prev.by === "total_alunos" && prev.order === "asc" ? "desc" : "asc",
-                              }))
-                            }
+                            className={cn(
+                              "h-7 px-1 text-xs uppercase tracking-wide",
+                              schoolSort.by === "total_alunos" && "bg-muted/60"
+                            )}
+                            onClick={() => handleSchoolSort("total_alunos")}
                           >
                             Alunos
                             <ArrowUpDown className="ml-1 h-3 w-3" />
                           </Button>
                         </TableHead>
-                        <TableHead className="text-center text-xs uppercase tracking-wide">Abaixo Básico</TableHead>
-                        <TableHead className="text-center text-xs uppercase tracking-wide">Básico</TableHead>
-                        <TableHead className="text-center text-xs uppercase tracking-wide">Adequado</TableHead>
-                        <TableHead className="text-center text-xs uppercase tracking-wide">Avançado</TableHead>
+                        <TableHead className="text-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                              "h-7 px-1 text-xs uppercase tracking-wide",
+                              schoolSort.by === "abaixo_basico" && "bg-muted/60"
+                            )}
+                            onClick={() => handleSchoolSort("abaixo_basico")}
+                          >
+                            Abaixo Básico
+                            <ArrowUpDown className="ml-1 h-3 w-3" />
+                          </Button>
+                        </TableHead>
+                        <TableHead className="text-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                              "h-7 px-1 text-xs uppercase tracking-wide",
+                              schoolSort.by === "basico" && "bg-muted/60"
+                            )}
+                            onClick={() => handleSchoolSort("basico")}
+                          >
+                            Básico
+                            <ArrowUpDown className="ml-1 h-3 w-3" />
+                          </Button>
+                        </TableHead>
+                        <TableHead className="text-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                              "h-7 px-1 text-xs uppercase tracking-wide",
+                              schoolSort.by === "adequado" && "bg-muted/60"
+                            )}
+                            onClick={() => handleSchoolSort("adequado")}
+                          >
+                            Adequado
+                            <ArrowUpDown className="ml-1 h-3 w-3" />
+                          </Button>
+                        </TableHead>
+                        <TableHead className="text-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                              "h-7 px-1 text-xs uppercase tracking-wide",
+                              schoolSort.by === "avancado" && "bg-muted/60"
+                            )}
+                            onClick={() => handleSchoolSort("avancado")}
+                          >
+                            Avançado
+                            <ArrowUpDown className="ml-1 h-3 w-3" />
+                          </Button>
+                        </TableHead>
                         <TableHead className="text-center text-xs uppercase tracking-wide">Ações</TableHead>
                         <TableHead className="text-center text-xs uppercase tracking-wide">Vistos SEMED</TableHead>
                         <TableHead className="text-right text-xs uppercase tracking-wide">Detalhar</TableHead>
@@ -1162,30 +1399,48 @@ const MonitoringPage = () => {
                           ? (school.abaixo_basico / school.total_alunos) * 100
                           : 0;
                         const isCritical = pctAbaixo >= 20;
-                        const isSelected = activeSchoolId === school.escola_id;
+                        const isDetailOpen =
+                          studentsModalOpen && selectedSchoolId === school.escola_id;
 
                         return (
                           <TableRow
                             key={school.escola_id}
                             className={cn(
                               "transition-colors hover:bg-muted/30",
-                              isSelected && "bg-primary/5",
+                              isDetailOpen && "bg-primary/5",
                               isCritical && "bg-destructive/5"
                             )}
                           >
                             <TableCell className="font-medium">{school.escola_nome}</TableCell>
                             <TableCell className="text-center tabular-nums">{school.total_alunos}</TableCell>
-                            <TableCell className="text-center tabular-nums">
-                              <Badge
-                                variant="outline"
-                                className="border-destructive/20 bg-destructive/10 font-semibold text-destructive"
-                              >
-                                {school.abaixo_basico} · {pctAbaixo.toFixed(0)}%
-                              </Badge>
+                            <TableCell className="text-center">
+                              <MonitoringLevelCount
+                                count={school.abaixo_basico}
+                                total={school.total_alunos}
+                                nivel="Abaixo do Básico"
+                              />
                             </TableCell>
-                            <TableCell className="text-center tabular-nums">{school.basico}</TableCell>
-                            <TableCell className="text-center tabular-nums">{school.adequado}</TableCell>
-                            <TableCell className="text-center tabular-nums">{school.avancado}</TableCell>
+                            <TableCell className="text-center">
+                              <MonitoringLevelCount
+                                count={school.basico}
+                                total={school.total_alunos}
+                                nivel="Básico"
+                              />
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <MonitoringLevelCount
+                                count={school.adequado}
+                                total={school.total_alunos}
+                                nivel="Adequado"
+                              />
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <MonitoringLevelCount
+                                count={school.avancado}
+                                total={school.total_alunos}
+                                nivel="Avançado"
+                              />
+                            </TableCell>
                             <TableCell className="text-center tabular-nums">
                               {school.acoes_realizadas}/{school.total_alunos}
                             </TableCell>
@@ -1194,15 +1449,11 @@ const MonitoringPage = () => {
                             </TableCell>
                             <TableCell className="text-right">
                               <Button
-                                variant={isSelected ? "default" : "outline"}
+                                variant={isDetailOpen ? "default" : "outline"}
                                 size="sm"
-                                onClick={() => {
-                                  setSelectedSchoolId(school.escola_id);
-                                  setFilters((prev) => ({ ...prev, escola_id: school.escola_id }));
-                                  setStudentPage(1);
-                                }}
+                                onClick={() => openSchoolDetail(school.escola_id)}
                               >
-                                {isSelected ? "Selecionada" : "Abrir"}
+                                {isDetailOpen ? "Visualizando" : "Abrir"}
                               </Button>
                             </TableCell>
                           </TableRow>
@@ -1245,44 +1496,47 @@ const MonitoringPage = () => {
             )}
           </CardContent>
         </Card>
+        ) : null}
 
-        <Card>
-          <CardHeader className="space-y-3">
-            <div className="flex flex-wrap items-start justify-between gap-3">
+      </div>
+
+      <Dialog
+        open={studentsModalOpen}
+        onOpenChange={(open) => {
+          setStudentsModalOpen(open);
+          if (!open) {
+            setSelectedSchoolId("");
+            setStudentPage(1);
+            setSearchText("");
+            setStudentSort({ by: "aluno_nome", order: "asc" });
+          }
+        }}
+      >
+        <DialogContent className="flex max-h-[92vh] w-[min(96vw,1400px)] max-w-[min(96vw,1400px)] flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 space-y-3 border-b px-6 py-4 text-left">
+            <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
               <div className="space-y-1">
-                <CardTitle className="flex items-center gap-2 text-lg">
+                <DialogTitle className="flex items-center gap-2 text-lg">
                   <Users className="h-5 w-5 text-primary" />
                   Detalhamento de Alunos
-                </CardTitle>
+                </DialogTitle>
                 {activeSchoolName ? (
-                  <p className="text-xs text-muted-foreground">{activeSchoolName}</p>
+                  <p className="text-sm text-muted-foreground">{activeSchoolName}</p>
                 ) : null}
               </div>
-              {activeSchoolId ? (
-                <Button variant="ghost" size="sm" onClick={backToSemedView}>
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  Voltar para visão SEMED
-                </Button>
-              ) : null}
             </div>
-            {activeSchoolId ? (
-              <div className="relative max-w-md">
-                <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input
-                  className="pl-9"
-                  placeholder="Buscar por aluno, turma ou série"
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                />
-              </div>
-            ) : null}
-          </CardHeader>
-          <CardContent className="p-0">
-            {!activeSchoolId ? (
-              <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-                Selecione uma escola na tabela acima para visualizar os alunos e registrar ações pedagógicas.
-              </div>
-            ) : studentsQuery.isLoading ? (
+            <div className="relative max-w-md">
+              <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Input
+                className="pl-9"
+                placeholder="Buscar por aluno, turma ou série"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+              />
+            </div>
+          </DialogHeader>
+          <div className="monitoring-modal-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+            {studentsQuery.isLoading ? (
               <div className="space-y-2 p-4">
                 {Array.from({ length: 6 }).map((_, idx) => (
                   <Skeleton key={idx} className="h-12 w-full" />
@@ -1301,20 +1555,77 @@ const MonitoringPage = () => {
                 <div className="border-b bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
                   Linhas em destaque = <strong>Abaixo do Básico</strong> · salve cada linha para registrar no histórico.
                 </div>
-                <div className="overflow-x-auto max-w-full results-table-scroll">
-                  <Table>
+                <div className="overflow-x-auto max-w-full pb-1 results-table-scroll">
+                  <Table className="min-w-[1100px]">
                     <TableHeader>
                       <TableRow className="bg-muted/40">
-                        <TableHead className="text-xs uppercase tracking-wide">Aluno</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wide">Nota</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wide">Nível</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wide">Ação pedagógica</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wide">Responsável</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wide">Prazo</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wide">Status</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wide">Realizada em</TableHead>
-                        <TableHead className="text-center text-xs uppercase tracking-wide">Esc.</TableHead>
-                        <TableHead className="text-center text-xs uppercase tracking-wide">SEMED</TableHead>
+                        <MonitoringSortableHead
+                          label="Aluno"
+                          sortKey="aluno_nome"
+                          activeSort={studentSort}
+                          onSort={handleStudentSort}
+                        />
+                        <MonitoringSortableHead
+                          label="Nota"
+                          sortKey="nota"
+                          activeSort={studentSort}
+                          onSort={handleStudentSort}
+                          align="center"
+                        />
+                        <MonitoringSortableHead
+                          label="Nível"
+                          sortKey="nivel"
+                          activeSort={studentSort}
+                          onSort={handleStudentSort}
+                          align="center"
+                        />
+                        <MonitoringSortableHead
+                          label="Ação pedagógica"
+                          sortKey="acao_pedagogica"
+                          activeSort={studentSort}
+                          onSort={handleStudentSort}
+                        />
+                        <MonitoringSortableHead
+                          label="Responsável"
+                          sortKey="responsavel_nome"
+                          activeSort={studentSort}
+                          onSort={handleStudentSort}
+                        />
+                        <MonitoringSortableHead
+                          label="Prazo"
+                          sortKey="prazo"
+                          activeSort={studentSort}
+                          onSort={handleStudentSort}
+                          align="center"
+                        />
+                        <MonitoringSortableHead
+                          label="Status"
+                          sortKey="status"
+                          activeSort={studentSort}
+                          onSort={handleStudentSort}
+                          align="center"
+                        />
+                        <MonitoringSortableHead
+                          label="Realizada em"
+                          sortKey="realizada_em"
+                          activeSort={studentSort}
+                          onSort={handleStudentSort}
+                          align="center"
+                        />
+                        <MonitoringSortableHead
+                          label="Esc."
+                          sortKey="feita_pela_escola"
+                          activeSort={studentSort}
+                          onSort={handleStudentSort}
+                          align="center"
+                        />
+                        <MonitoringSortableHead
+                          label="SEMED"
+                          sortKey="vista_pela_semed"
+                          activeSort={studentSort}
+                          onSort={handleStudentSort}
+                          align="center"
+                        />
                         <TableHead className="text-right text-xs uppercase tracking-wide">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -1367,32 +1678,13 @@ const MonitoringPage = () => {
                               />
                             </TableCell>
                             <TableCell className="min-w-[180px]">
-                              <Select
-                                value={(getDraftValue(row, "responsavel_id") as string | null) || "none"}
-                                onValueChange={(value) =>
-                                  updateDraft(row, {
-                                    responsavel_id: value === "none" ? null : value,
-                                    responsavel_nome:
-                                      value === "none"
-                                        ? ""
-                                        : optionsQuery.data?.coordenadores.find((item) => item.id === value)?.name ||
-                                          "",
-                                  })
-                                }
+                              <Input
+                                value={String(getDraftValue(row, "responsavel_nome") || "")}
+                                onChange={(e) => updateDraft(row, { responsavel_nome: e.target.value })}
+                                placeholder="Nome do responsável"
+                                className="min-w-[160px] text-sm"
                                 disabled={!canEdit}
-                              >
-                                <SelectTrigger className="w-full min-w-0">
-                                  <SelectValue placeholder="Responsável" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="none">Não definido</SelectItem>
-                                  {(optionsQuery.data?.coordenadores || []).map((item) => (
-                                    <SelectItem key={item.id} value={item.id}>
-                                      {item.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              />
                             </TableCell>
                             <TableCell>
                               <Input
@@ -1524,9 +1816,9 @@ const MonitoringPage = () => {
                 </div>
               </>
             )}
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
         <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-2xl">
