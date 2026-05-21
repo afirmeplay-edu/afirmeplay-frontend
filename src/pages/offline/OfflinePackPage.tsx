@@ -1,14 +1,35 @@
 import { useState } from 'react';
 import { List, Plus, Smartphone } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import type { RegisterOfflinePackResponse } from '@/services/mobile/offlinePackApi';
 import { OfflinePackCreateTab } from './OfflinePackCreateTab';
 import { OfflinePackListTab } from './OfflinePackListTab';
+import { OfflinePackQrDialog } from './OfflinePackQrDialog';
 import { useOfflinePackForm } from './useOfflinePackForm';
 
 export default function OfflinePackPage() {
   const [activeTab, setActiveTab] = useState('gerar');
   const [listRefreshToken, setListRefreshToken] = useState(0);
+  const [createdQrOpen, setCreatedQrOpen] = useState(false);
+  const [createdQr, setCreatedQr] = useState<Pick<
+    RegisterOfflinePackResponse,
+    'code' | 'qr_code_data_url'
+  > | null>(null);
   const form = useOfflinePackForm();
+
+  const handleCreated = (data: RegisterOfflinePackResponse) => {
+    setListRefreshToken((n) => n + 1);
+    if (data.qr_code_data_url) {
+      setCreatedQr({ code: data.code, qr_code_data_url: data.qr_code_data_url });
+      setCreatedQrOpen(true);
+    }
+    setActiveTab('codigos');
+  };
+
+  const handleCreatedQrOpenChange = (open: boolean) => {
+    setCreatedQrOpen(open);
+    if (!open) setCreatedQr(null);
+  };
 
   return (
     <div className="mx-auto max-w-5xl space-y-8 p-4 pb-16 md:p-6 lg:p-8">
@@ -27,6 +48,15 @@ export default function OfflinePackPage() {
         </div>
       </header>
 
+      <OfflinePackQrDialog
+        open={createdQrOpen}
+        onOpenChange={handleCreatedQrOpenChange}
+        code={createdQr?.code}
+        qrDataUrl={createdQr?.qr_code_data_url}
+        title="Código gerado"
+        description="Escaneie o QR no aplicativo ou copie o código abaixo. O mesmo código permanece após edições futuras do pacote."
+      />
+
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full max-w-md grid-cols-2">
           <TabsTrigger value="gerar" className="flex items-center gap-2">
@@ -40,13 +70,7 @@ export default function OfflinePackPage() {
         </TabsList>
 
         <TabsContent value="gerar" className="mt-6 space-y-6">
-          <OfflinePackCreateTab
-            form={form}
-            onCreated={() => {
-              setListRefreshToken((n) => n + 1);
-              setActiveTab('codigos');
-            }}
-          />
+          <OfflinePackCreateTab form={form} onCreated={handleCreated} />
         </TabsContent>
 
         <TabsContent value="codigos" className="mt-6">
