@@ -55,13 +55,26 @@ export interface RegisterOfflinePackRequest {
   max_redemptions: number;
 }
 
-export interface RegisterOfflinePackResponse {
+export interface OfflinePackQrCodeFields {
+  qr_code_png_base64: string;
+  qr_code_data_url: string;
+}
+
+export interface RegisterOfflinePackResponse extends OfflinePackQrCodeFields {
   code: string;
   offline_pack_id: string;
   expires_at: string;
   max_redemptions: number;
   scope: OfflinePackScope;
 }
+
+export interface OfflinePackQrCodeResponse extends OfflinePackQrCodeFields {
+  offline_pack_id: string;
+  code: string;
+}
+
+export const OFFLINE_PACK_QR_LEGACY_MESSAGE =
+  'Código indisponível para gerar QR — pacote legado sem código de ativação.';
 
 export interface PatchOfflinePackRequest {
   scope?: OfflinePackScopePayload;
@@ -80,6 +93,17 @@ export async function registerOfflinePack(
   const { data } = await api.post<RegisterOfflinePackResponse>(
     '/mobile/v1/offline-pack/register',
     body,
+    offlinePackConfig(cityIdForAdmin)
+  );
+  return data;
+}
+
+export async function getOfflinePackQrCode(
+  offlinePackId: string,
+  cityIdForAdmin?: string
+): Promise<OfflinePackQrCodeResponse> {
+  const { data } = await api.get<OfflinePackQrCodeResponse>(
+    `/mobile/v1/offline-pack/${offlinePackId}/qrcode`,
     offlinePackConfig(cityIdForAdmin)
   );
   return data;

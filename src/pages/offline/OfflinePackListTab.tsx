@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Copy, Loader2, Pencil, RefreshCw, Trash2 } from 'lucide-react';
+import { Copy, Loader2, Pencil, QrCode, RefreshCw, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/authContext';
 import {
   bulkDeleteOfflinePacks,
   deleteOfflinePack,
   getOfflinePackApiError,
+  getOfflinePackQrCode,
   listOfflinePacks,
   OFFLINE_PACK_DELETE_FORBIDDEN_MESSAGE,
+  OFFLINE_PACK_QR_LEGACY_MESSAGE,
   type BulkDeleteOfflinePacksResponse,
   type OfflinePackItem,
 } from '@/services/mobile/offlinePackApi';
@@ -35,6 +37,7 @@ import {
 } from '@/components/ui/table';
 import { formatExpiresAt, scopeSummary } from './offlinePackShared';
 import { OfflinePackLocationCard } from './OfflinePackLocationCard';
+import { OfflinePackQrDialog } from './OfflinePackQrDialog';
 import type { useOfflinePackForm } from './useOfflinePackForm';
 
 interface OfflinePackListTabProps {
@@ -63,6 +66,10 @@ export function OfflinePackListTab({ form, refreshToken = 0 }: OfflinePackListTa
   const [deleteTarget, setDeleteTarget] = useState<OfflinePackItem | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [qrDialogOpen, setQrDialogOpen] = useState(false);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
   const { hasCityContext, cityIdForAdminHeader, isAdmin } = form;
 
@@ -137,6 +144,49 @@ export function OfflinePackListTab({ form, refreshToken = 0 }: OfflinePackListTa
     navigate(`/app/modo-offline/${item.offline_pack_id}/editar`, {
       state: { cityId: form.effectiveCityIdForQuery },
     });
+  };
+
+  const openQrDialog = async (item: OfflinePackItem) => {
+    if (!item.code) {
+      toast({
+        title: 'QR indisponível',
+        description: OFFLINE_PACK_QR_LEGACY_MESSAGE,
+        variant: 'destructive',
+      });
+      return;
+    }
+    setQrDialogOpen(true);
+    setQrLoading(true);
+    setQrCode(item.code);
+    setQrDataUrl(null);
+    try {
+      const data = await getOfflinePackQrCode(item.offline_pack_id, cityIdForAdminHeader);
+      setQrCode(data.code);
+      setQrDataUrl(data.qr_code_data_url);
+    } catch (err: unknown) {
+      setQrDialogOpen(false);
+      const ax = err as { response?: { status?: number } };
+      const isLegacy = ax.response?.status === 400;
+      toast({
+        title: 'Não foi possível gerar o QR',
+        description: getOfflinePackApiError(
+          err,
+          isLegacy ? OFFLINE_PACK_QR_LEGACY_MESSAGE : 'Tente novamente mais tarde.'
+        ),
+        variant: 'destructive',
+      });
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
+  const handleQrDialogOpenChange = (open: boolean) => {
+    setQrDialogOpen(open);
+    if (!open) {
+      setQrCode(null);
+      setQrDataUrl(null);
+      setQrLoading(false);
+    }
   };
 
   const handleDeleteOne = async () => {
@@ -298,7 +348,7 @@ export function OfflinePackListTab({ form, refreshToken = 0 }: OfflinePackListTa
                     <TableHead>Expira em</TableHead>
                     <TableHead>Resgates</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="w-[100px] text-right">Ações</TableHead>
+                    <TableHead className="w-[120px] text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -374,6 +424,20 @@ export function OfflinePackListTab({ form, refreshToken = 0 }: OfflinePackListTa
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => openQrDialog(item)}
+                              disabled={!item.code}
+                              aria-label={
+                                item.code ? 'Ver QR Code do código' : 'QR indisponível para este pacote'
+                              }
+                              title={item.code ? 'Ver QR Code' : OFFLINE_PACK_QR_LEGACY_MESSAGE}
+                            >
+                              <QrCode className="h-4 w-4" />
+                            </Button>
                             {item.can_edit && (
                               <Button
                                 type="button"
@@ -409,6 +473,15 @@ export function OfflinePackListTab({ form, refreshToken = 0 }: OfflinePackListTa
           )}
         </CardContent>
       </Card>
+
+      <OfflinePackQrDialog
+        open={qrDialogOpen}
+        onOpenChange={handleQrDialogOpenChange}
+        code={qrCode}
+        qrDataUrl={qrDataUrl}
+        loading={qrLoading}
+        title="QR Code do código"
+      />
 
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>

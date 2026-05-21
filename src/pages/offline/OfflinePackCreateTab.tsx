@@ -19,7 +19,7 @@ import type { useOfflinePackForm } from './useOfflinePackForm';
 
 interface OfflinePackCreateTabProps {
   form: ReturnType<typeof useOfflinePackForm>;
-  onCreated?: (packId: string) => void;
+  onCreated?: (data: RegisterOfflinePackResponse) => void;
 }
 
 export function OfflinePackCreateTab({ form, onCreated }: OfflinePackCreateTabProps) {
@@ -67,9 +67,9 @@ export function OfflinePackCreateTab({ form, onCreated }: OfflinePackCreateTabPr
       setResult(data);
       toast({
         title: 'Código gerado',
-        description: 'Compartilhe o código com segurança apenas com quem deve usar no aplicativo.',
+        description: 'Compartilhe o QR ou o código apenas com quem deve usar no aplicativo.',
       });
-      onCreated?.(data.offline_pack_id);
+      onCreated?.(data);
     } catch (err: unknown) {
       toast({
         title: 'Falha ao gerar',
@@ -138,6 +138,18 @@ export function OfflinePackCreateTab({ form, onCreated }: OfflinePackCreateTabPr
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {result.qr_code_data_url && (
+                <div className="flex flex-col items-center gap-2 sm:items-start">
+                  <Label>QR Code</Label>
+                  <img
+                    src={result.qr_code_data_url}
+                    alt={`QR Code do código ${result.code}`}
+                    width={160}
+                    height={160}
+                    className="rounded-lg border bg-white p-1"
+                  />
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Código</Label>
                 <div className="flex flex-wrap items-center gap-2">
