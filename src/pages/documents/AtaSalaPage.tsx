@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { ClipboardList, Download, Eye, FileText, Filter, Loader2, Printer } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ClipboardList, Download, Eye, FileText, Filter, List, Loader2, Plus, Printer, Save } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -8,7 +9,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { AtaSalaSavedList } from "@/components/documents/AtaSalaSavedList";
 import { useToast } from "@/hooks/use-toast";
+import {
+  createSavedAta,
+  getAtaSalaApiError,
+  getSavedAta,
+  updateSavedAta,
+} from "@/services/documents/ataSalaApi";
+import type { AtaOptions, AtaSalaPdfData, AtaSalaSavePayload } from "@/types/ata-sala";
 import { FormFiltersApiService } from "@/services/formFiltersApi";
 import {
   getListaFrequenciaPorAvaliacao,
@@ -22,18 +40,11 @@ import {
   EvaluationResultsApiService,
   REPORT_ENTITY_TYPE_ANSWER_SHEET,
 } from "@/services/evaluation/evaluationResultsApi";
-import {
-  downloadAtaSalaPdf,
-  previewAtaSalaPdf,
-  printAtaSalaPdf,
-  type AtaSalaPdfData,
-} from "@/services/reports/ataSalaPdf";
+import { downloadAtaSalaPdf, previewAtaSalaPdf, printAtaSalaPdf } from "@/services/reports/ataSalaPdf";
 
 type Option = { id: string; name: string };
 type Mode = "turma" | "avaliacao" | "cartao_resposta";
 type EvaluationOption = { id: string; titulo: string; disciplina?: string };
-
-type AtaOptions = AtaSalaPdfData["options"];
 
 /** Itens 7–12 do modelo oficial: dois dígitos numéricos (0 a 99) por pergunta. */
 const Q712_MAX_DIGITS = 2;
@@ -188,8 +199,32 @@ function isValidCpf(value: string): boolean {
   return digit === Number(cpf[10]);
 }
 
+/** Mantém seleção ao recarregar opções do filtro pai (ex.: hidratar ata salva). */
+function preserveFilterSelection(prev: string, options: { id: string }[]): string {
+  if (prev && prev !== "all" && options.some((o) => o.id === prev)) {
+    return prev;
+  }
+  return "all";
+}
+
 export default function AtaSalaPage() {
   const { toast } = useToast();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { id: routeId } = useParams<{ id?: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const hydratingRef = useRef(false);
+
+  const activeTab = searchParams.get("tab") === "salvas" && !routeId ? "salvas" : "editor";
+  const editingId = routeId || null;
+
+  const [savedMeta, setSavedMeta] = useState<{ created_by_name: string; is_owner: boolean } | null>(null);
+  const [saveTitle, setSaveTitle] = useState("");
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [saveAsNew, setSaveAsNew] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loadingSaved, setLoadingSaved] = useState(false);
+  const [listRefreshToken, setListRefreshToken] = useState(0);
 
   const [estados, setEstados] = useState<Option[]>([]);
   const [municipios, setMunicipios] = useState<Option[]>([]);
@@ -268,8 +303,9 @@ export default function AtaSalaPage() {
     FormFiltersApiService.getFormFilterMunicipalities(selectedEstado)
       .then((list) => {
         if (cancelled) return;
-        setMunicipios(list.map((m) => ({ id: m.id, name: m.nome })));
-        setSelectedMunicipio("all");
+        const mapped = list.map((m) => ({ id: m.id, name: m.nome }));
+        setMunicipios(mapped);
+        setSelectedMunicipio((prev) => preserveFilterSelection(prev, mapped));
       })
       .finally(() => {
         if (!cancelled) setLoading((s) => ({ ...s, municipios: false }));
@@ -294,8 +330,9 @@ export default function AtaSalaPage() {
     FormFiltersApiService.getFormFilterSchools({ estado: selectedEstado, municipio: selectedMunicipio })
       .then((list) => {
         if (cancelled) return;
-        setSchools(list.map((s) => ({ id: s.id, name: s.nome })));
-        setSelectedSchool("all");
+        const mapped = list.map((s) => ({ id: s.id, name: s.nome }));
+        setSchools(mapped);
+        setSelectedSchool((prev) => preserveFilterSelection(prev, mapped));
       })
       .finally(() => {
         if (!cancelled) setLoading((s) => ({ ...s, escolas: false }));
@@ -329,8 +366,9 @@ export default function AtaSalaPage() {
     })
       .then((list) => {
         if (cancelled) return;
-        setSeries(list.map((s) => ({ id: s.id, name: s.nome })));
-        setSelectedSerie("all");
+        const mapped = list.map((s) => ({ id: s.id, name: s.nome }));
+        setSeries(mapped);
+        setSelectedSerie((prev) => preserveFilterSelection(prev, mapped));
       })
       .finally(() => {
         if (!cancelled) setLoading((s) => ({ ...s, series: false }));
@@ -353,11 +391,6 @@ export default function AtaSalaPage() {
         if (cancelled) return;
         const mapped = list.map((item) => ({ id: item.id, name: item.nome }));
         setDisciplinasEscola(mapped);
-        setDisciplina((prev) => {
-          if (!prev) return "";
-          const exists = mapped.some((item) => item.name === prev);
-          return exists ? prev : "";
-        });
       })
       .finally(() => {
         if (!cancelled) setLoading((s) => ({ ...s, disciplinas: false }));
@@ -392,8 +425,9 @@ export default function AtaSalaPage() {
     })
       .then((list) => {
         if (cancelled) return;
-        setTurmas(list.map((t) => ({ id: t.id, name: t.nome })));
-        setSelectedTurma("all");
+        const mapped = list.map((t) => ({ id: t.id, name: t.nome }));
+        setTurmas(mapped);
+        setSelectedTurma((prev) => preserveFilterSelection(prev, mapped));
       })
       .finally(() => {
         if (!cancelled) setLoading((s) => ({ ...s, turmas: false }));
@@ -404,6 +438,7 @@ export default function AtaSalaPage() {
   }, [selectedSerie, selectedSchool, selectedMunicipio, selectedEstado]);
 
   useEffect(() => {
+    if (hydratingRef.current) return;
     setSelectedAvaliacaoId("all");
     setAvaliacoes([]);
     setTurmasAvaliacao([]);
@@ -530,15 +565,6 @@ export default function AtaSalaPage() {
   );
   const hasContextForAta = selectedEstado !== "all" && selectedMunicipio !== "all" && selectedSchool !== "all";
   const turmaOptions = isModoAplicada ? turmasAvaliacao : turmas;
-  const disciplinasDisponiveis = useMemo(() => {
-    const base = [...disciplinasEscola];
-    const current = (disciplina || "").trim();
-    if (current && !base.some((item) => item.name === current)) {
-      base.push({ id: `custom:${current.toLowerCase()}`, name: current });
-    }
-    return base.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-  }, [disciplinasEscola, disciplina]);
-
   useEffect(() => {
     if (!selectedMunicipioLabel && !selectedEstadoLabel) {
       setMunicipioUf("");
@@ -571,6 +597,60 @@ export default function AtaSalaPage() {
       setDisciplina(disciplinaDaAvaliacao);
     }
   }, [isModoAplicada, selectedAvaliacaoId, avaliacoes]);
+
+  useEffect(() => {
+    if (!editingId) {
+      setSavedMeta(null);
+      setSaveTitle("");
+      return;
+    }
+    let cancelled = false;
+    setLoadingSaved(true);
+    const cityIdHint = (location.state as { cityId?: string } | null)?.cityId;
+    getSavedAta(editingId, cityIdHint)
+      .then((detail) => {
+        if (cancelled) return;
+        hydratingRef.current = true;
+        setSavedMeta({ created_by_name: detail.created_by_name, is_owner: detail.is_owner });
+        setSaveTitle(detail.title);
+        const filters = detail.filters;
+        const content = detail.content;
+        setModoLista(filters.modo_lista);
+        setSelectedEstado(filters.estado_id);
+        setSelectedMunicipio(filters.municipio_id);
+        setSelectedSchool(filters.escola_id);
+        setSelectedSerie(filters.serie_id || "all");
+        setSelectedTurma(filters.turma_id || "all");
+        setSelectedAvaliacaoId(filters.avaliacao_id || "all");
+        setNomeAvaliacao(content.nomeAvaliacao || "NOME DA AVALIAÇÃO");
+        setCursoLabel(content.cursoLabel || "CURSO (ANOS INICIAIS OU FINAIS)");
+        setMunicipioUf(content.municipioUf || "");
+        setRede(content.rede || "MUNICIPAL");
+        setEscola(content.escola || "");
+        setSerieTurma(content.serieTurma || "");
+        setTurno(content.turno || "");
+        setDisciplina(content.disciplina || "");
+        setOptions({ ...DEFAULT_OPTIONS, ...(content.options || {}) });
+        setTimeout(() => {
+          hydratingRef.current = false;
+        }, 0);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        toast({
+          title: "Erro ao carregar ata",
+          description: getAtaSalaApiError(err),
+          variant: "destructive",
+        });
+        navigate("/app/documentos/ata-sala");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSaved(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editingId, location.state, navigate, toast]);
 
   const applyAtaAutofill = (results: ListaFrequenciaResponse[]) => {
     if (!results.length) {
@@ -756,17 +836,95 @@ export default function AtaSalaPage() {
     toast({ title: "Abrindo impressão", description: "A janela de impressão da ata foi aberta." });
   };
 
-  return (
-    <div className="container mx-auto space-y-6 px-4 py-6">
-      <header className="space-y-1.5">
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight sm:text-3xl">
-          <ClipboardList className="h-8 w-8 text-primary" />
-          Impressão de Ata de Sala
-        </h1>
-        <p className="text-sm text-muted-foreground sm:text-base">
-          Preencha os campos da ata conforme o modelo oficial e gere o PDF pronto para impressão.
-        </p>
-      </header>
+  const defaultSaveTitle = useMemo(() => {
+    const parts = [escola, serieTurma, disciplina].map((p) => (p || "").trim()).filter(Boolean);
+    return parts.length ? parts.join(" — ") : "Ata de sala";
+  }, [escola, serieTurma, disciplina]);
+
+  const buildSavePayload = (title: string): AtaSalaSavePayload => ({
+    title: title.trim() || defaultSaveTitle,
+    filters: {
+      modo_lista: modoLista,
+      estado_id: selectedEstado,
+      municipio_id: selectedMunicipio,
+      escola_id: selectedSchool,
+      serie_id: selectedSerie,
+      turma_id: selectedTurma === "all" ? null : selectedTurma,
+      avaliacao_id: isModoAplicada && selectedAvaliacaoId !== "all" ? selectedAvaliacaoId : null,
+    },
+    content: pdfData,
+  });
+
+  const openSaveDialog = (asNew: boolean) => {
+    if (!hasContextForAta) {
+      toast({
+        title: "Selecione os filtros",
+        description: "Informe estado, município e escola antes de salvar.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (editingId && savedMeta && !savedMeta.is_owner && !asNew) {
+      toast({
+        title: "Somente leitura",
+        description: "Apenas o autor pode alterar esta ata.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSaveAsNew(asNew);
+    setSaveTitle(saveTitle || defaultSaveTitle);
+    setSaveDialogOpen(true);
+  };
+
+  const confirmSave = async () => {
+    setSaving(true);
+    try {
+      const payload = buildSavePayload(saveTitle);
+      const cityId = selectedMunicipio !== "all" ? selectedMunicipio : undefined;
+      if (editingId && !saveAsNew && savedMeta?.is_owner) {
+        await updateSavedAta(editingId, payload, cityId);
+        toast({ title: "Ata atualizada", description: "As alterações foram salvas." });
+      } else {
+        await createSavedAta(payload, cityId);
+        toast({ title: "Ata salva", description: "A ata foi salva com sucesso." });
+      }
+      setListRefreshToken((n) => n + 1);
+      navigate("/app/documentos/ata-sala?tab=salvas");
+      setSaveDialogOpen(false);
+    } catch (err: unknown) {
+      toast({
+        title: "Erro ao salvar",
+        description: getAtaSalaApiError(err),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const canEditSaved = !editingId || (savedMeta?.is_owner ?? true);
+
+  const editorContent = (
+    <>
+      {loadingSaved ? (
+        <Alert>
+          <AlertDescription className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Carregando ata salva…
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {editingId && savedMeta ? (
+        <Alert>
+          <AlertDescription>
+            {canEditSaved
+              ? `Editando ata criada por ${savedMeta.created_by_name}.`
+              : `Visualizando ata de ${savedMeta.created_by_name} (somente leitura para salvar alterações).`}
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -1013,32 +1171,25 @@ export default function AtaSalaPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Disciplina</Label>
-                <Select
-                  value={disciplina || "all"}
-                  onValueChange={(value) => setDisciplina(value === "all" ? "" : value)}
-                  disabled={selectedSchool === "all" || loading.disciplinas}
-                >
-                  <SelectTrigger className="bg-background">
-                    <SelectValue
-                      placeholder={
-                        selectedSchool === "all"
-                          ? "Selecione uma escola"
-                          : loading.disciplinas
-                            ? "Carregando disciplinas..."
-                            : "Selecione"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Selecione</SelectItem>
-                    {disciplinasDisponiveis.map((item) => (
-                      <SelectItem key={item.id} value={item.name}>
-                        {item.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="ata-disciplina">Disciplina</Label>
+                <Input
+                  id="ata-disciplina"
+                  value={disciplina}
+                  onChange={(e) => setDisciplina(e.target.value)}
+                  list="ata-disciplina-sugestoes"
+                  disabled={selectedSchool === "all"}
+                  placeholder={
+                    selectedSchool === "all"
+                      ? "Selecione uma escola"
+                      : "Digite a disciplina (ex.: Língua Portuguesa, Matemática…)"
+                  }
+                  className="bg-background"
+                />
+                <datalist id="ata-disciplina-sugestoes">
+                  {disciplinasEscola.map((item) => (
+                    <option key={item.id} value={item.name} />
+                  ))}
+                </datalist>
               </div>
             </div>
           </div>
@@ -1238,6 +1389,20 @@ export default function AtaSalaPage() {
           </div>
 
           <div className="flex flex-wrap gap-3">
+            {canEditSaved ? (
+              <>
+                <Button onClick={() => openSaveDialog(false)} disabled={saving || loadingSaved}>
+                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  {editingId ? "Salvar alterações" : "Salvar ata"}
+                </Button>
+                {editingId ? (
+                  <Button variant="outline" onClick={() => openSaveDialog(true)} disabled={saving || loadingSaved}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Salvar como nova
+                  </Button>
+                ) : null}
+              </>
+            ) : null}
             <Button variant="secondary" onClick={onPreview}>
               <Eye className="mr-2 h-4 w-4" />
               Gerar PDF
@@ -1254,6 +1419,80 @@ export default function AtaSalaPage() {
         </CardContent>
       </Card>
       ) : null}
+    </>
+  );
+
+  return (
+    <div className="container mx-auto space-y-6 px-4 py-6">
+      <header className="space-y-1.5">
+        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight sm:text-3xl">
+          <ClipboardList className="h-8 w-8 text-primary" />
+          {editingId ? "Editar Ata de Sala" : "Impressão de Ata de Sala"}
+        </h1>
+        <p className="text-sm text-muted-foreground sm:text-base">
+          Preencha os campos da ata, salve para continuar depois ou gere o PDF pronto para impressão.
+        </p>
+      </header>
+
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          if (value === "salvas") {
+            setSearchParams({ tab: "salvas" });
+            return;
+          }
+          setSearchParams({});
+        }}
+      >
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="editor" className="flex items-center gap-2">
+            <FileText className="h-4 w-4" />
+            {editingId ? "Editar ata" : "Nova ata"}
+          </TabsTrigger>
+          <TabsTrigger value="salvas" className="flex items-center gap-2" disabled={Boolean(routeId)}>
+            <List className="h-4 w-4" />
+            Atas salvas
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="editor" className="mt-6 space-y-6">
+          {editorContent}
+        </TabsContent>
+
+        <TabsContent value="salvas" className="mt-6">
+          <AtaSalaSavedList
+            refreshToken={listRefreshToken}
+            defaultCityId={selectedMunicipio !== "all" ? selectedMunicipio : undefined}
+          />
+        </TabsContent>
+      </Tabs>
+
+      <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{saveAsNew ? "Salvar como nova ata" : editingId ? "Salvar alterações" : "Salvar ata"}</DialogTitle>
+            <DialogDescription>Defina um título para identificar esta ata na listagem.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="ata-save-title">Título</Label>
+            <Input
+              id="ata-save-title"
+              value={saveTitle}
+              onChange={(e) => setSaveTitle(e.target.value)}
+              placeholder={defaultSaveTitle}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSaveDialogOpen(false)} disabled={saving}>
+              Cancelar
+            </Button>
+            <Button onClick={confirmSave} disabled={saving}>
+              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

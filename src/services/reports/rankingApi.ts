@@ -145,7 +145,6 @@ export interface RankingResponse {
     by_course?: Record<
       string,
       {
-        target_score: number;
         counts_by_status: {
           destaque: number;
           desenvolvimento: number;
@@ -157,7 +156,14 @@ export interface RankingResponse {
           school_name?: string;
           average_score: number;
           average_proficiency?: number;
+          participation_rate?: number;
+          participating_students?: number;
+          total_students?: number;
+          adequado_avancado_count?: number;
+          adequado_avancado_pct?: number;
           status: "destaque" | "desenvolvimento" | "atencao";
+          level_tag?: string;
+          is_critical?: boolean;
         }>;
         table_rows: Array<{
           position: number;
@@ -165,6 +171,11 @@ export interface RankingResponse {
           school_name?: string;
           average_score: number;
           average_proficiency?: number;
+          participation_rate?: number;
+          participating_students?: number;
+          total_students?: number;
+          adequado_avancado_count?: number;
+          adequado_avancado_pct?: number;
           status: "destaque" | "desenvolvimento" | "atencao";
           level_tag?: string;
           is_critical?: boolean;
@@ -192,6 +203,8 @@ export interface RankingResponse {
       adequado_avancado_count?: number;
       adequado_avancado_pct: number;
       best_class_name?: string;
+      best_class_grade?: string;
+      best_class_turma?: string;
       level_tag?: string;
       is_critical?: boolean;
     }>;
@@ -211,6 +224,7 @@ export interface RankingResponse {
         total_students: number;
         average_proficiency: number;
         average_score: number;
+        adequado_avancado_count?: number;
         adequado_avancado_pct: number;
         level_tag?: string;
         is_critical?: boolean;
@@ -225,6 +239,8 @@ export interface RankingResponse {
       teacher_email?: string;
       school_name?: string;
       series_class_name?: string;
+      participating_students?: number;
+      adequado_avancado_count?: number;
       adequado_avancado_pct?: number;
       average_proficiency?: number;
       average_score?: number;
@@ -248,6 +264,8 @@ export interface RankingResponse {
       total_students: number;
       average_proficiency: number;
       average_score: number;
+      adequado_avancado_count?: number;
+      adequado_avancado_pct?: number;
       level_tag?: string;
       is_critical?: boolean;
     }>;

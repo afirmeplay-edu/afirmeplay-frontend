@@ -118,7 +118,7 @@ export function RankingGeneralPanel({ data, isLoading, errorMessage, recorteLabe
                   </Card>
                 </div>
 
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto ranking-table-scroll">
                   <table className="w-full min-w-[980px] border-collapse text-sm">
                     <thead>
                       <tr className="bg-muted/40 text-muted-foreground">
@@ -179,7 +179,7 @@ export function RankingGeneralPanel({ data, isLoading, errorMessage, recorteLabe
                           <td className="px-4 py-3">
                             <div className="space-y-1.5">
                               <div className="relative pt-4">
-                                <div className="h-2 w-full rounded-full bg-[linear-gradient(to_right,#e11d48_0%,#facc15_34%,#22c55e_67%,#065f46_100%)]" />
+                                <div className="h-2 w-full rounded-full bg-[linear-gradient(to_right,#e11d48_0%,#facc15_34%,#86efac_67%,#166534_100%)]" />
                                 <div
                                   className="absolute top-0 -translate-x-1/2"
                                   style={{ left: `${getScorePointerPercent(Number(school.average_score || 0))}%` }}
@@ -191,8 +191,8 @@ export function RankingGeneralPanel({ data, isLoading, errorMessage, recorteLabe
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                                 <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-600" />Abaixo do Básico</span>
                                 <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-yellow-400" />Básico</span>
-                                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-600" />Adequado</span>
-                                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-700" />Avançado</span>
+                                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-300" />Adequado</span>
+                                <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-800" />Avançado</span>
                               </div>
                               <p className="text-[11px] font-medium text-muted-foreground">
                                 Nível atual por nota: <span className="text-foreground">{getLevelByScore(Number(school.average_score || 0))}</span>
@@ -226,7 +226,7 @@ export function RankingGeneralPanel({ data, isLoading, errorMessage, recorteLabe
                       <CardTitle className="text-sm font-semibold">Curso: {courseSection.course_label}</CardTitle>
                     </CardHeader>
                     <CardContent className="p-0">
-                      <div className="overflow-x-auto">
+                      <div className="overflow-x-auto ranking-table-scroll">
                         <table className="w-full min-w-[840px] border-collapse text-sm">
                           <thead>
                             <tr className="bg-muted/40 text-muted-foreground">
@@ -269,7 +269,7 @@ export function RankingGeneralPanel({ data, isLoading, errorMessage, recorteLabe
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto ranking-table-scroll">
                   <table className="w-full min-w-[980px] border-collapse text-sm">
                     <thead>
                       <tr className="bg-muted/40 text-muted-foreground">
@@ -345,8 +345,8 @@ export function RankingGeneralPanel({ data, isLoading, errorMessage, recorteLabe
           <div className="flex flex-wrap items-center gap-3">
             <span className="inline-flex items-center gap-1"><span className="h-3 w-3 rounded-sm bg-rose-600" />Abaixo do Básico</span>
             <span className="inline-flex items-center gap-1"><span className="h-3 w-3 rounded-sm bg-yellow-400" />Básico</span>
-            <span className="inline-flex items-center gap-1"><span className="h-3 w-3 rounded-sm bg-green-600" />Adequado</span>
-            <span className="inline-flex items-center gap-1"><span className="h-3 w-3 rounded-sm bg-emerald-700" />Avançado</span>
+            <span className="inline-flex items-center gap-1"><span className="h-3 w-3 rounded-sm bg-green-300" />Adequado</span>
+            <span className="inline-flex items-center gap-1"><span className="h-3 w-3 rounded-sm bg-green-800" />Avançado</span>
           </div>
         </CardContent>
       </Card>

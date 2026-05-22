@@ -298,41 +298,108 @@
     background: hsl(var(--primary) / 0.65);
   }
 
-  /* Barra de rolagem lateral moderna para tabelas (Results / DisciplineTables) */
+  /* Barra de rolagem horizontal moderna para tabelas largas (Results / Monitoramento) */
   .results-table-scroll {
     scroll-behavior: smooth;
+    scrollbar-gutter: stable;
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--primary) / 0.5) hsl(var(--muted) / 0.4);
+    scrollbar-color: hsl(var(--muted-foreground) / 0.45) hsl(var(--muted) / 0.35);
+    padding-bottom: 2px;
   }
   .results-table-scroll::-webkit-scrollbar {
-    height: 10px;
-    width: 10px;
+    height: 8px;
+    width: 8px;
+  }
+  .results-table-scroll::-webkit-scrollbar-button,
+  .results-table-scroll::-webkit-scrollbar-button:single-button,
+  .results-table-scroll::-webkit-scrollbar-button:horizontal:decrement,
+  .results-table-scroll::-webkit-scrollbar-button:horizontal:increment {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  .results-table-scroll::-webkit-scrollbar-corner {
+    background: transparent;
   }
   .results-table-scroll::-webkit-scrollbar-track {
-    background: hsl(var(--muted) / 0.25);
-    border-radius: 10px;
-    margin: 0 8px;
+    background: hsl(var(--muted) / 0.3);
+    border-radius: 9999px;
+    margin: 0 10px;
   }
   .results-table-scroll::-webkit-scrollbar-thumb {
-    background: linear-gradient(90deg, hsl(var(--primary) / 0.6), hsl(var(--primary) / 0.4));
-    border-radius: 10px;
-    border: 2px solid hsl(var(--muted) / 0.25);
+    background: hsl(var(--muted-foreground) / 0.4);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
   .results-table-scroll::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(90deg, hsl(var(--primary) / 0.8), hsl(var(--primary) / 0.6));
+    background: hsl(var(--muted-foreground) / 0.58);
+    background-clip: padding-box;
   }
   .results-table-scroll::-webkit-scrollbar-thumb:active {
-    background: hsl(var(--primary));
+    background: hsl(var(--primary) / 0.65);
+    background-clip: padding-box;
   }
   .dark .results-table-scroll {
-    scrollbar-color: hsl(var(--primary) / 0.6) hsl(var(--muted) / 0.6);
+    color-scheme: dark;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.55) hsl(var(--card));
   }
   .dark .results-table-scroll::-webkit-scrollbar-track {
-    background: hsl(var(--muted) / 0.4);
+    background: hsl(var(--background));
+    box-shadow: inset 0 0 0 1px hsl(var(--border) / 0.45);
+    margin: 0 12px;
   }
   .dark .results-table-scroll::-webkit-scrollbar-thumb {
-    background: linear-gradient(90deg, hsl(var(--primary) / 0.7), hsl(var(--primary) / 0.5));
-    border-color: hsl(var(--muted) / 0.4);
+    background: hsl(var(--muted-foreground) / 0.5);
+    border-color: hsl(var(--background));
+  }
+  .dark .results-table-scroll::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.72);
+  }
+  .dark .results-table-scroll::-webkit-scrollbar-thumb:active {
+    background: hsl(var(--primary) / 0.75);
+  }
+
+  /* Rolagem vertical do modal de alunos (Monitoramento) */
+  .monitoring-modal-scroll {
+    scroll-behavior: smooth;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.5) transparent;
+  }
+  .monitoring-modal-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+  .monitoring-modal-scroll::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  .monitoring-modal-scroll::-webkit-scrollbar-track {
+    background: transparent;
+    margin: 4px 0;
+  }
+  .monitoring-modal-scroll::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.35);
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
+  }
+  .monitoring-modal-scroll::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.55);
+  }
+  .monitoring-modal-scroll::-webkit-scrollbar-thumb:active {
+    background: hsl(var(--primary) / 0.7);
+  }
+  .dark .monitoring-modal-scroll {
+    color-scheme: dark;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.55) hsl(var(--background) / 0.4);
+  }
+  .dark .monitoring-modal-scroll::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.45);
+  }
+  .dark .monitoring-modal-scroll::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.65);
   }
 
   /* Barra de rolagem moderna - Aplicação da avaliação (turmas, municípios, escolas) */
@@ -1393,33 +1460,64 @@
     max-width: 100vw;
   }
 
-  /* Barra de rolagem moderna para lista do ranking */
+  /* Barra de rolagem moderna — tabelas e listas do ranking */
+  .ranking-table-scroll,
   .ranking-list-scroll {
+    scroll-behavior: smooth;
+    scrollbar-gutter: stable;
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+    scrollbar-color: hsl(var(--primary) / 0.45) transparent;
   }
+  .ranking-table-scroll::-webkit-scrollbar,
   .ranking-list-scroll::-webkit-scrollbar {
+    height: 8px;
     width: 8px;
   }
-  .ranking-list-scroll::-webkit-scrollbar-track {
+  .ranking-table-scroll::-webkit-scrollbar-button,
+  .ranking-list-scroll::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  .ranking-table-scroll::-webkit-scrollbar-corner,
+  .ranking-list-scroll::-webkit-scrollbar-corner {
     background: transparent;
-    border-radius: 4px;
   }
+  .ranking-table-scroll::-webkit-scrollbar-track,
+  .ranking-list-scroll::-webkit-scrollbar-track {
+    background: hsl(var(--muted) / 0.2);
+    border-radius: 9999px;
+  }
+  .ranking-table-scroll::-webkit-scrollbar-thumb,
   .ranking-list-scroll::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted-foreground) / 0.35);
-    border-radius: 4px;
+    background-color: hsl(var(--primary) / 0.42);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
+  .ranking-table-scroll::-webkit-scrollbar-thumb:hover,
   .ranking-list-scroll::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.5);
+    background-color: hsl(var(--primary) / 0.62);
   }
+  .ranking-table-scroll::-webkit-scrollbar-thumb:active,
+  .ranking-list-scroll::-webkit-scrollbar-thumb:active {
+    background-color: hsl(var(--primary) / 0.78);
+  }
+  .dark .ranking-table-scroll,
   .dark .ranking-list-scroll {
-    scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
+    scrollbar-color: hsl(var(--primary) / 0.5) transparent;
   }
+  .dark .ranking-table-scroll::-webkit-scrollbar-track,
+  .dark .ranking-list-scroll::-webkit-scrollbar-track {
+    background: hsl(var(--muted) / 0.35);
+  }
+  .dark .ranking-table-scroll::-webkit-scrollbar-thumb,
   .dark .ranking-list-scroll::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted-foreground) / 0.25);
+    background-color: hsl(var(--primary) / 0.48);
   }
+  .dark .ranking-table-scroll::-webkit-scrollbar-thumb:hover,
   .dark .ranking-list-scroll::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.4);
+    background-color: hsl(var(--primary) / 0.68);
   }
 
   @keyframes ranking-loading {

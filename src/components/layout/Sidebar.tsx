@@ -1,7 +1,6 @@
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
-  List,
   CalendarDays,
   Gamepad,
   Tv,
@@ -49,6 +48,7 @@ import {
   Smartphone,
   Thermometer,
   Scale,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
@@ -334,6 +334,7 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
         },
         { icon: TrendingUp, label: "Evolução", href: "/app/evolucao", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
         { icon: BarChart3, label: "Resultados", href: "/app/resultados", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
+        { icon: Activity, label: "Monitoramento", href: "/app/monitoramento", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
         {
           icon: NotebookPen,
           label: "Questionários",

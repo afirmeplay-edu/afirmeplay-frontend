@@ -55,6 +55,7 @@ const FormRespostasReport = React.lazy(() => import("@/pages/reports/FormRespost
 const StudentResult = React.lazy(() => import("@/pages/reports/StudentResult"));
 const StudentResultsPage = React.lazy(() => import("@/pages/reports/StudentResultsPage"));
 const Evolution = React.lazy(() => import("@/pages/reports/Evolution"));
+const MonitoramentoPage = React.lazy(() => import("@/pages/monitoramento/MonitoramentoPage"));
 
 // questions
 const CreateQuestionPage = React.lazy(() => import("@/pages/questions/CreateQuestionPage"));
@@ -264,6 +265,7 @@ const App = () => {
                   </PrivateRoute>
                 }
               />
+              <Route path="/app/monitoramento" element={<PrivateRoute><MonitoramentoPage /></PrivateRoute>} />
               <Route path="/app/mapa-habilidades" element={<Navigate to="/app/relatorios/mapa-habilidades" replace />} />
               <Route path="/app/evolucao" element={<PrivateRoute><Evolution /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id/resultados" element={<PrivateRoute><EvaluationResults /></PrivateRoute>} />
@@ -305,6 +307,7 @@ const App = () => {
                 }
               />
               <Route path="/app/lista-frequencia" element={<PrivateRoute><ListaFrequencia /></PrivateRoute>} />
+              <Route path="/app/documentos/ata-sala/:id" element={<PrivateRoute><AtaSalaPage /></PrivateRoute>} />
               <Route path="/app/documentos/ata-sala" element={<PrivateRoute><AtaSalaPage /></PrivateRoute>} />
               <Route path="/app/certificados" element={<PrivateRoute><Certificates /></PrivateRoute>} />
               <Route path="/app/torneio/:torneioId" element={<PrivateRoute><TorneioExecucao /></PrivateRoute>} />

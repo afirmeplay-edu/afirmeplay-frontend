@@ -60,8 +60,8 @@ export function NivelBar({ value, count }: { value: number; count?: number }) {
 const LEVEL_CLASS: Record<string, string> = {
   "Abaixo do Básico": "border border-rose-200 bg-rose-100 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300",
   Básico: "border border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300",
-  Adequado: "border border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300",
-  "Avançado": "border border-sky-200 bg-sky-100 text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-300",
+  Adequado: "border border-green-200 bg-green-100 text-green-800 dark:border-green-900/40 dark:bg-green-950/30 dark:text-green-300",
+  "Avançado": "border border-green-800 bg-green-800 text-green-50 dark:border-green-700 dark:bg-green-900/80 dark:text-green-100",
 };
 
 function normalizeLevelTag(value: unknown): string {
