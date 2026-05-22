@@ -56,4 +56,12 @@ export type FolhaRascunhoDadosParams = {
   turma?: string;
   evaluation_id?: string;
   answer_sheet_id?: string;
+  /** IDs separados por vírgula; omitir = todos os alunos do recorte */
+  student_ids?: string[];
+};
+
+export type FolhaRascunhoClassStudentOption = {
+  id: string;
+  name: string;
+  registration?: string;
 };

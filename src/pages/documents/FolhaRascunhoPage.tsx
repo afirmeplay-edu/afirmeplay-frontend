@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, Eye, FileText, Filter, Loader2 } from "lucide-react";
+import { Download, Eye, FileText, Filter, Loader2, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { getFolhaRascunhoDados, getFolhaRascunhoApiError } from "@/services/docu
 import type { FolhaRascunhoDadosResponse, FolhaRascunhoModo } from "@/types/folha-rascunho";
 import { downloadFolhaRascunhoPdf } from "@/services/reports/folhaRascunhoPdf";
 import { loadCityBrandingPdfAssets } from "@/utils/pdfCityBranding";
+import { FolhaRascunhoStudentSelectModal } from "@/components/documents/FolhaRascunhoStudentSelectModal";
 
 type Option = { id: string; name: string };
 
@@ -53,9 +54,14 @@ export default function FolhaRascunhoPage() {
 
   const [preview, setPreview] = useState<FolhaRascunhoDadosResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** null = todos os alunos da turma; array = subconjunto escolhido no modal */
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[] | null>(null);
+  const [studentModalOpen, setStudentModalOpen] = useState(false);
 
   const isPersonalizada = modo === "personalizada";
   const isAplicado = modo === "avaliacao" || modo === "cartao_resposta";
+  const turmaEspecifica = selectedTurma !== "all";
+  const selectedTurmaName = turmas.find((t) => t.id === selectedTurma)?.name ?? "";
 
   useEffect(() => {
     let cancelled = false;
@@ -221,9 +227,29 @@ export default function FolhaRascunhoPage() {
   }, [isAplicado, modo, selectedEstado, selectedMunicipio, selectedSchool]);
 
   useEffect(() => {
+    setSelectedStudentIds(null);
+  }, [selectedTurma]);
+
+  useEffect(() => {
     setPreview(null);
     setError(null);
-  }, [modo, selectedEstado, selectedMunicipio, selectedSchool, selectedSerie, selectedTurma, selectedAplicadoId]);
+  }, [
+    modo,
+    selectedEstado,
+    selectedMunicipio,
+    selectedSchool,
+    selectedSerie,
+    selectedTurma,
+    selectedAplicadoId,
+    selectedStudentIds,
+  ]);
+
+  const studentSelectionLabel = useMemo(() => {
+    if (!turmaEspecifica) return null;
+    if (!selectedStudentIds) return "Todos os alunos da turma";
+    if (selectedStudentIds.length === 0) return "Nenhum aluno selecionado";
+    return `${selectedStudentIds.length} aluno(s) selecionado(s)`;
+  }, [turmaEspecifica, selectedStudentIds]);
 
   const validationMessage = useMemo(() => {
     if (!selectedMunicipio || selectedMunicipio === "all") return "Selecione o município.";
@@ -231,8 +257,20 @@ export default function FolhaRascunhoPage() {
     if (isAplicado && (!selectedAplicadoId || selectedAplicadoId === "all")) {
       return modo === "cartao_resposta" ? "Selecione o cartão-resposta." : "Selecione a avaliação.";
     }
+    if (turmaEspecifica && selectedStudentIds?.length === 0) {
+      return "Selecione ao menos um aluno da turma.";
+    }
     return null;
-  }, [isPersonalizada, isAplicado, selectedMunicipio, selectedSchool, selectedAplicadoId, modo]);
+  }, [
+    isPersonalizada,
+    isAplicado,
+    selectedMunicipio,
+    selectedSchool,
+    selectedAplicadoId,
+    modo,
+    turmaEspecifica,
+    selectedStudentIds,
+  ]);
 
   const buildParams = () => ({
     modo,
@@ -244,6 +282,10 @@ export default function FolhaRascunhoPage() {
     evaluation_id: modo === "avaliacao" && selectedAplicadoId !== "all" ? selectedAplicadoId : undefined,
     answer_sheet_id:
       modo === "cartao_resposta" && selectedAplicadoId !== "all" ? selectedAplicadoId : undefined,
+    student_ids:
+      turmaEspecifica && selectedStudentIds && selectedStudentIds.length > 0
+        ? selectedStudentIds
+        : undefined,
   });
 
   const handlePreview = async () => {
@@ -451,6 +493,26 @@ export default function FolhaRascunhoPage() {
             </Select>
           </div>
 
+          {turmaEspecifica && (
+            <div className="space-y-2 sm:col-span-2">
+              <Label>Alunos</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => setStudentModalOpen(true)}
+                >
+                  <Users className="h-4 w-4" />
+                  Selecionar alunos
+                </Button>
+                {studentSelectionLabel && (
+                  <span className="text-sm text-muted-foreground">{studentSelectionLabel}</span>
+                )}
+              </div>
+            </div>
+          )}
+
           {error && (
             <Alert variant="destructive" className="sm:col-span-2">
               <AlertDescription>{error}</AlertDescription>
@@ -503,6 +565,18 @@ export default function FolhaRascunhoPage() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {turmaEspecifica && (
+        <FolhaRascunhoStudentSelectModal
+          open={studentModalOpen}
+          onOpenChange={setStudentModalOpen}
+          classId={selectedTurma}
+          className={selectedTurmaName || selectedTurma}
+          schoolId={selectedSchool !== "all" ? selectedSchool : undefined}
+          initialSelectedIds={selectedStudentIds}
+          onConfirm={setSelectedStudentIds}
+        />
       )}
     </div>
   );
