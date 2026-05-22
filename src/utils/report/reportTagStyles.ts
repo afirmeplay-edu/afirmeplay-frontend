@@ -37,7 +37,7 @@ export function getReportProficiencyTagClass(label?: string | null): string {
 
   switch (normalized) {
     case "Avançado":
-      return `${REPORT_TAG_BASE} bg-green-200 text-green-900 border-green-400 dark:bg-green-950/50 dark:text-green-200 dark:border-green-700`;
+      return `${REPORT_TAG_BASE} bg-green-800 text-green-50 border-green-900 dark:bg-green-900/80 dark:text-green-100 dark:border-green-700`;
     case "Adequado":
       return `${REPORT_TAG_BASE} bg-green-100 text-green-800 border-green-300 dark:bg-green-950/30 dark:text-green-300 dark:border-green-800`;
     case "Básico":

@@ -11,6 +11,21 @@ import {
   normalizeProficiencyLevelLabel,
   type ReportProficiencyLabel,
 } from '@/utils/report/reportTagStyles';
+import { rankingSchoolBarRgb } from '@/lib/rankingChartColors';
+import {
+  buildCriticalRowIndexes,
+  municipalMetricLevelColumn,
+  municipalMetricTableColumnStyles,
+  SCHOOL_RANKING_METRICS,
+  sortSchoolRowsByMetric,
+  type SchoolRankingMetricConfig,
+  type SchoolRankingRow,
+} from '@/lib/rankingPdfMetrics';
+import {
+  fmtPtNum,
+  formatAdequadoAvancado,
+  formatParticipation,
+} from '@/services/reports/rankingPdfFormat';
 
 const C = {
   primary: [124, 62, 237] as [number, number, number],
@@ -31,16 +46,45 @@ function fmtNow(): string {
   });
 }
 
-function fmtPtNum(value: unknown, digits = 1): string {
-  return Number(value || 0).toFixed(digits).replace('.', ',');
+/** Valores exibidos no card da capa do ranking (pt-BR, maiúsculas). */
+function formatCoverInfoValue(value: string): string {
+  return String(value ?? '').trim().toLocaleUpperCase('pt-BR');
 }
 
-function formatParticipation(rate: unknown, participating: unknown, total: unknown): string {
-  return `${fmtPtNum(rate)}% (${Number(participating || 0)}/${Number(total || 0)})`;
+/** Disciplina do filtro ativo ou lista de todas as disciplinas do instrumento na avaliação. */
+export function formatRankingDisciplinaLabel(
+  data: Pick<RankingResponse, 'discipline_options'>,
+  filters: Pick<RankingFilters, 'disciplina'>,
+  explicitLabel?: string
+): string {
+  const selectedId = String(filters.disciplina || '').trim();
+  if (selectedId) {
+    const selected = data.discipline_options?.find((item) => item.id === selectedId);
+    return selected?.name?.trim() || explicitLabel?.trim() || 'Disciplina selecionada';
+  }
+
+  const names = (data.discipline_options || [])
+    .map((item) => String(item.name || '').trim())
+    .filter(Boolean);
+  if (names.length) {
+    return names.join(', ');
+  }
+
+  const fallback = String(explicitLabel || '').trim();
+  if (fallback && fallback.toLocaleLowerCase('pt-BR') !== 'geral') {
+    return fallback;
+  }
+  return 'Geral';
 }
 
-function formatAdequadoAvancado(count: unknown, pct: unknown): string {
-  return `${Number(count ?? 0)} alunos · ${fmtPtNum(pct)}%`;
+function isAllSchoolsRankingReport(escolaLabel: string, escolaFilter?: string): boolean {
+  if (String(escolaFilter || '').trim()) return false;
+  const label = String(escolaLabel || '')
+    .trim()
+    .toLocaleLowerCase('pt-BR')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return !label || label === 'todas' || label === 'todos';
 }
 
 function scaledSize(iw: number, ih: number, desiredW: number): { w: number; h: number } {
@@ -74,9 +118,9 @@ function proficiencyTagStyles(level: ReportProficiencyLabel): {
 } {
   switch (level) {
     case 'Avançado':
-      return { fill: [167, 243, 208], text: [6, 78, 59] };
+      return { fill: [22, 101, 52], text: [240, 253, 244] };
     case 'Adequado':
-      return { fill: [209, 250, 229], text: [22, 101, 52] };
+      return { fill: [220, 252, 231], text: [22, 101, 52] };
     case 'Básico':
       return { fill: [254, 249, 195], text: [113, 63, 18] };
     case 'Abaixo do Básico':
@@ -95,51 +139,6 @@ function positionHighlight(pos: number): {
   return null;
 }
 
-function drawFiltersCard(
-  doc: jsPDF,
-  margin: number,
-  pageW: number,
-  titleY: number,
-  filterLines: string[]
-): number {
-  const cardPad = 5;
-  const innerW = pageW - 2 * margin;
-  const lineGap = 4.2;
-  const titleLineH = 6;
-  const bodyH = filterLines.reduce((acc, line) => {
-    const wrapped = doc.splitTextToSize(line, innerW - 18 - cardPad * 2) as string[];
-    return acc + wrapped.length * lineGap;
-  }, 0);
-  const cardH = titleLineH + bodyH + cardPad * 2 + 4;
-  const yTop = titleY;
-
-  doc.setFillColor(...C.white);
-  doc.rect(margin, yTop, innerW, cardH, 'F');
-  doc.setFillColor(...C.primary);
-  doc.rect(margin, yTop, 3.5, cardH, 'F');
-  doc.setDrawColor(...C.borderLight);
-  doc.setLineWidth(0.35);
-  doc.rect(margin, yTop, innerW, cardH, 'S');
-
-  let cy = yTop + cardPad + 4;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(...C.primary);
-  doc.text('Filtros aplicados', margin + 10, cy);
-  cy += titleLineH + 2;
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(...C.textDark);
-  for (const line of filterLines) {
-    const wrapped = doc.splitTextToSize(line, innerW - 18 - cardPad * 2) as string[];
-    doc.text(wrapped, margin + 10, cy);
-    cy += wrapped.length * lineGap;
-  }
-
-  return yTop + cardH + 10;
-}
-
 function drawClassificationLegend(doc: jsPDF, margin: number, pageW: number, startY: number): number {
   const levels: ReportProficiencyLabel[] = ['Avançado', 'Adequado', 'Básico', 'Abaixo do Básico'];
   doc.setFont('helvetica', 'bold');
@@ -156,9 +155,8 @@ function drawClassificationLegend(doc: jsPDF, margin: number, pageW: number, sta
 
   for (const level of levels) {
     const { fill, text } = proficiencyTagStyles(level);
-    const labelShort =
-      level === 'Abaixo do Básico' ? 'Abaixo bás.' : level;
-    const wText = doc.getTextWidth(labelShort) + 5;
+    const label = level;
+    const wText = doc.getTextWidth(label) + 5;
     const chipW = 3 + wText;
 
     doc.setFillColor(...fill);
@@ -167,7 +165,7 @@ function drawClassificationLegend(doc: jsPDF, margin: number, pageW: number, sta
     doc.rect(x, yChip, chipW, chipH, 'FD');
 
     doc.setTextColor(...text);
-    doc.text(labelShort, x + 2.2, yChip + chipH / 2 + 1.35);
+    doc.text(label, x + 2.2, yChip + chipH / 2 + 1.35);
 
     x += chipW + gap + 4;
   }
@@ -261,22 +259,85 @@ function drawKpiCards(
   return y + 2;
 }
 
-function drawCourseMiniChart(
+type SchoolMetricChartRow = {
+  school_name?: unknown;
+  bar_value: number;
+  bar_label: string;
+};
+
+type SchoolChartRowLayout = {
+  bar_value: number;
+  bar_label: string;
+  nameLines: string[];
+  rowH: number;
+};
+
+function layoutSchoolMetricChartRows(
+  doc: jsPDF,
+  rows: SchoolMetricChartRow[],
+  labelMaxW: number
+): SchoolChartRowLayout[] {
+  const labelFontSize = 7;
+  const labelLineH = 3.25;
+  const barH = 4.2;
+  const rowGap = 1.4;
+  const minRowH = 8.4;
+  const labelPadY = 1.6;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(labelFontSize);
+
+  return rows.slice(0, 8).map((row) => {
+    const school = String(row.school_name || 'Escola').trim() || 'Escola';
+    const nameLines = doc.splitTextToSize(school, labelMaxW) as string[];
+    const labelH = labelPadY + nameLines.length * labelLineH;
+    const rowH = Math.max(minRowH, labelH, barH + 2.4) + rowGap;
+    return {
+      bar_value: Number(row.bar_value || 0),
+      bar_label: String(row.bar_label || ''),
+      nameLines,
+      rowH,
+    };
+  });
+}
+
+function drawSchoolMetricMiniChart(
   doc: jsPDF,
   margin: number,
   pageW: number,
   startY: number,
   title: string,
-  rows: Array<{ school_name?: unknown; average_score?: unknown; average_proficiency?: unknown }>,
-  targetScore = 7
+  rows: SchoolMetricChartRow[],
+  opts: {
+    axisLabel: string;
+    maxValue?: number;
+    legendLine: string;
+    formatAxisTick?: (value: number) => string;
+  }
 ): number {
-  const data = rows.slice(0, 8);
-  if (!data.length) return startY;
+  const labelW = 56;
+  const metricsW = 28;
+  const labelPadX = 3;
+  const labelMaxW = labelW - labelPadX - 2;
+  const labelFontSize = 7;
+  const labelLineH = 3.25;
+  const labelPadY = 1.6;
+  const barH = 4.2;
+  const rowLayouts = layoutSchoolMetricChartRows(doc, rows, labelMaxW);
+  if (!rowLayouts.length) return startY;
+
   const axisFoot = 7;
-  const chartH = 12 + data.length * 9.2 + axisFoot;
+  const plotH = rowLayouts.reduce((sum, row) => sum + row.rowH, 0);
+  const chartH = 12 + plotH + axisFoot + 2;
   const chartW = pageW - margin * 2;
   const x = margin;
   const yTop = startY;
+  const maxValue =
+    opts.maxValue && opts.maxValue > 0
+      ? opts.maxValue
+      : Math.max(1, ...rowLayouts.map((row) => row.bar_value));
+  const formatTick = opts.formatAxisTick || ((v: number) => fmtPtNum(v));
+
   doc.setFillColor(...C.white);
   doc.setDrawColor(...C.borderLight);
   doc.roundedRect(x, yTop, chartW, chartH, 1.5, 1.5, 'FD');
@@ -284,70 +345,69 @@ function drawCourseMiniChart(
   doc.setFontSize(8.4);
   doc.setTextColor(...C.textDark);
   doc.text(title, x + 3, yTop + 5);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.8);
-  doc.setTextColor(...C.textGray);
-  doc.text(`Meta ${fmtPtNum(targetScore)} · escala 0–10`, x + 3, yTop + 9);
   const plotTop = yTop + 12;
-  const labelW = 52;
-  const metricsW = 28;
   const barMaxW = chartW - labelW - metricsW - 12;
-  const targetX = x + labelW + barMaxW * (Math.max(0, Math.min(10, targetScore)) / 10);
-  const chartBottom = plotTop + data.length * 8.2 + 4;
-  doc.setDrawColor(...C.primary);
-  doc.setLineWidth(0.35);
-  if (typeof doc.setLineDashPattern === 'function') {
-    doc.setLineDashPattern([1.5, 1.2], 0);
-  }
-  doc.line(targetX, plotTop - 1, targetX, chartBottom);
-  if (typeof doc.setLineDashPattern === 'function') {
-    doc.setLineDashPattern([], 0);
-  }
-  data.forEach((row, idx) => {
-    const ry = plotTop + idx * 8.2;
-    const school = String(row.school_name || 'Escola');
-    const truncated = school.length > 30 ? `${school.slice(0, 30)}…` : school;
-    const score = Number(row.average_score || 0);
-    const prof = Number(row.average_proficiency || 0);
-    const normalized = Math.max(0, Math.min(10, score)) / 10;
+  const rowGap = 1.4;
+  let ry = plotTop;
+
+  rowLayouts.forEach((layout, idx) => {
+    const contentH = layout.rowH - rowGap;
+    const barY = ry + (contentH - barH) / 2;
+    const normalized = Math.max(0, layout.bar_value) / maxValue;
     const barW = barMaxW * normalized;
+
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
+    doc.setFontSize(labelFontSize);
     doc.setTextColor(...C.textDark);
-    doc.text(truncated, x + 3, ry + 3.4);
+    layout.nameLines.forEach((line, lineIdx) => {
+      doc.text(line, x + labelPadX, ry + labelPadY + lineIdx * labelLineH);
+    });
+
+    const barColor = rankingSchoolBarRgb(idx);
     doc.setFillColor(235, 236, 240);
-    doc.roundedRect(x + labelW, ry, barMaxW, 4.2, 0.8, 0.8, 'F');
-    doc.setFillColor(...C.primary);
-    doc.roundedRect(x + labelW, ry, barW, 4.2, 0.8, 0.8, 'F');
+    doc.roundedRect(x + labelW, barY, barMaxW, barH, 0.8, 0.8, 'F');
+    doc.setFillColor(...barColor);
+    doc.roundedRect(x + labelW, barY, barW, barH, 0.8, 0.8, 'F');
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.8);
-    doc.setTextColor(...C.primary);
-    doc.text(fmtPtNum(score), x + labelW + barMaxW + 2, ry + 2.2);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...C.textGray);
-    doc.text(`Prof. ${fmtPtNum(prof)}`, x + labelW + barMaxW + 2, ry + 5.2);
+    doc.setTextColor(...barColor);
+    doc.text(layout.bar_label, x + labelW + barMaxW + 2, barY + 3.2);
+    ry += layout.rowH;
   });
+
+  const chartBottom = ry + 2;
   const axisY = chartBottom + 2.5;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.2);
   doc.setTextColor(...C.textGray);
-  [0, 2, 4, 6, 8, 10].forEach((tick) => {
-    const tx = x + labelW + (barMaxW * tick) / 10;
-    doc.text(String(tick), tx, axisY, { align: 'center' });
+  const axisTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => maxValue * ratio);
+  axisTicks.forEach((tick) => {
+    const tx = x + labelW + (barMaxW * tick) / maxValue;
+    doc.text(formatTick(tick), tx, axisY, { align: 'center' });
   });
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.5);
-  doc.text('Nota média →', x + labelW + barMaxW / 2, axisY + 3.2, { align: 'center' });
+  doc.text(opts.axisLabel, x + labelW + barMaxW / 2, axisY + 3.2, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.2);
   doc.text('Escolas', x + 2, plotTop + (chartBottom - plotTop) / 2, { angle: 90 });
   let y = yTop + chartH;
-  y = drawChartLegend(doc, margin, pageW, y, [
-    { kind: 'bar', label: 'Nota média da escola (0–10)', color: C.primary },
-    { kind: 'line', label: `Meta institucional (${fmtPtNum(targetScore)})` },
-    { kind: 'text', label: 'Valores à direita: nota (roxo) e proficiência (cinza)' },
-  ]);
+  y = drawChartLegend(doc, margin, pageW, y, [{ kind: 'text', label: opts.legendLine }]);
   return y + 4;
+}
+
+function toMetricChartRows(
+  sortedRows: SchoolRankingRow[],
+  metric: SchoolRankingMetricConfig
+): SchoolMetricChartRow[] {
+  return sortedRows.slice(0, 8).map((row) => {
+    const value = metric.chartValue(row);
+    return {
+      school_name: row.school_name,
+      bar_value: value,
+      bar_label: metric.formatChartValue(value),
+    };
+  });
 }
 
 type ChartLegendItem = {
@@ -406,6 +466,31 @@ function drawChartLegend(
   return y + boxH + 3;
 }
 
+function measureTableCaptionHeight(
+  doc: jsPDF,
+  pageW: number,
+  margin: number,
+  legendLines: string[]
+): number {
+  const innerW = pageW - margin * 2;
+  let h = 8.6 + 4.5;
+  if (!legendLines.length) return h + 2;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  legendLines.forEach((line) => {
+    const wrapped = doc.splitTextToSize(`• ${line}`, innerW) as string[];
+    h += wrapped.length * 3.4 + 0.6;
+  });
+  return h + 2;
+}
+
+/** Altura mínima para cabeçalho + primeiras linhas da tabela na mesma página do título. */
+function estimateTableStartHeight(bodyRowCount: number): number {
+  const rows = Math.max(1, bodyRowCount);
+  const firstPageRows = Math.min(rows, 3);
+  return 12 + firstPageRows * 9 + 8;
+}
+
 function drawTableCaption(
   doc: jsPDF,
   margin: number,
@@ -414,7 +499,7 @@ function drawTableCaption(
   caption: string,
   legendLines: string[]
 ): number {
-  let y = ensurePageSpace(doc, startY, 14 + legendLines.length * 3.6, margin);
+  let y = startY;
   const innerW = pageW - margin * 2;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.6);
@@ -486,10 +571,6 @@ function drawReportIndex(
   doc.setFontSize(11);
   doc.setTextColor(...C.primary);
   doc.text('Sumário', margin + pad, cy);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.2);
-  doc.setTextColor(...C.textGray);
-  doc.text('Clique no item para ir à seção (leitores compatíveis).', margin + pad + 42, cy);
   cy += headerH - 4;
 
   entries.forEach((entry, idx) => {
@@ -632,13 +713,13 @@ async function addRankingCoverPage(
   let y = BAND_H + 14;
   const locLine = cardLines
     .filter((l) => l.label === 'ESTADO' || l.label === 'MUNICÍPIO')
-    .map((l) => l.value)
-    .filter((v) => v && v.trim() && v !== 'Todos');
+    .map((l) => formatCoverInfoValue(l.value))
+    .filter((v) => v && v !== 'TODOS');
   if (locLine.length) {
     doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...C.primary);
-    doc.text(locLine.join(' — ').toUpperCase(), centerX, y, { align: 'center' });
+    doc.text(locLine.join(' — '), centerX, y, { align: 'center' });
     y += 8;
   }
 
@@ -702,7 +783,7 @@ async function addRankingCoverPage(
     doc.text(`${label}:`, labelX, cy);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...C.textDark);
-    const vLines = doc.splitTextToSize(value, maxValueW) as string[];
+    const vLines = doc.splitTextToSize(formatCoverInfoValue(value), maxValueW) as string[];
     doc.text(vLines, valueX, cy);
     cy += Math.max(rowH, vLines.length * 4.9);
   }
@@ -828,10 +909,11 @@ export async function generateRankingPdf(opts: {
   cardLines.push(
     { label: 'ESTADO', value: filters.estado },
     { label: 'MUNICÍPIO', value: filters.municipio },
-    { label: 'ESCOLA', value: filters.escola },
-    { label: 'SÉRIE', value: filters.serie },
-    { label: 'TURMA', value: filters.turma }
+    { label: 'ESCOLA', value: filters.escola }
   );
+  if (!isAllSchoolsRankingReport(filters.escola)) {
+    cardLines.push({ label: 'SÉRIE', value: filters.serie }, { label: 'TURMA', value: filters.turma });
+  }
 
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
@@ -848,15 +930,6 @@ export async function generateRankingPdf(opts: {
   const pageW = pdf.internal.pageSize.getWidth();
   const margin = 15;
   let y = 16;
-
-  const filterLinesDetailed = [
-    `Estado: ${filters.estado}`,
-    `Município: ${filters.municipio}`,
-    `Escola: ${filters.escola}`,
-    `Série: ${filters.serie}`,
-    `Turma: ${filters.turma}`,
-  ];
-  y = drawFiltersCard(pdf, margin, pageW, y, filterLinesDetailed);
 
   pdf.setFontSize(12);
   pdf.setFont('helvetica', 'bold');
@@ -1009,11 +1082,11 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
   const escolaLabel = String(labels.escola || filters.escola || "Todas");
   const serieLabel = String(labels.serie || filters.serie || "Todas");
   const turmaLabel = String(labels.turma || filters.turma || "Todas");
-  const periodoLabel = String(labels.periodo || filters.periodo || "Não informado");
   const avaliacaoLabel = String(
     labels.avaliacao || opts.contextTitle || filters.evaluation_id || filters.answer_sheet_id || "—"
   );
-  const disciplinaLabel = String(labels.disciplina || data.selected_discipline || "Geral");
+  const disciplinaLabel = formatRankingDisciplinaLabel(data, filters, labels.disciplina);
+  const allSchoolsReport = isAllSchoolsRankingReport(escolaLabel, filters.escola);
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const subtitleBand = 'RELATÓRIO INSTITUCIONAL DE RANKING';
@@ -1024,9 +1097,12 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
     { label: 'ESTADO', value: estadoLabel },
     { label: 'MUNICÍPIO', value: municipioLabel },
     { label: 'ESCOLA', value: escolaLabel },
-    { label: 'SÉRIE', value: serieLabel },
-    { label: 'TURMA', value: turmaLabel },
-    { label: 'PERÍODO', value: periodoLabel },
+    ...(!allSchoolsReport
+      ? [
+          { label: 'SÉRIE', value: serieLabel },
+          { label: 'TURMA', value: turmaLabel },
+        ]
+      : []),
     { label: 'DISCIPLINA', value: disciplinaLabel },
   ];
 
@@ -1049,19 +1125,6 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
   const pageW = doc.internal.pageSize.getWidth();
   const margin = 15;
   let y = 16;
-  const instrumentoLine = filters.evaluation_id
-    ? `Avaliação: ${avaliacaoLabel}`
-    : filters.answer_sheet_id
-      ? `Cartão-resposta: ${avaliacaoLabel}`
-      : `Instrumento: ${avaliacaoLabel}`;
-  const detailLines = [
-    instrumentoLine,
-    `Estado: ${estadoLabel} · Município: ${municipioLabel}`,
-    `Escola: ${escolaLabel} · Série: ${serieLabel} · Turma: ${turmaLabel}`,
-    `Período: ${periodoLabel} · Disciplina: ${disciplinaLabel}`,
-    `Escopo: ${String(filters.scope || 'municipio')}`,
-  ];
-  y = drawFiltersCard(doc, margin, pageW, y, detailLines);
   y = drawClassificationLegend(doc, margin, pageW, y + 2);
 
   const autoTable = (await import('jspdf-autotable')).default;
@@ -1114,10 +1177,17 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
     criticalRowIndexes?: Set<number>,
     block?: TableRenderOpts
   ) => {
+    const legendLines = block?.legend || [];
+    const rowCount = body.length > 0 ? body.length : 1;
+    const captionH = block?.caption
+      ? measureTableCaptionHeight(doc, pageW, margin, legendLines)
+      : 0;
+    const tableStartH = estimateTableStartHeight(rowCount);
+    y = ensurePageSpace(doc, y, captionH + tableStartH, margin);
+
     if (block?.caption) {
-      y = drawTableCaption(doc, margin, pageW, y, block.caption, block.legend || []);
+      y = drawTableCaption(doc, margin, pageW, y, block.caption, legendLines);
     }
-    y = ensurePageSpace(doc, y, 36, margin);
     const emptyBody = [['—', 'Sem dados para os filtros selecionados']];
     autoTable(doc, {
       startY: y,
@@ -1195,7 +1265,6 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
   };
 
   if (rankingType === 'general') {
-    const municipalItems = data.municipal_ranking?.items || [];
     const teachersItems = data.teachers_top?.items || [];
     const schoolEntries = Object.entries(data.school_class_ranking?.items_by_school || {});
     let sectionNo = 0;
@@ -1206,7 +1275,10 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
     page2IndexY = y + 4;
 
     if (data.overview) {
-      nextSection('Visão geral', 'Desempenho por curso, gráfico e tabela detalhada');
+      nextSection(
+        'Visão geral',
+        'Rankings por participação, nota, Adequado+Avançado e proficiência, por curso'
+      );
       const summary = data.overview.summary || {};
       const byCourse = data.overview.by_course || {};
       y = drawKpiCards(doc, margin, pageW, y, [
@@ -1232,7 +1304,6 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
         const typed = courseData as {
           chart_rows?: Array<Record<string, unknown>>;
           table_rows?: Array<Record<string, unknown>>;
-          target_score?: number;
           counts_by_status?: Record<string, number>;
         };
         drawSectionTitle(`Ranking ${courseLabel}`);
@@ -1240,156 +1311,91 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
           {
             label: 'Destaque',
             value: String(Number(typed.counts_by_status?.destaque || 0)),
-            hint: 'Escolas acima da meta',
+            hint: 'Níveis Adequado e Avançado',
           },
           {
             label: 'Em desenvolvimento',
             value: String(Number(typed.counts_by_status?.desenvolvimento || 0)),
-            hint: 'Faixa intermediária',
+            hint: 'Nível Básico',
           },
           {
             label: 'Atenção',
             value: String(Number(typed.counts_by_status?.atencao || 0)),
-            hint: 'Abaixo da meta',
+            hint: 'Abaixo do Básico',
             tone: 'critical',
           },
         ]);
-        const chartRows = typed.chart_rows || [];
-        y = ensurePageSpace(doc, y, 36, margin);
-        y = drawTableCaption(doc, margin, pageW, y, `Gráfico — Desempenho por escola (${courseLabel})`, [
-          'Comparativo de nota média por escola no recorte; barras proporcionais à escala 0–10.',
-          `Linha tracejada vertical indica a meta de ${fmtPtNum(typed.target_score || 7)} pontos.`,
-        ]);
-        y = drawCourseMiniChart(
-          doc,
-          margin,
-          pageW,
-          y,
-          'Desempenho por escola',
-          chartRows as Array<{ school_name?: unknown; average_score?: unknown; average_proficiency?: unknown }>,
-          Number(typed.target_score || 7)
-        );
-        const tableRows = typed.table_rows || [];
-        const rows = tableRows.map((row) => [
-          Number(row.position || 0),
-          String(row.school_name || "—"),
-          fmtPtNum(row.average_proficiency),
-          fmtPtNum(row.average_score),
-          String(row.level_tag || "—"),
-        ]);
-        const criticalRows = new Set<number>();
-        tableRows.forEach((row, idx) => {
-          if (row.is_critical) criticalRows.add(idx);
-        });
-        renderTable(
-          [["Pos.", "Escola", "Proficiência", "Nota média", "Nível"]],
-          rows,
-          {
-            0: { cellWidth: 12, halign: "center" },
-            1: { cellWidth: 78, halign: "left" },
-            2: { cellWidth: 26, halign: "right" },
-            3: { cellWidth: 24, halign: "right" },
-            4: { cellWidth: 30, halign: "center" },
-          },
-          4,
-          criticalRows,
-          {
-            caption: `Tabela — Ranking ${courseLabel}`,
-            legend: [
-              'Pos. = posição no recorte; linhas em vermelho = escolas críticas (Abaixo do Básico).',
-              'Proficiência e nota média com uma casa decimal; Nível conforme legenda de classificação.',
-            ],
-            footnote: `Ordenação por nota média decrescente. Meta do curso: ${fmtPtNum(typed.target_score || 7)}.`,
-          }
-        );
+        const sourceRows = (typed.table_rows || []) as SchoolRankingRow[];
+        const tableLegend = [
+          'Pos. = posição no recorte; linhas em vermelho = escolas críticas (Abaixo do Básico).',
+        ];
+        for (const metric of SCHOOL_RANKING_METRICS) {
+          const sorted = sortSchoolRowsByMetric(sourceRows, metric);
+          if (!sorted.length) continue;
+
+          drawSectionTitle(`${metric.sectionTitle} — ${courseLabel}`);
+          const chartRows = toMetricChartRows(sorted, metric);
+          const chartRowCount = Math.min(8, chartRows.length);
+          y = ensurePageSpace(doc, y, 28 + chartRowCount * 14, margin);
+          y = drawTableCaption(
+            doc,
+            margin,
+            pageW,
+            y,
+            `Gráfico — ${metric.chartTitle} (${courseLabel})`,
+            [metric.chartCaption]
+          );
+          y = drawSchoolMetricMiniChart(doc, margin, pageW, y, metric.chartTitle, chartRows, {
+            axisLabel: metric.axisLabel,
+            maxValue: metric.maxChartValue,
+            legendLine: metric.legendChart,
+            formatAxisTick:
+              metric.id === 'participation' || metric.id === 'adeq_avan'
+                ? (v) => `${fmtPtNum(v)}%`
+                : undefined,
+          });
+
+          const tableBody = metric.tableBody(sorted);
+          const criticalRows = buildCriticalRowIndexes(sorted);
+          const tableCaptionH = measureTableCaptionHeight(doc, pageW, margin, tableLegend);
+          y = ensurePageSpace(
+            doc,
+            y,
+            tableCaptionH + estimateTableStartHeight(tableBody.length),
+            margin
+          );
+          renderTable(
+            metric.tableHead,
+            tableBody,
+            municipalMetricTableColumnStyles(metric.id),
+            municipalMetricLevelColumn(metric.id),
+            criticalRows,
+            {
+              caption: `${metric.tableCaption} (${courseLabel})`,
+              legend: tableLegend,
+              footnote: metric.footnote,
+            }
+          );
+        }
       });
     }
-
-    nextSection('Ranking municipal', 'Classificação de escolas no município');
-    const totalParticipating = municipalItems.reduce(
-      (acc, row) => acc + Number(row.participating_students || 0),
-      0
-    );
-    const totalAdequadoAvancado = municipalItems.reduce(
-      (acc, row) => acc + Number(row.adequado_avancado_count || 0),
-      0
-    );
-    const levelsPct = totalParticipating ? (totalAdequadoAvancado / totalParticipating) * 100 : 0;
-    const participationAvg = municipalItems.length
-      ? municipalItems.reduce((acc, row) => acc + Number(row.participation_rate || 0), 0) / municipalItems.length
-      : 0;
-    y = drawKpiCards(doc, margin, pageW, y, [
-      { label: 'Escolas avaliadas', value: String(municipalItems.length) },
-      { label: 'Participação geral', value: `${fmtPtNum(participationAvg)}%` },
-      {
-        label: 'Adequado + Avançado',
-        value: `${totalAdequadoAvancado} alunos`,
-        hint: `${fmtPtNum(levelsPct)}% dos participantes`,
-        tone: 'primary',
-      },
-      {
-        label: 'Destaque do mês',
-        value: String(municipalItems[0]?.school_name || '—'),
-        hint: `Nota ${fmtPtNum(municipalItems[0]?.average_score)}`,
-      },
-    ]);
-    drawSectionTitleKeepingTable('Ranking municipal de escolas', Math.min(3, municipalItems.length || 1));
-    const municipalBody = municipalItems.map((row) => [
-      Number(row.position || 0),
-      String(row.school_name || "—"),
-      formatParticipation(row.participation_rate, row.participating_students, row.total_students),
-      fmtPtNum(row.average_proficiency),
-      fmtPtNum(row.average_score),
-      formatAdequadoAvancado(row.adequado_avancado_count, row.adequado_avancado_pct),
-      String(row.level_tag || "—"),
-      String(row.best_class_name || "N/A"),
-    ]);
-    const municipalCriticalRows = new Set<number>();
-    municipalItems.forEach((row, idx) => {
-      if (row.is_critical) municipalCriticalRows.add(idx);
-    });
-    renderTable(
-      [["Pos.", "Escola", "Participação", "Proficiência", "Nota", "Adeq.+Avan.", "Nível", "Melhor turma"]],
-      municipalBody,
-      {
-        0: { cellWidth: 11, halign: "center" },
-        1: { cellWidth: 44, halign: "left" },
-        2: { cellWidth: 24, halign: "center" },
-        3: { cellWidth: 16, halign: "right" },
-        4: { cellWidth: 12, halign: "right" },
-        5: { cellWidth: 26, halign: "right" },
-        6: { cellWidth: 22, halign: "center" },
-        7: { cellWidth: 25, halign: "left" },
-      },
-      6,
-      municipalCriticalRows,
-      {
-        caption: 'Tabela — Ranking municipal de escolas',
-        legend: [
-          'Participação = % (participantes/total de alunos da escola).',
-          'Adeq.+Avan. = quantidade de alunos nos níveis Adequado e Avançado e respectivo percentual.',
-          '1º–3º lugares destacados; fundo vermelho = nível crítico.',
-        ],
-      }
-    );
 
     nextSection('Ranking por escola/turma', 'Séries, professores e disciplinas por escola');
     if (schoolEntries.length === 0) {
       y = ensureSectionWithTableSpace(doc, y, margin, 1);
       renderTable(
-        [["Pos.", "Série/Turma", "Professor(a)", "Disciplina", "Participação", "Proficiência", "Nota", "Nível"]],
+        [["Pos.", "Série/Turma", "Professor(a)", "Participação", "Proficiência", "Nota", "Nível"]],
         [],
         {
           0: { cellWidth: 10, halign: "center" },
-          1: { cellWidth: 28, halign: "left" },
-          2: { cellWidth: 30, halign: "left" },
-          3: { cellWidth: 22, halign: "left" },
-          4: { cellWidth: 22, halign: "center" },
-          5: { cellWidth: 16, halign: "right" },
-          6: { cellWidth: 12, halign: "right" },
-          7: { cellWidth: 20, halign: "center" },
+          1: { cellWidth: 38, halign: "left" },
+          2: { cellWidth: 34, halign: "left" },
+          3: { cellWidth: 24, halign: "center" },
+          4: { cellWidth: 18, halign: "right" },
+          5: { cellWidth: 14, halign: "right" },
+          6: { cellWidth: 22, halign: "center" },
         },
-        7,
+        6,
         undefined,
         {
           caption: 'Tabela — Ranking por escola/turma',
@@ -1405,7 +1411,6 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
           Number(row.position || 0),
           String(row.series_class_name || "—"),
           String(row.teacher_name || "N/A"),
-          String(row.course_label || "—"),
           formatParticipation(row.participation_rate, row.participating_students, row.total_students),
           fmtPtNum(row.average_proficiency),
           fmtPtNum(row.average_score),
@@ -1416,32 +1421,31 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
           if (row.is_critical) schoolCriticalRows.add(idx);
         });
         renderTable(
-          [["Pos.", "Série/Turma", "Professor(a)", "Disciplina", "Participação", "Proficiência", "Nota", "Nível"]],
+          [["Pos.", "Série/Turma", "Professor(a)", "Participação", "Proficiência", "Nota", "Nível"]],
           body,
           {
             0: { cellWidth: 10, halign: "center" },
-            1: { cellWidth: 28, halign: "left" },
-            2: { cellWidth: 30, halign: "left" },
-            3: { cellWidth: 22, halign: "left" },
-            4: { cellWidth: 22, halign: "center" },
-            5: { cellWidth: 16, halign: "right" },
-            6: { cellWidth: 12, halign: "right" },
-            7: { cellWidth: 20, halign: "center" },
+            1: { cellWidth: 38, halign: "left" },
+            2: { cellWidth: 34, halign: "left" },
+            3: { cellWidth: 24, halign: "center" },
+            4: { cellWidth: 18, halign: "right" },
+            5: { cellWidth: 14, halign: "right" },
+            6: { cellWidth: 22, halign: "center" },
           },
-          7,
+          6,
           schoolCriticalRows,
           {
             caption: `Tabela — ${schoolName}`,
             legend: [
-              'Uma linha por série/turma vinculada à escola no instrumento selecionado.',
-              'Disciplina conforme agrupamento do curso; participação no formato % (participantes/total).',
+              'Uma linha por turma no formato "Série - Turma" vinculada à escola no instrumento selecionado.',
+              'Participação no formato % (participantes/total).',
             ],
           }
         );
       });
     }
 
-    nextSection('Top professores', 'Classificação por níveis, proficiência e nota média');
+    nextSection('Ranking de professores', 'Todos com participação na avaliação ou cartão-resposta');
     y = drawKpiCards(doc, margin, pageW, y, [
       {
         label: 'Professores no ranking',
@@ -1459,7 +1463,7 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
         hint: String(teachersItems[0]?.school_name || '—'),
       },
     ]);
-    drawSectionTitleKeepingTable('Top 10 professores', Math.min(3, teachersItems.length || 1));
+    drawSectionTitleKeepingTable('Ranking de professores', Math.min(3, teachersItems.length || 1));
     const teachersBody = teachersItems.map((row) => [
       Number(row.position || 0),
       String(row.teacher_name || "—"),
@@ -1488,9 +1492,9 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
       6,
       teachersCriticalRows,
       {
-        caption: 'Tabela — Top 10 professores',
+        caption: 'Tabela — Ranking de professores',
         legend: [
-          'Ranking limitado aos 10 melhores por proficiência média no recorte.',
+          'Todos os professores com alunos participantes no instrumento selecionado, ordenados por proficiência.',
           'Turma/Série lista as séries vinculadas ao professor na avaliação ou cartão-resposta.',
         ],
       }
@@ -1502,7 +1506,7 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
     }
 
     // fallback legado
-    if (!data.overview && !data.municipal_ranking && !data.school_class_ranking && !data.teachers_top) {
+    if (!data.overview && !data.school_class_ranking && !data.teachers_top) {
       const rankings = data.general_rankings;
       const visibility = rankings?.visibility || {
         schools_by_course: true,

@@ -1,48 +1,7 @@
 import { jsPDF } from "jspdf";
+import type { AtaOptions, AtaSalaPdfData } from "@/types/ata-sala";
 
-type AtaOptions = {
-  applicationDayLabel: string;
-  dateDay: string;
-  dateMonth: string;
-  dateYear: string;
-  startHour: string;
-  startMinute: string;
-  endHour: string;
-  endMinute: string;
-  didNotOccurReason: string;
-  occurrenceA: boolean;
-  occurrenceB: boolean;
-  occurrenceC: boolean;
-  occurrenceD: boolean;
-  occurrenceE: boolean;
-  occurrenceDetail5: string;
-  noOccurrences: boolean;
-  occurrenceDetail6: string;
-  q7Responded: string;
-  q8NotResponded: string;
-  q9Tablets: string;
-  q10SpecialStayed: string;
-  q11SpecialRegularRoom: string;
-  q12SpecialSupportRoom: string;
-  assinaturaAplicador: string;
-  cpfAplicador: string;
-  assinaturaApoioRegular: string;
-  cpfApoioRegular: string;
-  assinaturaApoioSuporte: string;
-  cpfApoioSuporte: string;
-};
-
-export type AtaSalaPdfData = {
-  nomeAvaliacao: string;
-  cursoLabel: string;
-  municipioUf: string;
-  rede: string;
-  escola: string;
-  serieTurma: string;
-  turno: string;
-  disciplina: string;
-  options: AtaOptions;
-};
+export type { AtaOptions, AtaSalaPdfData } from "@/types/ata-sala";
 
 const C = {
   bg: [236, 236, 236] as [number, number, number],
