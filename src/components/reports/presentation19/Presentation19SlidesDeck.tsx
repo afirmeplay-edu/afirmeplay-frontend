@@ -314,7 +314,7 @@ export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation1
       });
       const notaBarraMunicipal = notaMunicipalOficialGeral ?? deckData.mediaNotaGeral;
       if (notaBarraMunicipal != null && Number.isFinite(notaBarraMunicipal)) {
-        rows.push({ escopo: "Média municipal", nota: notaBarraMunicipal, fill: deckData.primaryColor });
+        rows.push({ escopo: "MÉDIA MUNICIPAL", nota: notaBarraMunicipal, fill: deckData.primaryColor });
       }
     } else {
       if (deckData.mediaNotaGeral != null && Number.isFinite(deckData.mediaNotaGeral)) {
@@ -926,7 +926,7 @@ export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation1
                 columns={["Escopo", "Média da nota"]}
                 rows={(() => {
                   const out: Array<Array<string | number>> = [];
-                  const medLabel = multiSchool ? "Média municipal" : "Média geral";
+                  const medLabel = multiSchool ? "MÉDIA MUNICIPAL" : "Média geral";
                   const mm = deckData.notaMediaMunicipalPorDisciplinaRelatorio;
                   const notaMunGeral =
                     multiSchool && mm

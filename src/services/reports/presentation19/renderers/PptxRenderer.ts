@@ -98,6 +98,13 @@ import {
   P19_DECK_LOGO_TOP_PX,
   P19_DECK_LOGO_W_PX,
 } from "@/utils/reports/presentation19/presentation19Layout";
+import {
+  presenceTablePctCellColors,
+  presentation19CoverSchoolColumnCount,
+  presentation19CoverSchoolListFontPx,
+  PRESENTATION19_GRADES_NO_TURMA_NOTICE,
+  resolvePresentation19BarTopLabel,
+} from "@/utils/reports/presentation19/presentation19Labels";
 
 type RenderPptxArgs = {
   spec: Presentation19ExportSpec;
@@ -301,7 +308,7 @@ function drawPdfAlignedBarChart(slide: PptxGenJS.Slide, chart: ExportChart, box:
           rectRadius: 0.06,
         });
         const valBoxW = Math.max(0.58, seriesW + 0.26);
-        slide.addText(formatBarValueLabel(value, s.label), {
+        slide.addText(resolvePresentation19BarTopLabel(row, value, s.label), {
           x: barX + seriesW / 2 - valBoxW / 2,
           y: barY - yScale(16) + yScale(1),
           w: valBoxW,
@@ -335,7 +342,7 @@ function drawPdfAlignedBarChart(slide: PptxGenJS.Slide, chart: ExportChart, box:
         currentTop = barY;
       });
       const totW = Math.max(0.58, singleW + 0.28);
-      slide.addText(formatBarValueLabel(total, chart.valueKeys[0]?.label), {
+      slide.addText(resolvePresentation19BarTopLabel(row, total, chart.valueKeys[0]?.label), {
         x: singleX + singleW / 2 - totW / 2,
         y: currentTop - yScale(17) + yScale(1),
         w: totW,
@@ -364,7 +371,7 @@ function drawPdfAlignedBarChart(slide: PptxGenJS.Slide, chart: ExportChart, box:
         rectRadius: 0.1,
       });
       const oneSerW = Math.max(0.62, singleW + 0.32);
-      slide.addText(formatBarValueLabel(value, s.label), {
+      slide.addText(resolvePresentation19BarTopLabel(row, value, s.label), {
         x: singleX + singleW / 2 - oneSerW / 2,
         y: barY - yScale(17) + yScale(1),
         w: oneSerW,
@@ -392,6 +399,18 @@ function drawPdfAlignedBarChart(slide: PptxGenJS.Slide, chart: ExportChart, box:
       wrap: true,
     });
   });
+
+  if (chart.referenceLineY != null && Number.isFinite(chart.referenceLineY)) {
+    const refVal = Number(chart.referenceLineY);
+    const refY = baselineY - ((Math.max(0, refVal - axisMin) / (maxValue - axisMin)) * chartAreaH);
+    slide.addShape(pptx.ShapeType.line, {
+      x: barsStartX,
+      y: refY,
+      w: barsW,
+      h: 0,
+      line: { color: "64748B", width: 1.25, dashType: "dash" },
+    });
+  }
 }
 
 function drawFrame(slide: PptxGenJS.Slide, primaryColor: string, pptx: PptxPresentation): void {
@@ -525,7 +544,8 @@ function drawTable(
   columns: string[],
   rows: Array<Array<string | number>>,
   startY = p19PxToSlideInY(p19TableStartYAfterTitleBlockPx(false, 1)),
-  colWFrac?: number[]
+  colWFrac?: number[],
+  presencePctValues?: number[]
 ): void {
   const { x: tableX, w: totalW } = p19ContentBoxInches();
   const cellPad = P19_TABLE_CELL_PADDING_PX / 72;
@@ -560,13 +580,17 @@ function drawTable(
       r.map((c, ci) => {
         const baseColor = "0F172A";
         const maybe = classificationIdx === ci ? classificationColor(String(c)) : null;
+        const pct = ci === 3 ? presencePctValues?.[ri] : undefined;
+        const pctStyle = pct != null && Number.isFinite(pct) ? presenceTablePctCellColors(pct) : null;
         return {
           text: String(c),
           options: {
             fontSize: cellFs,
-            color: maybe ?? baseColor,
-            bold: Boolean(maybe),
-            fill: { color: ri % 2 === 0 ? "FCFCFD" : "F1F5F9" },
+            color: pctStyle ? pctStyle.color.replace("#", "") : maybe ?? baseColor,
+            bold: Boolean(maybe || pctStyle),
+            fill: {
+              color: pctStyle ? pctStyle.background.replace("#", "") : ri % 2 === 0 ? "FCFCFD" : "F1F5F9",
+            },
             margin: cellPad,
             align: ci === 0 ? "left" : "center",
             valign: "middle",
@@ -835,28 +859,27 @@ function renderSlide(slide: PptxGenJS.Slide, slideSpec: Presentation19SlideSpec,
           wrap: true,
         });
       } else {
-        const listFsPx = escolas.length > 14 ? P19_COVER_SCHOOL_LIST_SMALL_PX : P19_COVER_SCHOOL_LIST_LARGE_PX;
-        const twoCols = escolas.length > 10;
-        const mid = Math.ceil(escolas.length / 2);
-        /** Com ≤10 escolas uma única coluna deve listar todas (PDF: `colA = escolas` quando não há 2 colunas). */
-        const leftList = twoCols
-          ? escolas.slice(0, mid).map((s) => `• ${s}`).join("\n")
-          : escolas.map((s) => `• ${s}`).join("\n");
-        const rightList = twoCols ? escolas.slice(mid).map((s) => `• ${s}`).join("\n") : "";
+        const listFsPx = presentation19CoverSchoolListFontPx(escolas.length);
+        const colCount = presentation19CoverSchoolColumnCount(escolas.length);
+        const perCol = Math.ceil(escolas.length / colCount);
+        const colTexts = Array.from({ length: colCount }, (_, ci) =>
+          escolas
+            .slice(ci * perCol, (ci + 1) * perCol)
+            .map((s) => `• ${s}`)
+            .join("\n")
+        );
+        const colW = 12.1 / colCount - 0.15;
         slide.addText(
           [{ text: "ESCOLAS PARTICIPANTES\n", options: { fontSize: p19PxToPtForPptx(P19_COVER_SCHOOL_MULTI_HEADER_PX), color: "52525B", bold: true } }],
           { x: 0.65, y: 1.85, w: 12.1, h: 0.45, align: "center" }
         );
-        slide.addText(
-          [{ text: leftList, options: { fontSize: p19PxToPtForPptx(listFsPx), color: "0F172A", bold: true } }],
-          { x: twoCols ? 0.55 : 0.65, y: 2.35, w: twoCols ? 5.9 : 12.1, h: 4.9, align: "left", valign: "top" }
-        );
-        if (twoCols && rightList) {
+        colTexts.forEach((text, ci) => {
+          if (!text.trim()) return;
           slide.addText(
-            [{ text: rightList, options: { fontSize: p19PxToPtForPptx(listFsPx), color: "0F172A", bold: true } }],
-            { x: 6.75, y: 2.35, w: 5.9, h: 4.9, align: "left", valign: "top" }
+            [{ text, options: { fontSize: p19PxToPtForPptx(listFsPx), color: "0F172A", bold: true } }],
+            { x: 0.55 + ci * (colW + 0.15), y: 2.35, w: colW, h: 4.9, align: "left", valign: "top" }
           );
-        }
+        });
       }
       break;
     }
@@ -924,7 +947,14 @@ function renderSlide(slide: PptxGenJS.Slide, slideSpec: Presentation19SlideSpec,
     }
     case "presence-table":
       drawTitle(slide, presentationTitleTablePresence(deckData.comparisonAxis), deckData.primaryColor, pptx);
-      drawTable(slide, slideSpec.table.columns, slideSpec.table.rows, undefined, [0.26, 0.185, 0.185, 0.185, 0.185]);
+      drawTable(
+        slide,
+        slideSpec.table.columns,
+        slideSpec.table.rows,
+        undefined,
+        [0.26, 0.185, 0.185, 0.185, 0.185],
+        slideSpec.presencePctValues
+      );
       break;
     case "presence-chart":
       drawTitle(slide, presentationTitleChartPresence(deckData.comparisonAxis), deckData.primaryColor, pptx, P19_CHART_SUBTITLE_PRESENCE);
@@ -1129,6 +1159,20 @@ function renderSlide(slide: PptxGenJS.Slide, slideSpec: Presentation19SlideSpec,
     case "grades-table":
       drawTitle(slide, presentationTitleTableGrades(deckData.comparisonAxis), deckData.primaryColor, pptx);
       drawTable(slide, slideSpec.table.columns, slideSpec.table.rows, undefined, [0.52, 0.48]);
+      break;
+    case "grades-no-turma-notice":
+      slide.addText(PRESENTATION19_GRADES_NO_TURMA_NOTICE, {
+        x: 0.9,
+        y: 2.6,
+        w: 11.5,
+        h: 2.2,
+        fontSize: 16,
+        bold: true,
+        color: "B45309",
+        align: "center",
+        valign: "middle",
+        wrap: true,
+      });
       break;
     case "grades-chart": {
       const gradesSub = [slideSpec.escolaNome, P19_CHART_SUBTITLE_GRADES].filter(Boolean).join(" • ");

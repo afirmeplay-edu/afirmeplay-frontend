@@ -24,6 +24,8 @@ export type ExportChart = {
   valueKeys: ExportChartSeries[];
   data: Array<Record<string, string | number>>;
   yAxis?: ExportChartAxis;
+  /** Linha horizontal de referência (ex.: média municipal no `grades-chart`). */
+  referenceLineY?: number;
 };
 
 export type ExportTable = {
@@ -36,7 +38,7 @@ export type Presentation19SlideSpec =
   | { index: 2; kind: "cover-school" }
   | { index: 3; kind: "metric-total-students" }
   | { index: 4; kind: "cover-segment" }
-  | { index: 5; kind: "presence-table"; table: ExportTable }
+  | { index: 5; kind: "presence-table"; table: ExportTable; presencePctValues?: number[] }
   | { index: 6; kind: "presence-chart"; chart: ExportChart }
   | { index: number; kind: "section-levels" }
   | { index: number; kind: "levels-guide" }
@@ -52,6 +54,7 @@ export type Presentation19SlideSpec =
     }
   | { index: number; kind: "section-grades" }
   | { index: number; kind: "grades-table"; table: ExportTable }
+  | { index: number; kind: "grades-no-turma-notice" }
   | {
       index: number;
       kind: "grades-by-discipline-chart";

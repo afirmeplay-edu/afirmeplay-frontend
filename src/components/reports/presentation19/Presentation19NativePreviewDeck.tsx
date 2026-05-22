@@ -72,6 +72,13 @@ import {
   P19_THANK_YOU_FONT_PX,
 } from "@/utils/reports/presentation19/presentation19ExportTypography";
 import { P19_CHART_V_BAR_VALUE_LABEL_RESERVE_PX } from "@/utils/reports/presentation19/presentation19Layout";
+import {
+  presenceTablePctCellColors,
+  presentation19CoverSchoolColumnCount,
+  presentation19CoverSchoolListFontPx,
+  PRESENTATION19_GRADES_NO_TURMA_NOTICE,
+  resolvePresentation19BarTopLabel,
+} from "@/utils/reports/presentation19/presentation19Labels";
 
 type Props = {
   deckData: Presentation19DeckData;
@@ -510,10 +517,7 @@ function BarChartPreview({ chart, height = P19_CHART_REF_H_PX }: { chart: Export
                   const value = Number(row[serie.key] ?? 0);
                   const q = ratioOf(value);
                   const rowColor = String(row.color ?? palette[idx % palette.length] ?? serie.color);
-                  const wantsPct = String(serie.label ?? "").includes("%");
-                  const isInt = Math.abs(Number(value) - Math.round(Number(value))) < 1e-9;
-                  const baseText = !wantsPct && isInt ? String(Math.round(Number(value))) : Number(value).toFixed(1).replace(".", ",");
-                  const labelText = wantsPct ? `${baseText}%` : baseText;
+                  const labelText = resolvePresentation19BarTopLabel(row, value, serie.label);
                   const growBar = value > 0 ? Math.max(1e-6, q) : 0;
                   const growTop = value > 0 ? Math.max(1e-6, 1 - q) : 1;
                   return (
@@ -577,6 +581,20 @@ function BarChartPreview({ chart, height = P19_CHART_REF_H_PX }: { chart: Export
             </div>
           ))}
         </div>
+        {chart.referenceLineY != null && Number.isFinite(Number(chart.referenceLineY)) && (
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              left: AXIS_LAB_W + 6,
+              right: AXIS_LAB_W + 6,
+              bottom: `${ratioOf(Number(chart.referenceLineY)) * 100}%`,
+              borderTop: "2px dashed #64748B",
+              zIndex: 4,
+              pointerEvents: "none",
+            }}
+          />
+        )}
       </div>
       <div
         style={{
@@ -727,7 +745,7 @@ const NativeSlideFrame = memo(function NativeSlideFrame({
                     alignItems: "center",
                     justifyContent: "center",
                     padding: 24,
-                    overflow: "auto",
+                    overflow: "hidden",
                   }}
                 >
                   {deckData.slide2ShowSerieTurmas ? (
@@ -753,11 +771,9 @@ const NativeSlideFrame = memo(function NativeSlideFrame({
                             style={{
                               margin: "8px 0 0",
                               paddingLeft: 22,
-                              fontSize: 20,
+                              fontSize: presentation19CoverSchoolListFontPx(deckData.turmasParticipantesCapa.length),
                               fontWeight: 800,
-                              lineHeight: 1.45,
-                              maxHeight: 280,
-                              overflow: "auto",
+                              lineHeight: 1.35,
                             }}
                           >
                             {deckData.turmasParticipantesCapa.map((t) => (
@@ -789,28 +805,25 @@ const NativeSlideFrame = memo(function NativeSlideFrame({
                       <div style={{ fontSize: P19_COVER_SCHOOL_MULTI_HEADER_PX, fontWeight: 900, color: P19_TEXT_MUTED, marginBottom: 14 }}>
                         ESCOLAS PARTICIPANTES
                       </div>
-                      <ul
+                      <div
                         style={{
-                          margin: 0,
-                          paddingLeft: deckData.escolasParticipantes.length > 10 ? 18 : 22,
-                          fontSize: deckData.escolasParticipantes.length > 14 ? P19_COVER_SCHOOL_LIST_SMALL_PX : P19_COVER_SCHOOL_LIST_LARGE_PX,
-                          fontWeight: 900,
-                          lineHeight: 1.45,
-                          maxHeight: 380,
-                          overflow: "auto",
                           width: "100%",
                           maxWidth: 920,
+                          display: "grid",
+                          gridTemplateColumns: `repeat(${presentation19CoverSchoolColumnCount(deckData.escolasParticipantes.length)}, 1fr)`,
+                          gap: "12px 32px",
+                          fontSize: presentation19CoverSchoolListFontPx(deckData.escolasParticipantes.length),
+                          fontWeight: 900,
+                          lineHeight: 1.35,
                           fontFamily: "Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-                          columnCount: deckData.escolasParticipantes.length > 10 ? 2 : 1,
-                          columnGap: 40,
                         }}
                       >
                         {deckData.escolasParticipantes.map((nome) => (
-                          <li key={nome} style={{ breakInside: "avoid" }}>
-                            {nome}
-                          </li>
+                          <div key={nome} style={{ breakInside: "avoid" }}>
+                            • {nome}
+                          </div>
                         ))}
-                      </ul>
+                      </div>
                     </>
                   )}
                 </div>
@@ -952,6 +965,8 @@ const NativeSlideFrame = memo(function NativeSlideFrame({
                           slide.kind === "questions-table" && slide.questionRowLevels?.[idx]
                             ? P19_QUESTION_NUM_LEVEL_STYLE[slide.questionRowLevels[idx]]
                             : null;
+                        const presencePctRow =
+                          slide.kind === "presence-table" ? slide.presencePctValues?.[idx] : undefined;
                         const rowBg = isTotalRow
                           ? "#E2E8F0"
                           : idx % 2 === 0
@@ -966,6 +981,13 @@ const NativeSlideFrame = memo(function NativeSlideFrame({
                         >
                           {r.map((cell, cIdx) => {
                             const cellText = String(cell);
+                            const presenceCellStyle =
+                              slide.kind === "presence-table" &&
+                              cIdx === 3 &&
+                              presencePctRow != null &&
+                              Number.isFinite(presencePctRow)
+                                ? presenceTablePctCellColors(presencePctRow)
+                                : null;
                             return (
                             <td
                               key={cIdx}
@@ -975,9 +997,9 @@ const NativeSlideFrame = memo(function NativeSlideFrame({
                                 fontSize:
                                   slide.kind === "questions-table" && cIdx === 2 ? P19_TABLE_QUESTIONS_DESC_FONT_PX : P19_TABLE_CELL_FONT_PX,
                                 textAlign: tableCellTextAlign(slide.kind, cIdx),
-                                background: questionRowStyle?.bg ?? rowBg,
-                                color: questionRowStyle?.color ?? P19_TEXT_STRONG,
-                                fontWeight: isTotalRow ? 800 : questionRowStyle ? 700 : undefined,
+                                background: presenceCellStyle?.background ?? questionRowStyle?.bg ?? rowBg,
+                                color: presenceCellStyle?.color ?? questionRowStyle?.color ?? P19_TEXT_STRONG,
+                                fontWeight: isTotalRow || presenceCellStyle ? 800 : questionRowStyle ? 700 : undefined,
                               }}
                             >
                               {cellText}
@@ -1061,6 +1083,31 @@ const NativeSlideFrame = memo(function NativeSlideFrame({
                     subtitle={presentationSectionGradesTagline(deckData.comparisonAxis)}
                     primaryColor={deckData.primaryColor}
                   />
+                </div>
+              )}
+              {slide.kind === "grades-no-turma-notice" && (
+                <div
+                  style={{
+                    height: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: 32,
+                  }}
+                >
+                  <p
+                    style={{
+                      margin: 0,
+                      maxWidth: 880,
+                      textAlign: "center",
+                      fontSize: 20,
+                      fontWeight: 800,
+                      lineHeight: 1.5,
+                      color: "#B45309",
+                    }}
+                  >
+                    {PRESENTATION19_GRADES_NO_TURMA_NOTICE}
+                  </p>
                 </div>
               )}
               {slide.kind === "grades-chart" && (

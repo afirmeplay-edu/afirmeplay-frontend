@@ -93,6 +93,13 @@ import {
   P19_TITLE_TO_BODY_GAP_PX,
   P19_TITLE_TO_SUBTITLE_GAP_PX,
 } from "@/utils/reports/presentation19/presentation19Layout";
+import {
+  presenceTablePctCellColors,
+  presentation19CoverSchoolColumnCount,
+  presentation19CoverSchoolListFontPx,
+  PRESENTATION19_GRADES_NO_TURMA_NOTICE,
+  resolvePresentation19BarTopLabel,
+} from "@/utils/reports/presentation19/presentation19Labels";
 
 type RenderPdfArgs = {
   spec: Presentation19ExportSpec;
@@ -391,7 +398,7 @@ function drawBarChart(doc: jsPDF, chart: ExportChart, area: { x: number; y: numb
         doc.roundedRect(barX, barY, seriesW, barH, 4, 4, "F");
         doc.setTextColor(15, 23, 42);
         doc.setFontSize(P19_CHART_BAR_VALUE_TOP_PX);
-        doc.text(formatBarValueLabel(value, serie.label), barX + seriesW / 2, barY - 1, { align: "center" });
+        doc.text(resolvePresentation19BarTopLabel(row, value, serie.label), barX + seriesW / 2, barY - 1, { align: "center" });
       });
     } else if (hasMultipleSeries && isStacked) {
       const singleW = Math.max(14, Math.min(34, innerW * 0.7));
@@ -411,7 +418,7 @@ function drawBarChart(doc: jsPDF, chart: ExportChart, area: { x: number; y: numb
       doc.setTextColor(15, 23, 42);
       doc.setFontSize(P19_CHART_BAR_VALUE_TOP_PX + 1);
       doc.text(
-        formatBarValueLabel(total, chart.valueKeys[0]?.label),
+        resolvePresentation19BarTopLabel(row, total, chart.valueKeys[0]?.label),
         singleX + singleW / 2,
         currentTop - 1,
         { align: "center" }
@@ -429,9 +436,23 @@ function drawBarChart(doc: jsPDF, chart: ExportChart, area: { x: number; y: numb
       doc.roundedRect(singleX, barY, singleW, barH, 6, 6, "F");
       doc.setTextColor(15, 23, 42);
       doc.setFontSize(P19_CHART_BAR_VALUE_TOP_PX);
-      doc.text(formatBarValueLabel(value, serie.label), singleX + singleW / 2, barY - 1, { align: "center" });
+      doc.text(resolvePresentation19BarTopLabel(row, value, serie.label), singleX + singleW / 2, barY - 1, { align: "center" });
     }
   });
+
+  if (chart.referenceLineY != null && Number.isFinite(chart.referenceLineY)) {
+    const refVal = Number(chart.referenceLineY);
+    const refY = baselineY - ((Math.max(0, refVal - axisMin) / (maxValue - axisMin)) * chartAreaH);
+    doc.setDrawColor(100, 116, 139);
+    doc.setLineWidth(0.75);
+    if (typeof doc.setLineDashPattern === "function") {
+      doc.setLineDashPattern([3, 2], 0);
+    }
+    doc.line(barsStartX + 4, refY, barsStartX + barsW - 4, refY);
+    if (typeof doc.setLineDashPattern === "function") {
+      doc.setLineDashPattern([], 0);
+    }
+  }
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(catFs);
@@ -646,31 +667,29 @@ function drawSlide(doc: jsPDF, slide: Presentation19SlideSpec, spec: Presentatio
         doc.setFontSize(P19_COVER_SCHOOL_MULTI_HEADER_PX);
         doc.text("ESCOLAS PARTICIPANTES", page.width / 2, 180, { align: "center" });
         doc.setTextColor(15, 23, 42);
-        const twoCols = escolas.length > 10;
-        const colGap = 36;
-        const maxW = twoCols ? (content.w - 32 - colGap) / 2 : content.w - 32;
-        const fs = escolas.length > 14 ? P19_COVER_SCHOOL_LIST_SMALL_PX : P19_COVER_SCHOOL_LIST_LARGE_PX;
+        const colCount = presentation19CoverSchoolColumnCount(escolas.length);
+        const colGap = 28;
+        const maxW = (content.w - 32 - colGap * (colCount - 1)) / colCount;
+        const fs = presentation19CoverSchoolListFontPx(escolas.length);
         doc.setFontSize(fs);
-        const xLeft = content.x + 16;
-        const xRight = xLeft + maxW + colGap;
-        let yLeft = 220;
-        let yRight = 220;
+        const xStart = content.x + 16;
         const lh = p19PdfLineHeightPx(fs);
-        const mid = Math.ceil(escolas.length / 2);
-        const colA = twoCols ? escolas.slice(0, mid) : escolas;
-        const colB = twoCols ? escolas.slice(mid) : [];
-        for (const s of colA) {
-          const name = String(s || "—").trim() || "—";
-          const lines = splitTextToSizeBySpaces(doc, `• ${name}`, maxW);
-          doc.text(lines, xLeft, yLeft);
-          yLeft += lines.length * lh + Math.max(4, lh * 0.25);
-        }
-        for (const s of colB) {
-          const name = String(s || "—").trim() || "—";
-          const lines = splitTextToSizeBySpaces(doc, `• ${name}`, maxW);
-          doc.text(lines, xRight, yRight);
-          yRight += lines.length * lh + Math.max(4, lh * 0.25);
-        }
+        const perCol = Math.ceil(escolas.length / colCount);
+        const cols: string[][] = Array.from({ length: colCount }, () => []);
+        escolas.forEach((s, i) => {
+          cols[Math.floor(i / perCol)]!.push(s);
+        });
+        const colXs = cols.map((_, ci) => xStart + ci * (maxW + colGap));
+        const colYs = cols.map(() => 200);
+        cols.forEach((colItems, ci) => {
+          let y = colYs[ci]!;
+          for (const s of colItems) {
+            const name = String(s || "—").trim() || "—";
+            const lines = splitTextToSizeBySpaces(doc, `• ${name}`, maxW);
+            doc.text(lines, colXs[ci]!, y);
+            y += lines.length * lh + Math.max(3, lh * 0.2);
+          }
+        });
       }
       break;
     }
@@ -738,12 +757,44 @@ function drawSlide(doc: jsPDF, slide: Presentation19SlideSpec, spec: Presentatio
       }
       break;
     }
-    case "presence-table":
+    case "presence-table": {
+      const titleText = presentationTitleTablePresence(deckData.comparisonAxis);
+      const titleMaxW = content.w - P19_TITLE_TEXT_OFFSET_X_PX;
+      const yAfter = drawWrappedSlideTitle(doc, titleText, deckData.primaryColor, P19_SLIDE_TITLE_FIRST_BASELINE_Y_PX, titleMaxW);
+      const tableStartY = yAfter + P19_TITLE_TO_BODY_GAP_PX;
+      const pctValues = slide.presencePctValues ?? [];
+      autoTable(doc, {
+        startY: tableStartY,
+        margin: { left: content.x, right: content.x },
+        head: [slide.table.columns],
+        body: slide.table.rows,
+        styles: {
+          fontSize: P19_TABLE_CELL_FONT_PX,
+          lineColor: [226, 232, 240],
+          lineWidth: 1,
+          cellPadding: P19_TABLE_CELL_PADDING_PX,
+          fillColor: [252, 252, 253],
+          textColor: [15, 23, 42],
+        },
+        headStyles: { fillColor: [226, 232, 240], textColor: [51, 65, 85], fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [241, 245, 249] },
+        columnStyles: Object.fromEntries(slide.table.columns.map((_, i) => [i, { halign: i === 0 ? "left" : "center" }])),
+        didParseCell: (data) => {
+          if (data.section !== "body" || data.column.index !== 3) return;
+          const pct = pctValues[data.row.index];
+          if (pct == null || !Number.isFinite(pct)) return;
+          const { background, color } = presenceTablePctCellColors(pct);
+          const bg = hexToRgb(background);
+          const fg = hexToRgb(color);
+          data.cell.styles.fillColor = [bg.r, bg.g, bg.b];
+          data.cell.styles.textColor = [fg.r, fg.g, fg.b];
+          data.cell.styles.fontStyle = "bold";
+        },
+      });
+      break;
+    }
     case "grades-table": {
-      const titleText =
-        slide.kind === "presence-table"
-          ? presentationTitleTablePresence(deckData.comparisonAxis)
-          : presentationTitleTableGrades(deckData.comparisonAxis);
+      const titleText = presentationTitleTableGrades(deckData.comparisonAxis);
       const titleMaxW = content.w - P19_TITLE_TEXT_OFFSET_X_PX;
       const yAfter = drawWrappedSlideTitle(doc, titleText, deckData.primaryColor, P19_SLIDE_TITLE_FIRST_BASELINE_Y_PX, titleMaxW);
       const tableStartY = yAfter + P19_TITLE_TO_BODY_GAP_PX;
@@ -763,6 +814,19 @@ function drawSlide(doc: jsPDF, slide: Presentation19SlideSpec, spec: Presentatio
         headStyles: { fillColor: [226, 232, 240], textColor: [51, 65, 85], fontStyle: "bold" },
         alternateRowStyles: { fillColor: [241, 245, 249] },
         columnStyles: Object.fromEntries(slide.table.columns.map((_, i) => [i, { halign: i === 0 ? "left" : "center" }])),
+      });
+      break;
+    }
+    case "grades-no-turma-notice": {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.setTextColor(180, 83, 9);
+      const lines = doc.splitTextToSize(PRESENTATION19_GRADES_NO_TURMA_NOTICE, content.w - 80);
+      const lh = p19PdfLineHeightPx(18);
+      let y = page.height / 2 - (lines.length * lh) / 2;
+      lines.forEach((ln) => {
+        doc.text(ln, page.width / 2, y, { align: "center" });
+        y += lh;
       });
       break;
     }
