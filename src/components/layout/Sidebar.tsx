@@ -321,6 +321,7 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
           children: [
             { icon: ClipboardList, label: "Lista de Frequência", href: "/app/lista-frequencia", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
             { icon: FileText, label: "Impressão de Ata de Sala", href: "/app/documentos/ata-sala", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
+            { icon: FileText, label: "Folha de rascunho", href: "/app/documentos/folha-rascunho", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
           ]
         },
         {
