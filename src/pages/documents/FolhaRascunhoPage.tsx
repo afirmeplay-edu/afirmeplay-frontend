@@ -295,8 +295,8 @@ export default function FolhaRascunhoPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Folha de rascunho</h1>
           <p className="text-sm text-muted-foreground">
-            Gere folhas em branco por aluno (PDF no navegador). Modo personalizável usa todos os matriculados;
-            avaliação e cartão incluem apenas participantes.
+            Gere folhas em branco por aluno (PDF no navegador). Todos os modos incluem todos os alunos
+            matriculados nas turmas do recorte selecionado.
           </p>
         </div>
       </div>
@@ -388,7 +388,7 @@ export default function FolhaRascunhoPage() {
 
           <div className="space-y-2 sm:col-span-2">
             <Label>
-              Escola {isPersonalizada ? "(obrigatória)" : "(opcional)"}
+              Escola{isPersonalizada ? " (obrigatória)" : ""}
             </Label>
             <Select
               value={selectedSchool}
@@ -410,7 +410,7 @@ export default function FolhaRascunhoPage() {
           </div>
 
           <div className="space-y-2">
-            <Label>Série (opcional)</Label>
+            <Label>Série</Label>
             <Select
               value={selectedSerie}
               onValueChange={setSelectedSerie}
@@ -431,7 +431,7 @@ export default function FolhaRascunhoPage() {
           </div>
 
           <div className="space-y-2">
-            <Label>Turma (opcional)</Label>
+            <Label>Turma</Label>
             <Select
               value={selectedTurma}
               onValueChange={setSelectedTurma}
