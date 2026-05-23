@@ -101,6 +101,13 @@ export interface DetailedReport {
   }>;
 }
 
+export interface DisciplineMetricCell {
+  disciplina: string;
+  nota: number;
+  proficiencia: number;
+  nivel: string;
+}
+
 export interface VisibleFields {
   turma: boolean;
   habilidade: boolean;

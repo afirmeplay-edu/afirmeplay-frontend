@@ -16,12 +16,18 @@ interface ClassData {
   participatingStudents: number;
   averageGrade: number;
   proficiency: number;
+  proficiencyLabel?: string | null;
   distribution: {
     abaixo_do_basico: number;
     basico: number;
     adequado: number;
     avancado: number;
   };
+}
+
+function isNomeDisciplinaGeralAgregado(nome: string | undefined): boolean {
+  const n = (nome ?? '').trim().toLowerCase();
+  return n === 'geral' || n === 'total' || n === 'consolidado';
 }
 
 interface ClassStatisticsProps {
@@ -60,12 +66,24 @@ interface ClassStatisticsProps {
       alunos_ausentes?: number;
       media_nota_geral?: number;
       media_proficiencia_geral?: number;
+      nivel_classificacao?: string | null;
       distribuicao_classificacao?: {
         abaixo_do_basico: number;
         basico: number;
         adequado: number;
         avancado: number;
       };
+      por_disciplina?: Array<{
+        disciplina: string;
+        media_nota?: number;
+        media_proficiencia?: number;
+        distribuicao_classificacao?: {
+          abaixo_do_basico: number;
+          basico: number;
+          adequado: number;
+          avancado: number;
+        };
+      }>;
     };
     tabela_detalhada?: {
       disciplinas?: Array<{
@@ -342,6 +360,11 @@ export function ClassStatistics({
         break;
     }
 
+    const proficiencyLabel =
+      stats.nivel_classificacao != null && String(stats.nivel_classificacao).trim()
+        ? String(stats.nivel_classificacao).trim()
+        : null;
+
     return {
       name,
       seriesName,
@@ -349,9 +372,24 @@ export function ClassStatistics({
       participatingStudents,
       averageGrade: Number(averageGrade.toFixed(1)),
       proficiency: Number(proficiency.toFixed(1)),
-      distribution
+      proficiencyLabel,
+      distribution,
     };
   };
+
+  const disciplineCardsFromStats = useMemo((): ClassData[] => {
+    const porDisciplina = apiData?.estatisticas_gerais?.por_disciplina ?? [];
+    return porDisciplina
+      .filter((row) => row.disciplina && !isNomeDisciplinaGeralAgregado(row.disciplina))
+      .map((row) => ({
+        name: String(row.disciplina),
+        totalStudents: apiData?.estatisticas_gerais?.total_alunos ?? 0,
+        participatingStudents: apiData?.estatisticas_gerais?.alunos_participantes ?? 0,
+        averageGrade: Number(row.media_nota ?? 0),
+        proficiency: Number(row.media_proficiencia ?? 0),
+        distribution: row.distribuicao_classificacao ?? { ...emptyDistribution },
+      }));
+  }, [apiData?.estatisticas_gerais]);
 
   // ✅ NOVO: Componente para renderizar um card individual
   const renderStatisticsCard = (statisticsItem: ClassData, key: string) => {
@@ -388,6 +426,13 @@ export function ClassStatistics({
             <span className="text-muted-foreground">Proficiência:</span>
             <span className="font-medium">{statisticsItem.proficiency.toFixed(1)}</span>
           </div>
+
+          {statisticsItem.proficiencyLabel ? (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Classificação:</span>
+              <span className="font-medium">{statisticsItem.proficiencyLabel}</span>
+            </div>
+          ) : null}
           
           {/* Distribuição de classificação */}
           <div className="space-y-1">
@@ -493,6 +538,9 @@ export function ClassStatistics({
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {renderStatisticsCard(generalData, 'general-data')}
+              {disciplineCardsFromStats.map((item, index) =>
+                renderStatisticsCard(item, `general-discipline-${index}`)
+              )}
             </div>
           </CardContent>
         </Card>

@@ -9,6 +9,13 @@ import { TableHeader } from '../results-table/TableHeader';
 import { TableRow } from '../results-table/TableRow';
 import { TableLegend } from '../results-table/TableLegend';
 import { getSubjectColors } from '@/utils/competition/competitionSubjectColors';
+import { normalizeProficiencyLevelLabel } from '@/utils/report/reportTagStyles';
+import type { DisciplineMetricCell } from '@/types/results-table';
+
+function isNomeDisciplinaGeral(nome: string): boolean {
+  const n = nome.trim().toLowerCase();
+  return n === 'geral' || n === 'total' || n === 'consolidado';
+}
 
 interface TabelaDetalhadaQuestao {
   numero: number;
@@ -211,29 +218,35 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
       const totalErros = totalRespondidas - totalAcertos;
       const totalEmBranco = totalQuestoes - totalRespondidas;
 
-      // ✅ CORRIGIDO: Usar APENAS dados da tabelaDetalhada.geral para nota e proficiência
+      const disciplineMetrics: DisciplineMetricCell[] = tabelaDetalhada.disciplinas
+        .filter((d) => d.nome && !isNomeDisciplinaGeral(d.nome))
+        .map((disciplina) => {
+          const da = disciplina.alunos.find((a) => a.id === aluno.id);
+          return {
+            disciplina: disciplina.nome,
+            nota: Number(da?.nota ?? 0),
+            proficiencia: Number(da?.proficiencia ?? 0),
+            nivel: normalizeProficiencyLevelLabel(da?.nivel_proficiencia ?? ''),
+          };
+        });
+
       let nota = 0;
       let proficiencia = 0;
       let nivelProficiencia = 'Abaixo do Básico';
-      
-      // Prioridade 1: Usar dados da tabela geral se disponível (dados consolidados do backend)
-      if (tabelaDetalhada.geral?.alunos) {
-        const alunoGeral = tabelaDetalhada.geral.alunos.find(a => a.id === aluno.id);
-        if (alunoGeral) {
-          nota = alunoGeral.nota_geral;
-          proficiencia = alunoGeral.proficiencia_geral;
-          nivelProficiencia = alunoGeral.nivel_proficiencia_geral;
-        }
-      }
-      
-      // Prioridade 2: Se não encontrou na tabela geral, usar dados da primeira disciplina (fallback)
-      if (nota === 0 && proficiencia === 0) {
-        const primeiraDisciplina = tabelaDetalhada.disciplinas[0];
-        const alunoPrimeiraDisciplina = primeiraDisciplina?.alunos.find(a => a.id === aluno.id);
-        if (alunoPrimeiraDisciplina) {
-          nota = alunoPrimeiraDisciplina.nota;
-          proficiencia = alunoPrimeiraDisciplina.proficiencia;
-          nivelProficiencia = alunoPrimeiraDisciplina.nivel_proficiencia;
+
+      const alunoGeral = tabelaDetalhada.geral?.alunos?.find((a) => a.id === aluno.id);
+      if (alunoGeral) {
+        nota = Number(alunoGeral.nota_geral ?? 0);
+        proficiencia = Number(alunoGeral.proficiencia_geral ?? 0);
+        nivelProficiencia = normalizeProficiencyLevelLabel(alunoGeral.nivel_proficiencia_geral ?? '');
+      } else {
+        const primeiraComDados = disciplineMetrics.find(
+          (dm) => dm.nota > 0 || dm.proficiencia > 0 || (dm.nivel && dm.nivel !== 'Abaixo do Básico')
+        );
+        if (primeiraComDados) {
+          nota = primeiraComDados.nota;
+          proficiencia = primeiraComDados.proficiencia;
+          nivelProficiencia = primeiraComDados.nivel;
         }
       }
 
@@ -260,7 +273,13 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
         nivel_proficiencia: nivelProficiencia,
         nota: nota,
         proficiencia: proficiencia,
-        moedas_ganhas: moedasGanhas
+        moedas_ganhas: moedasGanhas,
+        disciplineMetrics,
+        geralMetrics: {
+          nota,
+          proficiencia,
+          nivel: nivelProficiencia,
+        },
       };
     }).sort((a, b) => a.nome.localeCompare(b.nome));
   }, [tabelaDetalhada.disciplinas, tabelaDetalhada.geral?.alunos]);
@@ -268,6 +287,15 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
   // ✅ NOVO: Dados consolidados para a visão geral (já memoizados)
   const allQuestions = getAllQuestions;
   const consolidatedStudents = getConsolidatedStudents;
+
+  const disciplineSummaryNames = useMemo(
+    () =>
+      tabelaDetalhada.disciplinas
+        .map((d) => d.nome)
+        .filter((nome) => nome?.trim() && !isNomeDisciplinaGeral(nome)),
+    [tabelaDetalhada.disciplinas]
+  );
+  const useDisciplineSummaryInGeral = disciplineSummaryNames.length > 0;
 
   // ✅ NOVO: Componente para controles de navegação
   const QuestionNavigationControls = ({ 
@@ -415,10 +443,13 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                     // Mostrar sempre (no modo “janelas” são poucas questões por vez)
                     percentualTurma: true,
                     total: true,
-                    nota: true,
-                    proficiencia: true,
-                    nivel: true
+                    nota: !useDisciplineSummaryInGeral,
+                    proficiencia: !useDisciplineSummaryInGeral,
+                    nivel: !useDisciplineSummaryInGeral,
                   }}
+                  disciplineSummaryNames={
+                    useDisciplineSummaryInGeral ? disciplineSummaryNames : undefined
+                  }
                   showCoins={showCoins}
                   tabelaDetalhada={{
                     disciplinas: (allQuestions.length > MAX_QUESTIONS_FOR_FULL_VIEW 
@@ -486,10 +517,14 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                         questoes: true,
                         percentualTurma: true,
                         total: true,
-                        nota: true,
-                        proficiencia: true,
-                        nivel: true
+                        nota: !useDisciplineSummaryInGeral,
+                        proficiencia: !useDisciplineSummaryInGeral,
+                        nivel: !useDisciplineSummaryInGeral,
                       }}
+                      disciplineMetrics={
+                        useDisciplineSummaryInGeral ? aluno.disciplineMetrics : undefined
+                      }
+                      geralMetrics={useDisciplineSummaryInGeral ? aluno.geralMetrics : undefined}
                       onViewStudentDetails={onViewStudentDetails}
                       onOpenInNewTab={onOpenInNewTab}
                       showCoins={showCoins}

@@ -37,6 +37,8 @@ interface TableHeaderProps {
   tabelaDetalhada?: {
     disciplinas: TabelaDetalhadaDisciplina[];
   };
+  /** Visão geral: uma coluna Nota/Prof./Nível por disciplina (+ bloco Geral). */
+  disciplineSummaryNames?: string[];
   students?: Array<{
     id: string;
     nome: string;
@@ -64,8 +66,20 @@ export const TableHeader: React.FC<TableHeaderProps> = ({
   tabelaDetalhada,
   students = [],
   successThreshold = 60,
-  showCoins = false
+  showCoins = false,
+  disciplineSummaryNames = [],
 }) => {
+  const summaryDisciplines = disciplineSummaryNames.filter((n) => n.trim().length > 0);
+  const useDisciplineSummary = summaryDisciplines.length > 0;
+
+  const shortDisciplineLabel = (name: string) => {
+    const n = name.trim();
+    const lower = n.toLowerCase();
+    if (lower.includes('portugu')) return 'Port.';
+    if (lower.includes('matem')) return 'Mat.';
+    if (n.length <= 10) return n;
+    return `${n.slice(0, 9)}…`;
+  };
   const [hoveredSkill, setHoveredSkill] = useState<string | null>(null);
 
   // ✅ NOVO: Processar questões da tabela_detalhada
@@ -200,24 +214,69 @@ export const TableHeader: React.FC<TableHeaderProps> = ({
             TOTAL
           </div>
         </th>
-        <th className="border border-border p-2 text-center font-semibold text-foreground">
-          <div className="flex items-center justify-center gap-1">
-            <Target className="h-4 w-4" />
-            NOTA
-          </div>
-        </th>
-        <th className="border border-border p-2 text-center font-semibold text-foreground">
-          <div className="flex items-center justify-center gap-1">
-            <Gauge className="h-4 w-4" />
-            PROFICIÊNCIA
-          </div>
-        </th>
-        <th className="border border-border p-2 text-center font-semibold text-foreground">
-          <div className="flex items-center justify-center gap-1">
-            <Award className="h-4 w-4" />
-            NÍVEL
-          </div>
-        </th>
+        {useDisciplineSummary ? (
+          <>
+            {summaryDisciplines.flatMap((nome) => {
+              const short = shortDisciplineLabel(nome);
+              return [
+                <th
+                  key={`${nome}-nota`}
+                  className="border border-border p-1.5 text-center text-[11px] font-semibold text-foreground bg-muted/40"
+                >
+                  <div>Nota</div>
+                  <div className="text-muted-foreground font-normal">{short}</div>
+                </th>,
+                <th
+                  key={`${nome}-prof`}
+                  className="border border-border p-1.5 text-center text-[11px] font-semibold text-foreground bg-muted/40"
+                >
+                  <div>Prof.</div>
+                  <div className="text-muted-foreground font-normal">{short}</div>
+                </th>,
+                <th
+                  key={`${nome}-nivel`}
+                  className="border border-border p-1.5 text-center text-[11px] font-semibold text-foreground bg-muted/40"
+                >
+                  <div>Nível</div>
+                  <div className="text-muted-foreground font-normal">{short}</div>
+                </th>,
+              ];
+            })}
+            <th className="border border-border p-1.5 text-center text-[11px] font-semibold text-foreground bg-purple-50/80 dark:bg-purple-950/30">
+              <div>Nota</div>
+              <div className="text-muted-foreground font-normal">Geral</div>
+            </th>
+            <th className="border border-border p-1.5 text-center text-[11px] font-semibold text-foreground bg-purple-50/80 dark:bg-purple-950/30">
+              <div>Prof.</div>
+              <div className="text-muted-foreground font-normal">Geral</div>
+            </th>
+            <th className="border border-border p-1.5 text-center text-[11px] font-semibold text-foreground bg-purple-50/80 dark:bg-purple-950/30">
+              <div>Nível</div>
+              <div className="text-muted-foreground font-normal">Geral</div>
+            </th>
+          </>
+        ) : (
+          <>
+            <th className="border border-border p-2 text-center font-semibold text-foreground">
+              <div className="flex items-center justify-center gap-1">
+                <Target className="h-4 w-4" />
+                NOTA
+              </div>
+            </th>
+            <th className="border border-border p-2 text-center font-semibold text-foreground">
+              <div className="flex items-center justify-center gap-1">
+                <Gauge className="h-4 w-4" />
+                PROFICIÊNCIA
+              </div>
+            </th>
+            <th className="border border-border p-2 text-center font-semibold text-foreground">
+              <div className="flex items-center justify-center gap-1">
+                <Award className="h-4 w-4" />
+                NÍVEL
+              </div>
+            </th>
+          </>
+        )}
         {showCoins && (
           <th className="border border-border p-2 text-center font-semibold text-foreground">
             <div className="flex items-center justify-center gap-1">

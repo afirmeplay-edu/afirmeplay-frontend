@@ -1,6 +1,7 @@
 import React from 'react';
 import { Eye, Check, X, Minus, Coins } from 'lucide-react';
-import { StudentResult, VisibleFields } from '../../../types/results-table';
+import { StudentResult, VisibleFields, type DisciplineMetricCell } from '../../../types/results-table';
+import { getReportProficiencyTagClass } from '@/utils/report/reportTagStyles';
 import { ContextMenu } from '../../ui/context-menu';
 import { formatCoins } from '@/utils/coins';
 import { Badge } from '@/components/ui/badge';
@@ -35,6 +36,9 @@ interface TableRowProps {
   onOpenInNewTab?: (studentId: string) => void;
   // ✅ NOVO: Mostrar coluna de moedas (para competições)
   showCoins?: boolean;
+  /** Visão geral: métricas por disciplina + geral (substitui nota/prof/nível únicos). */
+  disciplineMetrics?: DisciplineMetricCell[];
+  geralMetrics?: { nota: number; proficiencia: number; nivel: string };
 }
 
 export const TableRow: React.FC<TableRowProps> = ({
@@ -47,8 +51,11 @@ export const TableRow: React.FC<TableRowProps> = ({
   evaluationId,
   tabelaDetalhada,
   onOpenInNewTab,
-  showCoins = false
+  showCoins = false,
+  disciplineMetrics,
+  geralMetrics,
 }) => {
+  const useDisciplineSummary = Boolean(disciplineMetrics?.length);
   
   // ✅ NOVO: Processar respostas reais da tabela_detalhada
   const processStudentAnswers = React.useMemo(() => {
@@ -169,32 +176,68 @@ export const TableRow: React.FC<TableRowProps> = ({
         {student.acertos}
       </td>
 
-      {/* Nota */}
-      <td className="px-4 py-3 text-sm text-center border border-border text-foreground">
-        {student.nota.toFixed(1)}
-      </td>
-
-      {/* Proficiência */}
-      <td className="px-4 py-3 text-sm text-center border border-border text-foreground">
-        {Number(student.proficiencia || 0).toFixed(1)}
-      </td>
-
-      {/* Nível */}
-      <td className="px-4 py-3 text-sm font-medium text-center border border-border">
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs text-white ${
-          student.classificacao === 'Avançado'
-            ? 'bg-green-600 dark:bg-green-700'
-            : student.classificacao === 'Adequado'
-            ? 'bg-green-400 dark:bg-green-600'
-            : student.classificacao === 'Básico'
-            ? 'bg-yellow-500 dark:bg-yellow-600'
-            : student.classificacao === 'Abaixo do Básico'
-            ? 'bg-red-500 dark:bg-red-600'
-            : 'bg-red-500 dark:bg-red-600'
-        }`}>
-          {student.classificacao || 'Abaixo do Básico'}
-        </span>
-      </td>
+      {useDisciplineSummary ? (
+        <>
+          {disciplineMetrics!.map((dm) => (
+            <React.Fragment key={`dm-${dm.disciplina}`}>
+              <td className="px-2 py-3 text-sm text-center border border-border text-foreground tabular-nums">
+                {Number(dm.nota ?? 0).toFixed(1)}
+              </td>
+              <td className="px-2 py-3 text-sm text-center border border-border text-foreground tabular-nums">
+                {Number(dm.proficiencia ?? 0).toFixed(1)}
+              </td>
+              <td className="px-2 py-3 text-sm text-center border border-border">
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${getReportProficiencyTagClass(dm.nivel)}`}
+                >
+                  {dm.nivel?.trim() || '—'}
+                </span>
+              </td>
+            </React.Fragment>
+          ))}
+          <td className="px-2 py-3 text-sm text-center border border-border text-foreground font-medium tabular-nums bg-purple-50/50 dark:bg-purple-950/20">
+            {Number(geralMetrics?.nota ?? student.nota ?? 0).toFixed(1)}
+          </td>
+          <td className="px-2 py-3 text-sm text-center border border-border text-foreground font-medium tabular-nums bg-purple-50/50 dark:bg-purple-950/20">
+            {Number(geralMetrics?.proficiencia ?? student.proficiencia ?? 0).toFixed(1)}
+          </td>
+          <td className="px-2 py-3 text-sm text-center border border-border bg-purple-50/50 dark:bg-purple-950/20">
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${getReportProficiencyTagClass(
+                geralMetrics?.nivel ?? student.classificacao
+              )}`}
+            >
+              {(geralMetrics?.nivel ?? student.classificacao)?.trim() || '—'}
+            </span>
+          </td>
+        </>
+      ) : (
+        <>
+          <td className="px-4 py-3 text-sm text-center border border-border text-foreground">
+            {student.nota.toFixed(1)}
+          </td>
+          <td className="px-4 py-3 text-sm text-center border border-border text-foreground">
+            {Number(student.proficiencia || 0).toFixed(1)}
+          </td>
+          <td className="px-4 py-3 text-sm font-medium text-center border border-border">
+            <span
+              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs text-white ${
+                student.classificacao === 'Avançado'
+                  ? 'bg-green-600 dark:bg-green-700'
+                  : student.classificacao === 'Adequado'
+                  ? 'bg-green-400 dark:bg-green-600'
+                  : student.classificacao === 'Básico'
+                  ? 'bg-yellow-500 dark:bg-yellow-600'
+                  : student.classificacao === 'Abaixo do Básico'
+                  ? 'bg-red-500 dark:bg-red-600'
+                  : 'bg-red-500 dark:bg-red-600'
+              }`}
+            >
+              {student.classificacao || 'Abaixo do Básico'}
+            </span>
+          </td>
+        </>
+      )}
       {showCoins && (
         <td className="border border-border p-2 text-center">
           {student.moedas_ganhas !== undefined && student.moedas_ganhas > 0 ? (

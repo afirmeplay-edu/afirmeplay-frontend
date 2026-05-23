@@ -49,6 +49,8 @@ import { DisciplineTables } from '@/components/evaluations/results/DisciplineTab
 import { cn } from '@/lib/utils';
 import { generatePendingStudentsPdf } from '@/services/reports/pendingStudentsPdf';
 import { generateRankingPdf } from '@/services/reports/rankingPdf';
+import { normalizeEvaluationResultsRanking } from '@/utils/evaluation/normalizeEvaluationResultsRanking';
+import { buildGeralAlunosFromDisciplinasAndRanking } from '@/utils/answer-sheet/buildTabelaDetalhadaGeral';
 import {
   RESULTS_PERIOD_YEAR_MIN,
   getResultsPeriodYearMax,
@@ -100,6 +102,17 @@ interface EstatisticasGerais {
     adequado: number;
     avancado: number;
   };
+  por_disciplina?: Array<{
+    disciplina: string;
+    media_nota?: number;
+    media_proficiencia?: number;
+    distribuicao_classificacao?: {
+      abaixo_do_basico: number;
+      basico: number;
+      adequado: number;
+      avancado: number;
+    };
+  }>;
 }
 
 interface GabaritoAgregado {
@@ -718,7 +731,11 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   // Gráficos: usar resultados_por_disciplina da API (nome das disciplinas, nota e média)
   const chartsApiData = useMemo(() => {
     if (!apiData?.estatisticas_gerais) return null;
-    const porDisciplina = apiData.resultados_por_disciplina ?? [];
+    const porDisciplinaFromStats = apiData.estatisticas_gerais.por_disciplina;
+    const porDisciplina =
+      Array.isArray(porDisciplinaFromStats) && porDisciplinaFromStats.length > 0
+        ? porDisciplinaFromStats
+        : (apiData.resultados_por_disciplina ?? []);
     return {
       estatisticas_gerais: {
         media_nota_geral: apiData.estatisticas_gerais.media_nota_geral ?? 0,
@@ -764,9 +781,36 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   const series = opcoes.series ?? [];
   const turmas = opcoes.turmas ?? [];
 
-  const geralAlunos = useMemo(() => apiData?.tabela_detalhada?.geral?.alunos ?? [], [apiData?.tabela_detalhada?.geral?.alunos]);
   const disciplinasTabela = useMemo(() => apiData?.tabela_detalhada?.disciplinas ?? [], [apiData?.tabela_detalhada?.disciplinas]);
   const ranking = useMemo(() => apiData?.ranking ?? [], [apiData?.ranking]);
+  const geralAlunos = useMemo(() => {
+    const fromApi = apiData?.tabela_detalhada?.geral?.alunos ?? [];
+    if (fromApi.length > 0) return fromApi;
+    if (!disciplinasTabela.length) return [];
+    return buildGeralAlunosFromDisciplinasAndRanking(disciplinasTabela, ranking);
+  }, [apiData?.tabela_detalhada?.geral?.alunos, disciplinasTabela, ranking]);
+
+  /** Ranking = `apiData.ranking[]` do backend (posição e critério do servidor), como na avaliação online. */
+  const rankingStudents = useMemo(() => {
+    if (!apiData?.ranking?.length) return [];
+    return normalizeEvaluationResultsRanking(apiData.ranking as unknown[]).map((r) => ({
+      id: r.id,
+      nome: r.nome,
+      turma: r.turma,
+      escola: r.escola || undefined,
+      serie: r.serie || undefined,
+      nota: r.nota,
+      proficiencia: r.proficiencia,
+      classificacao: r.classificacao,
+      status: r.status,
+      posicao: r.posicao,
+      questoes_respondidas: r.questoes_respondidas,
+      acertos: r.acertos,
+      erros: r.erros,
+      em_branco: r.em_branco,
+    }));
+  }, [apiData?.ranking]);
+
   const hasMinimumFilters =
     estado && estado !== 'all' &&
     municipio && municipio !== 'all' &&
@@ -789,23 +833,22 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     [navigate, hasMinimumFilters, estado, municipio, gabarito, escola, serie, turma, periodoApi]
   );
 
-  // Estatísticas derivadas (para card Informações e métricas)
-  const derivedStats = useMemo(() => {
-    if (!apiData?.estatisticas_gerais) {
-      return { totalAlunos: 0, participantes: 0, ausentes: 0, mediaNota: 0, mediaProficiencia: 0 };
-    }
-    const e = apiData.estatisticas_gerais;
-    const totalAlunos = e.total_alunos ?? 0;
-    const participantes = e.alunos_participantes ?? 0;
-    const ausentes = e.alunos_pendentes ?? 0;
+  // Métricas gerais: sempre de `estatisticas_gerais` do payload (sem recalcular no frontend)
+  const backendStats = useMemo(() => {
+    const s = apiData?.estatisticas_gerais;
+    const pct =
+      s?.percentual_comparecimento != null && Number.isFinite(Number(s.percentual_comparecimento))
+        ? Number(s.percentual_comparecimento)
+        : null;
     return {
-      totalAlunos,
-      participantes,
-      ausentes,
-      mediaNota: e.media_nota_geral ?? 0,
-      mediaProficiencia: e.media_proficiencia_geral ?? 0,
+      totalAlunos: s?.total_alunos ?? 0,
+      participantes: s?.alunos_participantes ?? 0,
+      pendentes: s?.alunos_pendentes ?? 0,
+      mediaNota: s?.media_nota_geral ?? 0,
+      mediaProficiencia: s?.media_proficiencia_geral ?? 0,
+      percentualComparecimento: pct,
     };
-  }, [apiData]);
+  }, [apiData?.estatisticas_gerais]);
 
   // Alunos faltosos/pendentes = status_geral !== 'concluida'
   const absentStudents = useMemo(() => {
@@ -936,10 +979,25 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
       resultados_detalhados: { avaliacoes },
       estatisticas_gerais: apiData.estatisticas_gerais,
       tabela_detalhada: {
+        disciplinas: disciplinasTabela.map((d) => ({
+          id: d.id,
+          nome: d.nome,
+          alunos: (d.alunos ?? []).map((a) => ({
+            id: a.id,
+            nome: a.nome ?? '',
+            turma: a.turma ?? '',
+            nivel_proficiencia: a.nivel_proficiencia ?? '',
+            nota: a.nota ?? 0,
+            proficiencia: a.proficiencia ?? 0,
+            total_acertos: a.total_acertos ?? 0,
+            total_erros: a.total_erros ?? 0,
+            total_respondidas: a.total_respondidas ?? 0,
+          })),
+        })),
         geral: { alunos: alunosParaStats },
       },
     };
-  }, [apiData, geralAlunos]);
+  }, [apiData, geralAlunos, disciplinasTabela]);
 
   const isMunicipioScope =
     apiData?.estatisticas_gerais?.tipo === 'municipio' || apiData?.nivel_granularidade === 'municipio';
@@ -953,7 +1011,13 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   ) ?? 'Cartão Resposta';
   const hasNoData = !apiData?.resultados_detalhados?.gabaritos?.length && !geralAlunos.length && !disciplinasTabela.length;
   const totalQuestionsForCards = geralAlunos.find((a) => (a.total_questoes_geral ?? 0) > 0)?.total_questoes_geral ?? 0;
-  const derivedSubjects = useMemo(() => [tituloGabarito].filter(Boolean), [tituloGabarito]);
+  const derivedSubjects = useMemo(() => {
+    const fromDisciplinas = disciplinasTabela
+      .map((d) => d.nome?.trim())
+      .filter((n): n is string => Boolean(n));
+    if (fromDisciplinas.length > 0) return fromDisciplinas;
+    return [tituloGabarito].filter(Boolean);
+  }, [disciplinasTabela, tituloGabarito]);
 
   const rankingPdfFilterLabels = useMemo(
     () => ({
@@ -974,13 +1038,22 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   );
 
   const handleExportRankingPdf = useCallback(async () => {
-    if (studentsParticipantesTabelas.length === 0) return;
+    if (rankingStudents.length === 0) return;
     try {
       await generateRankingPdf({
         context: 'cartao-resposta',
         escopoTitulo: tituloGabarito,
         filterLabels: rankingPdfFilterLabels,
-        students: studentsParticipantesTabelas,
+        students: rankingStudents.map((s) => ({
+          nome: s.nome,
+          turma: s.turma,
+          escola: s.escola,
+          serie: s.serie,
+          nota: s.nota,
+          proficiencia: s.proficiencia,
+          classificacao: s.classificacao,
+          posicao: s.posicao,
+        })),
         maxRows: 100,
         fileNameBase: `ranking-cartao-${tituloGabarito}`,
       });
@@ -993,7 +1066,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
         variant: 'destructive',
       });
     }
-  }, [studentsParticipantesTabelas, rankingPdfFilterLabels, tituloGabarito, toast]);
+  }, [rankingStudents, rankingPdfFilterLabels, tituloGabarito, toast]);
 
   // Mapear tabela_detalhada da API para o formato esperado por DisciplineTables (questões com numero + campos opcionais)
   const tabelaDetalhadaForDisciplineTables = useMemo(() => {
@@ -1430,11 +1503,11 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
               <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Total de alunos</div>
-                  <div className="text-2xl font-bold text-blue-600">{derivedStats.totalAlunos}</div>
+                  <div className="text-2xl font-bold text-blue-600">{backendStats.totalAlunos}</div>
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Participantes</div>
-                  <div className="text-2xl font-bold text-green-600">{derivedStats.participantes}</div>
+                  <div className="text-2xl font-bold text-green-600">{backendStats.participantes}</div>
                 </div>
                 <div className="space-y-1">
                   <div className="flex items-center justify-between gap-1">
@@ -1449,21 +1522,26 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                       Ver lista
                     </Button>
                   </div>
-                  <div className="text-2xl font-bold text-red-600">{derivedStats.ausentes}</div>
+                  <div className="text-2xl font-bold text-red-600">{backendStats.pendentes}</div>
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Taxa de participação</div>
                   <div className="text-2xl font-bold text-blue-600">
-                    {derivedStats.totalAlunos > 0 ? ((derivedStats.participantes / derivedStats.totalAlunos) * 100).toFixed(1) : '0'}%
+                    {backendStats.percentualComparecimento != null
+                      ? backendStats.percentualComparecimento.toFixed(1)
+                      : backendStats.totalAlunos > 0
+                        ? ((backendStats.participantes / backendStats.totalAlunos) * 100).toFixed(1)
+                        : '0'}
+                    %
                   </div>
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Nota geral</div>
-                  <div className="text-2xl font-bold text-purple-600">{Number(derivedStats.mediaNota).toFixed(1)}</div>
+                  <div className="text-2xl font-bold text-purple-600">{Number(backendStats.mediaNota).toFixed(1)}</div>
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Proficiência</div>
-                  <div className="text-2xl font-bold text-orange-600">{Number(derivedStats.mediaProficiencia).toFixed(1)}</div>
+                  <div className="text-2xl font-bold text-orange-600">{Number(backendStats.mediaProficiencia).toFixed(1)}</div>
                 </div>
               </div>
             </CardContent>
@@ -1725,15 +1803,9 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
               </TabsContent>
 
               <TabsContent value="ranking" className="space-y-6 mt-6">
-                {studentsParticipantesTabelas.length > 0 ? (
-                  <Card>
-                    <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="space-y-1">
-                        <CardTitle>Ranking</CardTitle>
-                        <CardDescription>
-                          Alunos ordenados por nota e proficiência (apenas participantes)
-                        </CardDescription>
-                      </div>
+                {rankingStudents.length > 0 ? (
+                  <>
+                    <div className="flex justify-end">
                       <Button
                         type="button"
                         variant="outline"
@@ -1744,26 +1816,13 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                         <FileText className="h-4 w-4" />
                         Exportar PDF
                       </Button>
-                    </CardHeader>
-                    <CardContent>
-                      <StudentRanking
-                        students={studentsParticipantesTabelas.map((s) => ({
-                          id: s.id,
-                          nome: s.nome,
-                          turma: s.turma,
-                          escola: s.escola,
-                          serie: s.serie,
-                          nota: s.nota,
-                          proficiencia: s.proficiencia,
-                          classificacao: s.classificacao,
-                          status: s.status,
-                          // Não enviar posicao da API: o backend pode ranquear por outro critério;
-                          // StudentRanking ordena por proficiência e define 1..n coerente com a lista.
-                        }))}
-                        maxStudents={100}
-                      />
-                    </CardContent>
-                  </Card>
+                    </div>
+                    <StudentRanking
+                      students={rankingStudents}
+                      maxStudents={100}
+                      backendRankingOrder
+                    />
+                  </>
                 ) : (
                   <Card>
                     <CardContent className="flex flex-col items-center justify-center py-12">
