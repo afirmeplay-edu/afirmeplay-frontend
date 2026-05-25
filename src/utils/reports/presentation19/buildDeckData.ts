@@ -17,6 +17,10 @@ import type {
 } from "@/types/presentation19-slides";
 import { getProficiencyLevelDescription, type ProficiencyLevel } from "@/components/evaluations/results/utils/proficiency";
 import { getProficiencyTableInfo } from "@/components/evaluations/results/utils/proficiency";
+import {
+  filterPresentation19RealDisciplineRows,
+  hasPresentation19RealDisciplineBreakdown,
+} from "@/utils/reports/presentation19/presentation19Labels";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -1761,6 +1765,80 @@ function niveisFromNovaAvaliacoesEscola(nova: NovaRespostaAPI | null): NiveisByS
     .filter((r) => r.label.length > 0);
 }
 
+/**
+ * Proficiência por disciplina real (Português, Matemática, …).
+ * Se a Nova só trouxer agregado "Geral", usa `por_escola` do relatório completo.
+ */
+function resolveProficiencyPorDisciplinaPorTurma(
+  relatorio: Partial<RelatorioCompleto> | null,
+  nova: NovaRespostaAPI | null,
+  axis: PresentationComparisonAxis,
+  serieFilterLabel?: string
+): ProficiencyByDisciplineByTurmaRow[] {
+  const filter = filterPresentation19RealDisciplineRows;
+
+  if (axis === "escola") {
+    const fromNova = filter(proficiencyByDisciplinePorEscolaFromNovaAvaliacoes(nova));
+    if (hasPresentation19RealDisciplineBreakdown(fromNova)) return fromNova;
+    const fromRel = filter(buildProficiencyByDisciplinePorCategoria(relatorio, "escola"));
+    if (fromRel.length > 0) return fromRel;
+    return filter(buildProficiencyByDisciplineByTurma(relatorio));
+  }
+
+  if (axis === "serie") {
+    const fromNova = filter(buildProficiencyByDisciplineByTurmaFromNova(nova));
+    if (hasPresentation19RealDisciplineBreakdown(fromNova)) return fromNova;
+    const fromRel = filter(buildProficiencyByDisciplinePorCategoria(relatorio, "serie"));
+    if (fromRel.length > 0) return fromRel;
+    return filter(buildProficiencyByDisciplineByTurma(relatorio));
+  }
+
+  if (axis === "turma") {
+    const fromNova = filter(buildProficiencyByDisciplineByTurmaFromNova(nova));
+    if (hasPresentation19RealDisciplineBreakdown(fromNova)) return fromNova;
+    const fromRel = filter(buildProficiencyByDisciplinePorCategoria(relatorio, "turma", serieFilterLabel));
+    if (fromRel.length > 0) return fromRel;
+    return filter(buildProficiencyByDisciplineByTurma(relatorio));
+  }
+
+  return filter(buildProficiencyByDisciplineByTurma(relatorio));
+}
+
+function resolveNotasPorDisciplinaPorTurma(
+  relatorio: Partial<RelatorioCompleto> | null,
+  nova: NovaRespostaAPI | null,
+  axis: PresentationComparisonAxis,
+  serieFilterLabel?: string
+): NotaByDisciplineByTurmaRow[] {
+  const filter = filterPresentation19RealDisciplineRows;
+
+  if (axis === "escola") {
+    const fromNova = filter(notasByDisciplinePorEscolaFromNovaAvaliacoes(nova));
+    if (hasPresentation19RealDisciplineBreakdown(fromNova)) return fromNova;
+    const fromRel = filter(buildNotasByDisciplinePorCategoria(relatorio, "escola"));
+    if (fromRel.length > 0) return fromRel;
+    return filter(buildNotasByDisciplineByTurma(relatorio));
+  }
+
+  if (axis === "serie") {
+    const fromNova = filter(notasByDisciplinePorSerieFromNovaAvaliacoes(nova));
+    if (hasPresentation19RealDisciplineBreakdown(fromNova)) return fromNova;
+    const fromRel = filter(buildNotasByDisciplinePorCategoria(relatorio, "serie"));
+    if (fromRel.length > 0) return fromRel;
+    return filter(buildNotasByDisciplineByTurma(relatorio));
+  }
+
+  if (axis === "turma") {
+    const fromNova = filter(notasByDisciplinePorSerieFromNovaAvaliacoes(nova));
+    if (hasPresentation19RealDisciplineBreakdown(fromNova)) return fromNova;
+    const fromRel = filter(buildNotasByDisciplinePorCategoria(relatorio, "turma", serieFilterLabel));
+    if (fromRel.length > 0) return fromRel;
+    return filter(buildNotasByDisciplineByTurma(relatorio));
+  }
+
+  return filter(buildNotasByDisciplineByTurma(relatorio));
+}
+
 function buildMetricsForAxis(
   axis: PresentationComparisonAxis,
   relatorio: Partial<RelatorioCompleto> | null,
@@ -1801,18 +1879,12 @@ function buildMetricsForAxis(
     }
     if (profGeral.length === 0) profGeral = buildProficiencyGeneralByTurma(relatorio);
 
-    let profDisc = proficiencyByDisciplinePorEscolaFromNovaAvaliacoes(nova);
-    if (profDisc.length === 0) profDisc = buildProficiencyByDisciplineByTurmaFromNova(nova);
-    if (profDisc.length === 0) profDisc = buildProficiencyByDisciplinePorCategoria(relatorio, "escola");
-    if (profDisc.length === 0) profDisc = buildProficiencyByDisciplineByTurma(relatorio);
+    const profDisc = resolveProficiencyPorDisciplinaPorTurma(relatorio, nova, "escola");
 
     let notasCat = notasPorCategoriaEscolaFromNovaAvaliacoes(nova);
     if (notasCat.length === 0) notasCat = buildNotasPorCategoriaFromRelatorio(relatorio, "escola");
 
-    let notasDisc = notasByDisciplinePorEscolaFromNovaAvaliacoes(nova);
-    if (notasDisc.length === 0) notasDisc = buildNotasByDisciplineByTurmaFromNova(nova);
-    if (notasDisc.length === 0) notasDisc = buildNotasByDisciplinePorCategoria(relatorio, "escola");
-    if (notasDisc.length === 0) notasDisc = buildNotasByDisciplineByTurma(relatorio);
+    const notasDisc = resolveNotasPorDisciplinaPorTurma(relatorio, nova, "escola");
 
     return {
       presencaPorSerie: presenca,
@@ -1837,17 +1909,12 @@ function buildMetricsForAxis(
     if (profGeral.length === 0) profGeral = buildProficiencyGeneralByTurmaFromNova(nova);
     if (profGeral.length === 0) profGeral = buildProficiencyGeneralByTurma(relatorio);
 
-    let profDisc = buildProficiencyByDisciplineByTurmaFromNova(nova);
-    if (profDisc.length === 0) profDisc = buildProficiencyByDisciplinePorCategoria(relatorio, "serie");
-    if (profDisc.length === 0) profDisc = buildProficiencyByDisciplineByTurma(relatorio);
+    const profDisc = resolveProficiencyPorDisciplinaPorTurma(relatorio, nova, "serie");
 
     let notasCat = notasPorCategoriaFromNovaAvaliacoesSerie(nova);
     if (notasCat.length === 0) notasCat = buildNotasPorCategoriaFromRelatorio(relatorio, "serie");
 
-    let notasDisc = notasByDisciplinePorSerieFromNovaAvaliacoes(nova);
-    if (notasDisc.length === 0) notasDisc = buildNotasByDisciplineByTurmaFromNova(nova);
-    if (notasDisc.length === 0) notasDisc = buildNotasByDisciplinePorCategoria(relatorio, "serie");
-    if (notasDisc.length === 0) notasDisc = buildNotasByDisciplineByTurma(relatorio);
+    const notasDisc = resolveNotasPorDisciplinaPorTurma(relatorio, nova, "serie");
 
     return {
       presencaPorSerie: presenca,
@@ -1901,17 +1968,15 @@ function buildMetricsForAxis(
     }
     if (profGeral.length === 0) profGeral = applyTurmaAllow(buildProficiencyGeneralByTurma(relatorio));
 
-    let profDisc = buildProficiencyByDisciplineByTurmaFromNova(nova);
-    if (profDisc.length === 0) {
-      profDisc =
-        turmaAllow.size > 0
-          ? buildProficiencyByDisciplinePorCategoria(relatorio, "turma", undefined).map((d) => ({
-              ...d,
-              valuesByTurma: d.valuesByTurma.filter((v) => turmaAllow.has(String(v.turma ?? "").trim())),
-            }))
-          : buildProficiencyByDisciplinePorCategoria(relatorio, "turma", serieFilterLabel);
+    let profDisc = resolveProficiencyPorDisciplinaPorTurma(relatorio, nova, "turma", serieFilterLabel);
+    if (turmaAllow.size > 0) {
+      profDisc = profDisc
+        .map((d) => ({
+          ...d,
+          valuesByTurma: d.valuesByTurma.filter((v) => turmaAllow.has(String(v.turma ?? "").trim())),
+        }))
+        .filter((d) => d.valuesByTurma.length > 0);
     }
-    if (profDisc.length === 0) profDisc = buildProficiencyByDisciplineByTurma(relatorio);
 
     let notasCat = applyTurmaAllow(notasPorCategoriaFromNovaAvaliacoesTurma(nova));
     if (notasCat.length === 0) {
@@ -1921,27 +1986,15 @@ function buildMetricsForAxis(
           : buildNotasPorCategoriaFromRelatorio(relatorio, "turma", serieFilterLabel);
     }
 
-    let notasDisc = applyTurmaAllowToNotasByDiscipline(notasByDisciplinePorTurmaFromNovaAvaliacoes(nova), turmaAllow);
-    if (notasDisc.length === 0) {
-      const fromNova = buildNotasByDisciplineByTurmaFromNova(nova);
-      if (fromNova.length > 0) {
-        if (turmaAllow.size === 0) notasDisc = fromNova;
-        else {
-          const matched = applyTurmaAllowToNotasByDiscipline(fromNova, turmaAllow);
-          notasDisc = matched.length > 0 ? matched : [];
-        }
-      }
+    let notasDisc = resolveNotasPorDisciplinaPorTurma(relatorio, nova, "turma", serieFilterLabel);
+    if (turmaAllow.size > 0) {
+      notasDisc = notasDisc
+        .map((d) => ({
+          ...d,
+          valuesByTurma: d.valuesByTurma.filter((v) => turmaAllow.has(String(v.turma ?? "").trim())),
+        }))
+        .filter((d) => d.valuesByTurma.length > 0);
     }
-    if (notasDisc.length === 0) {
-      notasDisc =
-        turmaAllow.size > 0
-          ? buildNotasByDisciplinePorCategoria(relatorio, "turma", undefined).map((d) => ({
-              ...d,
-              valuesByTurma: d.valuesByTurma.filter((v) => turmaAllow.has(String(v.turma ?? "").trim())),
-            }))
-          : buildNotasByDisciplinePorCategoria(relatorio, "turma", serieFilterLabel);
-    }
-    if (notasDisc.length === 0) notasDisc = applyTurmaAllowToNotasByDiscipline(buildNotasByDisciplineByTurma(relatorio), turmaAllow);
 
     return {
       presencaPorSerie: presenca,
@@ -2152,16 +2205,27 @@ export function buildDeckDataForPresentation19Slides(args: BuildDeckDataArgs): P
     const fromNova = buildProficiencyGeneralByTurmaFromNova(novaRespostaAgregados);
     proficienciaGeralPorTurma = fromNova.length > 0 ? fromNova : buildProficiencyGeneralByTurma(relatorioDetalhado);
   }
-  if (proficienciaPorDisciplinaPorTurma.length === 0) {
-    const fromNova = buildProficiencyByDisciplineByTurmaFromNova(novaRespostaAgregados);
-    proficienciaPorDisciplinaPorTurma =
-      fromNova.length > 0 ? fromNova : buildProficiencyByDisciplineByTurma(relatorioDetalhado);
+  if (!hasPresentation19RealDisciplineBreakdown(proficienciaPorDisciplinaPorTurma)) {
+    proficienciaPorDisciplinaPorTurma = resolveProficiencyPorDisciplinaPorTurma(
+      relatorioDetalhado,
+      novaRespostaAgregados,
+      comparisonAxis,
+      selectedSerieLabel
+    );
+  } else {
+    proficienciaPorDisciplinaPorTurma = filterPresentation19RealDisciplineRows(proficienciaPorDisciplinaPorTurma);
   }
 
   let notasPorDisciplinaPorTurma = metrics.notasPorDisciplinaPorTurma;
-  if (notasPorDisciplinaPorTurma.length === 0) {
-    const fromNova = buildNotasByDisciplineByTurmaFromNova(novaRespostaAgregados);
-    notasPorDisciplinaPorTurma = fromNova.length > 0 ? fromNova : buildNotasByDisciplineByTurma(relatorioDetalhado);
+  if (!hasPresentation19RealDisciplineBreakdown(notasPorDisciplinaPorTurma)) {
+    notasPorDisciplinaPorTurma = resolveNotasPorDisciplinaPorTurma(
+      relatorioDetalhado,
+      novaRespostaAgregados,
+      comparisonAxis,
+      selectedSerieLabel
+    );
+  } else {
+    notasPorDisciplinaPorTurma = filterPresentation19RealDisciplineRows(notasPorDisciplinaPorTurma);
   }
 
   const municipalDiscMerged = appendMunicipalGeralPorDisciplinaFromNova(
@@ -2170,8 +2234,8 @@ export function buildDeckDataForPresentation19Slides(args: BuildDeckDataArgs): P
     proficienciaPorDisciplinaPorTurma,
     notasPorDisciplinaPorTurma
   );
-  proficienciaPorDisciplinaPorTurma = municipalDiscMerged.prof;
-  notasPorDisciplinaPorTurma = municipalDiscMerged.nota;
+  proficienciaPorDisciplinaPorTurma = filterPresentation19RealDisciplineRows(municipalDiscMerged.prof);
+  notasPorDisciplinaPorTurma = filterPresentation19RealDisciplineRows(municipalDiscMerged.nota);
 
   const notasNova = buildNotasFromNova(novaRespostaAgregados);
   const notasRel = buildNotasFromRelatorio(relatorioDetalhado);
@@ -2496,10 +2560,15 @@ export function buildDeckDataForPresentation19Slides(args: BuildDeckDataArgs): P
 
   // Escola selecionada (sem turma específica): em notas, mostrar apenas as turmas (notasPorCategoria) + média geral,
   // removendo linhas por disciplina do gráfico/tabela.
-  if (selectedSchoolId && !selectedTurmaEffective) {
+  const schoolMissingRegisteredTurma =
+    Boolean(selectedSchoolId?.trim()) && !selectedTurmaEffective && turmasParticipantesCapa.length === 0;
+  if (schoolMissingRegisteredTurma) {
     notasDiscFinal = [];
     notasPorDisciplinaPorTurmaFinal = [];
   }
+
+  profDiscFinal = filterPresentation19RealDisciplineRows(profDiscFinal);
+  notasPorDisciplinaPorTurmaFinal = filterPresentation19RealDisciplineRows(notasPorDisciplinaPorTurmaFinal);
 
   return {
     mode,
@@ -2515,6 +2584,7 @@ export function buildDeckDataForPresentation19Slides(args: BuildDeckDataArgs): P
     turma: turmaCapa,
     turmasParticipantesCapa,
     slide2ShowSerieTurmas: Boolean(selectedSchoolId?.trim()),
+    schoolMissingRegisteredTurma,
 
     presencaPorSerie: presencaFinal,
     niveisPorSerie: niveisFinal,

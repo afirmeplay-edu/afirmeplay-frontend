@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import {
   Calendar as CalendarIcon,
@@ -10,6 +10,9 @@ import {
   Check,
   CheckCircle2,
   ChevronsUpDown,
+  EyeOff,
+  FileText,
+  XCircle,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
@@ -27,7 +30,6 @@ import {
   Users,
 } from "lucide-react";
 
-import ModernStatCard from "@/components/dashboard/ModernStatCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -54,7 +56,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/authContext";
 import { cn } from "@/lib/utils";
-import { DisciplineTag } from "@/components/ui/discipline-tag";
 import {
   getReportProficiencyTagClass,
   type ReportProficiencyLabel,
@@ -67,6 +68,10 @@ import {
   MonitoramentoApiService,
 } from "@/services/monitoramento/monitoramentoApi";
 import { generateMonitoringPdf } from "@/services/reports/monitoramentoPdf";
+import {
+  MonitoringSkillDetailDialog,
+  type MonitoringSkillDetailRequest,
+} from "@/pages/monitoramento/MonitoringSkillDetailDialog";
 import { format, parse } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -94,22 +99,58 @@ const defaultFilters: MonitoringFilters = {
 
 const statusOptions = [
   { id: "pendente", label: "Pendente" },
-  { id: "sendo_realizada", label: "Sendo realizada" },
-  { id: "nao_realizado", label: "Não realizado" },
+  { id: "sendo_realizada", label: "Em andamento" },
+  { id: "realizada", label: "Realizada" },
+  { id: "nao_realizado", label: "Não realizada" },
 ] as const;
 
 const formatDateToInput = (date?: string | null) => (date ? date.slice(0, 10) : "");
 
 const isAbaixoBasico = (nivel: string) => nivel.toLowerCase().includes("abaixo");
 
+function CriticalSkillCodes({
+  codes,
+  disciplinaLabel,
+  onOpen,
+}: {
+  codes: string[];
+  disciplinaLabel: string;
+  onOpen: (codigo: string, disciplina: string) => void;
+}) {
+  const list = codes.filter((code) => code?.trim());
+  if (!list.length) return null;
+  return (
+    <span>
+      {list.map((code, index) => (
+        <span key={`${disciplinaLabel}-${code}-${index}`}>
+          {index > 0 ? ", " : null}
+          <button
+            type="button"
+            className="font-medium text-primary underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => onOpen(code.trim(), disciplinaLabel)}
+          >
+            {code.trim()}
+          </button>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+const getStatusLabel = (status: string) =>
+  statusOptions.find((item) => item.id === status)?.label ?? "Pendente";
+
 const getMonitoringStatusClass = (status: string) => {
   switch (status) {
+    case "realizada":
+      return "border-green-400 bg-green-50 text-green-800 dark:border-green-600 dark:bg-green-950/40 dark:text-green-400";
     case "sendo_realizada":
-      return "border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950/30 dark:text-yellow-400";
+      return "border-yellow-400 bg-yellow-50 text-yellow-800 dark:border-yellow-600 dark:bg-yellow-950/40 dark:text-yellow-400";
     case "nao_realizado":
-      return "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400";
+      return "border-red-600 bg-red-200 text-red-950 font-semibold shadow-sm dark:border-red-500 dark:bg-red-600/30 dark:text-red-200";
+    case "pendente":
     default:
-      return "border-border bg-muted text-muted-foreground";
+      return "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400";
   }
 };
 
@@ -117,6 +158,91 @@ const getApiErrorMessage = (error: unknown, fallback: string) => {
   const maybe = error as { response?: { data?: { error?: string; details?: string } } };
   return maybe?.response?.data?.error || maybe?.response?.data?.details || fallback;
 };
+
+type MonitoringKpiVariant = "purple" | "green" | "red";
+
+const monitoringKpiStyles: Record<
+  MonitoringKpiVariant,
+  { border: string; iconWrap: string; icon: string; footer?: string }
+> = {
+  purple: {
+    border: "border-l-violet-500",
+    iconWrap: "bg-violet-100 text-violet-600 dark:bg-violet-950/50 dark:text-violet-400",
+    icon: "text-violet-600 dark:text-violet-400",
+  },
+  green: {
+    border: "border-l-emerald-500",
+    iconWrap: "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400",
+    icon: "text-emerald-600 dark:text-emerald-400",
+    footer: "text-emerald-600 dark:text-emerald-400",
+  },
+  red: {
+    border: "border-l-red-500",
+    iconWrap: "bg-red-100 text-red-600 dark:bg-red-950/50 dark:text-red-400",
+    icon: "text-red-600 dark:text-red-400",
+    footer: "text-red-600 dark:text-red-400",
+  },
+};
+
+function MonitoringKpiCard({
+  variant,
+  title,
+  value,
+  footer,
+  icon,
+  isLoading,
+}: {
+  variant: MonitoringKpiVariant;
+  title: string;
+  value: string | number;
+  footer: ReactNode;
+  icon: ReactNode;
+  isLoading?: boolean;
+}) {
+  const styles = monitoringKpiStyles[variant];
+
+  if (isLoading) {
+    return (
+      <div
+        className={cn(
+          "min-h-[168px] rounded-2xl border border-l-[6px] bg-card p-6 shadow-sm",
+          styles.border
+        )}
+      >
+        <Skeleton className="h-4 w-28" />
+        <Skeleton className="mt-6 h-12 w-20" />
+        <Skeleton className="mt-6 h-4 w-40" />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "min-h-[168px] rounded-2xl border border-l-[6px] bg-card p-6 shadow-sm transition-shadow hover:shadow-md",
+        styles.border
+      )}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
+          <p className="mt-4 text-5xl font-bold tabular-nums tracking-tight text-foreground">{value}</p>
+          <div
+            className={cn(
+              "mt-5 flex items-center gap-2 text-sm",
+              styles.footer ?? "text-muted-foreground"
+            )}
+          >
+            {footer}
+          </div>
+        </div>
+        <div className={cn("flex h-14 w-14 shrink-0 items-center justify-center rounded-full", styles.iconWrap)}>
+          {icon}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const MonitoringSortableHead = ({
   label,
@@ -172,6 +298,7 @@ const MonitoringPage = () => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const defaultsAppliedRef = useRef(false);
+  const disciplinaAutoSourceRef = useRef("");
 
   const [filters, setFilters] = useState<MonitoringFilters>(defaultFilters);
   const [selectedSchoolId, setSelectedSchoolId] = useState<string>("");
@@ -180,11 +307,14 @@ const MonitoringPage = () => {
   const [debouncedSearchText, setDebouncedSearchText] = useState("");
   const [historyActionId, setHistoryActionId] = useState<string>("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [skillDetailOpen, setSkillDetailOpen] = useState(false);
+  const [skillDetailRequest, setSkillDetailRequest] = useState<MonitoringSkillDetailRequest | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, Partial<MonitoringStudentItem>>>({});
   const [schoolPage, setSchoolPage] = useState(1);
   const [studentPage, setStudentPage] = useState(1);
   const [savingRowId, setSavingRowId] = useState<string | null>(null);
+  const [savingAllRows, setSavingAllRows] = useState(false);
   const [schoolSort, setSchoolSort] = useState<{ by: string; order: "asc" | "desc" }>({
     by: "escola_nome",
     order: "asc",
@@ -244,6 +374,9 @@ const MonitoringPage = () => {
   const selectedSourceId =
     filters.tipo_origem === "avaliacao" ? filters.avaliacao_id || "" : filters.gabarito_id || "";
   const geoFiltersReady = Boolean(filters.estado && filters.municipio);
+  const showClassTable = Boolean(
+    filters.escola_id && (filters.serie_id || filters.turma_id) && selectedSourceId
+  );
   const editorSchoolId = filters.escola_id || selectedSchoolId || "";
   const editorFieldLabel = editorSchoolId ? "Coordenador" : "Tec Admin";
 
@@ -265,8 +398,11 @@ const MonitoringPage = () => {
       optionsFilters.avaliacao_id,
       optionsFilters.gabarito_id,
       optionsFilters.escola_id,
+      optionsFilters.serie_id,
     ],
     queryFn: () => MonitoramentoApiService.getFilterOptions(optionsFilters),
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
   });
 
   const filterDefaults = optionsQuery.data?.defaults;
@@ -302,40 +438,62 @@ const MonitoringPage = () => {
     });
   }, [optionsQuery.data?.defaults, selectedSourceId]);
 
+  const listSortBy = useMemo(() => {
+    if (showClassTable && schoolSort.by === "escola_nome") return "turma_nome";
+    return schoolSort.by;
+  }, [showClassTable, schoolSort.by]);
+
   const schoolsFilters = useMemo(
     () => ({
       ...filters,
       page: schoolPage,
       page_size: 20,
-      sort_by: schoolSort.by,
+      sort_by: listSortBy,
       sort_order: schoolSort.order,
     }),
-    [filters, schoolPage, schoolSort.by, schoolSort.order]
+    [filters, schoolPage, listSortBy, schoolSort.order]
   );
 
   const schoolsQuery = useQuery({
     queryKey: ["monitoramento-schools", schoolsFilters],
     queryFn: () => MonitoramentoApiService.getSchools(schoolsFilters),
-    enabled: geoFiltersReady && Boolean(selectedSourceId),
+    enabled: geoFiltersReady && Boolean(selectedSourceId) && !showClassTable,
+    placeholderData: keepPreviousData,
   });
+
+  const classesQuery = useQuery({
+    queryKey: ["monitoramento-classes", schoolsFilters],
+    queryFn: () => MonitoramentoApiService.getClasses(schoolsFilters),
+    enabled: geoFiltersReady && showClassTable,
+    placeholderData: keepPreviousData,
+  });
+
+  const listQuery = showClassTable ? classesQuery : schoolsQuery;
 
   const studentFilters = useMemo(
     () => ({
       ...filters,
       q: debouncedSearchText,
-      escola_id: selectedSchoolId,
+      escola_id: selectedSchoolId || filters.escola_id,
       page: studentPage,
       page_size: 30,
       sort_by: studentSort.by,
       sort_order: studentSort.order,
     }),
-    [filters, selectedSchoolId, debouncedSearchText, studentPage, studentSort.by, studentSort.order]
+    [
+      filters,
+      selectedSchoolId,
+      debouncedSearchText,
+      studentPage,
+      studentSort.by,
+      studentSort.order,
+    ]
   );
 
   const studentsQuery = useQuery({
     queryKey: ["monitoramento-students", studentFilters],
     queryFn: () => MonitoramentoApiService.getStudents(studentFilters),
-    enabled: studentsModalOpen && Boolean(selectedSchoolId),
+    enabled: studentsModalOpen && Boolean(selectedSchoolId || filters.escola_id),
   });
 
   const historyQuery = useQuery({
@@ -357,6 +515,7 @@ const MonitoringPage = () => {
       });
       queryClient.invalidateQueries({ queryKey: ["monitoramento-students"] });
       queryClient.invalidateQueries({ queryKey: ["monitoramento-schools"] });
+      queryClient.invalidateQueries({ queryKey: ["monitoramento-classes"] });
     },
     onError: (error) => {
       toast({
@@ -384,10 +543,13 @@ const MonitoringPage = () => {
   };
 
   const handleFilterChange = useCallback((key: keyof MonitoringFilters, value: string) => {
+    setSchoolPage(1);
+    setStudentPage(1);
+    if (key === "avaliacao_id" || key === "gabarito_id" || key === "tipo_origem") {
+      disciplinaAutoSourceRef.current = "";
+    }
     setFilters((prev) => {
       const next = { ...prev, [key]: value, page: 1 };
-      setSchoolPage(1);
-      setStudentPage(1);
       if (key === "tipo_origem") {
         next.avaliacao_id = "";
         next.gabarito_id = "";
@@ -405,7 +567,6 @@ const MonitoringPage = () => {
         resetAfterSource(next);
       }
       if (key === "escola_id") {
-        next.serie_id = "";
         next.turma_id = "";
         next.coordenador_id = "";
         setSelectedSchoolId("");
@@ -422,10 +583,23 @@ const MonitoringPage = () => {
   useEffect(() => {
     const disciplinas = optionsQuery.data?.disciplinas ?? [];
     if (!selectedSourceId || disciplinas.length !== 1) return;
+    if (disciplinaAutoSourceRef.current === selectedSourceId) return;
     const only = disciplinas[0];
-    if (filters.disciplina === only.name) return;
-    handleFilterChange("disciplina", only.name);
-  }, [optionsQuery.data?.disciplinas, selectedSourceId, filters.disciplina, handleFilterChange]);
+    if (filters.disciplina === only.name) {
+      disciplinaAutoSourceRef.current = selectedSourceId;
+      return;
+    }
+    disciplinaAutoSourceRef.current = selectedSourceId;
+    setFilters((prev) => ({ ...prev, disciplina: only.name }));
+  }, [optionsQuery.data?.disciplinas, selectedSourceId, filters.disciplina]);
+
+  useEffect(() => {
+    const series = optionsQuery.data?.series ?? [];
+    if (!selectedSourceId) return;
+    if (filters.serie_id && !series.some((item) => item.id === filters.serie_id)) {
+      setFilters((prev) => ({ ...prev, serie_id: "", turma_id: "" }));
+    }
+  }, [optionsQuery.data?.series, selectedSourceId, filters.serie_id]);
 
   const handleOriginTabChange = useCallback(
     (value: string) => {
@@ -440,6 +614,7 @@ const MonitoringPage = () => {
 
   const clearAllFilters = useCallback(() => {
     defaultsAppliedRef.current = false;
+    disciplinaAutoSourceRef.current = "";
     setFilters(defaultFilters);
     setSelectedSchoolId("");
     setStudentsModalOpen(false);
@@ -462,20 +637,55 @@ const MonitoringPage = () => {
     }));
   }, []);
 
+  const openClassDetail = useCallback(
+    (turmaId: string) => {
+      const escolaId = filters.escola_id || "";
+      setSelectedSchoolId(escolaId);
+      setStudentPage(1);
+      setStudentsModalOpen(true);
+      setFilters((prev) => ({
+        ...prev,
+        turma_id: turmaId,
+        coordenador_id: prev.escola_id === escolaId ? prev.coordenador_id : "",
+      }));
+    },
+    [filters.escola_id]
+  );
+
+  const getStudentRowId = useCallback(
+    (row: MonitoringStudentItem) => row.linha_id || row.aluno_id,
+    []
+  );
+
+  const openSkillDetail = useCallback(
+    (codigo: string, disciplina: string, row: MonitoringStudentItem) => {
+      setSkillDetailRequest({
+        codigo,
+        disciplina: disciplina || filters.disciplina || "",
+        source_type: row.source_type,
+        source_id: row.source_id,
+      });
+      setSkillDetailOpen(true);
+    },
+    [filters.disciplina]
+  );
+
   const getDraftValue = <K extends keyof MonitoringStudentItem>(
     row: MonitoringStudentItem,
     key: K
   ): MonitoringStudentItem[K] => {
-    const draft = drafts[row.aluno_id];
+    const rowId = getStudentRowId(row);
+    const draft = drafts[rowId];
     if (draft && key in draft) return draft[key] as MonitoringStudentItem[K];
     return row[key];
   };
 
   const updateDraft = (row: MonitoringStudentItem, patch: Partial<MonitoringStudentItem>) => {
+    const rowId = getStudentRowId(row);
     setDrafts((prev) => ({
       ...prev,
-      [row.aluno_id]: {
-        ...prev[row.aluno_id],
+      [rowId]: {
+        ...prev[rowId],
         ...patch,
       },
     }));
@@ -530,6 +740,25 @@ const MonitoringPage = () => {
     setFilters((prev) => ({ ...prev, coordenador_id: user.id }));
   }, [editorSchoolId, editorOptions, filters.coordenador_id, isSchoolEditor, user?.id]);
 
+  const buildActionPayload = useCallback(
+    (row: MonitoringStudentItem, coordinatorId: string): MonitoringActionPayload => ({
+      source_type: row.source_type,
+      source_id: row.source_id,
+      student_id: row.aluno_id,
+      school_id: row.escola_id,
+      disciplina: "",
+      acao_pedagogica: String(getDraftValue(row, "acao_pedagogica") || ""),
+      responsavel_nome: String(getDraftValue(row, "responsavel_nome") || "").trim(),
+      coordenador_id: coordinatorId,
+      prazo: (getDraftValue(row, "prazo") as string | null) || null,
+      status: (getDraftValue(row, "status") as MonitoringActionPayload["status"]) || "pendente",
+      realizada_em: (getDraftValue(row, "realizada_em") as string | null) || null,
+      feita_pela_escola: Boolean(getDraftValue(row, "feita_pela_escola")),
+      vista_pela_semed: Boolean(getDraftValue(row, "vista_pela_semed")),
+    }),
+    [getDraftValue]
+  );
+
   const saveRow = (row: MonitoringStudentItem) => {
     const coordinatorId = resolveCoordinatorId();
     if (!canEdit || !coordinatorId) {
@@ -543,22 +772,88 @@ const MonitoringPage = () => {
       return;
     }
 
-    const actionPayload: MonitoringActionPayload = {
-      source_type: row.source_type,
-      source_id: row.source_id,
-      student_id: row.aluno_id,
-      school_id: row.escola_id,
-      disciplina: row.disciplina,
-      acao_pedagogica: String(getDraftValue(row, "acao_pedagogica") || ""),
-      responsavel_nome: String(getDraftValue(row, "responsavel_nome") || "").trim(),
-      coordenador_id: coordinatorId,
-      prazo: (getDraftValue(row, "prazo") as string | null) || null,
-      status: (getDraftValue(row, "status") as MonitoringActionPayload["status"]) || "pendente",
-      realizada_em: (getDraftValue(row, "realizada_em") as string | null) || null,
-      feita_pela_escola: Boolean(getDraftValue(row, "feita_pela_escola")),
-      vista_pela_semed: Boolean(getDraftValue(row, "vista_pela_semed")),
-    };
-    saveMutation.mutate({ actionId: row.acao_id, body: actionPayload, rowId: row.aluno_id });
+    saveMutation.mutate({
+      actionId: row.acao_id,
+      body: buildActionPayload(row, coordinatorId),
+      rowId: getStudentRowId(row),
+    });
+  };
+
+  const saveAllRows = async () => {
+    const coordinatorId = resolveCoordinatorId();
+    if (!canEdit || !coordinatorId) {
+      toast({
+        title: "Edição não habilitada",
+        description: editorSchoolId
+          ? `Selecione o ${editorFieldLabel.toLowerCase()} ou use um perfil com permissão de edição.`
+          : "Selecione uma escola (filtro ou Abrir na tabela) para habilitar a edição.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSavingAllRows(true);
+    try {
+      const total = studentsPagination?.total ?? studentsRows.length;
+      let rowsToSave = studentsRows;
+      if (total > studentsRows.length) {
+        const response = await MonitoramentoApiService.getStudents({
+          ...studentFilters,
+          page: 1,
+          page_size: Math.min(300, total),
+        });
+        rowsToSave = response.items;
+      }
+
+      if (!rowsToSave.length) {
+        toast({
+          title: "Nada para salvar",
+          description: "Não há alunos no recorte atual.",
+        });
+        return;
+      }
+
+      const results = await Promise.allSettled(
+        rowsToSave.map((row) =>
+          MonitoramentoApiService.updateAction(row.acao_id, buildActionPayload(row, coordinatorId))
+        )
+      );
+      const saved = results.filter((result) => result.status === "fulfilled").length;
+      const failed = results.length - saved;
+
+      setDrafts((prev) => {
+        const next = { ...prev };
+        for (const row of rowsToSave) {
+          delete next[getStudentRowId(row)];
+        }
+        return next;
+      });
+
+      await queryClient.invalidateQueries({ queryKey: ["monitoramento-students"] });
+      await queryClient.invalidateQueries({ queryKey: ["monitoramento-schools"] });
+      await queryClient.invalidateQueries({ queryKey: ["monitoramento-classes"] });
+
+      if (failed === 0) {
+        toast({
+          title: "Ações salvas",
+          description: `${saved} registro${saved === 1 ? "" : "s"} gravado${saved === 1 ? "" : "s"} com sucesso.`,
+        });
+      } else {
+        toast({
+          title: "Salvamento parcial",
+          description: `${saved} salvo${saved === 1 ? "" : "s"}, ${failed} com erro. Revise e tente novamente.`,
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Erro ao salvar",
+        description: getApiErrorMessage(error, "Não foi possível salvar as ações em lote."),
+        variant: "destructive",
+      });
+    } finally {
+      setSavingAllRows(false);
+    }
   };
 
   const handleGeneratePdf = async (periodicidade: "semanal" | "mensal") => {
@@ -619,7 +914,8 @@ const MonitoringPage = () => {
       ? optionsQuery.data?.avaliacoes ?? []
       : optionsQuery.data?.gabaritos ?? [];
 
-  const isLoadingFilters = optionsQuery.isLoading || optionsQuery.isFetching;
+  const isLoadingFilters = optionsQuery.isLoading && !optionsQuery.data;
+  const isListLoading = listQuery.isLoading && !listQuery.data;
 
   const noSourceItems =
     geoFiltersReady &&
@@ -632,15 +928,15 @@ const MonitoringPage = () => {
       ? "Nenhuma avaliação neste município (verifique o período)"
       : "Nenhum cartão-resposta neste município (verifique o período)";
 
-  const schoolsPagination = schoolsQuery.data?.pagination;
+  const listPagination = listQuery.data?.pagination;
   const studentsPagination = studentsQuery.data?.pagination;
-  const schoolsFrom =
-    (schoolsPagination?.total || 0) > 0
-      ? ((schoolsPagination?.page || 1) - 1) * (schoolsPagination?.page_size || 20) + 1
+  const listFrom =
+    (listPagination?.total || 0) > 0
+      ? ((listPagination?.page || 1) - 1) * (listPagination?.page_size || 20) + 1
       : 0;
-  const schoolsTo = Math.min(
-    (schoolsPagination?.page || 1) * (schoolsPagination?.page_size || 20),
-    schoolsPagination?.total || 0
+  const listTo = Math.min(
+    (listPagination?.page || 1) * (listPagination?.page_size || 20),
+    listPagination?.total || 0
   );
   const studentsFrom =
     (studentsPagination?.total || 0) > 0
@@ -651,11 +947,20 @@ const MonitoringPage = () => {
     studentsPagination?.total || 0
   );
 
-  const summary = schoolsQuery.data?.summary;
-  const acoesPct =
-    summary && summary.total_alunos > 0
-      ? Math.round((summary.total_acoes / summary.total_alunos) * 100)
-      : 0;
+  const summary = listQuery.data?.summary;
+  const totalRelatorios = summary?.total_relatorios ?? 0;
+  const totalVistos = summary?.total_vistos_semed ?? 0;
+  const totalNaoVistos = summary?.total_nao_vistos ?? 0;
+  const taxaVistos = summary?.taxa_vistos_pct ?? 0;
+  const totalPreenchidas = summary?.total_preenchidas ?? 0;
+  const totalRealizadas = summary?.total_realizadas ?? 0;
+  const totalPendentesNaoRealizadas = summary?.total_pendentes_nao_realizadas ?? 0;
+  const escolasNoRecorte = summary?.total_escolas ?? 0;
+  const preenchidasPct =
+    totalRelatorios > 0 ? Math.round((totalPreenchidas / totalRelatorios) * 100) : 0;
+  const realizadasPct =
+    totalRelatorios > 0 ? Math.round((totalRealizadas / totalRelatorios) * 100) : 0;
+  const acoesPct = realizadasPct;
 
   const activeSchoolName = useMemo(() => {
     if (!selectedSchoolId) return null;
@@ -712,10 +1017,10 @@ const MonitoringPage = () => {
             </h1>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="gap-1.5">
-                {schoolsQuery.isLoading || schoolsQuery.isFetching ? (
+                {isListLoading && !summary ? (
                   <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
                 ) : null}
-                {summary?.total_alunos ?? 0} alunos monitorados
+                {totalRelatorios} relatórios
               </Badge>
               <Popover>
                 <PopoverTrigger asChild>
@@ -762,58 +1067,6 @@ const MonitoringPage = () => {
             </TabsTrigger>
           </TabsList>
         </Tabs>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <ModernStatCard
-            icon={<Building2 className="h-5 w-5" />}
-            title="Escolas no recorte"
-            value={summary?.total_escolas ?? 0}
-            isLoading={schoolsQuery.isLoading}
-            delay={0}
-          />
-          <ModernStatCard
-            icon={<Users className="h-5 w-5" />}
-            title="Alunos monitorados"
-            value={summary?.total_alunos ?? 0}
-            isLoading={schoolsQuery.isLoading}
-            delay={80}
-          />
-          <ModernStatCard
-            icon={<CheckCircle2 className="h-5 w-5" />}
-            title="Ações realizadas"
-            value={summary?.total_acoes ?? 0}
-            subtitle={summary ? `${acoesPct}% do total` : undefined}
-            isLoading={schoolsQuery.isLoading}
-            delay={160}
-          />
-          <ModernStatCard
-            icon={<Eye className="h-5 w-5" />}
-            title="Vistos pela SEMED"
-            value={summary?.total_vistos_semed ?? 0}
-            isLoading={schoolsQuery.isLoading}
-            delay={240}
-          />
-        </div>
-
-        {summary && summary.total_alunos > 0 ? (
-          <Card>
-            <CardContent className="space-y-2 pt-6">
-              <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                  <ClipboardCheck className="h-3.5 w-3.5" />
-                  Progresso geral de execução das ações
-                </span>
-                <span className="tabular-nums">{acoesPct}%</span>
-              </div>
-              <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-primary to-emerald-500 transition-all"
-                  style={{ width: `${acoesPct}%` }}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
 
         <Card className="overflow-visible">
           <CardHeader className="pb-3">
@@ -1118,10 +1371,18 @@ const MonitoringPage = () => {
                 <Select
                   value={filters.serie_id || "all"}
                   onValueChange={(v) => handleFilterChange("serie_id", v === "all" ? "" : v)}
-                  disabled={!studentsModalOpen || !selectedSchoolId}
+                  disabled={!selectedSourceId || isLoadingFilters}
                 >
                   <SelectTrigger id="monitoramento-serie" className="w-full min-w-0">
-                    <SelectValue placeholder="Todas" />
+                    <SelectValue
+                      placeholder={
+                        !selectedSourceId
+                          ? "Selecione a avaliação ou cartão antes"
+                          : (optionsQuery.data?.series?.length ?? 0) === 0
+                            ? "Sem série nesta avaliação"
+                            : "Todas"
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todas</SelectItem>
@@ -1139,10 +1400,14 @@ const MonitoringPage = () => {
                 <Select
                   value={filters.turma_id || "all"}
                   onValueChange={(v) => handleFilterChange("turma_id", v === "all" ? "" : v)}
-                  disabled={!filters.serie_id}
+                  disabled={!filters.escola_id || !selectedSourceId || isLoadingFilters}
                 >
                   <SelectTrigger id="monitoramento-turma" className="w-full min-w-0">
-                    <SelectValue placeholder="Todas" />
+                    <SelectValue
+                      placeholder={
+                        !filters.escola_id ? "Selecione a escola antes" : "Todas"
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todas</SelectItem>
@@ -1256,6 +1521,142 @@ const MonitoringPage = () => {
         </Card>
 
         {selectedSourceId ? (
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+            <MonitoringKpiCard
+              variant="purple"
+              title="Relatórios"
+              value={totalRelatorios}
+              isLoading={isListLoading}
+              icon={<FileText className="h-7 w-7" />}
+              footer={
+                <>
+                  <span className="text-muted-foreground">=</span>
+                  <span>Total de alunos avaliados (Básico ou Abaixo do Básico)</span>
+                </>
+              }
+            />
+            <MonitoringKpiCard
+              variant="green"
+              title="Vistos"
+              value={`${taxaVistos}%`}
+              isLoading={isListLoading}
+              icon={<Eye className="h-7 w-7" />}
+              footer={
+                <>
+                  <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                  <span>
+                    {totalVistos} de {totalRelatorios} relatórios · taxa de visualização
+                  </span>
+                </>
+              }
+            />
+            <MonitoringKpiCard
+              variant="red"
+              title="Não vistos"
+              value={totalNaoVistos}
+              isLoading={isListLoading}
+              icon={<EyeOff className="h-7 w-7" />}
+              footer={
+                <>
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span className="font-medium">Ação necessária</span>
+                </>
+              }
+            />
+          </div>
+        ) : null}
+
+        {selectedSourceId ? (
+          <Card>
+            <CardContent className="space-y-5 pt-6">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-xl border bg-muted/30 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Preenchidas
+                      </p>
+                      <p className="mt-2 text-2xl font-bold tabular-nums">
+                        {totalPreenchidas}/{totalRelatorios}
+                        <span className="ml-2 text-base font-semibold text-muted-foreground">
+                          · {preenchidasPct}%
+                        </span>
+                      </p>
+                    </div>
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-950/50 dark:text-violet-400">
+                      <ClipboardCheck className="h-5 w-5" />
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-muted/30 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Realizadas
+                      </p>
+                      <p className="mt-2 text-2xl font-bold tabular-nums">
+                        {totalRealizadas}
+                        <span className="ml-2 text-base font-semibold text-muted-foreground">
+                          · {realizadasPct}%
+                        </span>
+                      </p>
+                    </div>
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
+                      <CheckCircle2 className="h-5 w-5" />
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-muted/30 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Pendentes / Não realizadas
+                      </p>
+                      <p className="mt-2 text-2xl font-bold tabular-nums text-red-600 dark:text-red-400">
+                        {totalPendentesNaoRealizadas}
+                      </p>
+                    </div>
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-100 text-red-600 dark:bg-red-950/50 dark:text-red-400">
+                      <XCircle className="h-5 w-5" />
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-muted/30 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {showClassTable ? "Turmas no recorte" : "Escolas no recorte"}
+                      </p>
+                      <p className="mt-2 text-2xl font-bold tabular-nums">{escolasNoRecorte}</p>
+                    </div>
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      <Building2 className="h-5 w-5" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {totalRelatorios > 0 ? (
+                <div className="space-y-2 border-t pt-4">
+                  <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <ClipboardCheck className="h-3.5 w-3.5" />
+                      Progresso geral de execução das ações
+                    </span>
+                    <span className="tabular-nums">{acoesPct}%</span>
+                  </div>
+                  <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-primary to-emerald-500 transition-all"
+                      style={{ width: `${acoesPct}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {selectedSourceId ? (
         <Card>
           <CardHeader className="space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1265,7 +1666,9 @@ const MonitoringPage = () => {
                   Tabela de Monitoramento
                 </CardTitle>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Linhas destacadas indicam escolas com ≥20% dos alunos em Abaixo do Básico.
+                  {showClassTable
+                    ? "Linhas destacadas indicam turmas com ≥20% dos alunos em Abaixo do Básico."
+                    : "Linhas destacadas indicam escolas com ≥20% dos alunos em Abaixo do Básico."}
                 </p>
               </div>
               {!filters.escola_id ? (
@@ -1282,18 +1685,26 @@ const MonitoringPage = () => {
                 Visão SEMED · agregada por escola — clique em <strong>Abrir</strong> para ver os alunos em um modal (a lista de
                 escolas permanece visível).
               </div>
+            ) : showClassTable ? (
+              <div className="border-b bg-primary/5 px-4 py-3 text-xs font-medium text-primary">
+                Visão por turma
+                {filters.serie_id ? " da série selecionada" : ""}
+                {filters.turma_id ? " — turma filtrada" : ""} — clique em <strong>Abrir</strong> para ver os alunos.
+              </div>
             ) : null}
 
-            {schoolsQuery.isLoading ? (
+            {isListLoading ? (
               <div className="space-y-2 p-4">
                 {Array.from({ length: 4 }).map((_, idx) => (
                   <Skeleton key={idx} className="h-10 w-full" />
                 ))}
               </div>
-            ) : schoolsQuery.isError ? (
+            ) : listQuery.isError ? (
               <div className="p-6 text-center">
-                <p className="text-sm text-muted-foreground">Erro ao carregar dados de escolas.</p>
-                <Button variant="outline" size="sm" className="mt-3" onClick={() => schoolsQuery.refetch()}>
+                <p className="text-sm text-muted-foreground">
+                  Erro ao carregar dados de {showClassTable ? "turmas" : "escolas"}.
+                </p>
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => listQuery.refetch()}>
                   <RefreshCw className="mr-2 h-4 w-4" />
                   Tentar novamente
                 </Button>
@@ -1310,11 +1721,13 @@ const MonitoringPage = () => {
                             size="sm"
                             className={cn(
                               "h-7 px-1 text-xs uppercase tracking-wide",
-                              schoolSort.by === "escola_nome" && "bg-muted/60"
+                              (showClassTable
+                                ? schoolSort.by === "turma_nome" || schoolSort.by === "escola_nome"
+                                : schoolSort.by === "escola_nome") && "bg-muted/60"
                             )}
-                            onClick={() => handleSchoolSort("escola_nome")}
+                            onClick={() => handleSchoolSort(showClassTable ? "turma_nome" : "escola_nome")}
                           >
-                            Escola
+                            {showClassTable ? "Turma" : "Escola"}
                             <ArrowUpDown className="ml-1 h-3 w-3" />
                           </Button>
                         </TableHead>
@@ -1394,72 +1807,143 @@ const MonitoringPage = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {(schoolsQuery.data?.items || []).map((school) => {
-                        const pctAbaixo = school.total_alunos
-                          ? (school.abaixo_basico / school.total_alunos) * 100
-                          : 0;
-                        const isCritical = pctAbaixo >= 20;
-                        const isDetailOpen =
-                          studentsModalOpen && selectedSchoolId === school.escola_id;
+                      {showClassTable
+                        ? (classesQuery.data?.items || []).map((turma) => {
+                            const pctAbaixo = turma.total_alunos
+                              ? (turma.abaixo_basico / turma.total_alunos) * 100
+                              : 0;
+                            const isCritical = pctAbaixo >= 20;
+                            const isDetailOpen =
+                              studentsModalOpen && filters.turma_id === turma.turma_id;
 
-                        return (
-                          <TableRow
-                            key={school.escola_id}
-                            className={cn(
-                              "transition-colors hover:bg-muted/30",
-                              isDetailOpen && "bg-primary/5",
-                              isCritical && "bg-destructive/5"
-                            )}
-                          >
-                            <TableCell className="font-medium">{school.escola_nome}</TableCell>
-                            <TableCell className="text-center tabular-nums">{school.total_alunos}</TableCell>
-                            <TableCell className="text-center">
-                              <MonitoringLevelCount
-                                count={school.abaixo_basico}
-                                total={school.total_alunos}
-                                nivel="Abaixo do Básico"
-                              />
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <MonitoringLevelCount
-                                count={school.basico}
-                                total={school.total_alunos}
-                                nivel="Básico"
-                              />
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <MonitoringLevelCount
-                                count={school.adequado}
-                                total={school.total_alunos}
-                                nivel="Adequado"
-                              />
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <MonitoringLevelCount
-                                count={school.avancado}
-                                total={school.total_alunos}
-                                nivel="Avançado"
-                              />
-                            </TableCell>
-                            <TableCell className="text-center tabular-nums">
-                              {school.acoes_realizadas}/{school.total_alunos}
-                            </TableCell>
-                            <TableCell className="text-center tabular-nums">
-                              {school.vistos_semed}/{school.total_alunos}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Button
-                                variant={isDetailOpen ? "default" : "outline"}
-                                size="sm"
-                                onClick={() => openSchoolDetail(school.escola_id)}
+                            return (
+                              <TableRow
+                                key={turma.turma_id}
+                                className={cn(
+                                  "transition-colors hover:bg-muted/30",
+                                  isDetailOpen && "bg-primary/5",
+                                  isCritical && "bg-destructive/5"
+                                )}
                               >
-                                {isDetailOpen ? "Visualizando" : "Abrir"}
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                      {!schoolsQuery.data?.items?.length && (
+                                <TableCell className="font-medium">
+                                  <div>{turma.turma_nome}</div>
+                                  <div className="text-xs font-normal text-muted-foreground">
+                                    {turma.serie_nome}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-center tabular-nums">{turma.total_alunos}</TableCell>
+                                <TableCell className="text-center">
+                                  <MonitoringLevelCount
+                                    count={turma.abaixo_basico}
+                                    total={turma.total_alunos}
+                                    nivel="Abaixo do Básico"
+                                  />
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <MonitoringLevelCount
+                                    count={turma.basico}
+                                    total={turma.total_alunos}
+                                    nivel="Básico"
+                                  />
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <MonitoringLevelCount
+                                    count={turma.adequado}
+                                    total={turma.total_alunos}
+                                    nivel="Adequado"
+                                  />
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <MonitoringLevelCount
+                                    count={turma.avancado}
+                                    total={turma.total_alunos}
+                                    nivel="Avançado"
+                                  />
+                                </TableCell>
+                                <TableCell className="text-center tabular-nums">
+                                  {turma.acoes_realizadas}/{turma.total_alunos}
+                                </TableCell>
+                                <TableCell className="text-center tabular-nums">
+                                  {turma.vistos_semed}/{turma.total_alunos}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button
+                                    variant={isDetailOpen ? "default" : "outline"}
+                                    size="sm"
+                                    onClick={() => openClassDetail(turma.turma_id)}
+                                  >
+                                    {isDetailOpen ? "Visualizando" : "Abrir"}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
+                        : (schoolsQuery.data?.items || []).map((school) => {
+                            const pctAbaixo = school.total_alunos
+                              ? (school.abaixo_basico / school.total_alunos) * 100
+                              : 0;
+                            const isCritical = pctAbaixo >= 20;
+                            const isDetailOpen =
+                              studentsModalOpen && selectedSchoolId === school.escola_id;
+
+                            return (
+                              <TableRow
+                                key={school.escola_id}
+                                className={cn(
+                                  "transition-colors hover:bg-muted/30",
+                                  isDetailOpen && "bg-primary/5",
+                                  isCritical && "bg-destructive/5"
+                                )}
+                              >
+                                <TableCell className="font-medium">{school.escola_nome}</TableCell>
+                                <TableCell className="text-center tabular-nums">{school.total_alunos}</TableCell>
+                                <TableCell className="text-center">
+                                  <MonitoringLevelCount
+                                    count={school.abaixo_basico}
+                                    total={school.total_alunos}
+                                    nivel="Abaixo do Básico"
+                                  />
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <MonitoringLevelCount
+                                    count={school.basico}
+                                    total={school.total_alunos}
+                                    nivel="Básico"
+                                  />
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <MonitoringLevelCount
+                                    count={school.adequado}
+                                    total={school.total_alunos}
+                                    nivel="Adequado"
+                                  />
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <MonitoringLevelCount
+                                    count={school.avancado}
+                                    total={school.total_alunos}
+                                    nivel="Avançado"
+                                  />
+                                </TableCell>
+                                <TableCell className="text-center tabular-nums">
+                                  {school.acoes_realizadas}/{school.total_alunos}
+                                </TableCell>
+                                <TableCell className="text-center tabular-nums">
+                                  {school.vistos_semed}/{school.total_alunos}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button
+                                    variant={isDetailOpen ? "default" : "outline"}
+                                    size="sm"
+                                    onClick={() => openSchoolDetail(school.escola_id)}
+                                  >
+                                    {isDetailOpen ? "Visualizando" : "Abrir"}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                      {!listQuery.data?.items?.length && (
                         <TableRow>
                           <TableCell colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
                             Nenhum resultado encontrado para os filtros selecionados.
@@ -1471,13 +1955,13 @@ const MonitoringPage = () => {
                 </div>
                 <div className="flex items-center justify-between border-t px-4 py-3">
                   <p className="text-xs text-muted-foreground">
-                    Mostrando {schoolsFrom}-{schoolsTo} de {schoolsPagination?.total || 0}
+                    Mostrando {listFrom}-{listTo} de {listPagination?.total || 0}
                   </p>
                   <div className="flex items-center gap-2">
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={!schoolsPagination || schoolsPagination.page <= 1}
+                      disabled={!listPagination || listPagination.page <= 1}
                       onClick={() => setSchoolPage((prev) => Math.max(1, prev - 1))}
                     >
                       <ChevronLeft className="h-4 w-4" />
@@ -1485,7 +1969,7 @@ const MonitoringPage = () => {
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={!schoolsPagination || schoolsPagination.page >= schoolsPagination.total_pages}
+                      disabled={!listPagination || listPagination.page >= listPagination.total_pages}
                       onClick={() => setSchoolPage((prev) => prev + 1)}
                     >
                       <ChevronRight className="h-4 w-4" />
@@ -1524,6 +2008,19 @@ const MonitoringPage = () => {
                   <p className="text-sm text-muted-foreground">{activeSchoolName}</p>
                 ) : null}
               </div>
+              <Button
+                type="button"
+                size="sm"
+                onClick={saveAllRows}
+                disabled={!canEdit || savingAllRows || saveMutation.isPending || studentsQuery.isLoading}
+              >
+                {savingAllRows ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                Salvar todas
+              </Button>
             </div>
             <div className="relative max-w-md">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -1632,11 +2129,12 @@ const MonitoringPage = () => {
                     <TableBody>
                       {studentsRows.map((row) => {
                         const rowStatus = (getDraftValue(row, "status") as string) || "pendente";
-                        const isSaving = savingRowId === row.aluno_id;
+                        const rowId = getStudentRowId(row);
+                        const isSaving = savingRowId === rowId;
 
                         return (
                           <TableRow
-                            key={row.aluno_id}
+                            key={rowId}
                             className={cn(
                               "transition-colors hover:bg-muted/30",
                               isAbaixoBasico(row.nivel) && "bg-destructive/5"
@@ -1647,15 +2145,55 @@ const MonitoringPage = () => {
                               <p className="text-xs text-muted-foreground">
                                 {row.serie} · {row.turma}
                               </p>
-                              {row.disciplina ? (
-                                <div className="mt-2">
-                                  <DisciplineTag name={row.disciplina} />
+                              {(row.disciplinas_criticas?.length || row.descritores_criticos?.length) ? (
+                                <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                                  {(() => {
+                                    const blocks =
+                                      row.disciplinas_criticas?.length
+                                        ? row.disciplinas_criticas
+                                        : [
+                                            {
+                                              disciplina: "",
+                                              nivel: row.nivel,
+                                              descritores_criticos: row.descritores_criticos,
+                                            },
+                                          ];
+                                    const filtroDisciplina = filters.disciplina?.trim();
+                                    if (filtroDisciplina && blocks.length === 1) {
+                                      const codes = (blocks[0].descritores_criticos ?? []).filter(Boolean);
+                                      return codes.length ? (
+                                        <p>
+                                          <span className="font-medium text-foreground">Críticos:</span>{" "}
+                                          <CriticalSkillCodes
+                                            codes={codes}
+                                            disciplinaLabel={filtroDisciplina}
+                                            onOpen={(codigo, disciplina) =>
+                                              openSkillDetail(codigo, disciplina, row)
+                                            }
+                                          />
+                                        </p>
+                                      ) : null;
+                                    }
+                                    return blocks.map((block) => {
+                                      const disciplina = block.disciplina?.trim() || "Geral";
+                                      const codes = (block.descritores_criticos ?? []).filter(Boolean);
+                                      return (
+                                        <p key={`${row.aluno_id}-${disciplina}`}>
+                                          <span className="font-medium text-foreground">{disciplina}:</span>{" "}
+                                          {codes.length ? (
+                                            <CriticalSkillCodes
+                                              codes={codes}
+                                              disciplinaLabel={disciplina}
+                                              onOpen={(codigo, disc) => openSkillDetail(codigo, disc, row)}
+                                            />
+                                          ) : (
+                                            block.nivel
+                                          )}
+                                        </p>
+                                      );
+                                    });
+                                  })()}
                                 </div>
-                              ) : null}
-                              {row.descritores_criticos.length ? (
-                                <p className="mt-2 text-xs text-muted-foreground">
-                                  Críticos: {row.descritores_criticos.join(", ")}
-                                </p>
                               ) : null}
                             </TableCell>
                             <TableCell className="font-semibold tabular-nums">
@@ -1706,7 +2244,7 @@ const MonitoringPage = () => {
                                 <SelectTrigger
                                   className={cn("w-full min-w-0 font-medium", getMonitoringStatusClass(rowStatus))}
                                 >
-                                  <SelectValue />
+                                  <SelectValue>{getStatusLabel(rowStatus)}</SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
                                   {statusOptions.map((status) => (
@@ -1752,7 +2290,7 @@ const MonitoringPage = () => {
                                   size="sm"
                                   variant="outline"
                                   onClick={() => saveRow(row)}
-                                  disabled={!canEdit || isSaving}
+                                  disabled={!canEdit || isSaving || savingAllRows}
                                   aria-label="Salvar ação pedagógica"
                                 >
                                   {isSaving ? (
@@ -1860,6 +2398,13 @@ const MonitoringPage = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      <MonitoringSkillDetailDialog
+        open={skillDetailOpen}
+        onOpenChange={setSkillDetailOpen}
+        request={skillDetailRequest}
+        pageFilters={filters}
+      />
     </>
   );
 };

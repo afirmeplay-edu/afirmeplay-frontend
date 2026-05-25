@@ -55,6 +55,12 @@ export type MonitoringSchoolItem = {
   vistos_semed: number;
 };
 
+export type MonitoringClassItem = MonitoringSchoolItem & {
+  turma_id: string;
+  turma_nome: string;
+  serie_nome: string;
+};
+
 export type MonitoringSchoolsResponse = {
   items: MonitoringSchoolItem[];
   summary: {
@@ -62,6 +68,12 @@ export type MonitoringSchoolsResponse = {
     total_alunos: number;
     total_acoes: number;
     total_vistos_semed: number;
+    total_relatorios: number;
+    total_nao_vistos: number;
+    taxa_vistos_pct: number;
+    total_preenchidas: number;
+    total_realizadas: number;
+    total_pendentes_nao_realizadas: number;
   };
   pagination: {
     page: number;
@@ -71,7 +83,21 @@ export type MonitoringSchoolsResponse = {
   };
 };
 
+export type MonitoringClassesResponse = {
+  items: MonitoringClassItem[];
+  summary: MonitoringSchoolsResponse["summary"];
+  pagination: MonitoringSchoolsResponse["pagination"];
+};
+
+export type MonitoringStudentDisciplinaCritica = {
+  disciplina: string;
+  nivel: string;
+  nota?: number;
+  descritores_criticos: string[];
+};
+
 export type MonitoringStudentItem = {
+  linha_id: string;
   aluno_id: string;
   aluno_nome: string;
   matricula?: string;
@@ -82,7 +108,7 @@ export type MonitoringStudentItem = {
   nota: number;
   proficiencia: number;
   nivel: string;
-  disciplina?: string;
+  disciplinas_criticas?: MonitoringStudentDisciplinaCritica[];
   descritores_criticos: string[];
   acao_id: string | null;
   acao_pedagogica: string;
@@ -91,7 +117,7 @@ export type MonitoringStudentItem = {
   coordenador_id?: string | null;
   coordenador_nome?: string;
   prazo: string | null;
-  status: "pendente" | "sendo_realizada" | "nao_realizado";
+  status: "pendente" | "sendo_realizada" | "realizada" | "nao_realizado";
   realizada_em: string | null;
   feita_pela_escola: boolean;
   vista_pela_semed: boolean;
@@ -109,6 +135,20 @@ export type MonitoringStudentsResponse = {
   };
 };
 
+export type MonitoringSkillDetailQuestao = {
+  numero: number;
+  disciplina: string;
+};
+
+export type MonitoringSkillDetail = {
+  codigo: string;
+  nome: string;
+  descricao: string;
+  disciplina: string;
+  skill_id: string | null;
+  questoes: MonitoringSkillDetailQuestao[];
+};
+
 export type MonitoringActionPayload = {
   source_type: MonitoringSourceType;
   source_id: string;
@@ -121,7 +161,7 @@ export type MonitoringActionPayload = {
   responsavel_nome: string;
   coordenador_id?: string | null;
   prazo: string | null;
-  status: "pendente" | "sendo_realizada" | "nao_realizado";
+  status: "pendente" | "sendo_realizada" | "realizada" | "nao_realizado";
   realizada_em: string | null;
   feita_pela_escola: boolean;
   vista_pela_semed: boolean;
@@ -209,8 +249,20 @@ export class MonitoramentoApiService {
     return response.data;
   }
 
+  static async getClasses(filters: MonitoringFilters): Promise<MonitoringClassesResponse> {
+    const response = await api.get(`/monitoramento/turmas?${cleanParams(filters).toString()}`);
+    return response.data;
+  }
+
   static async getStudents(filters: MonitoringFilters): Promise<MonitoringStudentsResponse> {
     const response = await api.get(`/monitoramento/alunos?${cleanParams(filters).toString()}`);
+    return response.data;
+  }
+
+  static async getSkillDetail(
+    filters: MonitoringFilters & { codigo: string }
+  ): Promise<MonitoringSkillDetail> {
+    const response = await api.get(`/monitoramento/habilidade-detalhe?${cleanParams(filters).toString()}`);
     return response.data;
   }
 

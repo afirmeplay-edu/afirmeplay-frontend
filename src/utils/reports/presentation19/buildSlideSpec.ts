@@ -5,6 +5,12 @@ import { getSubjectPaletteIndex } from "@/utils/competition/competitionSubjectCo
 import { chunkPresentation19SlideQuestionRows } from "@/utils/reports/presentation19/questionsTablePagination";
 import { comparisonColumnLabel } from "@/utils/reports/presentation19/presentationScope";
 import { formatPctOneDecimalPtBr } from "@/utils/reports/presentation19/formatPctOneDecimalPtBr";
+import {
+  filterPresentation19RealDisciplineRows,
+  PRESENTATION19_MUNICIPAL_AVG_LABEL,
+  presentation19GradesDisciplineChartTitle,
+  presentation19ProficiencyDisciplineChartTitle,
+} from "@/utils/reports/presentation19/presentation19Labels";
 
 const MAX_CATEGORY_ROWS_PER_SLIDE = 14;
 /** Proficiência por disciplina: 1 gráfico por slide (largura total, uma disciplina por “linha”). */
@@ -82,10 +88,15 @@ function buildPresenceChart(deckData: Presentation19DeckData, rows = deckData.pr
     type: "bar",
     categoryKey: "label",
     valueKeys: [{ key: "total_presentes", label: "Alunos presentes", color: deckData.primaryColor }],
-    data: rows.map((r) => ({
-      label: r.label,
-      total_presentes: Math.round(Math.max(0, Number(r.totalPresentes ?? 0))),
-    })),
+    data: rows.map((r) => {
+      const presentes = Math.round(Math.max(0, Number(r.totalPresentes ?? 0)));
+      const pctStr = formatPctOneDecimalPtBr(Number(r.presencaMediaPct ?? 0));
+      return {
+        label: r.label,
+        total_presentes: presentes,
+        barTopLabel: `${presentes} · ${pctStr}`,
+      };
+    }),
     yAxis: {
       min: 0,
       max: axisMax,
@@ -144,7 +155,7 @@ function buildLevelsComparisonChartMultiSchool(deckData: Presentation19DeckData)
   const sorted = [...deckData.niveisPorSerie].sort((a, b) =>
     a.label.localeCompare(b.label, "pt-BR", { sensitivity: "base" })
   );
-  const municipal = sumNiveisRows(deckData.niveisPorSerie, "Média municipal");
+  const municipal = sumNiveisRows(deckData.niveisPorSerie, PRESENTATION19_MUNICIPAL_AVG_LABEL);
   const allRows = [...sorted, municipal];
   const rawMax = Math.max(
     1,
@@ -291,14 +302,20 @@ function buildGradesChartMunicipalCompare(deckData: Presentation19DeckData): Exp
     mediaMunicipalRelatorioGeral(deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined) ??
     deckData.mediaNotaMunicipalAgregados ??
     deckData.mediaNotaGeral;
+  let munNotaRounded: number | null = null;
   if (notaMunicipalOficial != null && Number.isFinite(notaMunicipalOficial)) {
+    munNotaRounded = Number(clampToRange(notaMunicipalOficial, 0, 1000).toFixed(1));
     rows.push({
-      escopo: "Média municipal",
-      nota: Number(clampToRange(notaMunicipalOficial, 0, 1000).toFixed(1)),
+      escopo: PRESENTATION19_MUNICIPAL_AVG_LABEL,
+      nota: munNotaRounded,
       color: deckData.primaryColor,
     });
   }
-  return buildGradesChartRowsYMax(rows, deckData.primaryColor);
+  const chart = buildGradesChartRowsYMax(rows, deckData.primaryColor);
+  if (munNotaRounded != null) {
+    return { ...chart, referenceLineY: munNotaRounded };
+  }
+  return chart;
 }
 
 function buildGradesChart(deckData: Presentation19DeckData): ExportChart {
@@ -380,7 +397,7 @@ function buildGeneralProficiencyChartMultiSchool(deckData: Presentation19DeckDat
   const mun = resolveMunicipalProficiencyGeral(deckData);
   const dataRows =
     mun != null && Number.isFinite(mun)
-      ? [...schoolRows, { label: "Média municipal", proficiencia: mun }]
+      ? [...schoolRows, { label: PRESENTATION19_MUNICIPAL_AVG_LABEL, proficiencia: mun }]
       : schoolRows;
 
   return {
@@ -399,13 +416,21 @@ function buildGeneralProficiencyChartMultiSchool(deckData: Presentation19DeckDat
   };
 }
 
+function normEscolaKey(s: string): string {
+  return String(s ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 function buildDefaultProficiencyByDisciplineCharts(deckData: Presentation19DeckData): Array<{ title: string; chart: ExportChart }> {
-  return deckData.proficienciaPorDisciplinaPorTurma
+  return filterPresentation19RealDisciplineRows(deckData.proficienciaPorDisciplinaPorTurma)
     .map((disciplina) => {
       const paletteIdx = getSubjectPaletteIndex(disciplina.disciplina, disciplina.disciplina);
       const yMax = getProficiencyTableInfo(deckData.serie, disciplina.disciplina).maxProficiency;
       return {
-        title: `Disciplina: ${disciplina.disciplina}`,
+        title: presentation19ProficiencyDisciplineChartTitle(disciplina.disciplina),
         chart: {
           type: "bar" as const,
           categoryKey: "turma",
@@ -448,12 +473,14 @@ function municipalProficiencyForDiscipline(
 function buildProficiencyByDisciplineChartsMunicipalCompare(
   deckData: Presentation19DeckData
 ): Array<{ title: string; chart: ExportChart }> {
-  return deckData.proficienciaPorDisciplinaPorTurma.map((disciplina) => {
+  return filterPresentation19RealDisciplineRows(deckData.proficienciaPorDisciplinaPorTurma)
+    .map((disciplina) => {
     const paletteIdx = getSubjectPaletteIndex(disciplina.disciplina, disciplina.disciplina);
     const yMax = getProficiencyTableInfo(deckData.serie, disciplina.disciplina).maxProficiency;
     const schoolData = deckData.niveisPorSerie
       .map((n) => {
-        const v = disciplina.valuesByTurma.find((t) => t.turma === n.label);
+        const nk = normEscolaKey(n.label);
+        const v = disciplina.valuesByTurma.find((t) => normEscolaKey(t.turma) === nk);
         return v
           ? {
               escola: n.label,
@@ -469,13 +496,13 @@ function buildProficiencyByDisciplineChartsMunicipalCompare(
         ? [
             ...schoolData,
             {
-              escola: "Média municipal",
+              escola: PRESENTATION19_MUNICIPAL_AVG_LABEL,
               proficiencia: Number(clampToRange(mun, 0, yMax).toFixed(1)),
             },
           ]
         : schoolData;
     return {
-      title: `Disciplina: ${disciplina.disciplina}`,
+      title: presentation19ProficiencyDisciplineChartTitle(disciplina.disciplina),
       chart: {
         type: "bar" as const,
         categoryKey: "escola",
@@ -494,7 +521,8 @@ function buildProficiencyByDisciplineChartsMunicipalCompare(
         },
       },
     };
-  });
+  })
+    .filter((entry) => entry.chart.data.length > 0);
 }
 
 function gradesYMaxFromValues(values: number[]): number {
@@ -503,11 +531,11 @@ function gradesYMaxFromValues(values: number[]): number {
 }
 
 function buildDefaultGradesByDisciplineCharts(deckData: Presentation19DeckData): Array<{ title: string; chart: ExportChart }> {
-  return deckData.notasPorDisciplinaPorTurma.map((disciplina) => {
+  return filterPresentation19RealDisciplineRows(deckData.notasPorDisciplinaPorTurma).map((disciplina) => {
     const paletteIdx = getSubjectPaletteIndex(disciplina.disciplina, disciplina.disciplina);
     const yMax = gradesYMaxFromValues(disciplina.valuesByTurma.map((v) => v.mediaNota));
     return {
-      title: `Disciplina: ${disciplina.disciplina}`,
+      title: presentation19GradesDisciplineChartTitle(disciplina.disciplina),
       chart: {
         type: "bar" as const,
         categoryKey: "turma",
@@ -550,11 +578,13 @@ function municipalNotaForDiscipline(
 function buildGradesByDisciplineChartsMunicipalCompare(
   deckData: Presentation19DeckData
 ): Array<{ title: string; chart: ExportChart }> {
-  return deckData.notasPorDisciplinaPorTurma.map((disciplina) => {
+  return filterPresentation19RealDisciplineRows(deckData.notasPorDisciplinaPorTurma)
+    .map((disciplina) => {
     const paletteIdx = getSubjectPaletteIndex(disciplina.disciplina, disciplina.disciplina);
     const schoolData = deckData.niveisPorSerie
       .map((n) => {
-        const v = disciplina.valuesByTurma.find((t) => t.turma === n.label);
+        const nk = normEscolaKey(n.label);
+        const v = disciplina.valuesByTurma.find((t) => normEscolaKey(t.turma) === nk);
         return v ? { escola: n.label, nota: v.mediaNota } : null;
       })
       .filter((x): x is { escola: string; nota: number } => x != null)
@@ -572,7 +602,7 @@ function buildGradesByDisciplineChartsMunicipalCompare(
               nota: Number(clampToRange(s.nota, 0, yMax).toFixed(1)),
             })),
             {
-              escola: "Média municipal",
+              escola: PRESENTATION19_MUNICIPAL_AVG_LABEL,
               nota: Number(clampToRange(mun, 0, yMax).toFixed(1)),
             },
           ]
@@ -581,7 +611,7 @@ function buildGradesByDisciplineChartsMunicipalCompare(
             nota: Number(clampToRange(s.nota, 0, yMax).toFixed(1)),
           }));
     return {
-      title: `Disciplina: ${disciplina.disciplina}`,
+      title: presentation19GradesDisciplineChartTitle(disciplina.disciplina),
       chart: {
         type: "bar" as const,
         categoryKey: "escola",
@@ -601,13 +631,14 @@ function buildGradesByDisciplineChartsMunicipalCompare(
         },
       },
     };
-  });
+  })
+    .filter((entry) => entry.chart.data.length > 0);
 }
 
 function buildGradesTableRows(deckData: Presentation19DeckData): Array<Array<string | number>> {
   const escolaMulti = isMunicipalMultiSchool(deckData);
   const out: Array<Array<string | number>> = [];
-  const medLabel = escolaMulti ? "Média municipal" : "Média geral";
+  const medLabel = escolaMulti ? PRESENTATION19_MUNICIPAL_AVG_LABEL : "Média geral";
   const notaMedResumo = escolaMulti
     ? mediaMunicipalRelatorioGeral(deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined) ??
       deckData.mediaNotaMunicipalAgregados ??
@@ -636,7 +667,7 @@ export function buildSlideSpec(deckData: Presentation19DeckData): Presentation19
   const presenceTableSlides: Array<Omit<Presentation19SlideSpec, "index">> = presenceChunks.map((chunk) => ({
     kind: "presence-table" as const,
     table: {
-      columns: [catLabel, "Total de Alunos", "Total de Presentes", "Presença Média (%)", "Alunos Faltosos"],
+      columns: [catLabel, "Total de Alunos", "Total de Avaliados", "Presença Média (%)", "Alunos Faltosos"],
       rows: chunk.map((r) => [
         r.label,
         Math.round(Number(r.totalAlunos ?? 0)),
@@ -645,6 +676,7 @@ export function buildSlideSpec(deckData: Presentation19DeckData): Presentation19
         Math.round(Number(r.alunosFaltosos ?? 0)),
       ]),
     },
+    presencePctValues: chunk.map((r) => Number(r.presencaMediaPct ?? 0)),
   }));
 
   const presenceChartSlides: Array<Omit<Presentation19SlideSpec, "index">> = presenceChunks.map((chunk) => ({
@@ -681,7 +713,10 @@ export function buildSlideSpec(deckData: Presentation19DeckData): Presentation19
         },
       ];
 
-  const profGeralChunks = chunkFlat(deckData.proficienciaGeralPorTurma, MAX_CATEGORY_ROWS_PER_SLIDE);
+  const proficiencyDiscChartsAll = multiSchool
+    ? buildProficiencyByDisciplineChartsMunicipalCompare(deckData)
+    : buildDefaultProficiencyByDisciplineCharts(deckData);
+
   const profGeralChartSlides: Presentation19SlideSpec[] = multiSchool
     ? [
         {
@@ -690,15 +725,12 @@ export function buildSlideSpec(deckData: Presentation19DeckData): Presentation19
           chart: buildGeneralProficiencyChartMultiSchool(deckData),
         },
       ]
-    : profGeralChunks.map((chunk) => ({
+    : chunkFlat(deckData.proficienciaGeralPorTurma, MAX_CATEGORY_ROWS_PER_SLIDE).map((chunk) => ({
         index: 0,
         kind: "proficiency-general-chart" as const,
         chart: buildGeneralProficiencyChart(deckData, chunk),
       }));
 
-  const proficiencyDiscChartsAll = multiSchool
-    ? buildProficiencyByDisciplineChartsMunicipalCompare(deckData)
-    : buildDefaultProficiencyByDisciplineCharts(deckData);
   const proficiencyDiscChartChunks = chunkFlat(proficiencyDiscChartsAll, MAX_PROF_DISC_CHARTS_PER_SLIDE);
   const proficiencyByDisciplineSlides: Presentation19SlideSpec[] =
     proficiencyDiscChartChunks.length > 0
@@ -866,12 +898,11 @@ export function buildSlideSpec(deckData: Presentation19DeckData): Presentation19
 
   push({ kind: "section-levels" });
   push({ kind: "levels-guide" });
-  for (const s of levelsChartSlides) {
-    if (s.kind === "levels-chart") push(s);
-  }
-
   for (const s of levelsTableSlides) {
     if (s.kind === "levels-table") push(s);
+  }
+  for (const s of levelsChartSlides) {
+    if (s.kind === "levels-chart") push(s);
   }
 
   push({ kind: "section-proficiency" });
@@ -890,6 +921,9 @@ export function buildSlideSpec(deckData: Presentation19DeckData): Presentation19
       rows: buildGradesTableRows(deckData),
     },
   });
+  if (deckData.schoolMissingRegisteredTurma) {
+    push({ kind: "grades-no-turma-notice" });
+  }
   if (multiSchool) {
     push({ kind: "grades-chart", chart: buildGradesChartMunicipalCompare(deckData) });
   } else {

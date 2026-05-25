@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -28,6 +29,7 @@ import {
   Table2,
   Eye,
   FileText,
+  Search,
 } from 'lucide-react';
 import { format, parse } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -49,6 +51,13 @@ import { DisciplineTables } from '@/components/evaluations/results/DisciplineTab
 import { cn } from '@/lib/utils';
 import { generatePendingStudentsPdf } from '@/services/reports/pendingStudentsPdf';
 import { generateRankingPdf } from '@/services/reports/rankingPdf';
+import { normalizeEvaluationResultsRanking } from '@/utils/evaluation/normalizeEvaluationResultsRanking';
+import {
+  normalizePendingStudentSearchText,
+  parsePendingStudentSearchInput,
+  getPendingStudentsSearchPlaceholder,
+} from '@/utils/report/pendingStudentsSearch';
+import { buildGeralAlunosFromDisciplinasAndRanking } from '@/utils/answer-sheet/buildTabelaDetalhadaGeral';
 import {
   RESULTS_PERIOD_YEAR_MIN,
   getResultsPeriodYearMax,
@@ -74,6 +83,16 @@ interface OpcoesFiltrosResponse {
   turmas?: FilterOption[];
 }
 
+// Aluno pendente/faltoso detalhado em `estatisticas_gerais.alunos_pendentes_detalhe`
+// (mesmo contrato usado pela rota das avaliações online — fonte oficial da lista).
+interface AlunoPendenteDetalhe {
+  id: string;
+  nome: string;
+  escola?: string;
+  serie?: string;
+  turma?: string;
+}
+
 // Resposta de GET /answer-sheets/resultados-agregados
 interface EstatisticasGerais {
   tipo: string;
@@ -90,6 +109,7 @@ interface EstatisticasGerais {
   alunos_participantes: number;
   alunos_pendentes?: number;
   alunos_ausentes?: number;
+  alunos_pendentes_detalhe?: AlunoPendenteDetalhe[];
   percentual_comparecimento?: number;
   nivel_classificacao?: string | null;
   media_nota_geral: number;
@@ -100,6 +120,17 @@ interface EstatisticasGerais {
     adequado: number;
     avancado: number;
   };
+  por_disciplina?: Array<{
+    disciplina: string;
+    media_nota?: number;
+    media_proficiencia?: number;
+    distribuicao_classificacao?: {
+      abaixo_do_basico: number;
+      basico: number;
+      adequado: number;
+      avancado: number;
+    };
+  }>;
 }
 
 interface GabaritoAgregado {
@@ -340,10 +371,17 @@ interface RankingItem {
   posicao: number;
   student_id: string;
   nome: string;
+  escola_id: string | null;
+  escola: string;
+  serie: string;
+  turma: string;
   grade: number;
   proficiency: number;
   classification: string;
   score_percentage: number;
+  total_acertos: number;
+  total_respondidas: number;
+  total_questoes: number;
 }
 
 interface ResultadosAgregadosResponse {
@@ -454,6 +492,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   // UI: modo de visualização na aba Tabelas (tabela vs cards) e modal de faltosos
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [showAbsentStudentsModal, setShowAbsentStudentsModal] = useState(false);
+  const [absentStudentsModalSearch, setAbsentStudentsModalSearch] = useState('');
 
   const loadFiltersFromStorage = useCallback((): AnswerSheetStoredFilters | null => {
     try {
@@ -715,22 +754,28 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
 
   const handleBack = () => navigate('/app/cartao-resposta');
 
-  // Gráficos: usar resultados_por_disciplina da API (nome das disciplinas, nota e média)
+  // Gráficos: usar por_disciplina aninhado em estatisticas_gerais (formato esperado por ResultsCharts).
+  // Fallback para resultados_por_disciplina (raiz) caso o backend ainda não envie em estatisticas_gerais.
   const chartsApiData = useMemo(() => {
     if (!apiData?.estatisticas_gerais) return null;
-    const porDisciplina = apiData.resultados_por_disciplina ?? [];
+    const porDisciplinaFromStats = apiData.estatisticas_gerais.por_disciplina;
+    const porDisciplina =
+      Array.isArray(porDisciplinaFromStats) && porDisciplinaFromStats.length > 0
+        ? porDisciplinaFromStats
+        : (apiData.resultados_por_disciplina ?? []);
+    const porDisciplinaNormalized = porDisciplina.map((d) => ({
+      disciplina: d.disciplina,
+      media_nota: d.media_nota ?? 0,
+      media_proficiencia: d.media_proficiencia ?? 0,
+      distribuicao_classificacao: d.distribuicao_classificacao,
+    }));
     return {
       estatisticas_gerais: {
         media_nota_geral: apiData.estatisticas_gerais.media_nota_geral ?? 0,
         media_proficiencia_geral: apiData.estatisticas_gerais.media_proficiencia_geral ?? 0,
         distribuicao_classificacao_geral: apiData.estatisticas_gerais.distribuicao_classificacao_geral,
+        por_disciplina: porDisciplinaNormalized,
       },
-      resultados_por_disciplina: porDisciplina.map((d) => ({
-        disciplina: d.disciplina,
-        media_nota: d.media_nota ?? 0,
-        media_proficiencia: d.media_proficiencia ?? 0,
-        distribuicao_classificacao: d.distribuicao_classificacao,
-      })),
     };
   }, [apiData]);
 
@@ -764,9 +809,36 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   const series = opcoes.series ?? [];
   const turmas = opcoes.turmas ?? [];
 
-  const geralAlunos = useMemo(() => apiData?.tabela_detalhada?.geral?.alunos ?? [], [apiData?.tabela_detalhada?.geral?.alunos]);
   const disciplinasTabela = useMemo(() => apiData?.tabela_detalhada?.disciplinas ?? [], [apiData?.tabela_detalhada?.disciplinas]);
   const ranking = useMemo(() => apiData?.ranking ?? [], [apiData?.ranking]);
+  const geralAlunos = useMemo(() => {
+    const fromApi = apiData?.tabela_detalhada?.geral?.alunos ?? [];
+    if (fromApi.length > 0) return fromApi;
+    if (!disciplinasTabela.length) return [];
+    return buildGeralAlunosFromDisciplinasAndRanking(disciplinasTabela, ranking);
+  }, [apiData?.tabela_detalhada?.geral?.alunos, disciplinasTabela, ranking]);
+
+  /** Ranking = `apiData.ranking[]` do backend (posição e critério do servidor), como na avaliação online. */
+  const rankingStudents = useMemo(() => {
+    if (!apiData?.ranking?.length) return [];
+    return normalizeEvaluationResultsRanking(apiData.ranking as unknown[]).map((r) => ({
+      id: r.id,
+      nome: r.nome,
+      turma: r.turma,
+      escola: r.escola || undefined,
+      serie: r.serie || undefined,
+      nota: r.nota,
+      proficiencia: r.proficiencia,
+      classificacao: r.classificacao,
+      status: r.status,
+      posicao: r.posicao,
+      questoes_respondidas: r.questoes_respondidas,
+      acertos: r.acertos,
+      erros: r.erros,
+      em_branco: r.em_branco,
+    }));
+  }, [apiData?.ranking]);
+
   const hasMinimumFilters =
     estado && estado !== 'all' &&
     municipio && municipio !== 'all' &&
@@ -789,28 +861,82 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     [navigate, hasMinimumFilters, estado, municipio, gabarito, escola, serie, turma, periodoApi]
   );
 
-  // Estatísticas derivadas (para card Informações e métricas)
-  const derivedStats = useMemo(() => {
-    if (!apiData?.estatisticas_gerais) {
-      return { totalAlunos: 0, participantes: 0, ausentes: 0, mediaNota: 0, mediaProficiencia: 0 };
-    }
-    const e = apiData.estatisticas_gerais;
-    const totalAlunos = e.total_alunos ?? 0;
-    const participantes = e.alunos_participantes ?? 0;
-    const ausentes = e.alunos_pendentes ?? 0;
+  // Métricas gerais: sempre de `estatisticas_gerais` do payload (sem recalcular no frontend)
+  const backendStats = useMemo(() => {
+    const s = apiData?.estatisticas_gerais;
+    const pct =
+      s?.percentual_comparecimento != null && Number.isFinite(Number(s.percentual_comparecimento))
+        ? Number(s.percentual_comparecimento)
+        : null;
     return {
-      totalAlunos,
-      participantes,
-      ausentes,
-      mediaNota: e.media_nota_geral ?? 0,
-      mediaProficiencia: e.media_proficiencia_geral ?? 0,
+      totalAlunos: s?.total_alunos ?? 0,
+      participantes: s?.alunos_participantes ?? 0,
+      pendentes: s?.alunos_pendentes ?? 0,
+      mediaNota: s?.media_nota_geral ?? 0,
+      mediaProficiencia: s?.media_proficiencia_geral ?? 0,
+      percentualComparecimento: pct,
     };
-  }, [apiData]);
+  }, [apiData?.estatisticas_gerais]);
 
-  // Alunos faltosos/pendentes = status_geral !== 'concluida'
-  const absentStudents = useMemo(() => {
-    return geralAlunos.filter((a) => (a.status_geral || '').toLowerCase() !== 'concluida');
-  }, [geralAlunos]);
+  // Alunos faltosos/pendentes — fonte oficial: `estatisticas_gerais.alunos_pendentes_detalhe` (backend).
+  // Fallback (compatibilidade): filtrar `tabela_detalhada.geral.alunos` por `status_geral !== 'concluida'`.
+  const absentStudents = useMemo<AlunoPendenteDetalhe[]>(() => {
+    const detalhe = apiData?.estatisticas_gerais?.alunos_pendentes_detalhe;
+    if (Array.isArray(detalhe) && detalhe.length > 0) {
+      return detalhe.map((a, i) => ({
+        id: String(a.id ?? `sem-id-${i}`),
+        nome: String(a.nome ?? ''),
+        escola: a.escola,
+        serie: a.serie,
+        turma: a.turma,
+      }));
+    }
+    return geralAlunos
+      .filter((a) => (a.status_geral || '').toLowerCase() !== 'concluida')
+      .map((a) => ({
+        id: a.id,
+        nome: a.nome ?? '',
+        escola: a.escola,
+        serie: a.serie,
+        turma: a.turma,
+      }));
+  }, [apiData?.estatisticas_gerais?.alunos_pendentes_detalhe, geralAlunos]);
+
+  const filteredAbsentStudents = useMemo(() => {
+    const q = absentStudentsModalSearch.trim();
+    if (!q) return absentStudents;
+    const parsed = parsePendingStudentSearchInput(q);
+    const n = normalizePendingStudentSearchText;
+
+    if (parsed.kind === 'general' && !parsed.needle) return absentStudents;
+
+    return absentStudents.filter((a) => {
+      if (parsed.kind === 'turma') {
+        return n(String(a.turma ?? '')).includes(parsed.needle);
+      }
+      if (parsed.kind === 'escola') {
+        return n(String(a.escola ?? '')).includes(parsed.needle);
+      }
+      if (parsed.kind === 'serie') {
+        return n(String(a.serie ?? '')).includes(parsed.needle);
+      }
+      const needle = parsed.needle;
+      return (
+        n(String(a.nome ?? '')).includes(needle) ||
+        n(String(a.escola ?? '')).includes(needle) ||
+        n(String(a.serie ?? '')).includes(needle) ||
+        n(String(a.turma ?? '')).includes(needle)
+      );
+    });
+  }, [absentStudents, absentStudentsModalSearch]);
+
+  const absentStudentsSearchPlaceholder = useMemo(
+    () =>
+      getPendingStudentsSearchPlaceholder(
+        apiData?.nivel_granularidade ?? apiData?.estatisticas_gerais?.tipo
+      ),
+    [apiData?.nivel_granularidade, apiData?.estatisticas_gerais?.tipo]
+  );
 
   // Lista unificada para Ranking e Cards: partir de geral.alunos e enriquecer com ranking (posição)
   const filteredStudents = useMemo(() => {
@@ -936,10 +1062,25 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
       resultados_detalhados: { avaliacoes },
       estatisticas_gerais: apiData.estatisticas_gerais,
       tabela_detalhada: {
+        disciplinas: disciplinasTabela.map((d) => ({
+          id: d.id,
+          nome: d.nome,
+          alunos: (d.alunos ?? []).map((a) => ({
+            id: a.id,
+            nome: a.nome ?? '',
+            turma: a.turma ?? '',
+            nivel_proficiencia: a.nivel_proficiencia ?? '',
+            nota: a.nota ?? 0,
+            proficiencia: a.proficiencia ?? 0,
+            total_acertos: a.total_acertos ?? 0,
+            total_erros: a.total_erros ?? 0,
+            total_respondidas: a.total_respondidas ?? 0,
+          })),
+        })),
         geral: { alunos: alunosParaStats },
       },
     };
-  }, [apiData, geralAlunos]);
+  }, [apiData, geralAlunos, disciplinasTabela]);
 
   const isMunicipioScope =
     apiData?.estatisticas_gerais?.tipo === 'municipio' || apiData?.nivel_granularidade === 'municipio';
@@ -953,7 +1094,13 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   ) ?? 'Cartão Resposta';
   const hasNoData = !apiData?.resultados_detalhados?.gabaritos?.length && !geralAlunos.length && !disciplinasTabela.length;
   const totalQuestionsForCards = geralAlunos.find((a) => (a.total_questoes_geral ?? 0) > 0)?.total_questoes_geral ?? 0;
-  const derivedSubjects = useMemo(() => [tituloGabarito].filter(Boolean), [tituloGabarito]);
+  const derivedSubjects = useMemo(() => {
+    const fromDisciplinas = disciplinasTabela
+      .map((d) => d.nome?.trim())
+      .filter((n): n is string => Boolean(n));
+    if (fromDisciplinas.length > 0) return fromDisciplinas;
+    return [tituloGabarito].filter(Boolean);
+  }, [disciplinasTabela, tituloGabarito]);
 
   const rankingPdfFilterLabels = useMemo(
     () => ({
@@ -974,15 +1121,30 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   );
 
   const handleExportRankingPdf = useCallback(async () => {
-    if (studentsParticipantesTabelas.length === 0) return;
+    if (rankingStudents.length === 0) return;
     try {
       await generateRankingPdf({
         context: 'cartao-resposta',
         escopoTitulo: tituloGabarito,
         filterLabels: rankingPdfFilterLabels,
-        students: studentsParticipantesTabelas,
+        students: rankingStudents.map((s) => ({
+          nome: s.nome,
+          turma: s.turma,
+          escola: s.escola,
+          serie: s.serie,
+          nota: s.nota,
+          proficiencia: s.proficiencia,
+          classificacao: s.classificacao,
+          status: s.status,
+          posicao: s.posicao,
+          questoes_respondidas: s.questoes_respondidas,
+          acertos: s.acertos,
+          erros: s.erros,
+          em_branco: s.em_branco,
+        })),
         maxRows: 100,
         fileNameBase: `ranking-cartao-${tituloGabarito}`,
+        respectBackendRankingOrder: true,
       });
       toast({ title: 'PDF gerado', description: 'O ranking foi exportado com sucesso.' });
     } catch (e) {
@@ -993,7 +1155,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
         variant: 'destructive',
       });
     }
-  }, [studentsParticipantesTabelas, rankingPdfFilterLabels, tituloGabarito, toast]);
+  }, [rankingStudents, rankingPdfFilterLabels, tituloGabarito, toast]);
 
   // Mapear tabela_detalhada da API para o formato esperado por DisciplineTables (questões com numero + campos opcionais)
   const tabelaDetalhadaForDisciplineTables = useMemo(() => {
@@ -1430,11 +1592,11 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
               <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Total de alunos</div>
-                  <div className="text-2xl font-bold text-blue-600">{derivedStats.totalAlunos}</div>
+                  <div className="text-2xl font-bold text-blue-600">{backendStats.totalAlunos}</div>
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Participantes</div>
-                  <div className="text-2xl font-bold text-green-600">{derivedStats.participantes}</div>
+                  <div className="text-2xl font-bold text-green-600">{backendStats.participantes}</div>
                 </div>
                 <div className="space-y-1">
                   <div className="flex items-center justify-between gap-1">
@@ -1449,21 +1611,26 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                       Ver lista
                     </Button>
                   </div>
-                  <div className="text-2xl font-bold text-red-600">{derivedStats.ausentes}</div>
+                  <div className="text-2xl font-bold text-red-600">{backendStats.pendentes}</div>
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Taxa de participação</div>
                   <div className="text-2xl font-bold text-blue-600">
-                    {derivedStats.totalAlunos > 0 ? ((derivedStats.participantes / derivedStats.totalAlunos) * 100).toFixed(1) : '0'}%
+                    {backendStats.percentualComparecimento != null
+                      ? backendStats.percentualComparecimento.toFixed(1)
+                      : backendStats.totalAlunos > 0
+                        ? ((backendStats.participantes / backendStats.totalAlunos) * 100).toFixed(1)
+                        : '0'}
+                    %
                   </div>
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Nota geral</div>
-                  <div className="text-2xl font-bold text-purple-600">{Number(derivedStats.mediaNota).toFixed(1)}</div>
+                  <div className="text-2xl font-bold text-purple-600">{Number(backendStats.mediaNota).toFixed(1)}</div>
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Proficiência</div>
-                  <div className="text-2xl font-bold text-orange-600">{Number(derivedStats.mediaProficiencia).toFixed(1)}</div>
+                  <div className="text-2xl font-bold text-orange-600">{Number(backendStats.mediaProficiencia).toFixed(1)}</div>
                 </div>
               </div>
             </CardContent>
@@ -1725,15 +1892,9 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
               </TabsContent>
 
               <TabsContent value="ranking" className="space-y-6 mt-6">
-                {studentsParticipantesTabelas.length > 0 ? (
-                  <Card>
-                    <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="space-y-1">
-                        <CardTitle>Ranking</CardTitle>
-                        <CardDescription>
-                          Alunos ordenados por nota e proficiência (apenas participantes)
-                        </CardDescription>
-                      </div>
+                {rankingStudents.length > 0 ? (
+                  <>
+                    <div className="flex justify-end">
                       <Button
                         type="button"
                         variant="outline"
@@ -1744,26 +1905,13 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                         <FileText className="h-4 w-4" />
                         Exportar PDF
                       </Button>
-                    </CardHeader>
-                    <CardContent>
-                      <StudentRanking
-                        students={studentsParticipantesTabelas.map((s) => ({
-                          id: s.id,
-                          nome: s.nome,
-                          turma: s.turma,
-                          escola: s.escola,
-                          serie: s.serie,
-                          nota: s.nota,
-                          proficiencia: s.proficiencia,
-                          classificacao: s.classificacao,
-                          status: s.status,
-                          // Não enviar posicao da API: o backend pode ranquear por outro critério;
-                          // StudentRanking ordena por proficiência e define 1..n coerente com a lista.
-                        }))}
-                        maxStudents={100}
-                      />
-                    </CardContent>
-                  </Card>
+                    </div>
+                    <StudentRanking
+                      students={rankingStudents}
+                      maxStudents={100}
+                      backendRankingOrder
+                    />
+                  </>
                 ) : (
                   <Card>
                     <CardContent className="flex flex-col items-center justify-center py-12">
@@ -1780,8 +1928,14 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
       )}
 
       {/* Modal Alunos Faltosos / Pendentes */}
-      <Dialog open={showAbsentStudentsModal} onOpenChange={setShowAbsentStudentsModal}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+      <Dialog
+        open={showAbsentStudentsModal}
+        onOpenChange={(open) => {
+          setShowAbsentStudentsModal(open);
+          if (!open) setAbsentStudentsModalSearch('');
+        }}
+      >
+        <DialogContent className="w-[96vw] max-w-5xl h-[88vh] max-h-[92vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Users className="h-5 w-5 text-red-600" />
@@ -1805,30 +1959,66 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                     Estes alunos ainda não entregaram ou não tiveram o cartão resposta corrigido.
                   </p>
                 </div>
-                <div className="grid gap-3">
-                  {absentStudents.map((a) => (
-                    <div
-                      key={a.id}
-                      className="flex items-center justify-between p-3 bg-muted rounded-lg border border-border"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-red-100 dark:bg-red-950/30 rounded-full flex items-center justify-center shrink-0">
-                          <span className="text-red-600 dark:text-red-400 font-semibold text-sm">
-                            {a.nome.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                        <div>
-                          <div className="font-medium text-foreground">{a.nome}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {[a.escola, a.turma, a.serie].filter(Boolean).join(' · ') || '—'}
+                <div className="space-y-3">
+                  <div className="relative">
+                    <Search
+                      className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none"
+                      aria-hidden
+                    />
+                    <Input
+                      type="search"
+                      placeholder={absentStudentsSearchPlaceholder}
+                      value={absentStudentsModalSearch}
+                      onChange={(e) => setAbsentStudentsModalSearch(e.target.value)}
+                      className="pl-9"
+                      autoComplete="off"
+                    />
+                  </div>
+                  {absentStudentsModalSearch.trim() !== '' && (
+                    <p className="text-xs text-muted-foreground">
+                      Exibindo {filteredAbsentStudents.length} de {absentStudents.length}{' '}
+                      {absentStudents.length === 1 ? 'aluno' : 'alunos'}
+                    </p>
+                  )}
+                  {filteredAbsentStudents.length > 0 ? (
+                    <div className="grid gap-3">
+                      {filteredAbsentStudents.map((a) => (
+                        <div
+                          key={a.id}
+                          className="flex items-center justify-between p-3 bg-muted rounded-lg border border-border"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-red-100 dark:bg-red-950/30 rounded-full flex items-center justify-center shrink-0">
+                              <span className="text-red-600 dark:text-red-400 font-semibold text-sm">
+                                {(a.nome || '').charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-medium text-foreground truncate">{a.nome}</div>
+                              <div className="text-sm text-muted-foreground truncate">
+                                {[
+                                  a.escola,
+                                  a.turma != null && String(a.turma).trim() !== ''
+                                    ? `Turma ${String(a.turma).trim()}`
+                                    : '',
+                                  a.serie,
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ') || '—'}
+                              </div>
+                            </div>
                           </div>
+                          <Badge variant="outline" className="text-red-600 dark:text-red-400 border-red-300 dark:border-red-800">
+                            Pendente
+                          </Badge>
                         </div>
-                      </div>
-                      <Badge variant="outline" className="text-red-600 dark:text-red-400 border-red-300 dark:border-red-800">
-                        Pendente
-                      </Badge>
+                      ))}
                     </div>
-                  ))}
+                  ) : (
+                    <p className="text-sm text-muted-foreground rounded-lg border border-border bg-muted/50 p-4 text-center">
+                      Nenhum aluno encontrado com esse nome. Tente outro termo ou limpe a pesquisa.
+                    </p>
+                  )}
                 </div>
               </div>
             ) : (
@@ -1848,12 +2038,13 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
+                  disabled={filteredAbsentStudents.length === 0}
                   onClick={async () => {
                     try {
                       await generatePendingStudentsPdf({
                         title: 'Faltosos / Pendentes — Cartão Resposta',
                         subtitle: tituloGabarito ? String(tituloGabarito) : undefined,
-                        students: absentStudents.map((a) => ({
+                        students: filteredAbsentStudents.map((a) => ({
                           nome: a.nome,
                           escola: a.escola,
                           turma: a.turma,

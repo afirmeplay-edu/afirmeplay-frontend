@@ -1,6 +1,7 @@
 /**
- * Normaliza o array `ranking` da rota `/evaluation-results/avaliacoes`
- * (formato plano tipo RankingItem ou aninhado com `aluno` + `posicao`).
+ * Normaliza o array `ranking` das rotas de resultados agregados
+ * (`/evaluation-results/avaliacoes`, `/answer-sheets/resultados-agregados`, etc.)
+ * — formato plano (RankingItem / cartão-resposta) ou aninhado com `aluno` + `posicao`.
  * Ordem relativa: `posicao` do backend; mantém participantes mesmo com nota/proficiência 0,
  * desde que `status` (ou `status_geral`) indique avaliação concluída (ou omitido —
  * tratado como concluída por compatibilidade). Exclui não participantes (ex.: pendente).
@@ -117,8 +118,8 @@ export function normalizeEvaluationResultsRanking(raw: unknown[]): EvaluationRes
       continue;
     }
 
-    // Formato plano (RankingItem)
-    const id = str(row.aluno_id) || str(row.id);
+    // Formato plano (RankingItem avaliação online ou cartão-resposta: grade/proficiency/classification)
+    const id = str(row.aluno_id) || str(row.student_id) || str(row.id);
     const nome = str(row.nome);
     if (!id && !nome) continue;
 
@@ -128,10 +129,12 @@ export function normalizeEvaluationResultsRanking(raw: unknown[]): EvaluationRes
       turma: str(row.turma) || 'N/A',
       escola: str(row.escola),
       serie: str(row.serie),
-      nota: num(row.nota_geral ?? row.nota, 0),
-      proficiencia: num(row.proficiencia_geral ?? row.proficiencia, 0),
-      classificacao: str(row.classificacao_geral ?? row.nivel_proficiencia),
-      questoes_respondidas: num(row.total_questoes ?? row.total_respondidas, 0),
+      nota: num(row.nota_geral ?? row.nota ?? row.grade, 0),
+      proficiencia: num(row.proficiencia_geral ?? row.proficiencia ?? row.proficiency, 0),
+      classificacao: str(
+        row.classificacao_geral ?? row.nivel_proficiencia ?? row.classification
+      ),
+      questoes_respondidas: num(row.total_respondidas ?? row.total_questoes, 0),
       acertos: num(row.total_acertos, 0),
       erros: num(row.total_erros, 0),
       em_branco: num(row.total_em_branco, 0),

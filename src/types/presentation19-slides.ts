@@ -89,6 +89,9 @@ export type Presentation19DeckData = {
   /** Slide 2: com escola selecionada, mostrar série e turmas em vez da lista municipal de escolas. */
   slide2ShowSerieTurmas: boolean;
 
+  /** Escola no filtro sem turma cadastrada: oculta gráficos por disciplina e exibe aviso na seção de notas. */
+  schoolMissingRegisteredTurma: boolean;
+
   /** Slides 5-6 — coluna principal = `label` conforme `comparisonAxis`. */
   presencaPorSerie: PresenceBySeriesRow[];
 
