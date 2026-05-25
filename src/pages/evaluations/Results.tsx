@@ -54,6 +54,11 @@ import { QuestionData as TableQuestionData, DetailedReport as TableDetailedRepor
 import { generatePendingStudentsPdf } from "@/services/reports/pendingStudentsPdf";
 import { generateRankingPdf } from "@/services/reports/rankingPdf";
 import { normalizeEvaluationResultsRanking } from "@/utils/evaluation/normalizeEvaluationResultsRanking";
+import {
+  normalizePendingStudentSearchText,
+  parsePendingStudentSearchInput,
+  getPendingStudentsSearchPlaceholder,
+} from "@/utils/report/pendingStudentsSearch";
 
 // Interfaces para os dados da API - Nova estrutura baseada na implementação real
 interface EvaluationResult {
@@ -526,46 +531,6 @@ async function resultsFetchEvaluationsList(
     );
   }
   return data as NovaRespostaAPI;
-}
-
-/** Normaliza texto da pesquisa de pendentes (acentos, caixa, símbolos comuns de grau). */
-function normalizePendingStudentSearchText(s: string): string {
-  return s
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[°ºª]/g, '')
-    .toLowerCase()
-    .trim();
-}
-
-/** Interpreta prefixos "Turma …", "Escola …", "Série …" / "Serie …" (resto filtra só esse campo). */
-function parsePendingStudentSearchInput(raw: string): {
-  kind: 'turma' | 'escola' | 'serie' | 'general';
-  needle: string;
-} {
-  const trimmed = raw.trim();
-  if (!trimmed) return { kind: 'general', needle: '' };
-  const lowered = trimmed
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[°ºª]/g, '')
-    .toLowerCase()
-    .trim();
-
-  const turmaMatch = lowered.match(/^turma\s*:?\s*(.+)$/);
-  if (turmaMatch?.[1]?.trim()) {
-    return { kind: 'turma', needle: normalizePendingStudentSearchText(turmaMatch[1]) };
-  }
-  const escolaMatch = lowered.match(/^escola\s*:?\s*(.+)$/);
-  if (escolaMatch?.[1]?.trim()) {
-    return { kind: 'escola', needle: normalizePendingStudentSearchText(escolaMatch[1]) };
-  }
-  const serieMatch = lowered.match(/^serie\s*:?\s*(.+)$/);
-  if (serieMatch?.[1]?.trim()) {
-    return { kind: 'serie', needle: normalizePendingStudentSearchText(serieMatch[1]) };
-  }
-
-  return { kind: 'general', needle: normalizePendingStudentSearchText(trimmed) };
 }
 
 type ResultsProps = { hidePageHeading?: boolean };
@@ -2169,22 +2134,13 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
     });
   }, [pendingStudents, pendingStudentsModalSearch]);
 
-  const pendingStudentsSearchPlaceholder = useMemo(() => {
-    const g = apiData?.nivel_granularidade ?? apiData?.estatisticas_gerais?.tipo;
-    switch (g) {
-      case 'municipio':
-        return 'Nome ou trecho da escola, série, turma… Use Turma A ou Escola municipal…';
-      case 'escola':
-        return 'Nome, série, turma ou trecho… Use Turma A, Série 8º…';
-      case 'serie':
-        return 'Nome, turma ou trecho… Use Turma A…';
-      case 'turma':
-      case 'avaliacao':
-        return 'Pesquisar por nome…';
-      default:
-        return 'Nome ou trecho (escola, série, turma)… Turma A, Escola cent…';
-    }
-  }, [apiData?.nivel_granularidade, apiData?.estatisticas_gerais?.tipo]);
+  const pendingStudentsSearchPlaceholder = useMemo(
+    () =>
+      getPendingStudentsSearchPlaceholder(
+        apiData?.nivel_granularidade ?? apiData?.estatisticas_gerais?.tipo
+      ),
+    [apiData?.nivel_granularidade, apiData?.estatisticas_gerais?.tipo]
+  );
 
   // Disciplinas derivadas unificando múltiplas fontes
   const derivedSubjects = useMemo(() => {

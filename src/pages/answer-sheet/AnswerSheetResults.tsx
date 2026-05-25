@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -28,6 +29,7 @@ import {
   Table2,
   Eye,
   FileText,
+  Search,
 } from 'lucide-react';
 import { format, parse } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -50,6 +52,11 @@ import { cn } from '@/lib/utils';
 import { generatePendingStudentsPdf } from '@/services/reports/pendingStudentsPdf';
 import { generateRankingPdf } from '@/services/reports/rankingPdf';
 import { normalizeEvaluationResultsRanking } from '@/utils/evaluation/normalizeEvaluationResultsRanking';
+import {
+  normalizePendingStudentSearchText,
+  parsePendingStudentSearchInput,
+  getPendingStudentsSearchPlaceholder,
+} from '@/utils/report/pendingStudentsSearch';
 import { buildGeralAlunosFromDisciplinasAndRanking } from '@/utils/answer-sheet/buildTabelaDetalhadaGeral';
 import {
   RESULTS_PERIOD_YEAR_MIN,
@@ -76,6 +83,16 @@ interface OpcoesFiltrosResponse {
   turmas?: FilterOption[];
 }
 
+// Aluno pendente/faltoso detalhado em `estatisticas_gerais.alunos_pendentes_detalhe`
+// (mesmo contrato usado pela rota das avaliações online — fonte oficial da lista).
+interface AlunoPendenteDetalhe {
+  id: string;
+  nome: string;
+  escola?: string;
+  serie?: string;
+  turma?: string;
+}
+
 // Resposta de GET /answer-sheets/resultados-agregados
 interface EstatisticasGerais {
   tipo: string;
@@ -92,6 +109,7 @@ interface EstatisticasGerais {
   alunos_participantes: number;
   alunos_pendentes?: number;
   alunos_ausentes?: number;
+  alunos_pendentes_detalhe?: AlunoPendenteDetalhe[];
   percentual_comparecimento?: number;
   nivel_classificacao?: string | null;
   media_nota_geral: number;
@@ -467,6 +485,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   // UI: modo de visualização na aba Tabelas (tabela vs cards) e modal de faltosos
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [showAbsentStudentsModal, setShowAbsentStudentsModal] = useState(false);
+  const [absentStudentsModalSearch, setAbsentStudentsModalSearch] = useState('');
 
   const loadFiltersFromStorage = useCallback((): AnswerSheetStoredFilters | null => {
     try {
@@ -728,7 +747,8 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
 
   const handleBack = () => navigate('/app/cartao-resposta');
 
-  // Gráficos: usar resultados_por_disciplina da API (nome das disciplinas, nota e média)
+  // Gráficos: usar por_disciplina aninhado em estatisticas_gerais (formato esperado por ResultsCharts).
+  // Fallback para resultados_por_disciplina (raiz) caso o backend ainda não envie em estatisticas_gerais.
   const chartsApiData = useMemo(() => {
     if (!apiData?.estatisticas_gerais) return null;
     const porDisciplinaFromStats = apiData.estatisticas_gerais.por_disciplina;
@@ -736,18 +756,19 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
       Array.isArray(porDisciplinaFromStats) && porDisciplinaFromStats.length > 0
         ? porDisciplinaFromStats
         : (apiData.resultados_por_disciplina ?? []);
+    const porDisciplinaNormalized = porDisciplina.map((d) => ({
+      disciplina: d.disciplina,
+      media_nota: d.media_nota ?? 0,
+      media_proficiencia: d.media_proficiencia ?? 0,
+      distribuicao_classificacao: d.distribuicao_classificacao,
+    }));
     return {
       estatisticas_gerais: {
         media_nota_geral: apiData.estatisticas_gerais.media_nota_geral ?? 0,
         media_proficiencia_geral: apiData.estatisticas_gerais.media_proficiencia_geral ?? 0,
         distribuicao_classificacao_geral: apiData.estatisticas_gerais.distribuicao_classificacao_geral,
+        por_disciplina: porDisciplinaNormalized,
       },
-      resultados_por_disciplina: porDisciplina.map((d) => ({
-        disciplina: d.disciplina,
-        media_nota: d.media_nota ?? 0,
-        media_proficiencia: d.media_proficiencia ?? 0,
-        distribuicao_classificacao: d.distribuicao_classificacao,
-      })),
     };
   }, [apiData]);
 
@@ -850,10 +871,65 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     };
   }, [apiData?.estatisticas_gerais]);
 
-  // Alunos faltosos/pendentes = status_geral !== 'concluida'
-  const absentStudents = useMemo(() => {
-    return geralAlunos.filter((a) => (a.status_geral || '').toLowerCase() !== 'concluida');
-  }, [geralAlunos]);
+  // Alunos faltosos/pendentes — fonte oficial: `estatisticas_gerais.alunos_pendentes_detalhe` (backend).
+  // Fallback (compatibilidade): filtrar `tabela_detalhada.geral.alunos` por `status_geral !== 'concluida'`.
+  const absentStudents = useMemo<AlunoPendenteDetalhe[]>(() => {
+    const detalhe = apiData?.estatisticas_gerais?.alunos_pendentes_detalhe;
+    if (Array.isArray(detalhe) && detalhe.length > 0) {
+      return detalhe.map((a, i) => ({
+        id: String(a.id ?? `sem-id-${i}`),
+        nome: String(a.nome ?? ''),
+        escola: a.escola,
+        serie: a.serie,
+        turma: a.turma,
+      }));
+    }
+    return geralAlunos
+      .filter((a) => (a.status_geral || '').toLowerCase() !== 'concluida')
+      .map((a) => ({
+        id: a.id,
+        nome: a.nome ?? '',
+        escola: a.escola,
+        serie: a.serie,
+        turma: a.turma,
+      }));
+  }, [apiData?.estatisticas_gerais?.alunos_pendentes_detalhe, geralAlunos]);
+
+  const filteredAbsentStudents = useMemo(() => {
+    const q = absentStudentsModalSearch.trim();
+    if (!q) return absentStudents;
+    const parsed = parsePendingStudentSearchInput(q);
+    const n = normalizePendingStudentSearchText;
+
+    if (parsed.kind === 'general' && !parsed.needle) return absentStudents;
+
+    return absentStudents.filter((a) => {
+      if (parsed.kind === 'turma') {
+        return n(String(a.turma ?? '')).includes(parsed.needle);
+      }
+      if (parsed.kind === 'escola') {
+        return n(String(a.escola ?? '')).includes(parsed.needle);
+      }
+      if (parsed.kind === 'serie') {
+        return n(String(a.serie ?? '')).includes(parsed.needle);
+      }
+      const needle = parsed.needle;
+      return (
+        n(String(a.nome ?? '')).includes(needle) ||
+        n(String(a.escola ?? '')).includes(needle) ||
+        n(String(a.serie ?? '')).includes(needle) ||
+        n(String(a.turma ?? '')).includes(needle)
+      );
+    });
+  }, [absentStudents, absentStudentsModalSearch]);
+
+  const absentStudentsSearchPlaceholder = useMemo(
+    () =>
+      getPendingStudentsSearchPlaceholder(
+        apiData?.nivel_granularidade ?? apiData?.estatisticas_gerais?.tipo
+      ),
+    [apiData?.nivel_granularidade, apiData?.estatisticas_gerais?.tipo]
+  );
 
   // Lista unificada para Ranking e Cards: partir de geral.alunos e enriquecer com ranking (posição)
   const filteredStudents = useMemo(() => {
@@ -1052,10 +1128,16 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
           nota: s.nota,
           proficiencia: s.proficiencia,
           classificacao: s.classificacao,
+          status: s.status,
           posicao: s.posicao,
+          questoes_respondidas: s.questoes_respondidas,
+          acertos: s.acertos,
+          erros: s.erros,
+          em_branco: s.em_branco,
         })),
         maxRows: 100,
         fileNameBase: `ranking-cartao-${tituloGabarito}`,
+        respectBackendRankingOrder: true,
       });
       toast({ title: 'PDF gerado', description: 'O ranking foi exportado com sucesso.' });
     } catch (e) {
@@ -1839,8 +1921,14 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
       )}
 
       {/* Modal Alunos Faltosos / Pendentes */}
-      <Dialog open={showAbsentStudentsModal} onOpenChange={setShowAbsentStudentsModal}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+      <Dialog
+        open={showAbsentStudentsModal}
+        onOpenChange={(open) => {
+          setShowAbsentStudentsModal(open);
+          if (!open) setAbsentStudentsModalSearch('');
+        }}
+      >
+        <DialogContent className="w-[96vw] max-w-5xl h-[88vh] max-h-[92vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Users className="h-5 w-5 text-red-600" />
@@ -1864,30 +1952,66 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                     Estes alunos ainda não entregaram ou não tiveram o cartão resposta corrigido.
                   </p>
                 </div>
-                <div className="grid gap-3">
-                  {absentStudents.map((a) => (
-                    <div
-                      key={a.id}
-                      className="flex items-center justify-between p-3 bg-muted rounded-lg border border-border"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-red-100 dark:bg-red-950/30 rounded-full flex items-center justify-center shrink-0">
-                          <span className="text-red-600 dark:text-red-400 font-semibold text-sm">
-                            {a.nome.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                        <div>
-                          <div className="font-medium text-foreground">{a.nome}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {[a.escola, a.turma, a.serie].filter(Boolean).join(' · ') || '—'}
+                <div className="space-y-3">
+                  <div className="relative">
+                    <Search
+                      className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none"
+                      aria-hidden
+                    />
+                    <Input
+                      type="search"
+                      placeholder={absentStudentsSearchPlaceholder}
+                      value={absentStudentsModalSearch}
+                      onChange={(e) => setAbsentStudentsModalSearch(e.target.value)}
+                      className="pl-9"
+                      autoComplete="off"
+                    />
+                  </div>
+                  {absentStudentsModalSearch.trim() !== '' && (
+                    <p className="text-xs text-muted-foreground">
+                      Exibindo {filteredAbsentStudents.length} de {absentStudents.length}{' '}
+                      {absentStudents.length === 1 ? 'aluno' : 'alunos'}
+                    </p>
+                  )}
+                  {filteredAbsentStudents.length > 0 ? (
+                    <div className="grid gap-3">
+                      {filteredAbsentStudents.map((a) => (
+                        <div
+                          key={a.id}
+                          className="flex items-center justify-between p-3 bg-muted rounded-lg border border-border"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-red-100 dark:bg-red-950/30 rounded-full flex items-center justify-center shrink-0">
+                              <span className="text-red-600 dark:text-red-400 font-semibold text-sm">
+                                {(a.nome || '').charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-medium text-foreground truncate">{a.nome}</div>
+                              <div className="text-sm text-muted-foreground truncate">
+                                {[
+                                  a.escola,
+                                  a.turma != null && String(a.turma).trim() !== ''
+                                    ? `Turma ${String(a.turma).trim()}`
+                                    : '',
+                                  a.serie,
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ') || '—'}
+                              </div>
+                            </div>
                           </div>
+                          <Badge variant="outline" className="text-red-600 dark:text-red-400 border-red-300 dark:border-red-800">
+                            Pendente
+                          </Badge>
                         </div>
-                      </div>
-                      <Badge variant="outline" className="text-red-600 dark:text-red-400 border-red-300 dark:border-red-800">
-                        Pendente
-                      </Badge>
+                      ))}
                     </div>
-                  ))}
+                  ) : (
+                    <p className="text-sm text-muted-foreground rounded-lg border border-border bg-muted/50 p-4 text-center">
+                      Nenhum aluno encontrado com esse nome. Tente outro termo ou limpe a pesquisa.
+                    </p>
+                  )}
                 </div>
               </div>
             ) : (
@@ -1907,12 +2031,13 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
+                  disabled={filteredAbsentStudents.length === 0}
                   onClick={async () => {
                     try {
                       await generatePendingStudentsPdf({
                         title: 'Faltosos / Pendentes — Cartão Resposta',
                         subtitle: tituloGabarito ? String(tituloGabarito) : undefined,
-                        students: absentStudents.map((a) => ({
+                        students: filteredAbsentStudents.map((a) => ({
                           nome: a.nome,
                           escola: a.escola,
                           turma: a.turma,
