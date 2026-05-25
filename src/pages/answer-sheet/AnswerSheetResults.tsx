@@ -371,10 +371,17 @@ interface RankingItem {
   posicao: number;
   student_id: string;
   nome: string;
+  escola_id: string | null;
+  escola: string;
+  serie: string;
+  turma: string;
   grade: number;
   proficiency: number;
   classification: string;
   score_percentage: number;
+  total_acertos: number;
+  total_respondidas: number;
+  total_questoes: number;
 }
 
 interface ResultadosAgregadosResponse {

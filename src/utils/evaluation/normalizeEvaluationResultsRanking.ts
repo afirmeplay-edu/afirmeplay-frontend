@@ -134,7 +134,7 @@ export function normalizeEvaluationResultsRanking(raw: unknown[]): EvaluationRes
       classificacao: str(
         row.classificacao_geral ?? row.nivel_proficiencia ?? row.classification
       ),
-      questoes_respondidas: num(row.total_questoes ?? row.total_respondidas, 0),
+      questoes_respondidas: num(row.total_respondidas ?? row.total_questoes, 0),
       acertos: num(row.total_acertos, 0),
       erros: num(row.total_erros, 0),
       em_branco: num(row.total_em_branco, 0),
