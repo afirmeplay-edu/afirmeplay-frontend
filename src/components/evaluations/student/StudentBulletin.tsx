@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, XCircle, Minus, Filter, BookOpen, Download } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { EvaluationApiService } from "@/services/evaluation/evaluationApi";
 import { EvaluationResultsApiService } from "@/services/evaluation/evaluationResultsApi";
 import type { NovaRespostaAPI, StudentDetailedResult } from "@/services/evaluation/evaluationResultsApi";
@@ -235,6 +236,8 @@ type FilterType = 'all' | 'correct' | 'incorrect' | 'unanswered';
 export default function StudentBulletin({ testId, studentId, initialDisciplineStats, brandingCityId }: StudentBulletinProps) {
   const [bulletinQuestions, setBulletinQuestions] = useState<BulletinQuestion[]>([]);
   const [filter, setFilter] = useState<FilterType>('all');
+  /** 'all' ou nome exato da disciplina */
+  const [disciplineFilter, setDisciplineFilter] = useState<string>('all');
   const [loadingState, setLoadingState] = useState<{
     questions: boolean;
     answers: boolean;
@@ -438,6 +441,26 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
   const questionsBySubject = useMemo(() => {
     return groupQuestionsBySubject(filteredQuestions);
   }, [filteredQuestions]);
+
+  const availableDisciplines = useMemo(() => {
+    const grouped = groupQuestionsBySubject(bulletinQuestions);
+    return Object.keys(grouped)
+      .filter((name) => name !== 'GERAL' && grouped[name].length > 0)
+      .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [bulletinQuestions]);
+
+  const displayedSubjectEntries = useMemo(() => {
+    const entries = Object.entries(questionsBySubject).filter(([name]) => name !== 'GERAL');
+    if (disciplineFilter === 'all') return entries;
+    return entries.filter(([name]) => name === disciplineFilter);
+  }, [questionsBySubject, disciplineFilter]);
+
+  useEffect(() => {
+    if (disciplineFilter === 'all') return;
+    if (!availableDisciplines.includes(disciplineFilter)) {
+      setDisciplineFilter('all');
+    }
+  }, [availableDisciplines, disciplineFilter]);
 
   // Função auxiliar para normalizar nomes de disciplina (case-insensitive)
   const normalizeDisciplineName = (name: string): string => {
@@ -968,10 +991,56 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
           </div>
         </div>
       </CardHeader>
+      {availableDisciplines.length > 1 ? (
+        <div
+          className="flex flex-wrap gap-2 border-b border-border bg-muted/20 px-4 py-3 sm:px-6"
+          data-pdf-controls
+          role="tablist"
+          aria-label="Filtrar por disciplina"
+        >
+          <Button
+            type="button"
+            size="sm"
+            variant={disciplineFilter === 'all' ? 'default' : 'outline'}
+            className={cn(
+              'rounded-full shrink-0',
+              disciplineFilter === 'all' && 'shadow-sm'
+            )}
+            onClick={() => setDisciplineFilter('all')}
+            role="tab"
+            aria-selected={disciplineFilter === 'all'}
+          >
+            Todas
+          </Button>
+          {availableDisciplines.map((subjectName) => (
+            <Button
+              key={subjectName}
+              type="button"
+              size="sm"
+              variant={disciplineFilter === subjectName ? 'default' : 'outline'}
+              className={cn(
+                'rounded-full shrink-0 max-w-[200px] truncate',
+                disciplineFilter === subjectName && 'shadow-sm'
+              )}
+              onClick={() => setDisciplineFilter(subjectName)}
+              role="tab"
+              aria-selected={disciplineFilter === subjectName}
+              title={subjectName}
+            >
+              {subjectName}
+            </Button>
+          ))}
+        </div>
+      ) : null}
       <CardContent className="p-0">
         <ScrollArea ref={scrollAreaRef} className="h-[600px]">
           <div className="p-6 space-y-8">
-            {Object.entries(questionsBySubject).map(([subjectName, questions]) => (
+            {displayedSubjectEntries.length === 0 ? (
+              <p className="text-center text-sm text-muted-foreground py-8">
+                Nenhuma questão nesta disciplina com o filtro atual.
+              </p>
+            ) : null}
+            {displayedSubjectEntries.map(([subjectName, questions]) => (
               <div
                 key={subjectName}
                 data-subject-section

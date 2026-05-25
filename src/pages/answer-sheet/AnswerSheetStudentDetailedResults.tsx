@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { cn } from '@/lib/utils';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -94,6 +95,8 @@ export default function AnswerSheetStudentDetailedResults({ onBack }: AnswerShee
   const [geralAluno, setGeralAluno] = useState<GeralAluno | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** 'all' ou nome exato da disciplina */
+  const [disciplineFilter, setDisciplineFilter] = useState<string>('all');
 
   const estado = searchParams.get('estado') || '';
   const municipio = searchParams.get('municipio') || '';
@@ -167,6 +170,32 @@ export default function AnswerSheetStudentDetailedResults({ onBack }: AnswerShee
       aluno: DisciplinaTabela['alunos'][0];
     }>;
   }, [data, studentId]);
+
+  const disciplineNames = useMemo(
+    () =>
+      perDisciplina
+        .map((d) => d.disciplina)
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, 'pt-BR')),
+    [perDisciplina]
+  );
+
+  const visiblePerDisciplina = useMemo(() => {
+    if (disciplineFilter === 'all') return perDisciplina;
+    return perDisciplina.filter((d) => d.disciplina === disciplineFilter);
+  }, [perDisciplina, disciplineFilter]);
+
+  useEffect(() => {
+    if (disciplineFilter === 'all') return;
+    if (!disciplineNames.includes(disciplineFilter)) {
+      setDisciplineFilter('all');
+    }
+  }, [disciplineNames, disciplineFilter]);
+
+  const showGeralRespostas =
+    disciplineFilter === 'all' &&
+    geralAluno?.respostas_por_questao &&
+    geralAluno.respostas_por_questao.length > 0;
 
   const escolaNome =
     geralAluno?.escola || data?.estatisticas_gerais?.escola || data?.estatisticas_gerais?.nome || 'Não informada';
@@ -403,7 +432,45 @@ export default function AnswerSheetStudentDetailedResults({ onBack }: AnswerShee
         </CardContent>
       </Card>
 
-      {geralAluno.respostas_por_questao && geralAluno.respostas_por_questao.length > 0 && (
+      {disciplineNames.length > 1 ? (
+        <div
+          className="flex flex-wrap gap-2 rounded-lg border border-border/60 bg-muted/30 p-3"
+          role="tablist"
+          aria-label="Filtrar por disciplina"
+        >
+          <Button
+            type="button"
+            size="sm"
+            variant={disciplineFilter === 'all' ? 'default' : 'outline'}
+            className={cn('rounded-full shrink-0', disciplineFilter === 'all' && 'shadow-sm')}
+            onClick={() => setDisciplineFilter('all')}
+            role="tab"
+            aria-selected={disciplineFilter === 'all'}
+          >
+            Todas
+          </Button>
+          {disciplineNames.map((name) => (
+            <Button
+              key={name}
+              type="button"
+              size="sm"
+              variant={disciplineFilter === name ? 'default' : 'outline'}
+              className={cn(
+                'rounded-full shrink-0 max-w-[220px] truncate',
+                disciplineFilter === name && 'shadow-sm'
+              )}
+              onClick={() => setDisciplineFilter(name)}
+              role="tab"
+              aria-selected={disciplineFilter === name}
+              title={name}
+            >
+              {name}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+
+      {showGeralRespostas && (
         <Card>
           <CardHeader>
             <CardTitle>Respostas (visão geral)</CardTitle>
@@ -439,7 +506,7 @@ export default function AnswerSheetStudentDetailedResults({ onBack }: AnswerShee
         </Card>
       )}
 
-      {perDisciplina.map(({ disciplina, questoes, aluno }) => (
+      {visiblePerDisciplina.map(({ disciplina, questoes, aluno }) => (
         <Card key={disciplina}>
           <CardHeader>
             <CardTitle className="flex flex-wrap items-center gap-2 justify-between">
@@ -493,7 +560,7 @@ export default function AnswerSheetStudentDetailedResults({ onBack }: AnswerShee
         </Card>
       ))}
 
-      {!geralAluno.respostas_por_questao?.length && perDisciplina.length === 0 && (
+      {!showGeralRespostas && visiblePerDisciplina.length === 0 && (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
             Não há detalhamento por questão neste recorte. Os totais acima refletem o que a API enviou.

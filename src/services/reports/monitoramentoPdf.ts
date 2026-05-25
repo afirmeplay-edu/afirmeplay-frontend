@@ -6,7 +6,11 @@
 import { jsPDF } from "jspdf";
 import type { CellHookData, UserOptions } from "jspdf-autotable";
 import { urlToPngAsset } from "@/utils/pdfCityBranding";
-import type { MonitoringReportData, MonitoringSchoolItem } from "@/services/monitoramento/monitoramentoApi";
+import type {
+  MonitoringReportData,
+  MonitoringSchoolItem,
+  MonitoringStudentItem,
+} from "@/services/monitoramento/monitoramentoApi";
 import {
   normalizeProficiencyLevelLabel,
   type ReportProficiencyLabel,
@@ -33,6 +37,21 @@ const fmtNow = () =>
 
 const fmtPt = (value: unknown, digits = 1) => Number(value || 0).toFixed(digits).replace(".", ",");
 
+const formatMonitoringCriticosResumo = (row: MonitoringStudentItem) => {
+  const blocks = row.disciplinas_criticas ?? [];
+  if (blocks.length) {
+    return blocks
+      .map((block) => {
+        const disciplina = block.disciplina?.trim() || "Geral";
+        const crit = (block.descritores_criticos ?? []).filter(Boolean).join(", ");
+        if (crit) return `${disciplina}: ${crit}`;
+        return `${disciplina} (${block.nivel})`;
+      })
+      .join(" · ");
+  }
+  return (row.descritores_criticos ?? []).filter(Boolean).join(", ");
+};
+
 const fmtDate = (value?: string | null) => {
   if (!value) return "—";
   try {
@@ -44,10 +63,12 @@ const fmtDate = (value?: string | null) => {
 
 const fmtStatus = (status?: string | null) => {
   switch (status) {
+    case "realizada":
+      return "Realizada";
     case "sendo_realizada":
-      return "Sendo realizada";
+      return "Em andamento";
     case "nao_realizado":
-      return "Não realizado";
+      return "Não realizada";
     default:
       return "Pendente";
   }
@@ -97,12 +118,15 @@ const proficiencyTagStyles = (level: ReportProficiencyLabel) => {
 
 const statusTagStyles = (status: string) => {
   switch (status) {
+    case "realizada":
+      return { fill: [220, 252, 231] as [number, number, number], text: [22, 101, 52] as [number, number, number] };
     case "sendo_realizada":
       return { fill: [254, 249, 195] as [number, number, number], text: [113, 63, 18] as [number, number, number] };
     case "nao_realizado":
-      return { fill: [254, 226, 226] as [number, number, number], text: [153, 27, 27] as [number, number, number] };
+      return { fill: [254, 202, 202] as [number, number, number], text: [127, 29, 29] as [number, number, number] };
+    case "pendente":
     default:
-      return { fill: [243, 244, 246] as [number, number, number], text: [75, 85, 99] as [number, number, number] };
+      return { fill: [254, 226, 226] as [number, number, number], text: [185, 28, 28] as [number, number, number] };
   }
 };
 
@@ -380,9 +404,10 @@ const drawClassificationLegend = (doc: jsPDF, margin: number, pageW: number, sta
 
 const drawStatusLegend = (doc: jsPDF, margin: number, startY: number) => {
   const items = [
+    { label: "Realizada", status: "realizada" },
+    { label: "Em andamento", status: "sendo_realizada" },
     { label: "Pendente", status: "pendente" },
-    { label: "Sendo realizada", status: "sendo_realizada" },
-    { label: "Não realizado", status: "nao_realizado" },
+    { label: "Não realizada", status: "nao_realizado" },
   ];
   doc.setFont("helvetica", "bold");
   doc.setFontSize(7.5);
@@ -832,7 +857,7 @@ export async function generateMonitoringPdf(opts: {
     fmtPt(row.nota),
     fmtPt(row.proficiencia),
     row.nivel,
-    (row.descritores_criticos || []).join(", ") || "—",
+    formatMonitoringCriticosResumo(row) || "—",
     row.acao_pedagogica || "—",
     row.responsavel_nome || "—",
     fmtDate(row.prazo),
