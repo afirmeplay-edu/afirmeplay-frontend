@@ -22,7 +22,10 @@ import { api } from "@/lib/api";
 import { FileSpreadsheet, FileText, Download, Loader2, Calendar, Users } from "lucide-react";
 import { useAuth } from "@/context/authContext";
 import { generatePasswordFromName } from "@/hooks/useEmailCheck";
-import { loadLogoAssetForLandscapePdf } from "@/utils/pdfCityBranding";
+import {
+  loadCityBrandingForReportPdf,
+  paintLetterheadBackground,
+} from "@/utils/pdfCityBranding";
 
 type Rgb = [number, number, number];
 
@@ -560,7 +563,9 @@ export function PasswordReportModal({
     const margin = 14;
     const generatedAt = new Date().toLocaleString("pt-BR");
 
-    const logoAsset = await loadLogoAssetForLandscapePdf(cityId);
+    const passwordBranding = await loadCityBrandingForReportPdf(cityId);
+    const logoAsset = passwordBranding.logo;
+    const coverLetterhead = passwordBranding.letterhead;
     const C = REPORT_COLORS;
 
     const roleCounts = {
@@ -571,8 +576,12 @@ export function PasswordReportModal({
 
     const drawCover = () => {
       const BAND_H = 58;
-      doc.setFillColor(...C.white);
-      doc.rect(0, 0, pageWidth, pageHeight, "F");
+      if (coverLetterhead) {
+        paintLetterheadBackground(doc, coverLetterhead, pageWidth, pageHeight);
+      } else {
+        doc.setFillColor(...C.white);
+        doc.rect(0, 0, pageWidth, pageHeight, "F");
+      }
       doc.setFillColor(...C.primary);
       doc.rect(0, 0, pageWidth, BAND_H, "F");
 

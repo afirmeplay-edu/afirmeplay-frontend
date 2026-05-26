@@ -7,8 +7,13 @@ import {
   uploadCityLetterhead,
   deleteCityBranding,
   getBrandingErrorMessage,
+  resolveBrandingUrls,
   type CityBrandingResponse,
 } from '@/services/cityBrandingApi';
+import {
+  loadBrandingImage,
+  revokeBrandingImage,
+} from '@/utils/brandingImageUtils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -68,8 +73,13 @@ export function MunicipalityBrandingSection() {
   const [letterheadUploading, setLetterheadUploading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [storePdf, setStorePdf] = useState(true);
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | undefined>(undefined);
+  const [letterheadImagePreviewUrl, setLetterheadImagePreviewUrl] = useState<string | undefined>(undefined);
+  const [letterheadPdfPreviewUrl, setLetterheadPdfPreviewUrl] = useState<string | undefined>(undefined);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const letterheadInputRef = useRef<HTMLInputElement>(null);
+
+  const brandingUrls = useMemo(() => resolveBrandingUrls(branding), [branding]);
 
   const userCityId = useMemo(() => effectiveCityIdFromUser(user), [user.city_id, user.tenant_id]);
 
@@ -135,6 +145,36 @@ export function MunicipalityBrandingSection() {
     if (!canView || !resolvedCityId) return;
     loadBranding();
   }, [canView, resolvedCityId, loadBranding]);
+
+  useEffect(() => {
+    const logoUrl = brandingUrls.logo_url;
+    const lhImgUrl = brandingUrls.letterhead_image_url;
+    const lhPdfUrl = brandingUrls.letterhead_pdf_url;
+    let cancelled = false;
+
+    setLogoPreviewUrl(undefined);
+    setLetterheadImagePreviewUrl(undefined);
+    setLetterheadPdfPreviewUrl(undefined);
+
+    (async () => {
+      const [logo, lhImg, lhPdf] = await Promise.all([
+        loadBrandingImage(logoUrl),
+        loadBrandingImage(lhImgUrl),
+        loadBrandingImage(lhPdfUrl),
+      ]);
+      if (cancelled) return;
+      setLogoPreviewUrl(logo);
+      setLetterheadImagePreviewUrl(lhImg);
+      setLetterheadPdfPreviewUrl(lhPdf);
+    })();
+
+    return () => {
+      cancelled = true;
+      if (logoUrl) revokeBrandingImage(logoUrl);
+      if (lhImgUrl) revokeBrandingImage(lhImgUrl);
+      if (lhPdfUrl) revokeBrandingImage(lhPdfUrl);
+    };
+  }, [brandingUrls.logo_url, brandingUrls.letterhead_image_url, brandingUrls.letterhead_pdf_url]);
 
   const onAdminCityChange = (cityId: string) => {
     setSelectedCityId(cityId);
@@ -257,14 +297,18 @@ export function MunicipalityBrandingSection() {
                     <FileImage className="h-4 w-4 text-muted-foreground" />
                     <span className="font-medium">Logo</span>
                   </div>
-                  {branding?.presigned?.logo_url ? (
-                    <div className="flex flex-wrap items-end gap-4">
-                      <img
-                        src={branding.presigned.logo_url}
-                        alt="Logo do município"
-                        className="max-h-24 max-w-[200px] object-contain rounded border bg-white p-2"
-                      />
-                    </div>
+                  {brandingUrls.logo_url ? (
+                    logoPreviewUrl ? (
+                      <div className="flex flex-wrap items-end gap-4">
+                        <img
+                          src={logoPreviewUrl}
+                          alt="Logo do município"
+                          className="max-h-24 max-w-[200px] object-contain rounded border bg-white p-2"
+                        />
+                      </div>
+                    ) : (
+                      <Skeleton className="h-24 w-[200px]" />
+                    )
                   ) : (
                     <p className="text-sm text-muted-foreground">Nenhum logo enviado.</p>
                   )}
@@ -326,24 +370,28 @@ export function MunicipalityBrandingSection() {
                     <FileText className="h-4 w-4 text-muted-foreground" />
                     <span className="font-medium">Timbrado</span>
                   </div>
-                  {branding?.presigned?.letterhead_image_url ? (
-                    <div className="space-y-2">
-                      <img
-                        src={branding.presigned.letterhead_image_url}
-                        alt="Prévia do timbrado"
-                        className="max-h-64 w-full max-w-md object-contain rounded border bg-white p-2"
-                      />
-                      {branding.presigned.letterhead_pdf_url && (
-                        <a
-                          href={branding.presigned.letterhead_pdf_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm text-primary underline"
-                        >
-                          Abrir PDF do timbrado
-                        </a>
-                      )}
-                    </div>
+                  {brandingUrls.letterhead_image_url ? (
+                    letterheadImagePreviewUrl ? (
+                      <div className="space-y-2">
+                        <img
+                          src={letterheadImagePreviewUrl}
+                          alt="Prévia do timbrado"
+                          className="max-h-64 w-full max-w-md object-contain rounded border bg-white p-2"
+                        />
+                        {brandingUrls.letterhead_pdf_url && letterheadPdfPreviewUrl && (
+                          <a
+                            href={letterheadPdfPreviewUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-primary underline"
+                          >
+                            Abrir PDF do timbrado
+                          </a>
+                        )}
+                      </div>
+                    ) : (
+                      <Skeleton className="h-64 w-full max-w-md" />
+                    )
                   ) : (
                     <p className="text-sm text-muted-foreground">Nenhum timbrado enviado.</p>
                   )}

@@ -5,7 +5,11 @@ import type {
   NivelAprendizagemDisciplina,
   NivelAprendizagemGeral,
 } from "@/types/evaluation-results";
-import { loadLogoAssetForLandscapePdf } from "@/utils/pdfCityBranding";
+import {
+  loadCityBrandingForReportPdf,
+  paintLetterheadBackground,
+  type PdfImageAsset,
+} from "@/utils/pdfCityBranding";
 import { formatDecimal1PtBr, formatPercent1PtBr } from "@/utils/numberFormat";
 
 type UnknownRecord = Record<string, unknown>;
@@ -171,15 +175,30 @@ function drawCoverLikeAcertoNiveis(
     seriesLine: string;
     disciplinasLine: string;
     dataGeracao: string;
+    coverLetterhead?: PdfImageAsset | null;
   }
 ): void {
-  const { logoDataUrl, logoW, logoH, municipio, uf, tituloAvaliacao, seriesLine, disciplinasLine, dataGeracao } =
-    params;
+  const {
+    logoDataUrl,
+    logoW,
+    logoH,
+    municipio,
+    uf,
+    tituloAvaliacao,
+    seriesLine,
+    disciplinasLine,
+    dataGeracao,
+    coverLetterhead,
+  } = params;
   const centerX = pageWidth / 2;
   const BAND_H = 58;
 
-  doc.setFillColor(...COLORS.white);
-  doc.rect(0, 0, pageWidth, pageHeight, "F");
+  if (coverLetterhead) {
+    paintLetterheadBackground(doc, coverLetterhead, pageWidth, pageHeight);
+  } else {
+    doc.setFillColor(...COLORS.white);
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
+  }
 
   doc.setFillColor(...COLORS.primary);
   doc.rect(0, 0, pageWidth, BAND_H, "F");
@@ -1601,11 +1620,12 @@ export async function generateRelatorioOrganizadoPdf(data: RelatorioCompleto): P
   let logoDataUrl = "";
   let logoW = 0;
   let logoH = 0;
-  const logoAsset = await loadLogoAssetForLandscapePdf(cityId);
-  if (logoAsset) {
-    logoDataUrl = logoAsset.dataUrl;
-    logoW = logoAsset.iw;
-    logoH = logoAsset.ih;
+  const analiseBranding = await loadCityBrandingForReportPdf(cityId);
+  const coverLetterhead = analiseBranding.letterhead;
+  if (analiseBranding.logo) {
+    logoDataUrl = analiseBranding.logo.dataUrl;
+    logoW = analiseBranding.logo.iw;
+    logoH = analiseBranding.logo.ih;
   } else if (typeof ext.default_logo === "string" && ext.default_logo.length > 40) {
     logoDataUrl = ext.default_logo.startsWith("data:") ? ext.default_logo : `data:image/png;base64,${ext.default_logo}`;
     logoW = 120;
@@ -1637,6 +1657,7 @@ export async function generateRelatorioOrganizadoPdf(data: RelatorioCompleto): P
     seriesLine,
     disciplinasLine,
     dataGeracao,
+    coverLetterhead,
   });
 
   doc.addPage();

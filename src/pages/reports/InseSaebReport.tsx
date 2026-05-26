@@ -1162,9 +1162,8 @@ const InseSaebReport = () => {
           doc.rect(0, 0, pageWidth, BAND_H, 'F');
         }
 
-        // LOGO-1.png centralizada
         let logoBottomInBand = 0;
-        const logoAsset = await urlToPngAsset('/LOGO-1.png');
+        const logoAsset = inseBrandingFull.logo ?? (await urlToPngAsset('/LOGO-1.png'));
         if (logoAsset?.dataUrl && logoAsset.iw > 0 && logoAsset.ih > 0) {
           const desiredLogoWidth = 38;
           const desiredLogoHeight = (logoAsset.ih * desiredLogoWidth) / logoAsset.iw;
