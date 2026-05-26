@@ -100,20 +100,8 @@ type ContentShellProps = {
 };
 
 export function RankingContentShell({
-  isRefreshing = false,
-  refreshingMessage,
   children,
   className,
 }: ContentShellProps) {
-  return (
-    <div className={cn("relative space-y-4", className)}>
-      {isRefreshing ? <RankingRefreshingBanner message={refreshingMessage} /> : null}
-      <div
-        className={cn("transition-opacity duration-200", isRefreshing && "pointer-events-none opacity-60")}
-        aria-busy={isRefreshing}
-      >
-        {children}
-      </div>
-    </div>
-  );
+  return <div className={cn("relative space-y-4", className)}>{children}</div>;
 }
