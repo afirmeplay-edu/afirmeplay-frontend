@@ -402,11 +402,17 @@ export default function RankingHub() {
   const isAnyFilterLoading = Object.values(loadingFilters).some(Boolean);
 
   const gradeOptionsFromApi = rankingQuery.data?.grade_options || [];
-  const useApiGradeOptions = hasSchoolFilter && hasEntitySelection;
+  /**
+   * Usa as séries vindas da API sempre que a avaliação/cartão estiver selecionada,
+   * mesmo sem escola escolhida — assim o filtro lista só as séries que participaram
+   * daquele recorte (e o filtro de escola continua opcional).
+   */
+  const useApiGradeOptions = hasEntitySelection;
   const serieOptions = useApiGradeOptions ? gradeOptionsFromApi : series;
   const serieFilterLoading = useApiGradeOptions
     ? rankingQuery.isLoading || rankingQuery.isFetching
     : loadingFilters.series;
+  const serieFilterEnabled = hasEntitySelection || hasSchoolFilter;
 
   useEffect(() => {
     if (!useApiGradeOptions || !filters.serie) return;
@@ -541,10 +547,14 @@ export default function RankingHub() {
             Relatório de ranking
           </h1>
           <Badge variant="outline" className="gap-1.5">
-            {rankingInitialLoading || rankingRefreshing ? (
-              <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-            ) : null}
-            {rankingInitialLoading ? "Carregando..." : `${currentCount ?? 0} registros`}
+            {rankingInitialLoading ? (
+              <>
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                Carregando...
+              </>
+            ) : (
+              `${currentCount ?? 0} registros`
+            )}
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground">
@@ -853,7 +863,7 @@ export default function RankingHub() {
             <Select
               value={filters.serie || "all"}
               onValueChange={(value) => setFilters({ serie: value === "all" ? "" : value }, ["turma"])}
-              disabled={!filters.escola || serieFilterLoading}
+              disabled={!serieFilterEnabled || serieFilterLoading}
             >
               <SelectTrigger id="serie">
                 <SelectValue
@@ -906,9 +916,9 @@ export default function RankingHub() {
             <Button
               type="button"
               onClick={handleExportPdf}
-              disabled={!hasEntitySelection || rankingInitialLoading || rankingRefreshing}
+              disabled={!hasEntitySelection || rankingInitialLoading}
             >
-              {rankingInitialLoading || rankingRefreshing ? (
+              {rankingInitialLoading ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
               ) : (
                 <Download className="mr-2 h-4 w-4" />
@@ -951,19 +961,12 @@ export default function RankingHub() {
 
         {hasEntitySelection && (rankingQuery.data?.discipline_options?.length || 0) > 0 ? (
           <div className="mt-4 space-y-3">
-            {rankingRefreshing ? (
-              <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary">
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-                <span>Atualizando dados do ranking...</span>
-              </div>
-            ) : null}
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Disciplina</span>
               <Button
                 type="button"
                 size="sm"
                 variant={!activeDiscipline ? "default" : "outline"}
-                disabled={rankingRefreshing}
                 onClick={() => setFilters({ disciplina: "" })}
               >
                 Geral
@@ -974,7 +977,6 @@ export default function RankingHub() {
                   type="button"
                   size="sm"
                   variant={activeDiscipline === discipline.id ? "default" : "outline"}
-                  disabled={rankingRefreshing}
                   onClick={() => setFilters({ disciplina: discipline.id })}
                 >
                   {discipline.name}

@@ -19,10 +19,11 @@ import {
   RankingMetricsTableRow,
   RANKING_TABLE_SCROLL_CLASS,
 } from "@/components/ranking/RankingMetricsTable";
-import { PosBadge, SummaryCard, formatPt } from "@/components/ranking/RankingVisualPrimitives";
+import { SummaryCard, formatPt } from "@/components/ranking/RankingVisualPrimitives";
 import { RankingContentShell, RankingLoadingState } from "@/components/ranking/RankingLoadingState";
 import { RankingSortControls } from "@/components/ranking/RankingSortControls";
 import { useRankingSort } from "@/components/ranking/useRankingSort";
+import { getRankingSortValue, type RankingSortKey } from "@/utils/rankingSort";
 
 type Props = {
   data?: RankingResponse;
@@ -35,6 +36,12 @@ type ChartRow = {
   school_name?: string;
   average_score?: number;
   average_proficiency?: number;
+  participation_rate?: number;
+  adequado_avancado_pct?: number;
+  adequado_avancado_count?: number;
+  participating_students?: number;
+  total_students?: number;
+  metric_value?: number;
   barColor?: string;
 };
 
@@ -42,6 +49,51 @@ type ChartTooltipEntry = {
   value?: number;
   payload?: ChartRow;
 };
+
+type ChartMetricDescriptor = {
+  axisLabel: string;
+  tooltipLabel: string;
+  legend: string;
+  isPercentage: boolean;
+  decimals: number;
+};
+
+const CHART_METRIC_BY_SORT: Record<RankingSortKey, ChartMetricDescriptor> = {
+  proficiencia: {
+    axisLabel: "Proficiência média",
+    tooltipLabel: "Proficiência",
+    legend: "Métrica: proficiência média (valores ao lado de cada barra)",
+    isPercentage: false,
+    decimals: 1,
+  },
+  media: {
+    axisLabel: "Nota média",
+    tooltipLabel: "Nota média",
+    legend: "Métrica: nota média (0–10) com valores ao lado de cada barra",
+    isPercentage: false,
+    decimals: 1,
+  },
+  participacao: {
+    axisLabel: "Participação (%)",
+    tooltipLabel: "Participação",
+    legend: "Métrica: % de participação dos alunos com valores ao lado de cada barra",
+    isPercentage: true,
+    decimals: 1,
+  },
+  adequado_avancado: {
+    axisLabel: "% Adequado + Avançado",
+    tooltipLabel: "Adequado + Avançado",
+    legend: "Métrica: % de alunos nos níveis Adequado e Avançado",
+    isPercentage: true,
+    decimals: 1,
+  },
+};
+
+function formatMetricValue(value: number, descriptor: ChartMetricDescriptor): string {
+  const safe = Number.isFinite(value) ? value : 0;
+  const formatted = formatPt(safe, descriptor.decimals);
+  return descriptor.isPercentage ? `${formatted}%` : formatted;
+}
 
 const SCHOOL_NAME_CHARS_PER_LINE = 26;
 
@@ -136,48 +188,52 @@ type BarValueLabelProps = {
   value?: number;
 };
 
-function ProficiencyBarValueLabel({ x = 0, y = 0, width = 0, height = 0, value }: BarValueLabelProps) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return null;
-  return (
-    <text
-      x={x + width + 6}
-      y={y + height / 2}
-      dy={4}
-      textAnchor="start"
-      fill="hsl(var(--foreground))"
-      fontSize={11}
-      fontWeight={600}
-    >
-      {formatPt(num, 1)}
-    </text>
-  );
+function makeMetricBarValueLabel(descriptor: ChartMetricDescriptor) {
+  return function MetricBarValueLabel({ x = 0, y = 0, width = 0, height = 0, value }: BarValueLabelProps) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return null;
+    return (
+      <text
+        x={x + width + 6}
+        y={y + height / 2}
+        dy={4}
+        textAnchor="start"
+        fill="hsl(var(--foreground))"
+        fontSize={11}
+        fontWeight={600}
+      >
+        {formatMetricValue(num, descriptor)}
+      </text>
+    );
+  };
 }
 
-function ChartTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: ChartTooltipEntry[];
-}) {
-  if (!active || !payload?.length) return null;
-  const point = payload[0]?.payload;
-  const prof = Number(payload[0]?.value || point?.average_proficiency || 0);
-  const school = normalizeSchoolName(point?.school_name);
-  const barColor = point?.barColor || "hsl(var(--primary))";
+function makeChartTooltip(descriptor: ChartMetricDescriptor) {
+  return function ChartTooltip({
+    active,
+    payload,
+  }: {
+    active?: boolean;
+    payload?: ChartTooltipEntry[];
+  }) {
+    if (!active || !payload?.length) return null;
+    const point = payload[0]?.payload;
+    const rawValue = Number(payload[0]?.value ?? point?.metric_value ?? 0);
+    const school = normalizeSchoolName(point?.school_name);
+    const barColor = point?.barColor || "hsl(var(--primary))";
 
-  return (
-    <div className="rounded-md border border-border bg-card px-3 py-2 text-xs shadow-md">
-      <p className="font-semibold text-foreground">{school}</p>
-      <p className="mt-1 text-muted-foreground">
-        Proficiência:{" "}
-        <span className="font-bold" style={{ color: barColor }}>
-          {formatPt(prof, 1)}
-        </span>
-      </p>
-    </div>
-  );
+    return (
+      <div className="rounded-md border border-border bg-card px-3 py-2 text-xs shadow-md">
+        <p className="font-semibold text-foreground">{school}</p>
+        <p className="mt-1 text-muted-foreground">
+          {descriptor.tooltipLabel}:{" "}
+          <span className="font-bold" style={{ color: barColor }}>
+            {formatMetricValue(rawValue, descriptor)}
+          </span>
+        </p>
+      </div>
+    );
+  };
 }
 
 export default function RankingOverviewPanel({ data, isLoading, isRefreshing, errorMessage }: Props) {
@@ -247,20 +303,27 @@ export default function RankingOverviewPanel({ data, isLoading, isRefreshing, er
             is_critical: Boolean(row.is_critical),
           }))
         );
+        const metricDescriptor = CHART_METRIC_BY_SORT[sortBy];
         const chartRows = sortRows((typedCourseData.chart_rows || []) as Array<Record<string, unknown>>).map(
           (row, idx) => ({
             ...row,
+            metric_value: getRankingSortValue(row, sortBy),
             barColor: rankingSchoolBarFill(idx),
           })
         );
-        const chartMaxProficiency = Math.max(
-          1,
-          ...chartRows.map((row) => Number(row.average_proficiency || 0))
+        const chartMaxValue = Math.max(
+          metricDescriptor.isPercentage ? 100 : 1,
+          ...chartRows.map((row) => Number(row.metric_value || 0))
         );
+        const chartDomainMax = metricDescriptor.isPercentage
+          ? 100
+          : Math.ceil(chartMaxValue * 1.05);
         const schoolNames = chartRows.map((row) => normalizeSchoolName(row.school_name));
         const yAxisWidth = estimateYAxisWidth(schoolNames);
         const nameLineCount = maxWrappedNameLines(schoolNames);
         const chartHeight = estimateSchoolChartHeight(chartRows.length, nameLineCount);
+        const MetricBarValueLabel = makeMetricBarValueLabel(metricDescriptor);
+        const MetricChartTooltip = makeChartTooltip(metricDescriptor);
         return (
           <Card key={courseLabel} className="overflow-hidden border border-border/70">
             <CardHeader className="border-b border-border/60 bg-muted/30 pb-3">
@@ -290,9 +353,7 @@ export default function RankingOverviewPanel({ data, isLoading, isRefreshing, er
 
               <div className="rounded-xl border border-border/70 bg-card p-4">
                 <p className="text-sm font-semibold text-foreground">Desempenho por escola</p>
-                <p className="mt-0.5 mb-3 text-xs text-muted-foreground">
-                  Métrica: proficiência média (valores ao lado de cada barra)
-                </p>
+                <p className="mt-0.5 mb-3 text-xs text-muted-foreground">{metricDescriptor.legend}</p>
                 <div className="w-full" style={{ height: chartHeight }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
@@ -303,11 +364,15 @@ export default function RankingOverviewPanel({ data, isLoading, isRefreshing, er
                       <CartesianGrid strokeDasharray="2 4" horizontal={false} stroke="hsl(var(--border))" />
                       <XAxis
                         type="number"
-                        domain={[0, Math.ceil(chartMaxProficiency * 1.05)]}
+                        domain={[0, chartDomainMax]}
                         tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-                        tickFormatter={(value) => formatPt(Number(value), 0)}
+                        tickFormatter={(value) =>
+                          metricDescriptor.isPercentage
+                            ? `${formatPt(Number(value), 0)}%`
+                            : formatPt(Number(value), 0)
+                        }
                         label={{
-                          value: "Proficiência média",
+                          value: metricDescriptor.axisLabel,
                           position: "insideBottom",
                           offset: -18,
                           style: { fontSize: 11, fill: "hsl(var(--muted-foreground))", fontWeight: 600 },
@@ -320,9 +385,9 @@ export default function RankingOverviewPanel({ data, isLoading, isRefreshing, er
                         tick={<SchoolNameYAxisTick />}
                         interval={0}
                       />
-                      <Tooltip content={<ChartTooltip />} cursor={{ fill: "hsl(var(--muted) / 0.35)" }} />
+                      <Tooltip content={<MetricChartTooltip />} cursor={{ fill: "hsl(var(--muted) / 0.35)" }} />
                       <Bar
-                        dataKey="average_proficiency"
+                        dataKey="metric_value"
                         radius={[0, 6, 6, 0]}
                         barSize={18}
                         isAnimationActive={false}
@@ -333,7 +398,7 @@ export default function RankingOverviewPanel({ data, isLoading, isRefreshing, er
                             fill={String(row.barColor || rankingSchoolBarFill(idx))}
                           />
                         ))}
-                        <LabelList dataKey="average_proficiency" content={<ProficiencyBarValueLabel />} />
+                        <LabelList dataKey="metric_value" content={<MetricBarValueLabel />} />
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
