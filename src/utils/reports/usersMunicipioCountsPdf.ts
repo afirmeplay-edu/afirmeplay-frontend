@@ -381,17 +381,9 @@ export async function generateUsersMunicipioCountsPdf(args: {
   if (args.contactsByRole) {
     for (const roleItem of contactRoleLabels) {
       const list = (args.contactsByRole[roleItem.key] ?? []).filter((c) => str(c.name) || str(c.email));
-      const sortedList =
-        roleItem.key === "aluno"
-          ? [...list].sort((a, b) => {
-              const byHierarchy = sortGradeAndClass(
-                { grade_name: a.gradeName, class_name: a.className },
-                { grade_name: b.gradeName, class_name: b.className }
-              );
-              if (byHierarchy !== 0) return byHierarchy;
-              return str(a.name).localeCompare(str(b.name), "pt-BR", { sensitivity: "base" });
-            })
-          : [...list].sort((a, b) => str(a.name).localeCompare(str(b.name), "pt-BR", { sensitivity: "base" }));
+      const sortedList = [...list].sort((a, b) =>
+        str(a.name).localeCompare(str(b.name), "pt-BR", { sensitivity: "base" })
+      );
       if (sortedList.length === 0) continue;
       if (y > pageH - 60) {
         doc.addPage();
@@ -399,19 +391,29 @@ export async function generateUsersMunicipioCountsPdf(args: {
       }
       y = addSectionTitle(`Contatos - ${roleItem.label}`, y);
       const isStudentRole = roleItem.key === "aluno";
+
+      const body: string[][] = sortedList.map((item, idx) =>
+        isStudentRole
+          ? [
+              String(idx + 1),
+              str(item.gradeName) || "—",
+              str(item.className) || "—",
+              str(item.name) || "—",
+              str(item.email) || "—",
+            ]
+          : [String(idx + 1), str(item.name) || "—", str(item.email) || "—"]
+      );
+
       autoTable(doc, {
         startY: y,
         styles: { font: "helvetica", fontSize: 9, textColor: COLORS.textDark as unknown as number[] },
         headStyles: { fillColor: COLORS.primary as unknown as number[], textColor: COLORS.white as unknown as number[] },
         bodyStyles: { fillColor: COLORS.white as unknown as number[] },
-        head: [isStudentRole ? ["Série", "Turma", "Nome", "E-mail"] : ["Nome", "E-mail"]],
-        body: sortedList.map((item) =>
-          isStudentRole
-            ? [str(item.gradeName) || "—", str(item.className) || "—", str(item.name) || "—", str(item.email) || "—"]
-            : [str(item.name) || "—", str(item.email) || "—"]
-        ),
+        head: [isStudentRole ? ["#", "Série", "Turma", "Nome", "E-mail"] : ["#", "Nome", "E-mail"]],
+        body,
         theme: "striped",
         margin: { left: margin, right: margin },
+        columnStyles: { 0: { cellWidth: 10, halign: "right" } },
       });
       y = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY
         ? (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12
