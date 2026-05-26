@@ -5,7 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { loadLogoAssetForLandscapePdf, urlToPngAsset } from "@/utils/pdfCityBranding";
+import {
+  loadCityBrandingForReportPdf,
+  paintLetterheadBackground,
+  urlToPngAsset,
+} from "@/utils/pdfCityBranding";
 import { 
   ArrowLeft, 
   Download, 
@@ -235,11 +239,12 @@ export default function EvaluationResults({ onBack }: EvaluationResultsProps) {
       let logoDataUrl = '';
       let logoWidth = 0;
       let logoHeight = 0;
-      const logoAsset = await loadLogoAssetForLandscapePdf(brandingCityId);
-      if (logoAsset) {
-        logoDataUrl = logoAsset.dataUrl;
-        logoWidth = logoAsset.iw;
-        logoHeight = logoAsset.ih;
+      const resultsBranding = await loadCityBrandingForReportPdf(brandingCityId);
+      const coverLetterhead = resultsBranding.letterhead;
+      if (resultsBranding.logo) {
+        logoDataUrl = resultsBranding.logo.dataUrl;
+        logoWidth = resultsBranding.logo.iw;
+        logoHeight = resultsBranding.logo.ih;
       }
 
       let icoDataUrl = '';
@@ -253,8 +258,12 @@ export default function EvaluationResults({ onBack }: EvaluationResultsProps) {
       }
 
       const addCover = () => {
-        pdf.setFillColor(...COLORS.white);
-        pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+        if (coverLetterhead) {
+          paintLetterheadBackground(pdf, coverLetterhead, pageWidth, pageHeight);
+        } else {
+          pdf.setFillColor(...COLORS.white);
+          pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+        }
 
         const centerX = pageWidth / 2;
         const BAND_H = 58;

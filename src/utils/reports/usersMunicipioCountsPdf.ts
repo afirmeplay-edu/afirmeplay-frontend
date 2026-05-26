@@ -1,4 +1,7 @@
-import { loadLogoAssetForLandscapePdf } from "@/utils/pdfCityBranding";
+import {
+  loadCityBrandingForReportPdf,
+  paintLetterheadBackground,
+} from "@/utils/pdfCityBranding";
 
 type Rgb = [number, number, number];
 type UserRoleGroup = "diretor" | "coordenador" | "professor" | "aluno";
@@ -125,12 +128,18 @@ export async function generateUsersMunicipioCountsPdf(args: {
       ? `DA ESCOLA ${str(scope.schoolName || "Escola").toUpperCase()}`
       : `DO MUNICÍPIO ${str(args.cityName || "").toUpperCase()}`;
 
-  const logoAsset = await loadLogoAssetForLandscapePdf(args.cityId);
+  const usersBranding = await loadCityBrandingForReportPdf(args.cityId);
+  const logoAsset = usersBranding.logo;
+  const coverLetterhead = usersBranding.letterhead;
 
   const drawCover = () => {
     const BAND_H = 58;
-    doc.setFillColor(...COLORS.white);
-    doc.rect(0, 0, pageW, pageH, "F");
+    if (coverLetterhead) {
+      paintLetterheadBackground(doc, coverLetterhead, pageW, pageH);
+    } else {
+      doc.setFillColor(...COLORS.white);
+      doc.rect(0, 0, pageW, pageH, "F");
+    }
     doc.setFillColor(...COLORS.primary);
     doc.rect(0, 0, pageW, BAND_H, "F");
 

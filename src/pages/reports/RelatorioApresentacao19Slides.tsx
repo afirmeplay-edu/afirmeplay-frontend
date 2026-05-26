@@ -27,7 +27,7 @@ import {
 } from "@/components/reports/presentation19/Presentation19NativePreviewDeck";
 import { exportPresentation19Pdf, exportPresentation19Pptx } from "@/services/reports/presentation19/Presentation19SlidesExportService";
 import type { RelatorioCompleto } from "@/types/evaluation-results";
-import { resolveReportLogoForPdf } from "@/utils/pdfCityBranding";
+import { loadCityBrandingForReportPdf } from "@/utils/pdfCityBranding";
 import { normalizeResultsPeriodYm } from "@/utils/resultsPeriod";
 
 function asNormOpt(o: { nome?: string; name?: string; titulo?: string }): string {
@@ -645,9 +645,9 @@ export default function RelatorioApresentacao19Slides() {
         if (format === "pdf") {
           let deckForPdf = activeDeck;
           if (selectedMunicipality !== "all") {
-            const mLogo = await resolveReportLogoForPdf(selectedMunicipality);
-            if (mLogo) {
-              deckForPdf = { ...activeDeck, logoDataUrl: mLogo.dataUrl };
+            const presentationBranding = await loadCityBrandingForReportPdf(selectedMunicipality);
+            if (presentationBranding.logo) {
+              deckForPdf = { ...deckForPdf, logoDataUrl: presentationBranding.logo.dataUrl };
             }
           }
           const specForPdf =

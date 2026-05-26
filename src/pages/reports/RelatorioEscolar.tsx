@@ -67,8 +67,7 @@ import {
   type GabaritoOpcaoFiltrosResults,
 } from "@/utils/answer-sheet/answerSheetRelatorioGabaritoComHabilidades";
 import {
-  loadCityBrandingPdfAssets,
-  paintLetterheadBackground,
+  loadCityBrandingForReportPdf,
   urlToPngAsset,
 } from "@/utils/pdfCityBranding";
 import { getDisciplinaAnaliseFromIaRoot } from "@/utils/report/analiseIaPdfText";
@@ -3264,7 +3263,7 @@ export default function RelatorioEscolar({
       const autoTable = (await import('jspdf-autotable')).default;
 
       const brandingCityId = repMunicipality !== "all" ? repMunicipality : null;
-      const cityBranding = await loadCityBrandingPdfAssets(brandingCityId);
+      const cityBranding = await loadCityBrandingForReportPdf(brandingCityId);
 
       let logoDataUrl = '';
       let logoWidth = 0;
@@ -3273,31 +3272,6 @@ export default function RelatorioEscolar({
         logoDataUrl = cityBranding.logo.dataUrl;
         logoWidth = cityBranding.logo.iw;
         logoHeight = cityBranding.logo.ih;
-      } else {
-        try {
-          const logoPath = '/LOGO-1.png';
-          const logoImg = new Image();
-          const logoPromise = new Promise<void>((resolve, reject) => {
-            logoImg.onload = () => resolve();
-            logoImg.onerror = reject;
-            logoImg.src = logoPath;
-          });
-
-          await logoPromise;
-
-          logoWidth = logoImg.width;
-          logoHeight = logoImg.height;
-
-          const response = await fetch(logoPath);
-          const blob = await response.blob();
-          logoDataUrl = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.readAsDataURL(blob);
-          });
-        } catch {
-          // Continuar sem logo
-        }
       }
 
       // Ícone usado nos cabeçalhos internos (faixa compacta)

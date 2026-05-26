@@ -591,7 +591,7 @@ const FormRespostasReport = () => {
         }
         const hasLetterhead = Boolean(branding.letterhead);
         const icoAsset = await urlToPngAsset('/AFIRME-PLAY-ico.png');
-        const logoAsset = await urlToPngAsset('/LOGO-1.png');
+        const logoAsset = branding.logo ?? (await urlToPngAsset('/LOGO-1.png'));
         const centerX = pageWidth / 2;
         const primaryRgb: [number, number, number] = [124, 58, 237];
         const textDark: [number, number, number] = [31, 41, 55];
@@ -891,7 +891,7 @@ const FormRespostasReport = () => {
       }
       const hasLetterhead = Boolean(branding.letterhead);
       const icoAsset = await urlToPngAsset('/AFIRME-PLAY-ico.png');
-      const logoAsset = await urlToPngAsset('/LOGO-1.png');
+      const logoAsset = branding.logo ?? (await urlToPngAsset('/LOGO-1.png'));
       const primaryRgb: [number, number, number] = [124, 58, 237];
       const textDark: [number, number, number] = [31, 41, 55];
       const textMuted: [number, number, number] = [107, 114, 128];

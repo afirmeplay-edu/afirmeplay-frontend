@@ -1,12 +1,75 @@
-import { getCityBranding } from '@/services/cityBrandingApi';
+import { getCityBranding, resolveBrandingUrls } from '@/services/cityBrandingApi';
+import { BASE_URL } from '@/lib/api';
 
 export type PdfImageAsset = { dataUrl: string; iw: number; ih: number };
 
+/**
+ * Detecta URLs servidas pelas rotas proxy autenticadas do backend para branding municipal.
+ * O backend passou a devolver URLs relativas no formato `/city/<id>/branding/...` em vez
+ * de URLs presigned do MinIO; essas rotas exigem JWT.
+ */
+function isAuthenticatedBrandingPath(url: string): boolean {
+  if (!url) return false;
+  if (/^https?:\/\//i.test(url)) return false;
+  if (url.startsWith('data:') || url.startsWith('blob:')) return false;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  return /^\/city\/[^/]+\/branding(\/|$)/.test(path);
+}
+
+function buildAuthenticatedBrandingUrl(url: string): string {
+  const path = url.startsWith('/') ? url : `/${url}`;
+  return `${BASE_URL}${path}`;
+}
+
+function getStoredJwt(): string | null {
+  try {
+    return localStorage.getItem('token');
+  } catch {
+    return null;
+  }
+}
+
+function getStoredCityId(): string | null {
+  try {
+    const userJson = localStorage.getItem('user');
+    if (!userJson) return null;
+    const user = JSON.parse(userJson) as { city_id?: string; tenant_id?: string };
+    return user.city_id || user.tenant_id || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extrai o cityId embutido em uma rota `/city/<id>/branding/...`, quando aplicável.
+ */
+function extractCityIdFromBrandingPath(url: string): string | null {
+  const path = url.startsWith('/') ? url : `/${url}`;
+  const match = /^\/city\/([^/]+)\/branding(\/|$)/.exec(path);
+  return match?.[1] ?? null;
+}
+
+async function fetchAsBlob(url: string): Promise<Blob | null> {
+  if (isAuthenticatedBrandingPath(url)) {
+    const target = buildAuthenticatedBrandingUrl(url);
+    const headers: Record<string, string> = { Accept: 'image/*,application/pdf;q=0.8,*/*;q=0.5' };
+    const token = getStoredJwt();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const cityId = extractCityIdFromBrandingPath(url) || getStoredCityId();
+    if (cityId) headers['X-City-ID'] = cityId;
+    const res = await fetch(target, { headers });
+    if (!res.ok) return null;
+    return await res.blob();
+  }
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  return await res.blob();
+}
+
 export async function urlToPngAsset(url: string): Promise<PdfImageAsset | null> {
   try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const blob = await res.blob();
+    const blob = await fetchAsBlob(url);
+    if (!blob) return null;
     const bmp = await createImageBitmap(blob);
     const canvas = document.createElement('canvas');
     canvas.width = bmp.width;
@@ -30,8 +93,9 @@ export async function loadCityBrandingPdfAssets(
   if (!cityId || cityId === 'all') return { letterhead: null, logo: null };
   try {
     const branding = await getCityBranding(cityId);
-    const lhUrl = branding.presigned?.letterhead_image_url ?? null;
-    const logoUrl = branding.presigned?.logo_url ?? null;
+    const urls = resolveBrandingUrls(branding);
+    const lhUrl = urls.letterhead_image_url;
+    const logoUrl = urls.logo_url;
     const [letterhead, logo] = await Promise.all([
       lhUrl ? urlToPngAsset(lhUrl) : Promise.resolve(null),
       logoUrl ? urlToPngAsset(logoUrl) : Promise.resolve(null),
@@ -92,7 +156,7 @@ export async function resolveReportLogoForPdf(
   if (!cityId || cityId === 'all') return null;
   try {
     const branding = await getCityBranding(cityId);
-    const logoUrl = branding.presigned?.logo_url ?? null;
+    const { logo_url: logoUrl } = resolveBrandingUrls(branding);
     if (!logoUrl) return null;
     return await urlToPngAsset(logoUrl);
   } catch {
@@ -135,6 +199,22 @@ export async function loadLogoAssetForLandscapePdf(
   const municipal = await resolveReportLogoForPdf(cityId);
   if (municipal) return municipal;
   return loadDefaultReportLogoAsset();
+}
+
+/**
+ * Carrega o conjunto de assets do município para uso em relatórios:
+ *  - `logo`: logo municipal quando configurado, com fallback para o logo institucional (`/LOGO-1.png`).
+ *  - `letterhead`: timbrado municipal apenas quando configurado (sem fallback).
+ *
+ * Usar em relatórios que queiram exibir o timbrado **somente na capa** e o logo em todas as páginas.
+ */
+export async function loadCityBrandingForReportPdf(
+  cityId: string | null | undefined
+): Promise<{ logo: PdfImageAsset | null; letterhead: PdfImageAsset | null }> {
+  const branding = await loadCityBrandingPdfAssets(cityId);
+  if (branding.logo) return branding;
+  const fallback = await loadDefaultReportLogoAsset();
+  return { logo: fallback, letterhead: branding.letterhead };
 }
 
 export async function drawReportHeaderLogoWithFallback(
