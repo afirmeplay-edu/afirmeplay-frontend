@@ -1,9 +1,34 @@
 import { api } from '@/lib/api';
 import type {
+  Cabecalho,
   ListaFrequenciaResponse,
   ListaFrequenciaTurmasResponse,
   TipoListaFrequencia,
 } from '@/types/lista-frequencia';
+
+function mapTurmasResponse(data: ListaFrequenciaTurmasResponse): ListaFrequenciaResponse[] {
+  if (!data?.turmas || !Array.isArray(data.turmas)) return [];
+  const legendaPadrao = data.legenda;
+  const instrucoesPadrao = data.instrucoes_aplicador;
+  return data.turmas.map((t) => {
+    const cab = t.cabecalho as Partial<Cabecalho>;
+    const cabecalho: Cabecalho = {
+      nome_prova_ano: cab.nome_prova_ano ?? '',
+      lista_presenca_curso: cab.lista_presenca_curso ?? '',
+      municipio_uf: cab.municipio_uf ?? '',
+      rede: cab.rede ?? null,
+      nome_escola: cab.nome_escola ?? '',
+      serie: cab.serie,
+      turma: cab.turma,
+      serie_turma: cab.serie_turma,
+      turno: cab.turno ?? null,
+      disciplina: cab.disciplina ?? '',
+      legenda: cab.legenda ?? legendaPadrao ?? {},
+      instrucoes_aplicador: cab.instrucoes_aplicador ?? instrucoesPadrao ?? '',
+    };
+    return { class_id: t.class_id, cabecalho, estudantes: t.estudantes };
+  });
+}
 
 /**
  * Lista de frequência por turma (status vazios).
@@ -54,9 +79,7 @@ export async function getListaFrequenciaPorAvaliacaoTodasTurmas(
   if (options?.grade_id) params.grade_id = options.grade_id;
   if (options?.tipo) params.tipo = options.tipo;
   const response = await api.get<ListaFrequenciaTurmasResponse>('lista-frequencia/', { params });
-  const data = response.data;
-  if (!data?.turmas || !Array.isArray(data.turmas)) return [];
-  return data.turmas.map((t) => ({ cabecalho: t.cabecalho, estudantes: t.estudantes }));
+  return mapTurmasResponse(response.data);
 }
 
 /**
@@ -92,9 +115,26 @@ export async function getListaFrequenciaPorGabaritoTodasTurmas(
   if (options?.grade_id) params.grade_id = options.grade_id;
   if (options?.tipo) params.tipo = options.tipo;
   const response = await api.get<ListaFrequenciaTurmasResponse>('lista-frequencia/', { params });
-  const data = response.data;
-  if (!data?.turmas || !Array.isArray(data.turmas)) return [];
-  return data.turmas.map((t) => ({ cabecalho: t.cabecalho, estudantes: t.estudantes }));
+  return mapTurmasResponse(response.data);
+}
+
+/**
+ * Todas as turmas de um município (modo por turma, sem avaliação aplicada) em uma única chamada.
+ * GET /lista-frequencia/?city_id=... [&school_id=...] [&grade_id=...] [&tipo=...]
+ */
+export async function getListaFrequenciaPorMunicipioTodasTurmas(
+  cityId: string,
+  options?: { school_id?: string; grade_id?: string; tipo?: TipoListaFrequencia }
+): Promise<ListaFrequenciaResponse[]> {
+  const params: Record<string, string> = { city_id: cityId };
+  if (options?.school_id) params.school_id = options.school_id;
+  if (options?.grade_id) params.grade_id = options.grade_id;
+  if (options?.tipo) params.tipo = options.tipo;
+  const response = await api.get<ListaFrequenciaTurmasResponse>('lista-frequencia/', {
+    params,
+    timeout: 120_000,
+  });
+  return mapTurmasResponse(response.data);
 }
 
 /** @deprecated Use getListaFrequenciaPorTurma ou getListaFrequenciaPorAvaliacao. */

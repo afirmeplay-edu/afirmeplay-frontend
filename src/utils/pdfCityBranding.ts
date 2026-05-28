@@ -2,6 +2,9 @@ import { getCityBranding, resolveBrandingUrls } from '@/services/cityBrandingApi
 import { BASE_URL } from '@/lib/api';
 
 export type PdfImageAsset = { dataUrl: string; iw: number; ih: number };
+type BrandingAssetSet = { letterhead: PdfImageAsset | null; logo: PdfImageAsset | null };
+
+const brandingAssetCache = new Map<string, Promise<BrandingAssetSet>>();
 
 /**
  * Detecta URLs servidas pelas rotas proxy autenticadas do backend para branding municipal.
@@ -50,20 +53,24 @@ function extractCityIdFromBrandingPath(url: string): string | null {
 }
 
 async function fetchAsBlob(url: string): Promise<Blob | null> {
-  if (isAuthenticatedBrandingPath(url)) {
-    const target = buildAuthenticatedBrandingUrl(url);
-    const headers: Record<string, string> = { Accept: 'image/*,application/pdf;q=0.8,*/*;q=0.5' };
-    const token = getStoredJwt();
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const cityId = extractCityIdFromBrandingPath(url) || getStoredCityId();
-    if (cityId) headers['X-City-ID'] = cityId;
-    const res = await fetch(target, { headers });
+  try {
+    if (isAuthenticatedBrandingPath(url)) {
+      const target = buildAuthenticatedBrandingUrl(url);
+      const headers: Record<string, string> = { Accept: 'image/*,application/pdf;q=0.8,*/*;q=0.5' };
+      const token = getStoredJwt();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const cityId = extractCityIdFromBrandingPath(url) || getStoredCityId();
+      if (cityId) headers['X-City-ID'] = cityId;
+      const res = await fetch(target, { headers });
+      if (!res.ok) return null;
+      return await res.blob();
+    }
+    const res = await fetch(url);
     if (!res.ok) return null;
     return await res.blob();
+  } catch {
+    return null;
   }
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  return await res.blob();
 }
 
 export async function urlToPngAsset(url: string): Promise<PdfImageAsset | null> {
@@ -91,17 +98,31 @@ export async function loadCityBrandingPdfAssets(
   cityId: string | null | undefined
 ): Promise<{ letterhead: PdfImageAsset | null; logo: PdfImageAsset | null }> {
   if (!cityId || cityId === 'all') return { letterhead: null, logo: null };
+  const key = String(cityId);
+  const cached = brandingAssetCache.get(key);
+  if (cached) return cached;
+
+  const loadPromise = (async (): Promise<BrandingAssetSet> => {
+    try {
+      const branding = await getCityBranding(cityId);
+      const urls = resolveBrandingUrls(branding);
+      const lhUrl = urls.letterhead_image_url;
+      const logoUrl = urls.logo_url;
+      const [letterhead, logo] = await Promise.all([
+        lhUrl ? urlToPngAsset(lhUrl) : Promise.resolve(null),
+        logoUrl ? urlToPngAsset(logoUrl) : Promise.resolve(null),
+      ]);
+      return { letterhead, logo };
+    } catch {
+      return { letterhead: null, logo: null };
+    }
+  })();
+
+  brandingAssetCache.set(key, loadPromise);
   try {
-    const branding = await getCityBranding(cityId);
-    const urls = resolveBrandingUrls(branding);
-    const lhUrl = urls.letterhead_image_url;
-    const logoUrl = urls.logo_url;
-    const [letterhead, logo] = await Promise.all([
-      lhUrl ? urlToPngAsset(lhUrl) : Promise.resolve(null),
-      logoUrl ? urlToPngAsset(logoUrl) : Promise.resolve(null),
-    ]);
-    return { letterhead, logo };
+    return await loadPromise;
   } catch {
+    brandingAssetCache.delete(key);
     return { letterhead: null, logo: null };
   }
 }

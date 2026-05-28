@@ -1,5 +1,6 @@
 import { api, apiWithRetry, apiWithTimeout } from '@/lib/api';
 import { EvaluationResultsData, StudentProficiency, ResultsFilters, calculateProficiency, RelatorioCompleto } from '@/types/evaluation-results';
+import { normalizeApiList } from '@/utils/normalizeApiList';
 import { normalizeResultsPeriodYm } from '@/utils/resultsPeriod';
 
 /** Query param para relatórios baseados em cartão-resposta (gabarito), alinhado ao backend. */
@@ -1456,7 +1457,7 @@ export class EvaluationResultsApiService {
       if (filters.grade_id) params.append('grade_id', filters.grade_id);
 
       const response = await api.get(`/classes/filtered?${params}`);
-      return response.data || [];
+      return normalizeApiList(response.data);
     } catch (error) {
               // Erro ao buscar turmas filtradas
       return [];
