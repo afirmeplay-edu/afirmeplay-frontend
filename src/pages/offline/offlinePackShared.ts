@@ -1,4 +1,5 @@
 import type { OfflinePackScope } from '@/services/mobile/offlinePackApi';
+import { normalizeApiList } from '@/utils/normalizeApiList';
 
 export const OFFLINE_SELECT_NONE = '__offline_none__';
 
@@ -43,14 +44,7 @@ export interface StudentRow {
 }
 
 export function normalizeToClassRows(data: unknown): ClassRow[] {
-  if (data == null) return [];
-  if (Array.isArray(data)) return data as ClassRow[];
-  if (typeof data === 'object') {
-    const o = data as Record<string, unknown>;
-    const inner = o.data ?? o.classes ?? o.items ?? o.results ?? o.records;
-    if (Array.isArray(inner)) return inner as ClassRow[];
-  }
-  return [];
+  return normalizeApiList<ClassRow>(data);
 }
 
 export function toggleInSet(ids: Set<string>, id: string, checked: boolean): Set<string> {

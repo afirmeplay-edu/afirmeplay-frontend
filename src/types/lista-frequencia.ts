@@ -29,15 +29,21 @@ export interface Estudante {
 }
 
 export interface ListaFrequenciaResponse {
+  class_id?: string;
   cabecalho: Cabecalho;
   estudantes: Estudante[];
 }
 
-/** Resposta do GET /lista-frequencia/?test_id=... (todas as turmas da avaliação) */
+/** Resposta do GET /lista-frequencia/ com várias turmas (legenda pode vir no topo em lote). */
 export interface ListaFrequenciaTurmasResponse {
+  legenda?: Legenda;
+  instrucoes_aplicador?: string;
   turmas: Array<{
     class_id: string;
-    cabecalho: Cabecalho;
+    cabecalho: Partial<Cabecalho> & Omit<Cabecalho, 'legenda' | 'instrucoes_aplicador'> & {
+      legenda?: Legenda;
+      instrucoes_aplicador?: string;
+    };
     estudantes: Estudante[];
   }>;
 }

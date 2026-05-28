@@ -40,7 +40,15 @@ import {
   EvaluationResultsApiService,
   REPORT_ENTITY_TYPE_ANSWER_SHEET,
 } from "@/services/evaluation/evaluationResultsApi";
-import { downloadAtaSalaPdf, previewAtaSalaPdf, printAtaSalaPdf } from "@/services/reports/ataSalaPdf";
+import {
+  buildAtaSalaHierarchyPath,
+  createAtaSalaPdfBlob,
+  downloadAtaSalaPdf,
+  previewAtaSalaPdf,
+  printAtaSalaPdf,
+} from "@/services/reports/ataSalaPdf";
+import { getSerieTurmaDisplay } from "@/services/reports/listaFrequenciaPdf";
+import { downloadBlob, generateZipBlob } from "@/services/reports/hierarchicalDownload";
 
 type Option = { id: string; name: string };
 type Mode = "turma" | "avaliacao" | "cartao_resposta";
@@ -256,6 +264,7 @@ export default function AtaSalaPage() {
   });
 
   const [error, setError] = useState<string | null>(null);
+  const [loadedLista, setLoadedLista] = useState<ListaFrequenciaResponse[] | null>(null);
 
   const [nomeAvaliacao, setNomeAvaliacao] = useState("NOME DA AVALIAÇÃO");
   const [cursoLabel, setCursoLabel] = useState("CURSO (ANOS INICIAIS OU FINAIS)");
@@ -455,11 +464,7 @@ export default function AtaSalaPage() {
       !selectedEstado ||
       selectedEstado === "all" ||
       !selectedMunicipio ||
-      selectedMunicipio === "all" ||
-      !selectedSchool ||
-      selectedSchool === "all" ||
-      !selectedSerie ||
-      selectedSerie === "all"
+      selectedMunicipio === "all"
     ) {
       setAvaliacoes([]);
       setSelectedAvaliacaoId("all");
@@ -470,7 +475,7 @@ export default function AtaSalaPage() {
     EvaluationResultsApiService.getFilterEvaluations({
       estado: selectedEstado,
       municipio: selectedMunicipio,
-      escola: selectedSchool,
+      escola: selectedSchool !== "all" ? selectedSchool : undefined,
       ...(modoLista === "cartao_resposta" ? { report_entity_type: REPORT_ENTITY_TYPE_ANSWER_SHEET } : {}),
     })
       .then((items) => {
@@ -483,7 +488,7 @@ export default function AtaSalaPage() {
     return () => {
       cancelled = true;
     };
-  }, [isModoAplicada, modoLista, selectedEstado, selectedMunicipio, selectedSchool, selectedSerie]);
+  }, [isModoAplicada, modoLista, selectedEstado, selectedMunicipio, selectedSchool]);
 
   useEffect(() => {
     if (!isModoAplicada || !selectedAvaliacaoId || selectedAvaliacaoId === "all") {
@@ -511,8 +516,8 @@ export default function AtaSalaPage() {
       estado: selectedEstado,
       municipio: selectedMunicipio,
       avaliacao: selectedAvaliacaoId,
-      escola: selectedSchool,
-      serie: selectedSerie,
+      escola: selectedSchool !== "all" ? selectedSchool : undefined,
+      serie: selectedSerie !== "all" ? selectedSerie : undefined,
       ...(modoLista === "cartao_resposta" ? { report_entity_type: REPORT_ENTITY_TYPE_ANSWER_SHEET } : {}),
     })
       .then((list) => {
@@ -563,7 +568,7 @@ export default function AtaSalaPage() {
     () => avaliacoes.find((a) => a.id === selectedAvaliacaoId)?.titulo || "",
     [avaliacoes, selectedAvaliacaoId]
   );
-  const hasContextForAta = selectedEstado !== "all" && selectedMunicipio !== "all" && selectedSchool !== "all";
+  const hasContextForAta = selectedEstado !== "all" && selectedMunicipio !== "all";
   const turmaOptions = isModoAplicada ? turmasAvaliacao : turmas;
   useEffect(() => {
     if (!selectedMunicipioLabel && !selectedEstadoLabel) {
@@ -588,6 +593,10 @@ export default function AtaSalaPage() {
       setNomeAvaliacao(selectedAvaliacaoTitulo);
     }
   }, [isModoAplicada, selectedAvaliacaoTitulo]);
+
+  useEffect(() => {
+    setLoadedLista(null);
+  }, [modoLista, selectedEstado, selectedMunicipio, selectedSchool, selectedSerie, selectedTurma, selectedAvaliacaoId]);
 
   useEffect(() => {
     if (!isModoAplicada || !selectedAvaliacaoId || selectedAvaliacaoId === "all") return;
@@ -691,23 +700,105 @@ export default function AtaSalaPage() {
     }));
   };
 
+  const buildAtaDataForClass = (item: ListaFrequenciaResponse): AtaSalaPdfData => {
+    const header = item.cabecalho;
+    const responded = item.estudantes.filter((s) => (s.status || "").toUpperCase() === "P").length;
+    const absent = item.estudantes.filter((s) => (s.status || "").toUpperCase() === "A").length;
+    const transferred = item.estudantes.filter((s) => (s.status || "").toUpperCase() === "T").length;
+    const nRegularExtra = item.estudantes.filter((s) => (s.status || "").toUpperCase() === "SE").length;
+    const nSupportExtra = item.estudantes.filter((s) => (s.status || "").toUpperCase() === "SS").length;
+    const nStayed =
+      item.estudantes.filter((s) => (s.status || "").toUpperCase() === "NE").length +
+      item.estudantes.filter((s) => (s.status || "").toUpperCase() === "I").length;
+    const notResponded = Math.max(item.estudantes.length - responded - absent - transferred, 0);
+    const serieTurmaDisplay = getSerieTurmaDisplay(header);
+
+    return {
+      ...pdfData,
+      nomeAvaliacao: selectedAvaliacaoTitulo || header.nome_prova_ano || pdfData.nomeAvaliacao,
+      cursoLabel: header.lista_presenca_curso || pdfData.cursoLabel,
+      municipioUf: header.municipio_uf || pdfData.municipioUf,
+      rede: header.rede || pdfData.rede,
+      escola: header.nome_escola || pdfData.escola,
+      serieTurma: `${serieTurmaDisplay.serie} ${serieTurmaDisplay.turma}`.trim(),
+      turno: header.turno || pdfData.turno,
+      disciplina: header.disciplina || pdfData.disciplina,
+      options: {
+        ...pdfData.options,
+        q7Responded: String(clamp99(responded)),
+        q8NotResponded: String(clamp99(notResponded)),
+        q9Tablets: String(clamp99(responded)),
+        q10SpecialStayed: String(clamp99(nStayed)),
+        q11SpecialRegularRoom: String(clamp99(nRegularExtra)),
+        q12SpecialSupportRoom: String(clamp99(nSupportExtra)),
+      },
+    };
+  };
+
   const loadLista = async () => {
     try {
       setError(null);
       setLoading((s) => ({ ...s, lista: true }));
 
       if (modoLista === "turma") {
-        if (!selectedTurma || selectedTurma === "all") {
-          setError("Selecione uma turma para carregar os dados da ata.");
+        if (selectedTurma && selectedTurma !== "all") {
+          const data = await getListaFrequenciaPorTurma(selectedTurma, "avaliacao");
+          setLoadedLista([data]);
+          applyAtaAutofill([data]);
           return;
         }
-        const data = await getListaFrequenciaPorTurma(selectedTurma, "avaliacao");
-        applyAtaAutofill([data]);
+
+        let classIds: string[] = [];
+        if (selectedSchool !== "all" && selectedSerie !== "all" && turmas.length > 0) {
+          classIds = turmas.map((t) => t.id);
+        } else if (selectedSchool !== "all") {
+          const classes = await EvaluationResultsApiService.getFilteredClasses({
+            municipality_id: selectedMunicipio,
+            school_id: selectedSchool,
+            ...(selectedSerie !== "all" ? { grade_id: selectedSerie } : {}),
+          });
+          classIds = classes.map((c) => c.id);
+        } else {
+          const classes = await EvaluationResultsApiService.getFilteredClasses({
+            municipality_id: selectedMunicipio,
+            ...(selectedSerie !== "all" ? { grade_id: selectedSerie } : {}),
+          });
+          classIds = classes.map((c) => c.id);
+        }
+
+        if (classIds.length === 0) {
+          setError("Nenhuma turma encontrada para os filtros selecionados.");
+          setLoadedLista(null);
+          return;
+        }
+
+        const results: ListaFrequenciaResponse[] = [];
+        const concurrency = 6;
+        for (let i = 0; i < classIds.length; i += concurrency) {
+          const chunk = classIds.slice(i, i + concurrency);
+          const settled = await Promise.allSettled(
+            chunk.map((classId) => getListaFrequenciaPorTurma(classId, "avaliacao"))
+          );
+          settled.forEach((entry) => {
+            if (entry.status === "fulfilled") {
+              results.push(entry.value);
+            }
+          });
+        }
+
+        if (results.length === 0) {
+          setError("Não foi possível carregar os dados da lista de frequência para autopreenchimento.");
+          setLoadedLista(null);
+          return;
+        }
+        setLoadedLista(results);
+        applyAtaAutofill(results);
         return;
       }
 
       if (!selectedAvaliacaoId || selectedAvaliacaoId === "all") {
         setError(`Selecione o(a) ${labelItemAplicado.toLowerCase()}.`);
+        setLoadedLista(null);
         return;
       }
 
@@ -715,18 +806,21 @@ export default function AtaSalaPage() {
       if (modoLista === "cartao_resposta") {
         if (!selectedMunicipio || selectedMunicipio === "all") {
           setError("Selecione o município para usar cartão resposta.");
+          setLoadedLista(null);
           return;
         }
         if (classId) {
           const res = await getListaFrequenciaPorGabarito(selectedAvaliacaoId, selectedMunicipio, classId, {
             tipo: "prova_fisica",
           });
+          setLoadedLista([res]);
           applyAtaAutofill([res]);
         } else {
           const results = await getListaFrequenciaPorGabaritoTodasTurmas(selectedAvaliacaoId, selectedMunicipio, {
             grade_id: selectedSerie !== "all" ? selectedSerie : undefined,
             tipo: "prova_fisica",
           });
+          setLoadedLista(results);
           applyAtaAutofill(results);
         }
         return;
@@ -736,16 +830,19 @@ export default function AtaSalaPage() {
         const res = await getListaFrequenciaPorAvaliacao(selectedAvaliacaoId, classId, {
           tipo: "avaliacao",
         });
+        setLoadedLista([res]);
         applyAtaAutofill([res]);
       } else {
         const results = await getListaFrequenciaPorAvaliacaoTodasTurmas(selectedAvaliacaoId, {
           grade_id: selectedSerie !== "all" ? selectedSerie : undefined,
           tipo: "avaliacao",
         });
+        setLoadedLista(results);
         applyAtaAutofill(results);
       }
     } catch (_err) {
       setError("Não foi possível carregar os dados da lista de frequência para autopreenchimento.");
+      setLoadedLista(null);
     } finally {
       setLoading((s) => ({ ...s, lista: false }));
     }
@@ -818,10 +915,41 @@ export default function AtaSalaPage() {
     });
   };
 
-  const onDownload = () => {
+  const onDownload = async () => {
     warnInvalidCpf();
-    downloadAtaSalaPdf(pdfData, "ata-de-sala.pdf");
-    toast({ title: "PDF baixado", description: "A ata de sala foi baixada com sucesso." });
+    const shouldZip = Boolean(loadedLista && loadedLista.length > 1 && selectedTurma === "all");
+    if (!shouldZip) {
+      downloadAtaSalaPdf(pdfData, "ata-de-sala.pdf");
+      toast({ title: "PDF baixado", description: "A ata de sala foi baixada com sucesso." });
+      return;
+    }
+
+    try {
+      const zipEntries: Array<{ path: string; blob: Blob }> = [];
+      for (const item of loadedLista) {
+        const ataData = buildAtaDataForClass(item);
+        const blob = createAtaSalaPdfBlob(ataData);
+        const serieTurma = getSerieTurmaDisplay(item.cabecalho);
+        zipEntries.push({
+          path: buildAtaSalaHierarchyPath({
+            escola: item.cabecalho.nome_escola || ataData.escola,
+            serie: serieTurma.serie,
+            turma: serieTurma.turma,
+          }),
+          blob,
+        });
+      }
+      const zipBlob = await generateZipBlob(zipEntries);
+      const date = new Date().toISOString().slice(0, 10);
+      downloadBlob(zipBlob, `ata-sala-${date}.zip`);
+      toast({ title: "ZIP baixado", description: `${zipEntries.length} atas foram exportadas.` });
+    } catch {
+      toast({
+        title: "Erro ao gerar ZIP",
+        description: "Não foi possível gerar o arquivo ZIP da ata de sala.",
+        variant: "destructive",
+      });
+    }
   };
 
   const onPreview = () => {
@@ -956,15 +1084,14 @@ export default function AtaSalaPage() {
                   onValueChange={setSelectedAvaliacaoId}
                   disabled={
                     !hasContextForAta ||
-                    selectedSerie === "all" ||
                     loading.avaliacoes
                   }
                 >
                   <SelectTrigger>
                     <SelectValue
                       placeholder={
-                        !hasContextForAta || selectedSerie === "all"
-                          ? "Selecione estado, município, escola e série"
+                        !hasContextForAta
+                          ? "Selecione estado e município"
                           : `Selecione ${labelItemAplicado.toLowerCase()}`
                       }
                     />
@@ -1086,7 +1213,6 @@ export default function AtaSalaPage() {
             disabled={
               loading.lista ||
               !hasContextForAta ||
-              (modoLista === "turma" && selectedTurma === "all") ||
               (isModoAplicada && selectedAvaliacaoId === "all")
             }
           >
@@ -1105,7 +1231,7 @@ export default function AtaSalaPage() {
       {!hasContextForAta ? (
         <Alert>
           <AlertDescription>
-            Selecione estado, município e escola para liberar os campos da Ata.
+            Selecione estado e município para liberar os campos da Ata.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -1177,10 +1303,9 @@ export default function AtaSalaPage() {
                   value={disciplina}
                   onChange={(e) => setDisciplina(e.target.value)}
                   list="ata-disciplina-sugestoes"
-                  disabled={selectedSchool === "all"}
                   placeholder={
                     selectedSchool === "all"
-                      ? "Selecione uma escola"
+                      ? "Digite a disciplina (escopo municipal)"
                       : "Digite a disciplina (ex.: Língua Portuguesa, Matemática…)"
                   }
                   className="bg-background"
@@ -1409,7 +1534,7 @@ export default function AtaSalaPage() {
             </Button>
             <Button onClick={onDownload}>
               <Download className="mr-2 h-4 w-4" />
-              Baixar PDF
+              {loadedLista && loadedLista.length > 1 && selectedTurma === "all" ? "Baixar ZIP" : "Baixar PDF"}
             </Button>
             <Button variant="outline" onClick={onPrint}>
               <Printer className="mr-2 h-4 w-4" />
