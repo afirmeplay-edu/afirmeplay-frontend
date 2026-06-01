@@ -8,7 +8,6 @@ import { useScrollToTop } from "@/hooks/useScrollToTop";
 import { NotificationBell } from "@/components/Notifications/NotificationBell";
 import { useAuth } from "@/context/authContext";
 import { OnboardingModal } from "@/components/onboarding/OnboardingModal";
-import { PlanReferenceCitySelector } from "@/components/layout/PlanReferenceCitySelector";
 import { useGlobalThemeStyles } from "@/hooks/useGlobalThemeStyles";
 
 type LayoutProps = {
@@ -100,20 +99,11 @@ export default function Layout() {
           />
         </div>
         
-        <div className="flex items-center gap-2 min-w-0 flex-1 justify-end">
-          {user?.role === 'admin' && (
-            <PlanReferenceCitySelector compact className="min-w-0" />
-          )}
+        <div className="flex items-center gap-2">
           {user?.id && <NotificationBell />}
+          <div className="w-9"></div> {/* Spacer for centering */}
         </div>
       </header>
-
-      {/* Admin: município de referência (desktop) */}
-      {user?.role === 'admin' && (
-        <div className="hidden md:flex fixed top-3 right-4 z-[55]">
-          <PlanReferenceCitySelector />
-        </div>
-      )}
 
       {/* Responsive Sidebar */}
       <aside className={cn(
