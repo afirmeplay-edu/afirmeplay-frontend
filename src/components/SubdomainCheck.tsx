@@ -2,17 +2,9 @@ import React, { useState, useEffect, Suspense } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import { useAuth } from "@/context/authContext";
 import { api } from "@/lib/api";
+import { getSubdomainFromHost } from "@/utils/subdomain";
 
 const Login = React.lazy(() => import("@/pages/auth/Login"));
-
-/**
- * Extrai o subdomínio do hostname (ex.: jiparana.localhost:8080 → jiparana).
- */
-function getSubdomainFromHost(): string {
-  const hostname = window.location.hostname;
-  const parts = hostname.split(".");
-  return parts[0] ?? "";
-}
 
 const LoadingSpinner = () => (
   <div className="flex items-center justify-center min-h-screen bg-[#240046]">

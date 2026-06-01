@@ -1,4 +1,7 @@
 import axios from 'axios'
+import { toast } from 'react-toastify'
+import { getStoredReferenceCityId } from '@/lib/planReferenceStorage'
+import { isPlanInsufficientError } from '@/types/entitlements'
 
 // Permitir meta.cityId nas requisições (para admin tenant context)
 declare module 'axios' {
@@ -41,9 +44,11 @@ api.interceptors.request.use((config) => {
             const canSendCityId = ['admin', 'tecadm', 'diretor', 'coordenador', 'professor'].includes(role)
             const isCompetitionsRequest = typeof config.url === 'string' && config.url.includes('/competitions')
             const isDashboardRequest = typeof config.url === 'string' && config.url.includes('/dashboard/')
-            // Admin/coordenador/diretor/tecadm: enviar X-City-ID quando informado (meta.cityId)
-            if (canSendCityId && cityId) {
-                config.headers['X-City-ID'] = cityId
+            const adminReferenceCityId = role === 'admin' ? getStoredReferenceCityId() : null
+            const effectiveCityId = cityId ?? adminReferenceCityId
+            // Admin/coordenador/diretor/tecadm: enviar X-City-ID quando informado (meta.cityId ou referência global)
+            if (canSendCityId && effectiveCityId) {
+                config.headers['X-City-ID'] = effectiveCityId
             }
             // Aluno em competições: enviar tenant do município da escola do aluno para o backend unificar contexto
             if (role === 'aluno' && isCompetitionsRequest && user?.tenant_id) {
@@ -92,6 +97,15 @@ api.interceptors.response.use(
             throw new Error('A requisição demorou muito para responder. O servidor pode estar sobrecarregado ou processando muitos dados.')
         } else if (error.response?.status === 404) {
             // Recurso não encontrado - preservar SEMPRE o erro original para que o frontend possa acessar error.response.data.message
+            return Promise.reject(error);
+        } else if (error.response?.status === 403) {
+            const data = error.response?.data;
+            if (isPlanInsufficientError(data)) {
+                const message =
+                    data.mensagem ||
+                    'Esta funcionalidade requer um plano superior.';
+                toast.error(message, { autoClose: 6000 });
+            }
             return Promise.reject(error);
         } else if (error.response?.status >= 500) {
             // ✅ CORRIGIDO: Preservar erro original para endpoints críticos

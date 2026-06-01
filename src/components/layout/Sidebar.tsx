@@ -76,6 +76,7 @@ import {
   SIDEBAR_THEME_CHANGE_EVENT,
 } from "@/constants/sidebarThemes";
 import type { SidebarThemeId } from "@/constants/sidebarThemes";
+import { filterNavLinks } from "@/utils/navVisibility";
 
 type SidebarLink = {
   icon: React.ElementType;
@@ -85,6 +86,7 @@ type SidebarLink = {
   children?: SidebarLink[];
   badge?: string;
   divider?: boolean;
+  feature?: string;
   category?: string;
 };
 
@@ -858,28 +860,11 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
             {sidebarCategoriesToRender.map(category => {
               if (!category.role.includes(user.role)) return null;
 
-              const filterLink = (link: SidebarLink): SidebarLink | null => {
-                // Mantém compatibilidade com o role-based do RenderMenuItem.
-                if (!link.role.includes(user.role)) return null;
-
-                if (link.children && link.children.length > 0) {
-                  const filteredChildren = link.children
-                    .map(filterLink)
-                    .filter((c): c is SidebarLink => Boolean(c));
-
-                  if (filteredChildren.length === 0) return null;
-                  return { ...link, children: filteredChildren };
-                }
-
-                if (link.href && corretorAllowedHrefs.has(link.href)) return link;
-                return null;
-              };
-
               const visibleLinks = isRestrictedNav
-                ? category.links.map(filterLink).filter((l): l is SidebarLink => Boolean(l))
-                : category.links;
+                ? filterNavLinks(category.links, user, corretorAllowedHrefs)
+                : filterNavLinks(category.links, user);
 
-              if (isRestrictedNav && visibleLinks.length === 0) return null;
+              if (visibleLinks.length === 0) return null;
 
               return (
                 <div key={category.name}>

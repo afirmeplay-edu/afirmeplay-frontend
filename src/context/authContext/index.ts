@@ -5,6 +5,9 @@ import { AxiosError } from 'axios'
 import { loadAndApplySettings } from '@/hooks/useSettings'
 import type { OnboardingProfile } from '@/services/onboardingApi'
 import { getOnboardingStatus } from '@/services/onboardingApi'
+import type { Entitlements, PlanCode } from '@/types/entitlements'
+import { mergeUserPreservingEntitlements } from '@/types/entitlements'
+import { setStoredReferenceCityId } from '@/lib/planReferenceStorage'
 
 export interface AvatarConfig {
     seed?: string;
@@ -70,6 +73,9 @@ export interface User {
     competition_band?: string | null,
     /** IDs das molduras compradas na loja (ex: ['gold', 'silver']) */
     owned_frames?: string[],
+    city_slug?: string,
+    plan_code?: PlanCode,
+    entitlements?: Entitlements,
 }
 
 interface ApiError {
@@ -132,10 +138,7 @@ export const useAuth = create<AuthContext>((set, get) => ({
             const detailedUser = response.data?.user ?? response.data;
             if (detailedUser) {
                 set((state) => ({
-                    user: {
-                        ...state.user,
-                        ...detailedUser,
-                    }
+                    user: mergeUserPreservingEntitlements(state.user, detailedUser),
                 }));
                 localStorage.setItem('user', JSON.stringify(get().user));
             }
@@ -231,6 +234,7 @@ export const useAuth = create<AuthContext>((set, get) => ({
             await api.post("/logout/")
             localStorage.removeItem('token')
             localStorage.removeItem('user')
+            setStoredReferenceCityId(null)
             
             // ✅ Limpar filtros das páginas de resultados ao fazer logout
             sessionStorage.removeItem('results_filters')
@@ -302,10 +306,7 @@ export const useAuth = create<AuthContext>((set, get) => ({
 
                 if (persistedUser) {
                     set((state) => ({
-                        user: {
-                            ...state.user,
-                            ...persistedUser,
-                        },
+                        user: mergeUserPreservingEntitlements(state.user, persistedUser),
                         needsOnboarding,
                         onboardingProfile,
                     }));
@@ -341,10 +342,7 @@ export const useAuth = create<AuthContext>((set, get) => ({
 
             if (response.data && response.data.user) {
                 set((state) => ({
-                    user: {
-                        ...state.user,
-                        ...response.data.user,
-                    }
+                    user: mergeUserPreservingEntitlements(state.user, response.data.user),
                 }));
                 localStorage.setItem('user', JSON.stringify(get().user));
                 toast.success('Avatar atualizado com sucesso!');

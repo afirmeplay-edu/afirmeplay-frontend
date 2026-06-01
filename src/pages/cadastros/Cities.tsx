@@ -27,6 +27,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { getRoleDisplayName } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import type { Entitlements, PlanCode } from "@/types/entitlements";
 
 const SLUG_REGEX = /^[a-z0-9-]+$/;
 const SLUG_MAX_LENGTH = 100;
@@ -57,6 +58,8 @@ interface City {
   name: string;
   state: string;
   slug: string;
+  plan_code?: PlanCode;
+  entitlements?: Entitlements;
   created_at: string;
 }
 
@@ -322,6 +325,16 @@ export default function Cities() {
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
                             <h3 className="truncate font-semibold text-foreground">{city.name}</h3>
+                            <span
+                              className={cn(
+                                "mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                                (city.entitlements?.plan_code ?? city.plan_code ?? "basic") === "plus"
+                                  ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                                  : "bg-muted text-muted-foreground"
+                              )}
+                            >
+                              Plano {city.entitlements?.plan_code ?? city.plan_code ?? "basic"}
+                            </span>
                             <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted-foreground">
                               <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
                               {city.state}

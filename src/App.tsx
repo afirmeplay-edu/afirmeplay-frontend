@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./context/authContext";
 import { StudentPreferencesProvider } from "./context/StudentPreferencesContext";
+import { PlanProvider } from "./context/PlanContext";
 import Layout from "./components/layout/Layout";
 import FullscreenLayout from "./components/layout/FullscreenLayout";
 import { AppThemeStyles } from "./components/layout/AppThemeStyles";
@@ -190,6 +191,7 @@ const App = () => {
         <Sonner />
 
         <StudentPreferencesProvider>
+        <PlanProvider>
         <Suspense fallback={<LoadingSpinner />}>
           <Routes>
             {/* Rota raiz - checa subdomínio e redireciona ou mostra login */}
@@ -482,6 +484,7 @@ const App = () => {
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
+        </PlanProvider>
         </StudentPreferencesProvider>
       </TooltipProvider>
     </QueryClientProvider>
