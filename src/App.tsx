@@ -138,6 +138,8 @@ const EditQuickLinks = React.lazy(() => import("@/pages/dashboard/EditQuickLinks
 const ListaFrequencia = React.lazy(() => import("@/pages/dashboard/ListaFrequencia"));
 const AtaSalaPage = React.lazy(() => import("@/pages/documents/AtaSalaPage"));
 const FolhaRascunhoPage = React.lazy(() => import("@/pages/documents/FolhaRascunhoPage"));
+const TermoCompromissoPage = React.lazy(() => import("@/pages/documents/TermoCompromissoPage"));
+const EtiquetasPage = React.lazy(() => import("@/pages/documents/EtiquetasPage"));
 const StudentAgenda = React.lazy(() => import("@/pages/agenda/StudentAgendaOptimized"));
 const AdminAgenda = React.lazy(() => import("@/pages/agenda/AdminAgendaOptimized"));
 const IdebCalculatorPage = React.lazy(() => import("@/pages/reports/IdebCalculatorPage"));
@@ -313,6 +315,8 @@ const App = () => {
               <Route path="/app/documentos/ata-sala/:id" element={<PrivateRoute><AtaSalaPage /></PrivateRoute>} />
               <Route path="/app/documentos/ata-sala" element={<PrivateRoute><AtaSalaPage /></PrivateRoute>} />
               <Route path="/app/documentos/folha-rascunho" element={<PrivateRoute><FolhaRascunhoPage /></PrivateRoute>} />
+              <Route path="/app/documentos/termo-compromisso" element={<PrivateRoute><TermoCompromissoPage /></PrivateRoute>} />
+              <Route path="/app/documentos/etiquetas" element={<PrivateRoute><EtiquetasPage /></PrivateRoute>} />
               <Route path="/app/certificados" element={<PrivateRoute><Certificates /></PrivateRoute>} />
               <Route path="/app/torneio/:torneioId" element={<PrivateRoute><TorneioExecucao /></PrivateRoute>} />
               <Route path="/app/olimpiadas" element={<PrivateRoute><Olimpiadas /></PrivateRoute>} />

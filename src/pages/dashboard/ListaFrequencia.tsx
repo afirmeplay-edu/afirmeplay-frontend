@@ -16,75 +16,25 @@ import {
   getListaFrequenciaPorAvaliacaoTodasTurmas,
   getListaFrequenciaPorGabarito,
   getListaFrequenciaPorGabaritoTodasTurmas,
+  getListaFrequenciaPorMunicipioTodasTurmas,
 } from '@/services/listaFrequenciaApi';
 import type {
   ListaFrequenciaResponse,
-  Cabecalho,
   Estudante,
 } from '@/types/lista-frequencia';
 import {
-  loadCityBrandingPdfAssets,
-  paintLetterheadBackground,
-  drawMunicipalLogoTopCenter,
-} from '@/utils/pdfCityBranding';
+  buildListaFrequenciaHierarchyPath,
+  createSingleListaFrequenciaPdfBlob,
+  getSerieTurmaDisplay,
+} from '@/services/reports/listaFrequenciaPdf';
+import { downloadBlob, generateZipBlob, sanitizePathSegment } from '@/services/reports/hierarchicalDownload';
 
 const STATUS_ORDER = ['P', 'A', 'T', 'NE', 'SE', 'SS', 'I'];
 
-function formatLegenda(legenda: Cabecalho['legenda']): string {
+function formatLegenda(legenda: Record<string, string>): string {
   return Object.entries(legenda)
     .map(([cod, desc]) => `${cod} = ${desc}`)
     .join('; ');
-}
-
-/**
- * SÉRIE e TURMA para exibição.
- * Backend envia serie (Grade.name) e turma (removendo série do nome da turma, ou última palavra quando fizer sentido).
- * Fallback no frontend replica a mesma lógica quando turma não vier preenchida.
- */
-function getSerieTurmaDisplay(cab: Cabecalho): { serie: string; turma: string } {
-  const s = cab.serie?.trim() ?? '';
-  const t = cab.turma?.trim() ?? '';
-  const st = cab.serie_turma?.trim() ?? '';
-
-  /** Turma removendo a série do início do nome (mesmo nº de caracteres da série em maiúsculas). */
-  const turmaRemovendoSerie = (): string => {
-    if (!s || !st) return '';
-    const serieLen = s.toUpperCase().length;
-    let rest = st.slice(serieLen);
-    rest = rest.replace(/^[\s\-–—]+/, '').trim();
-    return rest;
-  };
-
-  /** Última palavra como turma só quando fizer sentido: >2 palavras ou 2 palavras com última de 1 caractere. */
-  const turmaUltimaPalavra = (): string => {
-    if (!st) return '';
-    const parts = st.split(/\s+/).filter(Boolean);
-    if (parts.length > 2) return parts[parts.length - 1] ?? '';
-    if (parts.length === 2 && parts[1]?.length === 1) return parts[1];
-    return '';
-  };
-
-  if (s && t) return { serie: s, turma: t };
-  if (t) return { serie: st || s || '—', turma: t };
-
-  if (s) {
-    const derived = turmaRemovendoSerie() || turmaUltimaPalavra();
-    return { serie: s, turma: derived || '—' };
-  }
-
-  if (st) {
-    const dashSplit = st.split(/\s*-\s*/);
-    if (dashSplit.length >= 2) return { serie: dashSplit[0].trim(), turma: dashSplit[1].trim() };
-    const derived = turmaUltimaPalavra();
-    if (derived) {
-      const parts = st.split(/\s+/).filter(Boolean);
-      const serieFromSt = parts.length > 1 ? parts.slice(0, -1).join(' ') : st;
-      return { serie: serieFromSt || st, turma: derived };
-    }
-    return { serie: st, turma: '—' };
-  }
-
-  return { serie: '—', turma: '—' };
 }
 
 export default function ListaFrequencia() {
@@ -299,16 +249,12 @@ export default function ListaFrequencia() {
 
   useEffect(() => {
     if (!isModoAplicada) return;
-    // Só carrega opções após selecionar contexto completo (estado/município/escola/série)
+    // Carrega opções após selecionar estado/município; escola é opcional (pode ser "Todas").
     if (
       !selectedEstado ||
       selectedEstado === 'all' ||
       !selectedMunicipio ||
-      selectedMunicipio === 'all' ||
-      !selectedSchool ||
-      selectedSchool === 'all' ||
-      !selectedSerie ||
-      selectedSerie === 'all'
+      selectedMunicipio === 'all'
     ) {
       setAvaliacoes([]);
       setSelectedAvaliacaoId('all');
@@ -319,7 +265,7 @@ export default function ListaFrequencia() {
     EvaluationResultsApiService.getFilterEvaluations({
       estado: selectedEstado,
       municipio: selectedMunicipio,
-      escola: selectedSchool,
+      escola: selectedSchool !== 'all' ? selectedSchool : undefined,
       ...(modoLista === 'cartao_resposta' ? { report_entity_type: REPORT_ENTITY_TYPE_ANSWER_SHEET } : {}),
     })
       .then((items) => {
@@ -335,7 +281,7 @@ export default function ListaFrequencia() {
     return () => {
       cancelled = true;
     };
-  }, [isModoAplicada, modoLista, selectedEstado, selectedMunicipio, selectedSchool, selectedSerie]);
+  }, [isModoAplicada, modoLista, selectedEstado, selectedMunicipio, selectedSchool]);
 
   // Modo avaliação: turmas via GET /test/:id/classes. Modo cartão resposta: turmas via filtros de gabarito (answer_sheet).
   useEffect(() => {
@@ -520,19 +466,36 @@ export default function ListaFrequencia() {
           setData(results.length > 0 ? results : null);
         }
       } else {
-        if (!selectedSchool || selectedSchool === 'all') {
-          setError('Selecione a escola.');
+        if (!selectedMunicipio || selectedMunicipio === 'all') {
+          setError('Selecione o município.');
           return;
         }
         let classIds: { id: string }[] = [];
         if (selectedTurma && selectedTurma !== 'all') {
           classIds = [{ id: selectedTurma }];
-        } else if (selectedSerie && selectedSerie !== 'all' && turmas.length > 0) {
+        } else if (selectedSchool !== 'all' && selectedSerie && selectedSerie !== 'all' && turmas.length > 0) {
           classIds = turmas.map((t) => ({ id: t.id }));
-        } else {
+        } else if (selectedSchool !== 'all') {
           const res = await api.get<{ id: string; name?: string }[]>(`/classes/school/${selectedSchool}`);
           const list = Array.isArray(res.data) ? res.data : [];
           classIds = list.map((c) => ({ id: c.id }));
+        } else {
+          const filtered = await EvaluationResultsApiService.getFilteredClasses({
+            municipality_id: selectedMunicipio,
+            ...(selectedSerie !== 'all' ? { grade_id: selectedSerie } : {}),
+          });
+          classIds = filtered
+            .map((c) => ({ id: c.id }))
+            .filter((c) => Boolean(c.id));
+        }
+
+        if (classIds.length > 1) {
+          const seen = new Set<string>();
+          classIds = classIds.filter((c) => {
+            if (seen.has(c.id)) return false;
+            seen.add(c.id);
+            return true;
+          });
         }
         if (classIds.length === 0) {
           setError('Nenhuma turma encontrada.');
@@ -540,19 +503,88 @@ export default function ListaFrequencia() {
           toast({ title: 'Aviso', description: 'Nenhuma turma encontrada para os filtros selecionados.', variant: 'destructive' });
           return;
         }
-        const results = await Promise.all(
-          classIds.map((c) => getListaFrequencia(c.id, 'avaliacao'))
-        );
+        const results: ListaFrequenciaResponse[] = [];
+        const failures: Array<{ response?: { data?: { erro?: string } }; message?: string }> = [];
+        const shouldUseMunicipalBulk = classIds.length > 1 && selectedMunicipio !== 'all';
+        if (shouldUseMunicipalBulk) {
+          try {
+            const bulk = await getListaFrequenciaPorMunicipioTodasTurmas(selectedMunicipio, {
+              ...(selectedSchool !== 'all' ? { school_id: selectedSchool } : {}),
+              ...(selectedSerie !== 'all' ? { grade_id: selectedSerie } : {}),
+              tipo: 'avaliacao',
+            });
+            if (bulk.length > 0) {
+              setData(bulk);
+              return;
+            }
+          } catch (bulkErr: unknown) {
+            const ax = bulkErr as {
+              response?: { data?: { erro?: string }; status?: number };
+              message?: string;
+              code?: string;
+            };
+            const transportFailure =
+              !ax.response ||
+              ax.code === 'ERR_NETWORK' ||
+              ax.message === 'Network Error';
+            if (transportFailure) {
+              const msg =
+                'O servidor não respondeu ao carregar todas as turmas do município. Aguarde alguns segundos e tente novamente.';
+              setError(msg);
+              setData(null);
+              toast({ title: 'Erro', description: msg, variant: 'destructive' });
+              return;
+            }
+            failures.push(bulkErr as { response?: { data?: { erro?: string } }; message?: string });
+          }
+        }
+
+        const concurrency = 6;
+        for (let i = 0; i < classIds.length; i += concurrency) {
+          const chunk = classIds.slice(i, i + concurrency);
+          const settled = await Promise.allSettled(
+            chunk.map((c) => getListaFrequencia(c.id, 'avaliacao'))
+          );
+          settled.forEach((entry) => {
+            if (entry.status === 'fulfilled') {
+              results.push(entry.value);
+            } else {
+              failures.push(entry.reason as { response?: { data?: { erro?: string } }; message?: string });
+            }
+          });
+        }
+
+        if (results.length === 0) {
+          const backendMsg = failures[0]?.response?.data?.erro || failures[0]?.message;
+          setError(backendMsg || 'Não foi possível carregar a lista de frequência.');
+          setData(null);
+          toast({
+            title: 'Erro',
+            description: backendMsg || 'Não foi possível carregar a lista de frequência.',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        const failedCount = failures.length;
+        if (failedCount > 0) {
+          toast({
+            title: 'Atenção',
+            description: `${failedCount} turma(s) não puderam ser carregadas e foram ignoradas.`,
+            variant: 'destructive',
+          });
+        }
         setData(results);
       }
     } catch (err: unknown) {
       const ax = err as { response?: { status?: number; data?: { erro?: string } } };
+      const runtimeErrorMsg = err instanceof Error ? err.message : undefined;
       const msg =
         ax.response?.data?.erro ||
         (ax.response?.status === 404
           ? (isModoAplicada ? `${labelItemAplicado} ou turma não encontrada.` : 'Turma não encontrada')
           : 'Não foi possível carregar a lista de frequência.') ||
-        (ax.response?.status === 400 ? 'Informe a turma (class_id) quando a avaliação tiver várias turmas.' : 'Não foi possível carregar a lista de frequência.');
+        (ax.response?.status === 400 ? 'Informe a turma (class_id) quando a avaliação tiver várias turmas.' : runtimeErrorMsg || 'Não foi possível carregar a lista de frequência.');
       setError(msg);
       setData(null);
       toast({ title: 'Erro', description: msg, variant: 'destructive' });
@@ -565,194 +597,42 @@ export default function ListaFrequencia() {
     if (!data || data.length === 0) return;
     setIsGeneratingPDF(true);
     try {
-      const jsPDF = (await import('jspdf')).default;
-      const autoTable = (await import('jspdf-autotable')).default;
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const margin = 15;
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
+      const date = new Date().toISOString().split('T')[0];
+      const cityId = selectedMunicipio !== 'all' ? selectedMunicipio : null;
 
-      const cityBranding = await loadCityBrandingPdfAssets(
-        selectedMunicipio !== 'all' ? selectedMunicipio : null
-      );
+      if (data.length === 1) {
+        const singleBlob = await createSingleListaFrequenciaPdfBlob(data[0], {
+          cityId,
+          nomeAvaliacaoImpressao,
+          provaExpirada,
+        });
+        const fileName = `lista-frequencia-${date}.pdf`;
+        downloadBlob(singleBlob, fileName);
+        toast({ title: 'PDF gerado', description: `Arquivo ${fileName} salvo.` });
+        return;
+      }
 
-      const textBlack: [number, number, number] = [0, 0, 0];
-      const textGray: [number, number, number] = [80, 80, 80];
-      const pink: [number, number, number] = [236, 72, 153];
-      const pinkLight: [number, number, number] = [251, 207, 232];
-      // Círculos no mesmo tom das linhas da tabela (mais uniforme visualmente).
-      const statusCircleOn: [number, number, number] = [95, 95, 95];
-      const statusCircleOff: [number, number, number] = [95, 95, 95];
-      const statusHeaderText: [number, number, number] = [72, 18, 50];
-      const contentWidth = pageWidth - 2 * margin;
-
-      data.forEach((item, sectionIndex) => {
-        if (sectionIndex > 0) doc.addPage();
-        let y = margin;
-
-        if (sectionIndex === 0) {
-          if (cityBranding.letterhead) {
-            paintLetterheadBackground(doc, cityBranding.letterhead, pageWidth, pageHeight);
-          } else {
-            doc.setFillColor(255, 255, 255);
-            doc.rect(0, 0, pageWidth, pageHeight, 'F');
-          }
-          if (cityBranding.logo) {
-            y = drawMunicipalLogoTopCenter(doc, pageWidth, margin, cityBranding.logo);
-          }
+      const entries: Array<{ path: string; blob: Blob }> = [];
+      for (const item of data) {
+        const blob = await createSingleListaFrequenciaPdfBlob(item, {
+          cityId,
+          nomeAvaliacaoImpressao,
+          provaExpirada,
+        });
+        const hierarchyPath = buildListaFrequenciaHierarchyPath(item);
+        if (item.class_id) {
+          const suffix = sanitizePathSegment(item.class_id).slice(0, 8);
+          const withClassId = hierarchyPath.replace(/lista-frequencia\.pdf$/i, `lista-frequencia-${suffix}.pdf`);
+          entries.push({ path: withClassId, blob });
         } else {
-          doc.setFillColor(255, 255, 255);
-          doc.rect(0, 0, pageWidth, pageHeight, 'F');
+          entries.push({ path: hierarchyPath, blob });
         }
-        doc.setTextColor(...textBlack);
+      }
 
-        const tituloProva = (nomeAvaliacaoImpressao?.trim() || item.cabecalho.nome_prova_ano) || 'Nome da prova';
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(...pink);
-        doc.text(tituloProva, pageWidth / 2, y, { align: 'center' });
-        y += 7;
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(...textBlack);
-        doc.text(item.cabecalho.lista_presenca_curso, pageWidth / 2, y, { align: 'center' });
-        y += 8;
-
-        const cab = item.cabecalho;
-        const { serie: serieDisplay, turma: turmaDisplay } = getSerieTurmaDisplay(cab);
-        doc.setFontSize(9);
-        const escolaLines = doc.splitTextToSize(`NOME DA ESCOLA*: ${cab.nome_escola}`, contentWidth - 8);
-        const boxHeight = 8 + 5 + 5 + escolaLines.length * 4.5 + 5 + 5 + 5 + 6 + 4;
-        doc.setDrawColor(...pink);
-        doc.setLineWidth(0.4);
-        doc.rect(margin, y, contentWidth, boxHeight, 'S');
-        doc.setDrawColor(180, 180, 180);
-        const boxX = margin + 4;
-        let boxY = y + 6;
-        doc.text(`MUNICÍPIO/UF: ${cab.municipio_uf}`, boxX, boxY, { align: 'left' });
-        boxY += 5;
-        doc.text(escolaLines, boxX, boxY, { align: 'left' });
-        boxY += escolaLines.length * 4.5;
-        doc.text(`SÉRIE: ${serieDisplay}`, boxX, boxY, { align: 'left' });
-        boxY += 5;
-        doc.text(`TURMA: ${turmaDisplay}`, boxX, boxY, { align: 'left' });
-        boxY += 5;
-        const disciplinaVal = cab.disciplina?.trim() ?? '';
-        doc.text(disciplinaVal ? `DISCIPLINA: ${disciplinaVal}` : 'DISCIPLINA: ', boxX, boxY, { align: 'left' });
-        if (!disciplinaVal) {
-          const lineX0 = boxX + doc.getTextWidth('DISCIPLINA: ');
-          doc.setDrawColor(120, 120, 120);
-          doc.line(lineX0, boxY + 1.5, lineX0 + 50, boxY + 1.5);
-        }
-        y = boxY + 8;
-
-        doc.setFontSize(8);
-        doc.setTextColor(...textGray);
-        const legendaStr = `Legenda: ${formatLegenda(cab.legenda)}`;
-        const legendaLines = doc.splitTextToSize(legendaStr, contentWidth);
-        legendaLines.forEach((line: string) => {
-          doc.text(line, pageWidth / 2, y, { align: 'center' });
-          y += 4;
-        });
-        y += 4;
-        doc.setFont('helvetica', 'italic');
-        const instLines = doc.splitTextToSize(cab.instrucoes_aplicador, contentWidth);
-        instLines.forEach((line: string) => {
-          doc.text(line, pageWidth / 2, y, { align: 'center' });
-          y += 4;
-        });
-        y += 6;
-
-        const codigos = STATUS_ORDER.filter((c) => c in (cab.legenda || {}));
-        const tableHead = [['N°', 'NOME DO ESTUDANTE', ...codigos, 'ASSINATURA']];
-        const tableBody = item.estudantes.map((est) => {
-          const statusPlaceholders = codigos.map(() => '');
-          return [`${est.numero}.`, est.nome_estudante, ...statusPlaceholders, ''];
-        });
-
-        const statusColStart = 2;
-        const statusColEnd = 2 + codigos.length;
-        autoTable(doc, {
-          startY: y,
-          head: tableHead,
-          body: tableBody,
-          theme: 'grid',
-          margin: { left: margin, right: margin },
-          tableWidth: 'auto',
-          styles: {
-            fontSize: 8,
-            cellPadding: 2,
-            textColor: textBlack,
-            lineColor: [140, 140, 140],
-            lineWidth: 0.18,
-            overflow: 'linebreak',
-          },
-          headStyles: {
-            fillColor: pinkLight,
-            textColor: statusHeaderText,
-            fontStyle: 'bold',
-          },
-          columnStyles: {
-            0: { cellWidth: 10 },
-            1: {
-              cellWidth: Math.max(40, contentWidth - 10 - 8 * codigos.length - 35 - 4),
-              overflow: 'linebreak',
-            },
-            ...Object.fromEntries(codigos.map((_, i) => [i + statusColStart, { cellWidth: 8, halign: 'center' }])),
-            [statusColEnd]: { cellWidth: 35 },
-          },
-          didDrawCell: (data) => {
-            if (data.section !== 'body' || data.column.index < statusColStart || data.column.index >= statusColEnd)
-              return;
-            const colIdx = data.column.index - statusColStart;
-            const cod = codigos[colIdx];
-            const est = item.estudantes[data.row.index];
-            const isAusente = cod === 'A';
-            const mostrarPreenchido =
-              est &&
-              est.status === cod &&
-              (!isAusente || provaExpirada === true);
-            const cx = data.cell.x + data.cell.width / 2;
-            const cy = data.cell.y + data.cell.height / 2;
-            const r = 2.2;
-            data.doc.setLineWidth(0.18);
-            if (mostrarPreenchido) {
-              data.doc.setFillColor(...statusCircleOn);
-              data.doc.circle(cx, cy, r, 'F');
-              data.doc.setDrawColor(...statusCircleOn);
-              data.doc.circle(cx, cy, r, 'S');
-            } else {
-              data.doc.setDrawColor(...statusCircleOff);
-              data.doc.circle(cx, cy, r, 'S');
-            }
-          },
-        });
-        y = (doc as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? y;
-        y += 12;
-
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(...textBlack);
-        doc.text('CPF DO(A) APLICADOR(A)', margin, y);
-        const boxW = 4;
-        const boxH = 5;
-        const cpfBoxY = y + 2;
-        for (let i = 0; i < 11; i++) {
-          doc.rect(margin + i * (boxW + 1), cpfBoxY, boxW, boxH, 'S');
-        }
-        doc.text('DATA: ___/___/_______', pageWidth - margin, y, { align: 'right' });
-        y = cpfBoxY + boxH + 18;
-        doc.setDrawColor(180, 180, 180);
-        doc.setLineDashPattern([2, 2], 0);
-        doc.line(margin, y, pageWidth - margin, y);
-        doc.setLineDashPattern([], 0);
-        y += 6;
-        doc.text('ASSINATURA DO(A) APLICADOR(A)', pageWidth / 2, y, { align: 'center' });
-      });
-
-      const fileName = `lista-frequencia-${new Date().toISOString().split('T')[0]}.pdf`;
-      doc.save(fileName);
-      toast({ title: 'PDF gerado', description: `Arquivo ${fileName} salvo.` });
+      const zipBlob = await generateZipBlob(entries);
+      const zipName = `lista-frequencia-${date}.zip`;
+      downloadBlob(zipBlob, zipName);
+      toast({ title: 'ZIP gerado', description: `Arquivo ${zipName} salvo.` });
     } catch (err) {
       toast({ title: 'Erro ao gerar PDF', description: 'Não foi possível gerar o arquivo.', variant: 'destructive' });
     } finally {
@@ -812,19 +692,15 @@ export default function ListaFrequencia() {
                   onValueChange={setSelectedAvaliacaoId}
                   disabled={
                     isLoadingAvaliacoes ||
-                    !selectedSchool ||
-                    selectedSchool === 'all' ||
-                    !selectedSerie ||
-                    selectedSerie === 'all'
+                    !selectedMunicipio ||
+                    selectedMunicipio === 'all'
                   }
                 >
                   <SelectTrigger className="max-w-md">
                     <SelectValue
                       placeholder={
-                        !selectedSchool || selectedSchool === 'all'
-                          ? 'Selecione a escola primeiro'
-                          : !selectedSerie || selectedSerie === 'all'
-                          ? 'Selecione a série primeiro'
+                        !selectedMunicipio || selectedMunicipio === 'all'
+                          ? 'Selecione o município primeiro'
                           : `Selecione o(a) ${labelItemAplicado.toLowerCase()}`
                       }
                     />
@@ -953,7 +829,7 @@ export default function ListaFrequencia() {
                 isLoadingLista ||
                 (isModoAplicada
                   ? !selectedAvaliacaoId || selectedAvaliacaoId === 'all'
-                  : !selectedSchool || selectedSchool === 'all')
+                  : !selectedMunicipio || selectedMunicipio === 'all')
               }
             >
               {isLoadingLista ? (
@@ -968,8 +844,8 @@ export default function ListaFrequencia() {
           </div>
           <p className="text-sm text-muted-foreground mt-3">
             {modoLista === 'turma'
-              ? 'Hierarquia: Estado → Município → Escola → Série → Turma. Selecione a escola para gerar por turma, por série ou pela escola inteira.'
-              : `Selecione Escola e Série primeiro, depois escolha o(a) ${labelItemAplicado}. Se houver várias turmas, escolha a turma específica.`}
+              ? 'Hierarquia: Estado → Município → Escola → Série → Turma. Com Escola = Todos, gera para todas as escolas do município.'
+              : `Selecione município e o(a) ${labelItemAplicado}. Se desejar, filtre por escola e turma.`}
           </p>
           </div>
         </CardContent>
@@ -1006,7 +882,7 @@ export default function ListaFrequencia() {
               ) : (
                 <Printer className="h-4 w-4" />
               )}
-              {isGeneratingPDF ? 'Gerando PDF...' : 'Imprimir / Gerar PDF'}
+              {isGeneratingPDF ? (data.length === 1 ? 'Gerando PDF...' : 'Gerando ZIP...') : (data.length === 1 ? 'Baixar PDF' : 'Baixar ZIP')}
             </Button>
           </div>
           <div id="lista-frequencia-print" className="rounded-lg overflow-hidden bg-zinc-900 text-white shadow-lg">

@@ -13,9 +13,14 @@ import {
 } from "@/services/evaluation/evaluationResultsApi";
 import { getFolhaRascunhoDados, getFolhaRascunhoApiError } from "@/services/documents/folhaRascunhoApi";
 import type { FolhaRascunhoDadosResponse, FolhaRascunhoModo } from "@/types/folha-rascunho";
-import { downloadFolhaRascunhoPdf } from "@/services/reports/folhaRascunhoPdf";
+import {
+  buildFolhaRascunhoHierarchyPath,
+  createFolhaRascunhoClassPdfBlob,
+  generateFolhaRascunhoPdf,
+} from "@/services/reports/folhaRascunhoPdf";
 import { loadCityBrandingPdfAssets } from "@/utils/pdfCityBranding";
 import { FolhaRascunhoStudentSelectModal } from "@/components/documents/FolhaRascunhoStudentSelectModal";
+import { downloadBlob, generateZipBlob } from "@/services/reports/hierarchicalDownload";
 
 type Option = { id: string; name: string };
 
@@ -253,7 +258,6 @@ export default function FolhaRascunhoPage() {
 
   const validationMessage = useMemo(() => {
     if (!selectedMunicipio || selectedMunicipio === "all") return "Selecione o município.";
-    if (isPersonalizada && (!selectedSchool || selectedSchool === "all")) return "Selecione a escola.";
     if (isAplicado && (!selectedAplicadoId || selectedAplicadoId === "all")) {
       return modo === "cartao_resposta" ? "Selecione o cartão-resposta." : "Selecione a avaliação.";
     }
@@ -262,10 +266,8 @@ export default function FolhaRascunhoPage() {
     }
     return null;
   }, [
-    isPersonalizada,
     isAplicado,
     selectedMunicipio,
-    selectedSchool,
     selectedAplicadoId,
     modo,
     turmaEspecifica,
@@ -319,8 +321,59 @@ export default function FolhaRascunhoPage() {
       const data = preview ?? (await getFolhaRascunhoDados(buildParams()));
       setPreview(data);
       const branding = await loadCityBrandingPdfAssets(selectedMunicipio);
-      await downloadFolhaRascunhoPdf(data, branding.logo);
-      toast({ title: "PDF gerado", description: `${data.totals.pages} página(s) estimada(s).` });
+      const classes = data.escolas.flatMap((school) =>
+        school.series.flatMap((serie) =>
+          serie.classes.map((turma) => ({
+            schoolId: school.id,
+            schoolName: school.name,
+            serieId: serie.id,
+            serieName: serie.name,
+            classId: turma.id,
+            className: turma.name,
+          }))
+        )
+      );
+
+      const date = new Date().toISOString().slice(0, 10);
+      if (classes.length <= 1) {
+        const onlyClass = classes[0];
+        if (onlyClass) {
+          const singleBlob = await createFolhaRascunhoClassPdfBlob(
+            data,
+            { schoolId: onlyClass.schoolId, serieId: onlyClass.serieId, classId: onlyClass.classId },
+            branding.logo
+          );
+          const filename = `folha-rascunho-${date}.pdf`;
+          downloadBlob(singleBlob, filename);
+          toast({ title: "PDF gerado", description: `${data.totals.pages} página(s) estimada(s).` });
+          return;
+        }
+
+        const doc = await generateFolhaRascunhoPdf(data, branding.logo);
+        downloadBlob(doc.output("blob"), `folha-rascunho-${date}.pdf`);
+        toast({ title: "PDF gerado", description: `${data.totals.pages} página(s) estimada(s).` });
+        return;
+      }
+
+      const zipEntries: Array<{ path: string; blob: Blob }> = [];
+      for (const classInfo of classes) {
+        const turmaBlob = await createFolhaRascunhoClassPdfBlob(
+          data,
+          { schoolId: classInfo.schoolId, serieId: classInfo.serieId, classId: classInfo.classId },
+          branding.logo
+        );
+        zipEntries.push({
+          path: buildFolhaRascunhoHierarchyPath({
+            escola: classInfo.schoolName,
+            serie: classInfo.serieName,
+            turma: classInfo.className,
+          }),
+          blob: turmaBlob,
+        });
+      }
+      const zipBlob = await generateZipBlob(zipEntries);
+      downloadBlob(zipBlob, `folha-rascunho-${date}.zip`);
+      toast({ title: "ZIP gerado", description: `${classes.length} turmas exportadas.` });
     } catch (err) {
       const msg = getFolhaRascunhoApiError(err, "Não foi possível gerar o PDF.");
       setError(msg);
@@ -430,7 +483,7 @@ export default function FolhaRascunhoPage() {
 
           <div className="space-y-2 sm:col-span-2">
             <Label>
-              Escola{isPersonalizada ? " (obrigatória)" : ""}
+              Escola
             </Label>
             <Select
               value={selectedSchool}
@@ -441,7 +494,7 @@ export default function FolhaRascunhoPage() {
                 <SelectValue placeholder={loadingSchools ? "Carregando..." : "Escola"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">{isPersonalizada ? "Selecione" : "Todas"}</SelectItem>
+                <SelectItem value="all">Todas</SelectItem>
                 {schools.map((s) => (
                   <SelectItem key={s.id} value={s.id}>
                     {s.name}
@@ -526,7 +579,7 @@ export default function FolhaRascunhoPage() {
             </Button>
             <Button type="button" onClick={handleGeneratePdf} disabled={loadingPdf || !!validationMessage}>
               {loadingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-              Gerar PDF
+              {selectedTurma !== "all" ? "Baixar PDF" : "Baixar ZIP"}
             </Button>
           </div>
         </CardContent>

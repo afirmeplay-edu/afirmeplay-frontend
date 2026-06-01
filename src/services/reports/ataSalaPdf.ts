@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import type { AtaOptions, AtaSalaPdfData } from "@/types/ata-sala";
+import { buildHierarchyPath } from "@/services/reports/hierarchicalDownload";
 
 export type { AtaOptions, AtaSalaPdfData } from "@/types/ata-sala";
 
@@ -637,6 +638,11 @@ export function createAtaSalaPdfDoc(data: AtaSalaPdfData): jsPDF {
   return doc;
 }
 
+export function createAtaSalaPdfBlob(data: AtaSalaPdfData): Blob {
+  const doc = createAtaSalaPdfDoc(data);
+  return doc.output("blob");
+}
+
 export function downloadAtaSalaPdf(data: AtaSalaPdfData, fileName = "ata-de-sala.pdf"): void {
   const doc = createAtaSalaPdfDoc(data);
   doc.save(fileName);
@@ -662,4 +668,17 @@ export function previewAtaSalaPdf(data: AtaSalaPdfData): void {
   const win = window.open(url, "_blank");
   if (!win) return;
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+export function buildAtaSalaHierarchyPath(params: {
+  escola: string;
+  serie: string;
+  turma: string;
+}): string {
+  return buildHierarchyPath({
+    escola: params.escola,
+    serie: params.serie,
+    turma: params.turma,
+    fileName: "ata-sala.pdf",
+  });
 }

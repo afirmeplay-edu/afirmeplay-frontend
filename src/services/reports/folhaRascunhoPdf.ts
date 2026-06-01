@@ -8,6 +8,7 @@ import type {
   FolhaRascunhoDadosResponse,
   FolhaRascunhoStudent,
 } from "@/types/folha-rascunho";
+import { buildHierarchyPath, downloadBlob } from "@/services/reports/hierarchicalDownload";
 
 /** Rosa da lista de frequência (linha da folha do aluno). */
 const PINK: [number, number, number] = [236, 72, 153];
@@ -395,5 +396,58 @@ export async function downloadFolhaRascunhoPdf(
   logo: PdfImageAsset | null
 ): Promise<void> {
   const doc = await generateFolhaRascunhoPdf(payload, logo);
-  doc.save(buildFilename(payload));
+  downloadBlob(doc.output("blob"), buildFilename(payload));
+}
+
+export async function createFolhaRascunhoClassPdfBlob(
+  payload: FolhaRascunhoDadosResponse,
+  params: { schoolId: string; serieId: string; classId: string },
+  logo: PdfImageAsset | null
+): Promise<Blob> {
+  const school = payload.escolas.find((item) => item.id === params.schoolId);
+  const serie = school?.series.find((item) => item.id === params.serieId);
+  const turma = serie?.classes.find((item) => item.id === params.classId);
+
+  if (!school || !serie || !turma) {
+    throw new Error("Turma não encontrada para geração da folha de rascunho.");
+  }
+
+  const singlePayload: FolhaRascunhoDadosResponse = {
+    ...payload,
+    escolas: [
+      {
+        ...school,
+        series: [
+          {
+            ...serie,
+            classes: [{ ...turma }],
+          },
+        ],
+      },
+    ],
+    totals: {
+      schools: 1,
+      series: 1,
+      classes: 1,
+      students: turma.students.length,
+      covers: 0,
+      pages: turma.students.length,
+    },
+  };
+
+  const doc = await generateFolhaRascunhoPdf(singlePayload, logo);
+  return doc.output("blob");
+}
+
+export function buildFolhaRascunhoHierarchyPath(params: {
+  escola: string;
+  serie: string;
+  turma: string;
+}): string {
+  return buildHierarchyPath({
+    escola: params.escola,
+    serie: params.serie,
+    turma: params.turma,
+    fileName: "folha-rascunho.pdf",
+  });
 }
