@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -34,7 +35,10 @@ import type {
 import {
   cartaoCorrectionStatusLabel,
   detectionMethodLabel,
+  gabaritoEntryKindLabel,
+  resolveStudentCorrectionStatus,
 } from '@/utils/answer-sheet/cartaoCorrectionStatus';
+import type { ManualCorrectionScope } from '@/services/answer-sheet/answerSheetManualApi';
 import {
   buildAnswerSheetStudentDetailHref,
   resolveAnswerSheetDetailQueryContext,
@@ -120,27 +124,27 @@ function isEditingPreviousEntry(entry: ManualEntryResponse): boolean {
   return Object.values(saved).some((v) => v != null && v !== '');
 }
 
-function StudentStatusBadge({ student }: { student: GabaritoStudentListItem }) {
-  const label = cartaoCorrectionStatusLabel(student.correction_status);
+/** Status abaixo do nome — só <span> (válido dentro de <button>; Badge/div some no DOM). */
+function StudentStatusLine({ student }: { student: GabaritoStudentListItem }) {
+  const status = resolveStudentCorrectionStatus(student);
+  const label = cartaoCorrectionStatusLabel(status);
   const method = detectionMethodLabel(student.detection_method);
-  const isCorrected = student.correction_status === 'P';
+  const isCorrected = status === 'P';
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 w-full">
-      <Badge
-        variant={isCorrected ? 'default' : 'outline'}
-        className={
+    <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      <span
+        className={cn(
+          'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold',
           isCorrected
-            ? 'whitespace-nowrap bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 hover:bg-green-100'
-            : 'whitespace-nowrap'
-        }
+            ? 'border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/80 dark:text-green-300'
+            : 'border-border bg-muted/60 text-foreground'
+        )}
       >
         {label}
-      </Badge>
-      {method && (
-        <span className="text-xs text-muted-foreground whitespace-nowrap">{method}</span>
-      )}
-    </div>
+      </span>
+      {method ? <span className="text-xs text-muted-foreground">{method}</span> : null}
+    </span>
   );
 }
 
@@ -168,12 +172,12 @@ export default function ManualCorrectionPanel() {
     null
   );
 
-  const cartaoGabaritos = useMemo(
-    () => gabaritos.filter((g) => g.test_id == null),
-    [gabaritos]
-  );
+  const selectedGabarito = gabaritos.find((g) => g.id === selectedGabaritoId);
 
-  const selectedGabarito = cartaoGabaritos.find((g) => g.id === selectedGabaritoId);
+  const selectedScope = useMemo((): ManualCorrectionScope | null => {
+    if (!selectedGabarito) return null;
+    return { gabaritoId: selectedGabarito.id, testId: selectedGabarito.test_id };
+  }, [selectedGabarito]);
 
   const filterOptions = useMemo(() => {
     const classes = studentsData?.classes ?? [];
@@ -390,12 +394,12 @@ export default function ManualCorrectionPanel() {
       });
       return;
     }
-    if (!selectedGabaritoId) return;
+    if (!selectedScope) return;
 
     try {
       setLoadingEntry(true);
       setSelectedStudent(student);
-      const entry = await fetchManualEntry(selectedGabaritoId, student.student_id);
+      const entry = await fetchManualEntry(selectedScope, student.student_id);
       setManualEntry(entry);
       setAnswers(buildInitialAnswers(entry));
       setSaveResult(null);
@@ -416,15 +420,11 @@ export default function ManualCorrectionPanel() {
   };
 
   const handleSave = async () => {
-    if (!manualEntry || !selectedGabaritoId || !selectedStudent) return;
+    if (!manualEntry || !selectedScope || !selectedStudent) return;
     try {
       setSaving(true);
       const payload = buildAnswersPayload(manualEntry.blocks, answers);
-      const result = await submitManualCorrection(
-        selectedGabaritoId,
-        selectedStudent.student_id,
-        payload
-      );
+      const result = await submitManualCorrection(selectedScope, selectedStudent.student_id, payload);
       setSaveResult(result);
       setStep('result');
       toast({
@@ -639,36 +639,50 @@ export default function ManualCorrectionPanel() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <ClipboardList className="h-5 w-5" />
-            Cartão resposta
+            Avaliação
           </CardTitle>
           <CardDescription>
-            Selecione o gabarito e o aluno para registrar as respostas manualmente (sem foto).
+            Selecione cartão resposta ou prova física e o aluno para registrar as respostas manualmente.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {loadingGabaritos ? (
             <Skeleton className="h-10 w-full" />
-          ) : cartaoGabaritos.length === 0 ? (
+          ) : gabaritos.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Nenhum cartão resposta disponível.{' '}
+              Nenhum gabarito disponível.{' '}
               <Link to="/app/cartao-resposta/cadastrar" className="text-primary underline">
                 Cadastrar gabarito
               </Link>
             </p>
           ) : (
             <Select value={selectedGabaritoId || ''} onValueChange={handleGabaritoChange}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione um gabarito..." />
+              <SelectTrigger className="h-auto min-h-10 py-2">
+                <SelectValue placeholder="Selecione uma avaliação..." />
               </SelectTrigger>
               <SelectContent>
-                {cartaoGabaritos.map((g) => (
-                  <SelectItem key={g.id} value={g.id}>
-                    <span className="font-medium">{g.title}</span>
-                    <span className="text-xs text-muted-foreground ml-2">
-                      ({g.num_questions ?? '?'} questões)
-                    </span>
-                  </SelectItem>
-                ))}
+                {gabaritos.map((g) => {
+                  const kind = gabaritoEntryKindLabel(g.test_id);
+                  const isPhysical = Boolean(g.test_id);
+                  return (
+                    <SelectItem key={g.id} value={g.id} className="py-2.5">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <Badge
+                          variant={isPhysical ? 'secondary' : 'outline'}
+                          className="shrink-0 text-[10px] font-medium"
+                        >
+                          {kind}
+                        </Badge>
+                        <span className="font-medium">{g.title}</span>
+                        <span className="text-xs text-muted-foreground w-full sm:w-auto">
+                          {g.num_questions ?? '?'} questões
+                          {g.grade_name ? ` · ${g.grade_name}` : ''}
+                          {g.class_name ? ` · ${g.class_name}` : ''}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           )}
@@ -796,37 +810,34 @@ export default function ManualCorrectionPanel() {
                             </span>
                             <ChevronDown className="h-4 w-4 shrink-0" />
                           </CollapsibleTrigger>
-                          <CollapsibleContent className="space-y-1 pt-2">
+                          <CollapsibleContent className="space-y-1 pt-2 overflow-visible">
                             {cls.students.map((student) => {
                               const disabled = !student.can_manual_correct;
+                              const status = resolveStudentCorrectionStatus(student);
                               return (
                                 <button
                                   key={student.student_id}
                                   type="button"
                                   disabled={disabled || loadingEntry}
                                   onClick={() => handleSelectStudent(student)}
-                                  className={`
-                                    w-full flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors
-                                    ${disabled ? 'opacity-50 cursor-not-allowed bg-muted/30' : 'hover:bg-accent hover:border-primary/30 cursor-pointer'}
-                                    ${selectedStudent?.student_id === student.student_id ? 'border-primary bg-primary/5' : ''}
-                                  `}
+                                  className={cn(
+                                    'w-full block rounded-lg border p-3 text-left transition-colors',
+                                    disabled
+                                      ? 'opacity-50 cursor-not-allowed bg-muted/30'
+                                      : 'hover:bg-accent hover:border-primary/30 cursor-pointer',
+                                    selectedStudent?.student_id === student.student_id &&
+                                      'border-primary bg-primary/5'
+                                  )}
                                   title={
                                     disabled
                                       ? 'Correção manual não permitida para este aluno'
-                                      : undefined
+                                      : `${student.name} — ${cartaoCorrectionStatusLabel(status)}`
                                   }
                                 >
-                                  <div className="min-w-0 w-full">
-                                    <div className="font-medium text-sm leading-snug break-words">
-                                      {student.name}
-                                    </div>
-                                    {student.registration && (
-                                      <div className="text-xs text-muted-foreground mt-0.5 break-words">
-                                        Matr. {student.registration}
-                                      </div>
-                                    )}
-                                  </div>
-                                  <StudentStatusBadge student={student} />
+                                  <span className="block font-medium text-sm leading-snug line-clamp-2">
+                                    {student.name}
+                                  </span>
+                                  <StudentStatusLine student={student} />
                                 </button>
                               );
                             })}
