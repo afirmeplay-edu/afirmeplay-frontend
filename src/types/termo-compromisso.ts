@@ -1,3 +1,5 @@
+export type TermoCompromissoModo = "manual" | "avaliacao" | "cartao_resposta";
+
 export type TermoCompromissoDadosParams = {
   municipio: string;
   escola?: string;
@@ -31,4 +33,6 @@ export type TermoCompromissoFormData = {
   nome: string;
   cpf: string;
   rg: string;
+  /** Nome da avaliação/aplicação exibido no corpo do termo */
+  nomeAplicacao: string;
 };

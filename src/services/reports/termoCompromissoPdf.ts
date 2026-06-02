@@ -37,6 +37,12 @@ function fieldDisplay(value: string): string {
   return normalizeSpaces(value);
 }
 
+const DEFAULT_NOME_APLICACAO = "AVALIE — Avaliação Institucional da Educação";
+
+function applicationNameDisplay(form: TermoCompromissoFormData): string {
+  return fieldDisplay(form.nomeAplicacao) || DEFAULT_NOME_APLICACAO;
+}
+
 async function drawHeader(
   doc: jsPDF,
   payload: TermoCompromissoDadosResponse,
@@ -64,18 +70,6 @@ async function drawHeader(
   });
 
   return y + 10;
-}
-
-function drawSectionTitle(doc: jsPDF, title: string, x: number, y: number, maxWidth: number): number {
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(...COLORS.text);
-  doc.text(title, x, y);
-  y += 5;
-  doc.setDrawColor(...COLORS.line);
-  doc.setLineWidth(0.25);
-  doc.line(x, y, x + maxWidth, y);
-  return y + SECTION_GAP;
 }
 
 function drawParagraph(
@@ -132,7 +126,7 @@ function drawIdentField(
   doc.setDrawColor(...COLORS.line);
   doc.setLineWidth(0.3);
   doc.line(fieldX, lineY, x + maxWidth, lineY);
-  return y + 8;
+  return y + 7;
 }
 
 function drawIdentBlock(
@@ -142,11 +136,15 @@ function drawIdentBlock(
   y: number,
   maxWidth: number
 ): number {
-  y = drawSectionTitle(doc, "DADOS DO(A) DECLARANTE", x, y, maxWidth);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(...COLORS.text);
+  doc.text("DADOS DO(A) DECLARANTE", x + maxWidth / 2, y, { align: "center" });
+  y += 8;
   y = drawIdentField(doc, "Nome completo", form.nome, x, y, maxWidth);
   y = drawIdentField(doc, "CPF", form.cpf, x, y, maxWidth);
   y = drawIdentField(doc, "RG", form.rg, x, y, maxWidth);
-  return y + SECTION_GAP;
+  return y + 2;
 }
 
 function drawClause(
@@ -169,7 +167,7 @@ function drawClause(
   lines.forEach((line, index) => {
     doc.text(line, x + markerWidth, y + index * LINE_HEIGHT);
   });
-  return y + lines.length * LINE_HEIGHT + 2.5;
+  return y + lines.length * LINE_HEIGHT + 2;
 }
 
 export async function generateTermoCompromissoPdf(
@@ -183,6 +181,7 @@ export async function generateTermoCompromissoPdf(
   const contentWidth = pageWidth - MARGIN * 2;
   const city = cityDisplay(payload);
   const ano = payload.contexto.ano;
+  const nomeAplicacao = applicationNameDisplay(form);
 
   let y = await drawHeader(doc, payload, logo);
 
@@ -190,13 +189,13 @@ export async function generateTermoCompromissoPdf(
   doc.setFontSize(13);
   doc.setTextColor(...COLORS.text);
   doc.text("TERMO DE COMPROMISSO E CONFIDENCIALIDADE", pageWidth / 2, y, { align: "center" });
-  y += 12;
+  y += 10;
 
   y = drawIdentBlock(doc, form, MARGIN, y, contentWidth);
 
   y = drawParagraph(
     doc,
-    `Assumo o compromisso de manter confidencialidade e sigilo sobre todas as informações e documentos confidenciais a que tiver acesso durante o desempenho de minhas funções de aplicador(a) e/ou coordenador(a) das aplicações do AVALIE — Avaliação Institucional da Educação do município de ${city}, no período de março a abril de ${ano}.`,
+    `Assumo o compromisso de manter confidencialidade e sigilo sobre todas as informações e documentos confidenciais a que tiver acesso durante o desempenho de minhas funções de aplicador(a) e/ou coordenador(a) das aplicações do ${nomeAplicacao} do município de ${city}, no período de março a abril de ${ano}.`,
     MARGIN,
     y,
     contentWidth,
@@ -225,36 +224,32 @@ export async function generateTermoCompromissoPdf(
     y = drawClause(doc, index + 1, clause, MARGIN, y, contentWidth);
   });
 
-  y += SECTION_GAP;
+  y += 1;
   y = drawParagraph(
     doc,
-    `Estou ciente de que a confidencialidade é obrigatória mesmo após o encerramento de minhas funções como aplicador(a) e/ou coordenador(a) das aplicações do AVALIE — Avaliação Institucional da Educação do município de ${city}.`,
+    `Estou ciente de que a confidencialidade é obrigatória mesmo após o encerramento de minhas funções como aplicador(a) e/ou coordenador(a) das aplicações do ${nomeAplicacao} do município de ${city}.`,
     MARGIN,
     y,
     contentWidth,
-    { gapAfter: 10 }
+    { gapAfter: 4 }
   );
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10.5);
   doc.setTextColor(...COLORS.text);
   doc.text(`${normalizeSpaces(payload.municipio.name)}, ${formatDateLong()}.`, MARGIN, y);
-  y += 18;
 
-  if (y > pageHeight - 28) {
-    doc.addPage();
-    y = MARGIN + 10;
-  }
-
+  const signatureLineY = pageHeight - 20;
+  const signatureLabelY = pageHeight - 14;
   const signatureLineWidth = contentWidth * 0.55;
   const signatureX = (pageWidth - signatureLineWidth) / 2;
   doc.setDrawColor(...COLORS.line);
   doc.setLineWidth(0.35);
-  doc.line(signatureX, y, signatureX + signatureLineWidth, y);
-  y += 5;
+  doc.line(signatureX, signatureLineY, signatureX + signatureLineWidth, signatureLineY);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9.5);
-  doc.text("Assinatura do(a) declarante", pageWidth / 2, y, { align: "center" });
+  doc.setTextColor(...COLORS.text);
+  doc.text("Assinatura do(a) declarante", pageWidth / 2, signatureLabelY, { align: "center" });
 
   return doc;
 }
