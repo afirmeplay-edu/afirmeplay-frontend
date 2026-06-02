@@ -9,6 +9,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { FormFiltersApiService } from "@/services/formFiltersApi";
 import {
+  EvaluationResultsApiService,
+  REPORT_ENTITY_TYPE_ANSWER_SHEET,
+} from "@/services/evaluation/evaluationResultsApi";
+import {
   getTermoCompromissoApiError,
   getTermoCompromissoDados,
 } from "@/services/documents/termoCompromissoApi";
@@ -16,10 +20,21 @@ import { downloadTermoCompromissoPdf } from "@/services/reports/termoCompromisso
 import type {
   TermoCompromissoDadosResponse,
   TermoCompromissoFormData,
+  TermoCompromissoModo,
 } from "@/types/termo-compromisso";
 import { loadCityBrandingPdfAssets } from "@/utils/pdfCityBranding";
 
 type Option = { id: string; name: string };
+
+const MODO_OPTIONS: { value: TermoCompromissoModo; label: string }[] = [
+  { value: "manual", label: "Nome personalizado" },
+  { value: "avaliacao", label: "Avaliação" },
+  { value: "cartao_resposta", label: "Cartão-resposta" },
+];
+
+function getAppliedTitle(optionId: string, options: Option[]): string {
+  return options.find((item) => item.id === optionId)?.name?.trim() || "";
+}
 
 function onlyDigits(value: string): string {
   return value.replace(/\D/g, "");
@@ -36,22 +51,27 @@ function maskCpf(value: string): string {
 export default function TermoCompromissoPage() {
   const { toast } = useToast();
 
+  const [modo, setModo] = useState<TermoCompromissoModo>("manual");
   const [estados, setEstados] = useState<Option[]>([]);
   const [municipios, setMunicipios] = useState<Option[]>([]);
   const [schools, setSchools] = useState<Option[]>([]);
   const [series, setSeries] = useState<Option[]>([]);
   const [turmas, setTurmas] = useState<Option[]>([]);
+  const [aplicados, setAplicados] = useState<Option[]>([]);
 
   const [selectedEstado, setSelectedEstado] = useState("all");
   const [selectedMunicipio, setSelectedMunicipio] = useState("all");
   const [selectedSchool, setSelectedSchool] = useState("all");
   const [selectedSerie, setSelectedSerie] = useState("all");
   const [selectedTurma, setSelectedTurma] = useState("all");
+  const [selectedAplicadoId, setSelectedAplicadoId] = useState("all");
+  const [manualTitle, setManualTitle] = useState("");
 
   const [form, setForm] = useState<TermoCompromissoFormData>({
     nome: "",
     cpf: "",
     rg: "",
+    nomeAplicacao: "",
   });
 
   const [loadingEstados, setLoadingEstados] = useState(false);
@@ -59,11 +79,21 @@ export default function TermoCompromissoPage() {
   const [loadingSchools, setLoadingSchools] = useState(false);
   const [loadingSeries, setLoadingSeries] = useState(false);
   const [loadingTurmas, setLoadingTurmas] = useState(false);
+  const [loadingAplicados, setLoadingAplicados] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [loadingPdf, setLoadingPdf] = useState(false);
 
   const [preview, setPreview] = useState<TermoCompromissoDadosResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const isManualMode = modo === "manual";
+  const isAppliedMode = modo === "avaliacao" || modo === "cartao_resposta";
+
+  const resolvedNomeAplicacao = useMemo(() => {
+    if (isManualMode) return manualTitle.trim();
+    if (selectedAplicadoId === "all") return "";
+    return getAppliedTitle(selectedAplicadoId, aplicados);
+  }, [aplicados, isManualMode, manualTitle, selectedAplicadoId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -207,17 +237,78 @@ export default function TermoCompromissoPage() {
   }, [selectedSerie, selectedSchool, selectedMunicipio, selectedEstado]);
 
   useEffect(() => {
+    if (!isAppliedMode || selectedMunicipio === "all" || selectedEstado === "all") {
+      setAplicados([]);
+      setSelectedAplicadoId("all");
+      return;
+    }
+    let cancelled = false;
+    setLoadingAplicados(true);
+    EvaluationResultsApiService.getFilterEvaluations({
+      estado: selectedEstado,
+      municipio: selectedMunicipio,
+      escola: selectedSchool !== "all" ? selectedSchool : undefined,
+      ...(modo === "cartao_resposta" ? { report_entity_type: REPORT_ENTITY_TYPE_ANSWER_SHEET } : {}),
+    })
+      .then((items) => {
+        if (!cancelled) {
+          setAplicados((items || []).map((item) => ({ id: item.id, name: item.titulo || item.id })));
+          setSelectedAplicadoId("all");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAplicados(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAppliedMode, modo, selectedEstado, selectedMunicipio, selectedSchool]);
+
+  useEffect(() => {
     setPreview(null);
     setError(null);
-  }, [selectedEstado, selectedMunicipio, selectedSchool, selectedSerie, selectedTurma, form.nome, form.cpf, form.rg]);
+  }, [
+    selectedEstado,
+    selectedMunicipio,
+    selectedSchool,
+    selectedSerie,
+    selectedTurma,
+    form.nome,
+    form.cpf,
+    form.rg,
+    modo,
+    manualTitle,
+    selectedAplicadoId,
+  ]);
 
   const validationMessage = useMemo(() => {
     if (!selectedMunicipio || selectedMunicipio === "all") return "Selecione o município.";
     if (!selectedSchool || selectedSchool === "all") return "Selecione a escola.";
     if (!selectedSerie || selectedSerie === "all") return "Selecione a série.";
     if (!selectedTurma || selectedTurma === "all") return "Selecione a turma.";
+    if (isManualMode && !manualTitle.trim()) return "Informe o nome da aplicação.";
+    if (isAppliedMode && selectedAplicadoId === "all") {
+      return modo === "cartao_resposta" ? "Selecione o cartão-resposta." : "Selecione a avaliação.";
+    }
     return null;
-  }, [selectedMunicipio, selectedSchool, selectedSerie, selectedTurma]);
+  }, [
+    isAppliedMode,
+    isManualMode,
+    manualTitle,
+    modo,
+    selectedAplicadoId,
+    selectedMunicipio,
+    selectedSchool,
+    selectedSerie,
+    selectedTurma,
+  ]);
+
+  const buildFormData = (): TermoCompromissoFormData => ({
+    nome: form.nome.trim(),
+    cpf: form.cpf.trim(),
+    rg: form.rg.trim(),
+    nomeAplicacao: resolvedNomeAplicacao,
+  });
 
   const buildParams = () => ({
     municipio: selectedMunicipio,
@@ -259,11 +350,7 @@ export default function TermoCompromissoPage() {
       const branding = await loadCityBrandingPdfAssets(selectedMunicipio);
       downloadTermoCompromissoPdf(
         data,
-        {
-          nome: form.nome.trim(),
-          cpf: form.cpf.trim(),
-          rg: form.rg.trim(),
-        },
+        buildFormData(),
         branding.logo
       );
       toast({ title: "PDF gerado", description: "O termo foi baixado com sucesso." });
@@ -293,7 +380,7 @@ export default function TermoCompromissoPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <Filter className="h-5 w-5" />
-            Filtros e dados do termo
+            Filtros
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -385,6 +472,67 @@ export default function TermoCompromissoPage() {
               </SelectContent>
             </Select>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Dados do termo</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-3 rounded-lg border bg-muted/30 p-4 sm:col-span-2">
+            <p className="text-sm font-medium">Nome da aplicação no termo</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Origem do nome</Label>
+                <Select value={modo} onValueChange={(value) => setModo(value as TermoCompromissoModo)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MODO_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {isManualMode ? (
+                <div className="space-y-2 sm:col-span-2">
+                  <Label>Nome personalizado</Label>
+                  <Input
+                    placeholder="Digite o nome da aplicação"
+                    value={manualTitle}
+                    onChange={(e) => setManualTitle(e.target.value)}
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2 sm:col-span-2">
+                  <Label>{modo === "cartao_resposta" ? "Cartão-resposta" : "Avaliação"}</Label>
+                  <Select
+                    value={selectedAplicadoId}
+                    onValueChange={setSelectedAplicadoId}
+                    disabled={selectedMunicipio === "all" || loadingAplicados}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={loadingAplicados ? "Carregando..." : "Selecione"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Selecione</SelectItem>
+                      {aplicados.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          {item.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+            </div>
+          </div>
 
           <div className="space-y-3 rounded-lg border bg-muted/30 p-4 sm:col-span-2">
             <p className="text-sm font-medium">Dados do(a) declarante (opcional)</p>
@@ -464,6 +612,10 @@ export default function TermoCompromissoPage() {
             <div className="rounded-lg border p-3">
               <p className="text-xs text-muted-foreground">Turma</p>
               <p className="text-base font-semibold">{preview.contexto.turma}</p>
+            </div>
+            <div className="rounded-lg border p-3 sm:col-span-2">
+              <p className="text-xs text-muted-foreground">Nome da aplicação no termo</p>
+              <p className="text-base font-semibold">{resolvedNomeAplicacao || "—"}</p>
             </div>
           </CardContent>
         </Card>

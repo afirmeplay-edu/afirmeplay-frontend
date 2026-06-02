@@ -42,6 +42,8 @@ export type EtiquetasDadosResponse = {
   };
 };
 
+export type EtiquetaTextoLivreAlinhamento = "left" | "center" | "right";
+
 export type EtiquetaEditItem = {
   id: string;
   titulo: string;
@@ -49,4 +51,11 @@ export type EtiquetaEditItem = {
   exibirAssinatura: boolean;
   nomeAplicador: string;
   cpfAplicador: string;
+  /** Cor do texto livre (hex) quando assinatura está oculta */
+  textoLivreCor: string;
+  /** Tamanho da fonte do texto livre (pt no PDF) quando assinatura está oculta */
+  textoLivreTamanho: number;
+  textoLivreAlinhamento: EtiquetaTextoLivreAlinhamento;
+  /** Linha única em negrito acima da assinatura (até 50 caracteres) */
+  textoAcimaAssinatura: string;
 };

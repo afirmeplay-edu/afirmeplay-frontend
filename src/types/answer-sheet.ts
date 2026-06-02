@@ -247,4 +247,122 @@ export interface BatchDownloadResponse {
   minio_url: string;
 }
 
+/** P/A na rota de alunos do gabarito: com/sem AnswerSheetResult (não é lista de frequência). */
+export type CartaoCorrectionStatus = 'P' | 'A';
+
+export interface GabaritoStudentListItem {
+  student_id: string;
+  name: string;
+  registration?: string | null;
+  has_result: boolean;
+  correction_status: CartaoCorrectionStatus;
+  result_id?: string | null;
+  detection_method?: string | null;
+  corrected_at?: string | null;
+  can_manual_correct: boolean;
+  class_id?: string;
+  class_name?: string;
+  grade_id?: string;
+  grade_name?: string;
+  school_id?: string;
+  school_name?: string;
+}
+
+export interface GabaritoStudentsClassGroup {
+  class_id: string;
+  class_name: string;
+  grade_id?: string;
+  grade_name?: string;
+  school_id?: string;
+  school_name?: string;
+  students: GabaritoStudentListItem[];
+}
+
+export interface GabaritoStudentsScopeSummary {
+  scope_type?: string;
+  class_count?: number;
+  student_count?: number;
+}
+
+export interface GabaritoStudentsResponse {
+  gabarito_id: string;
+  gabarito_title: string;
+  test_id: string | null;
+  entry_kind: 'cartao_resposta' | 'prova_fisica';
+  num_questions?: number;
+  scope_summary?: GabaritoStudentsScopeSummary;
+  classes?: GabaritoStudentsClassGroup[];
+  student_count?: number;
+  students?: GabaritoStudentListItem[];
+}
+
+export interface GabaritoStudentsQuery {
+  class_id?: string;
+  grade_id?: string;
+  school_id?: string;
+  flat?: boolean;
+}
+
+export interface ManualEntryQuestion {
+  q: number;
+  alternatives: string[];
+}
+
+export interface ManualEntryBlock {
+  block_id: number;
+  subject_id?: string;
+  subject_name?: string;
+  questions: ManualEntryQuestion[];
+}
+
+export interface ManualEntryResponse {
+  gabarito_id: string;
+  test_id: string | null;
+  kind: 'cartao_resposta' | 'prova_fisica';
+  title: string;
+  num_questions: number;
+  use_blocks?: boolean;
+  blocks: ManualEntryBlock[];
+  correct_answers?: Record<string, string | null>;
+  student: {
+    id: string;
+    name: string;
+    class_id?: string;
+  };
+  saved_answers?: Record<string, string | null>;
+  existing_result_id?: string | null;
+  detection_method?: string | null;
+}
+
+export type ManualAnswerValue = string | null;
+
+export interface ManualCorrectionDetailedAnswer {
+  question: number;
+  marked: string | null;
+  correct: string | null;
+  is_correct: boolean;
+}
+
+export interface ManualCorrectionResponse {
+  message: string;
+  system?: string;
+  detection_method?: string;
+  kind?: string;
+  student_id: string;
+  student_name: string;
+  gabarito_id: string;
+  test_id?: string | null;
+  correct: number;
+  wrong: number;
+  blank: number;
+  invalid: number;
+  total: number;
+  score: number;
+  percentage: number;
+  detailed_answers?: ManualCorrectionDetailedAnswer[];
+  student_answers?: Record<string, ManualAnswerValue>;
+  answer_key?: Record<string, string | null>;
+  answer_sheet_result_id?: string;
+}
+
 
