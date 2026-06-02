@@ -16,7 +16,9 @@ const GAP_Y = 4;
 const LABELS_PER_PAGE = COLS * ROWS;
 const LOGO_WIDTH = 8;
 const TEXTO_ACIMA_ASSINATURA_MAX = 50;
-const RODAPE_LINE_HEIGHT = 4.8;
+
+const PAD = 3;
+const RODAPE_BLOCK_H = 4.8;
 
 type Rgb = [number, number, number];
 
@@ -35,6 +37,10 @@ type RichLine = RichToken[];
 
 function normalizeSpaces(value: string): string {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function preserveParagraphs(value: string): string {
+  return String(value || "").replace(/\r\n/g, "\n");
 }
 
 function hexToRgb(hex: string): Rgb {
@@ -56,10 +62,32 @@ function hexToRgb(hex: string): Rgb {
   return [0, 0, 0];
 }
 
+function lineHeightFor(fontSize: number): number {
+  return fontSize * 0.42 + 1.2;
+}
+
 function measureTokenWidth(doc: jsPDF, token: RichToken, fontSize: number): number {
   doc.setFont("helvetica", token.bold ? "bold" : "normal");
   doc.setFontSize(fontSize);
   return doc.getTextWidth(token.text);
+}
+
+function splitOversizedToken(doc: jsPDF, token: RichToken, maxWidth: number, fontSize: number): RichToken[] {
+  if (measureTokenWidth(doc, token, fontSize) <= maxWidth) return [token];
+
+  const parts: RichToken[] = [];
+  let chunk = "";
+  for (const char of token.text) {
+    const candidate = chunk + char;
+    if (chunk && measureTokenWidth(doc, { text: candidate, bold: token.bold }, fontSize) > maxWidth) {
+      parts.push({ text: chunk, bold: token.bold });
+      chunk = char;
+    } else {
+      chunk = candidate;
+    }
+  }
+  if (chunk) parts.push({ text: chunk, bold: token.bold });
+  return parts.length ? parts : [token];
 }
 
 function segmentsToTokens(text: string): RichToken[] {
@@ -74,15 +102,13 @@ function segmentsToTokens(text: string): RichToken[] {
   return tokens;
 }
 
-function buildRichLines(doc: jsPDF, text: string, maxWidth: number, fontSize: number): RichLine[] {
-  const tokens = segmentsToTokens(text);
-  if (!tokens.length) return [];
-
+function packTokensIntoLines(doc: jsPDF, tokens: RichToken[], maxWidth: number, fontSize: number): RichLine[] {
+  const expandedTokens = tokens.flatMap((token) => splitOversizedToken(doc, token, maxWidth, fontSize));
   const lines: RichLine[] = [];
   let currentLine: RichLine = [];
   let currentWidth = 0;
 
-  tokens.forEach((token) => {
+  expandedTokens.forEach((token) => {
     const tokenWidth = measureTokenWidth(doc, token, fontSize);
     const isWhitespace = /^\s+$/.test(token.text);
 
@@ -101,6 +127,23 @@ function buildRichLines(doc: jsPDF, text: string, maxWidth: number, fontSize: nu
   return lines;
 }
 
+function buildRichLines(doc: jsPDF, text: string, maxWidth: number, fontSize: number): RichLine[] {
+  const paragraphs = preserveParagraphs(text).split("\n");
+  const lines: RichLine[] = [];
+
+  paragraphs.forEach((paragraph, index) => {
+    const content = paragraph.replace(/\s+/g, " ").trim();
+    if (!content) {
+      if (index < paragraphs.length - 1) lines.push([]);
+      return;
+    }
+    lines.push(...packTokensIntoLines(doc, segmentsToTokens(content), maxWidth, fontSize));
+    if (index < paragraphs.length - 1) lines.push([]);
+  });
+
+  return lines;
+}
+
 function measureRichLineWidth(doc: jsPDF, line: RichLine, fontSize: number): number {
   return line.reduce((total, token) => total + measureTokenWidth(doc, token, fontSize), 0);
 }
@@ -115,6 +158,8 @@ function drawRichLine(
   align: EtiquetaTextoLivreAlinhamento,
   color: Rgb
 ) {
+  if (!line.length) return;
+
   const lineWidth = measureRichLineWidth(doc, line, fontSize);
   let x = areaX;
   if (align === "center") x = areaX + Math.max(0, (areaW - lineWidth) / 2);
@@ -139,22 +184,20 @@ function drawAlignedRichText(
   areaH: number,
   fontSize: number,
   align: EtiquetaTextoLivreAlinhamento,
-  color: Rgb,
-  verticalCenter: boolean
+  color: Rgb
 ) {
-  const content = normalizeSpaces(text);
-  if (!content || areaH <= 0) return;
+  const content = preserveParagraphs(text).trim();
+  if (!content || areaH <= 1) return;
 
-  const lineHeight = fontSize * 0.42 + 1.2;
+  const lineHeight = lineHeightFor(fontSize);
   const lines = buildRichLines(doc, content, areaW, fontSize);
   if (!lines.length) return;
 
   const totalHeight = lines.length * lineHeight;
-  let cursorY = verticalCenter
-    ? areaY + Math.max(0, (areaH - totalHeight) / 2) + fontSize * 0.35
-    : areaY + fontSize * 0.35;
+  let cursorY = areaY + Math.max(0, (areaH - totalHeight) / 2) + fontSize * 0.35;
 
   lines.forEach((line) => {
+    if (cursorY > areaY + areaH + fontSize * 0.2) return;
     drawRichLine(doc, line, areaX, areaW, cursorY, fontSize, align, color);
     cursorY += lineHeight;
   });
@@ -192,6 +235,35 @@ function drawCenteredParts(
   });
 }
 
+function drawCenteredWrapped(
+  doc: jsPDF,
+  text: string,
+  centerX: number,
+  y: number,
+  maxWidth: number,
+  fontSize: number,
+  opts?: { style?: "normal" | "bold"; uppercase?: boolean; maxLines?: number }
+): number {
+  const content = normalizeSpaces(text);
+  if (!content) return y;
+
+  const lh = lineHeightFor(fontSize);
+  doc.setFont("helvetica", opts?.style ?? "normal");
+  doc.setFontSize(fontSize);
+  doc.setTextColor(0, 0, 0);
+
+  const printable = opts?.uppercase ? content.toUpperCase() : content;
+  let lines = doc.splitTextToSize(printable, maxWidth) as string[];
+  if (opts?.maxLines) lines = lines.slice(0, opts.maxLines);
+
+  lines.forEach((line) => {
+    doc.text(line, centerX, y, { align: "center" });
+    y += lh;
+  });
+
+  return y;
+}
+
 function drawWrappedTextLeft(
   doc: jsPDF,
   text: string,
@@ -204,7 +276,7 @@ function drawWrappedTextLeft(
   const content = normalizeSpaces(text);
   if (!content) return y;
 
-  const lineHeight = opts?.lineHeight ?? fontSize * 0.42 + 1.2;
+  const lh = opts?.lineHeight ?? lineHeightFor(fontSize);
   doc.setFont("helvetica", opts?.style ?? "normal");
   doc.setFontSize(fontSize);
   doc.setTextColor(0, 0, 0);
@@ -215,7 +287,7 @@ function drawWrappedTextLeft(
 
   lines.forEach((line) => {
     doc.text(line, x, y);
-    y += lineHeight;
+    y += lh;
   });
 
   return y;
@@ -225,6 +297,54 @@ function cityStateDisplay(context: EtiquetasDadosResponse): string {
   const city = normalizeSpaces(context.municipio.name);
   const state = normalizeSpaces(context.municipio.state);
   return state ? `${city}/${state}` : city;
+}
+
+function drawFooterBlock(
+  doc: jsPDF,
+  x: number,
+  width: number,
+  footerTop: number,
+  innerX: number,
+  innerW: number,
+  centerX: number,
+  item: EtiquetaEditItem
+) {
+  const hasRodapeLine = normalizeSpaces(item.textoAcimaAssinatura).length > 0;
+  let cursorY = footerTop + 2.5;
+
+  if (hasRodapeLine) {
+    const rodapeText = truncateText(item.textoAcimaAssinatura, TEXTO_ACIMA_ASSINATURA_MAX).toUpperCase();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text(rodapeText, centerX, cursorY, { align: "center", maxWidth: innerW });
+    cursorY += 3.8;
+  }
+
+  doc.setLineWidth(0.2);
+  doc.line(innerX, cursorY, x + width - PAD, cursorY);
+  cursorY += 4.2;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.text("NOME DO APLICADOR:", innerX, cursorY);
+  doc.line(innerX + 29, cursorY + 0.5, x + width - PAD, cursorY + 0.5);
+  if (normalizeSpaces(item.nomeAplicador)) {
+    doc.text(normalizeSpaces(item.nomeAplicador), innerX + 30, cursorY);
+  }
+
+  cursorY += 4.8;
+  doc.text("CPF:", innerX, cursorY);
+  doc.line(innerX + 8, cursorY + 0.5, x + width - PAD, cursorY + 0.5);
+  if (normalizeSpaces(item.cpfAplicador)) {
+    doc.text(normalizeSpaces(item.cpfAplicador), innerX + 9, cursorY);
+  }
+}
+
+function footerHeightFor(item: EtiquetaEditItem): number {
+  if (!item.exibirAssinatura) return 0;
+  const hasRodapeLine = normalizeSpaces(item.textoAcimaAssinatura).length > 0;
+  return 10.5 + (hasRodapeLine ? RODAPE_BLOCK_H : 0);
 }
 
 function drawEtiqueta(
@@ -237,52 +357,57 @@ function drawEtiqueta(
   item: EtiquetaEditItem,
   logo: PdfImageAsset | null
 ) {
-  const innerX = x + 3;
-  const innerW = width - 6;
+  const innerX = x + PAD;
+  const innerW = width - PAD * 2;
+  const innerBottom = y + height - PAD;
   const centerX = x + width / 2;
   const hasRodapeLine = item.exibirAssinatura && normalizeSpaces(item.textoAcimaAssinatura).length > 0;
-  const signatureBlockHeight = item.exibirAssinatura ? 14 + (hasRodapeLine ? RODAPE_LINE_HEIGHT : 0) : 0;
-  const bottomLimit = y + height - 4 - signatureBlockHeight;
+  const footerHeight = footerHeightFor(item);
+  const footerTop = innerBottom - footerHeight;
 
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.25);
   doc.rect(x, y, width, height);
 
-  const titleMaxWidth = logo ? innerW - LOGO_WIDTH - 3 : innerW;
-  let headerBottom = y + 4;
+  const titleMaxWidth = logo ? innerW - LOGO_WIDTH - 2 : innerW;
+  let headerBottom = y + PAD;
 
   if (logo) {
     const logoH = Math.min(11, Math.max(4, (logo.ih * LOGO_WIDTH) / logo.iw));
-    doc.addImage(logo.dataUrl, "PNG", x + width - LOGO_WIDTH - 3, y + 3, LOGO_WIDTH, logoH);
-    headerBottom = Math.max(headerBottom, y + 3 + logoH);
+    doc.addImage(logo.dataUrl, "PNG", x + width - LOGO_WIDTH - PAD, y + PAD, LOGO_WIDTH, logoH);
+    headerBottom = Math.max(headerBottom, y + PAD + logoH);
   }
 
-  let cursorY = drawWrappedTextLeft(doc, item.titulo, innerX, y + 4, titleMaxWidth, 8.5, {
+  let cursorY = drawWrappedTextLeft(doc, item.titulo, innerX, y + PAD, titleMaxWidth, 8.5, {
     style: "bold",
     uppercase: true,
     maxLines: 2,
     lineHeight: 3.8,
   });
 
-  cursorY = Math.max(cursorY, headerBottom) + 1.2;
+  cursorY = Math.max(cursorY, headerBottom) + 1;
 
-  drawCenteredParts(
+  cursorY = drawCenteredWrapped(
     doc,
-    [{ text: cityStateDisplay(context).toUpperCase(), bold: true }],
+    cityStateDisplay(context),
     centerX,
     cursorY,
-    7.5
+    innerW,
+    7.5,
+    { style: "bold", uppercase: true, maxLines: 2 }
   );
-  cursorY += 3.6;
+  cursorY += 0.4;
 
-  drawCenteredParts(
+  cursorY = drawCenteredWrapped(
     doc,
-    [{ text: normalizeSpaces(context.contexto.escola).toUpperCase(), bold: true }],
+    context.contexto.escola,
     centerX,
     cursorY,
-    7.5
+    innerW,
+    7.5,
+    { style: "bold", uppercase: true, maxLines: 3 }
   );
-  cursorY += 3.8;
+  cursorY += 0.4;
 
   drawCenteredParts(
     doc,
@@ -294,7 +419,7 @@ function drawEtiqueta(
     cursorY,
     7.2
   );
-  cursorY += 3.6;
+  cursorY += 3.4;
 
   drawCenteredParts(
     doc,
@@ -309,18 +434,20 @@ function drawEtiqueta(
     cursorY,
     7.2
   );
-  cursorY += 3.8;
+  cursorY += 3.4;
 
+  cursorY += 0.6;
   doc.setLineWidth(0.2);
-  doc.line(innerX, cursorY, x + width - 3, cursorY);
+  doc.line(innerX, cursorY, x + width - PAD, cursorY);
 
   const freeAreaTop = cursorY + 2;
-  const rodapeAreaTop = hasRodapeLine ? bottomLimit - RODAPE_LINE_HEIGHT : bottomLimit;
-  const freeAreaBottom = item.exibirAssinatura ? rodapeAreaTop - 1 : bottomLimit;
+  const freeAreaBottom = footerTop - 0.5;
   const freeAreaHeight = freeAreaBottom - freeAreaTop;
 
-  const freeFontSize = item.exibirAssinatura ? 8 : item.textoLivreTamanho || 16;
-  const freeColor = item.exibirAssinatura ? ([0, 0, 0] as Rgb) : hexToRgb(item.textoLivreCor || "#000000");
+  const freeFontSize = item.textoLivreTamanho || 16;
+  const freeColor = item.exibirAssinatura
+    ? ([0, 0, 0] as Rgb)
+    : hexToRgb(item.textoLivreCor || "#000000");
   const freeAlign = item.textoLivreAlinhamento || "center";
 
   drawAlignedRichText(
@@ -332,34 +459,11 @@ function drawEtiqueta(
     freeAreaHeight,
     freeFontSize,
     freeAlign,
-    freeColor,
-    !item.exibirAssinatura
+    freeColor
   );
 
-  if (hasRodapeLine) {
-    const rodapeText = truncateText(item.textoAcimaAssinatura, TEXTO_ACIMA_ASSINATURA_MAX).toUpperCase();
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
-    doc.setTextColor(0, 0, 0);
-    doc.text(rodapeText, centerX, rodapeAreaTop + 3.2, { align: "center", maxWidth: innerW });
-  }
-
-  if (!item.exibirAssinatura) return;
-
-  const signatureY = y + height - 12.5;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-
-  doc.text("NOME DO APLICADOR:", innerX, signatureY);
-  doc.line(innerX + 29, signatureY + 0.5, x + width - 3, signatureY + 0.5);
-  if (normalizeSpaces(item.nomeAplicador)) {
-    doc.text(normalizeSpaces(item.nomeAplicador), innerX + 30, signatureY);
-  }
-
-  doc.text("CPF:", innerX, signatureY + 4.8);
-  doc.line(innerX + 8, signatureY + 5.3, x + width - 3, signatureY + 5.3);
-  if (normalizeSpaces(item.cpfAplicador)) {
-    doc.text(normalizeSpaces(item.cpfAplicador), innerX + 9, signatureY + 4.8);
+  if (item.exibirAssinatura) {
+    drawFooterBlock(doc, x, width, footerTop, innerX, innerW, centerX, item);
   }
 }
 
