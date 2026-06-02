@@ -23,6 +23,11 @@ import type {
   EtiquetasModo,
 } from "@/types/etiquetas";
 import { loadCityBrandingPdfAssets } from "@/utils/pdfCityBranding";
+import { loadBrandingImage } from "@/utils/brandingImageUtils";
+import { getCityBranding, resolveBrandingUrls } from "@/services/cityBrandingApi";
+import { TEXTO_ACIMA_ASSINATURA_MAX } from "@/utils/etiquetasDisplay";
+import { EtiquetaAlignToolbar } from "@/components/documents/EtiquetaAlignToolbar";
+import { EtiquetaPreviewDialog } from "@/components/documents/EtiquetaPreviewDialog";
 
 type Option = { id: string; name: string };
 type NivelOption = { id: string; name: string };
@@ -56,6 +61,8 @@ function getAppliedTitle(optionId: string, options: Option[]): string {
   return options.find((item) => item.id === optionId)?.name?.trim() || "";
 }
 
+const TEXTO_LIVRE_TAMANHO_OPTIONS = [16, 18, 20, 24, 28, 32] as const;
+
 function createEtiquetaItem(index: number, defaultTitle: string): EtiquetaEditItem {
   return {
     id: `${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
@@ -64,6 +71,10 @@ function createEtiquetaItem(index: number, defaultTitle: string): EtiquetaEditIt
     exibirAssinatura: true,
     nomeAplicador: "",
     cpfAplicador: "",
+    textoLivreCor: "#000000",
+    textoLivreTamanho: 16,
+    textoLivreAlinhamento: "center",
+    textoAcimaAssinatura: "",
   };
 }
 
@@ -103,6 +114,8 @@ export default function EtiquetasPage() {
   const [loadingPdf, setLoadingPdf] = useState(false);
 
   const [previewContext, setPreviewContext] = useState<EtiquetasDadosResponse | null>(null);
+  const [previewLogoUrl, setPreviewLogoUrl] = useState<string | null>(null);
+  const [previewLabelId, setPreviewLabelId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const isManualMode = modo === "manual";
@@ -329,6 +342,7 @@ export default function EtiquetasPage() {
 
   useEffect(() => {
     setPreviewContext(null);
+    setPreviewLogoUrl(null);
     setError(null);
     setLabels([]);
   }, [
@@ -348,7 +362,7 @@ export default function EtiquetasPage() {
   const validationMessage = useMemo(() => {
     if (!selectedMunicipio || selectedMunicipio === "all") return "Selecione o município.";
     if (!selectedSchool || selectedSchool === "all") return "Selecione a escola.";
-    if (!selectedNivel || selectedNivel === "all") return "Selecione o nível.";
+    if (!selectedNivel || selectedNivel === "all") return "Selecione o curso.";
     if (!selectedSerie || selectedSerie === "all") return "Selecione a série.";
     if (!selectedTurma || selectedTurma === "all") return "Selecione a turma.";
     if (!selectedTurno || selectedTurno === "all") return "Selecione o turno.";
@@ -404,13 +418,26 @@ export default function EtiquetasPage() {
     setError(null);
     try {
       const context = await getEtiquetasDados(buildParams());
+      const branding = await loadCityBrandingPdfAssets(selectedMunicipio);
+      let logoDisplayUrl = branding.logo?.dataUrl ?? null;
+      if (!logoDisplayUrl) {
+        try {
+          const cityBranding = await getCityBranding(selectedMunicipio);
+          const urls = resolveBrandingUrls(cityBranding);
+          logoDisplayUrl = (await loadBrandingImage(urls.logo_url, undefined, selectedMunicipio)) ?? null;
+        } catch {
+          logoDisplayUrl = null;
+        }
+      }
       setPreviewContext(context);
+      setPreviewLogoUrl(logoDisplayUrl);
       const initialTitle = globalTitle || context.title_reference || "";
       setLabels(Array.from({ length: parsedQuantity }).map((_, index) => createEtiquetaItem(index + 1, initialTitle)));
     } catch (err) {
       const msg = getEtiquetasApiError(err, "Não foi possível montar as etiquetas.");
       setError(msg);
       setPreviewContext(null);
+      setPreviewLogoUrl(null);
       setLabels([]);
       toast({ title: "Erro", description: msg, variant: "destructive" });
     } finally {
@@ -450,6 +477,13 @@ export default function EtiquetasPage() {
     }
     return pages;
   }, [labels]);
+
+  const previewLabel = useMemo(
+    () => labels.find((item) => item.id === previewLabelId) ?? null,
+    [labels, previewLabelId]
+  );
+
+  const previewLabelIndex = previewLabel ? labels.findIndex((item) => item.id === previewLabelId) : -1;
 
   return (
     <div className="container mx-auto max-w-6xl space-y-6 p-4 md:p-6">
@@ -575,10 +609,10 @@ export default function EtiquetasPage() {
           </div>
 
           <div className="space-y-2">
-            <Label>Nível</Label>
+            <Label>Curso</Label>
             <Select value={selectedNivel} onValueChange={setSelectedNivel} disabled={selectedSchool === "all" || loadingNiveis}>
               <SelectTrigger>
-                <SelectValue placeholder={loadingNiveis ? "Carregando..." : "Nível"} />
+                <SelectValue placeholder={loadingNiveis ? "Carregando..." : "Curso"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Selecione</SelectItem>
@@ -664,19 +698,22 @@ export default function EtiquetasPage() {
               {loadingPreview ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
               Montar pré-visualização
             </Button>
-            <Button type="button" onClick={handleGeneratePdf} disabled={loadingPdf || !labels.length || !previewContext}>
-              {loadingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-              Baixar PDF
-            </Button>
-            {!!labels.length && (
-              <Button type="button" variant="secondary" onClick={appendLabel}>
-                <Plus className="mr-2 h-4 w-4" />
-                Adicionar etiqueta
-              </Button>
-            )}
           </div>
         </CardContent>
       </Card>
+
+      {previewContext && !!labels.length && (
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" onClick={handleGeneratePdf} disabled={loadingPdf}>
+            {loadingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+            Baixar PDF
+          </Button>
+          <Button type="button" variant="secondary" onClick={appendLabel}>
+            <Plus className="mr-2 h-4 w-4" />
+            Adicionar etiqueta
+          </Button>
+        </div>
+      )}
 
       {previewContext && (
         <Card>
@@ -696,9 +733,9 @@ export default function EtiquetasPage() {
               <p className="text-base font-semibold">{previewContext.contexto.escola}</p>
             </div>
             <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Nível | Série | Turma</p>
+              <p className="text-xs text-muted-foreground">Modalidade/Etapa | Turma | Turno</p>
               <p className="text-base font-semibold">
-                {previewContext.contexto.nivel} | {previewContext.contexto.serie} | {previewContext.contexto.turma}
+                {previewContext.contexto.nivel} | {previewContext.contexto.serie} | {previewContext.contexto.turno}
               </p>
             </div>
           </CardContent>
@@ -710,36 +747,49 @@ export default function EtiquetasPage() {
           {virtualPages.map((page, pageIndex) => (
             <Card key={`page-${pageIndex}`}>
               <CardHeader>
-                <CardTitle className="text-lg">Pré-visualização - Página {pageIndex + 1}</CardTitle>
+                <CardTitle className="text-lg">Configuração - Página {pageIndex + 1}</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-3 md:grid-cols-2">
-                {page.map((label) => (
+                {page.map((label, labelIndexOnPage) => {
+                  const globalLabelIndex = pageIndex * 8 + labelIndexOnPage;
+                  return (
                   <div key={label.id} className="space-y-2 rounded-lg border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-sm font-medium">Etiqueta {globalLabelIndex + 1}</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPreviewLabelId(label.id)}
+                      >
+                        <Eye className="mr-2 h-4 w-4" />
+                        Visualizar
+                      </Button>
+                    </div>
                     <Input
                       value={label.titulo}
                       onChange={(event) => updateLabel(label.id, { titulo: event.target.value })}
                       placeholder="Título da etiqueta"
                     />
-                    <div className="rounded border p-2 text-sm leading-5">
-                      <p className="font-semibold uppercase break-words">{label.titulo || "Título da etiqueta"}</p>
-                      <p className="font-semibold uppercase break-words">{previewContext?.municipio.name}</p>
-                      <p className="font-semibold uppercase break-words">{previewContext?.contexto.escola}</p>
-                      <p className="break-words">
-                        <strong>Nível:</strong> {previewContext?.contexto.nivel}
-                      </p>
-                      <p className="break-words">
-                        <strong>Série/Turma:</strong> {previewContext?.contexto.serie} / {previewContext?.contexto.turma}
-                      </p>
-                      <p className="break-words">
-                        <strong>Turno:</strong> {previewContext?.contexto.turno}
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`texto-livre-${label.id}`}>Texto livre</Label>
+                      <Textarea
+                        id={`texto-livre-${label.id}`}
+                        value={label.textoLivre}
+                        onChange={(event) => updateLabel(label.id, { textoLivre: event.target.value })}
+                        placeholder="Texto livre da etiqueta"
+                        rows={3}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Use **texto** para negrito parcial (ex.: 2º **DIA** de aplicação).
                       </p>
                     </div>
 
-                    <Textarea
-                      value={label.textoLivre}
-                      onChange={(event) => updateLabel(label.id, { textoLivre: event.target.value })}
-                      placeholder="Texto livre da etiqueta"
-                      rows={3}
+                    <EtiquetaAlignToolbar
+                      id={`align-${label.id}`}
+                      value={label.textoLivreAlinhamento}
+                      onChange={(value) => updateLabel(label.id, { textoLivreAlinhamento: value })}
                     />
 
                     <div className="flex items-center space-x-2">
@@ -753,29 +803,92 @@ export default function EtiquetasPage() {
                       <Label htmlFor={`signature-${label.id}`}>Exibir assinatura e CPF</Label>
                     </div>
 
-                    {label.exibirAssinatura && (
+                    {!label.exibirAssinatura && (
                       <div className="grid gap-2 sm:grid-cols-2">
-                        <Input
-                          value={label.nomeAplicador}
-                          onChange={(event) => updateLabel(label.id, { nomeAplicador: event.target.value })}
-                          placeholder="Nome do aplicador"
-                        />
-                        <Input
-                          value={label.cpfAplicador}
-                          onChange={(event) =>
-                            updateLabel(label.id, { cpfAplicador: maskCpf(event.target.value) })
-                          }
-                          placeholder="CPF do aplicador"
-                        />
+                        <div className="space-y-2">
+                          <Label htmlFor={`text-color-${label.id}`}>Cor do texto livre</Label>
+                          <Input
+                            id={`text-color-${label.id}`}
+                            type="color"
+                            value={label.textoLivreCor}
+                            onChange={(event) => updateLabel(label.id, { textoLivreCor: event.target.value })}
+                            className="h-10 cursor-pointer p-1"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`text-size-${label.id}`}>Tamanho do texto livre</Label>
+                          <Select
+                            value={String(label.textoLivreTamanho)}
+                            onValueChange={(value) =>
+                              updateLabel(label.id, { textoLivreTamanho: Number.parseInt(value, 10) })
+                            }
+                          >
+                            <SelectTrigger id={`text-size-${label.id}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {TEXTO_LIVRE_TAMANHO_OPTIONS.map((size) => (
+                                <SelectItem key={size} value={String(size)}>
+                                  {size} pt
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                     )}
+
+                    {label.exibirAssinatura && (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor={`text-above-signature-${label.id}`}>
+                            Texto acima da assinatura ({label.textoAcimaAssinatura.length}/{TEXTO_ACIMA_ASSINATURA_MAX})
+                          </Label>
+                          <Input
+                            id={`text-above-signature-${label.id}`}
+                            value={label.textoAcimaAssinatura}
+                            maxLength={TEXTO_ACIMA_ASSINATURA_MAX}
+                            placeholder="Ex.: 2º DIA DE APLICAÇÃO – MAT OBJETIVA"
+                            onChange={(event) =>
+                              updateLabel(label.id, { textoAcimaAssinatura: event.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <Input
+                            value={label.nomeAplicador}
+                            onChange={(event) => updateLabel(label.id, { nomeAplicador: event.target.value })}
+                            placeholder="Nome do aplicador"
+                          />
+                          <Input
+                            value={label.cpfAplicador}
+                            onChange={(event) =>
+                              updateLabel(label.id, { cpfAplicador: maskCpf(event.target.value) })
+                            }
+                            placeholder="CPF do aplicador"
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      <EtiquetaPreviewDialog
+        open={previewLabelId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPreviewLabelId(null);
+        }}
+        label={previewLabel}
+        context={previewContext}
+        logoUrl={previewLogoUrl}
+        labelIndex={previewLabelIndex >= 0 ? previewLabelIndex : undefined}
+      />
     </div>
   );
 }
