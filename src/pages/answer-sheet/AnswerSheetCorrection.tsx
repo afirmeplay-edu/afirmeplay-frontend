@@ -8,8 +8,10 @@ import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useAnswerSheetCorrection } from '@/hooks/useAnswerSheetCorrection';
+import ManualCorrectionPanel from '@/components/answer-sheet/ManualCorrectionPanel';
 import {
   ScanLine,
   Images,
@@ -23,6 +25,7 @@ import {
   FilePlus,
   Ticket,
   BarChart3,
+  ClipboardList,
 } from 'lucide-react';
 
 const MAX_BATCH_IMAGES = 50;
@@ -199,7 +202,7 @@ export default function AnswerSheetCorrection() {
   ];
 
   return (
-    <div className="container mx-auto px-4 py-6 space-y-6 max-w-4xl">
+    <div className="container mx-auto px-4 py-6 space-y-6 max-w-5xl">
       {/* Header */}
       <div className="space-y-1.5">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex flex-wrap items-center gap-2">
@@ -207,7 +210,7 @@ export default function AnswerSheetCorrection() {
           Correção de Cartão Resposta
         </h1>
         <p className="text-muted-foreground text-sm sm:text-base">
-          Envie uma foto do cartão preenchido. O gabarito é identificado automaticamente pelo QR code na imagem.
+          Corrija por foto (QR code) ou registre as respostas manualmente em um cartão resposta.
         </p>
       </div>
 
@@ -223,6 +226,19 @@ export default function AnswerSheetCorrection() {
         ))}
       </div>
 
+      <Tabs defaultValue="omr" className="space-y-6">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="omr" className="gap-2">
+            <ScanLine className="h-4 w-4" />
+            Por imagem
+          </TabsTrigger>
+          <TabsTrigger value="manual" className="gap-2">
+            <ClipboardList className="h-4 w-4" />
+            Entrada manual
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="omr" className="mt-0 space-y-0">
       <div className="grid gap-6 sm:grid-cols-1 lg:grid-cols-2">
         {/* Card: Correção única */}
         <Card className="overflow-hidden">
@@ -500,6 +516,12 @@ export default function AnswerSheetCorrection() {
           </CardContent>
         </Card>
       </div>
+        </TabsContent>
+
+        <TabsContent value="manual" className="mt-0 max-w-5xl">
+          <ManualCorrectionPanel />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

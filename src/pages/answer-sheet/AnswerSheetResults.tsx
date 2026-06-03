@@ -42,6 +42,7 @@ import {
   REPORT_ENTITY_TYPE_ANSWER_SHEET,
 } from '@/services/evaluation/evaluationResultsApi';
 import { cityIdQueryParamForAdmin, getUserHierarchyContext, type UserHierarchyContext } from '@/utils/userHierarchy';
+import { buildAnswerSheetStudentDetailHref } from '@/utils/answer-sheet/buildAnswerSheetStudentDetailHref';
 import { useToast } from '@/hooks/use-toast';
 import { ResultsCharts } from '@/components/evaluations/results/ResultsCharts';
 import { StudentRanking } from '@/components/evaluations/student/StudentRanking';
@@ -847,15 +848,15 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   const goToAnswerSheetStudentDetail = useCallback(
     (studentRowId: string) => {
       if (!hasMinimumFilters) return;
-      const qs = new URLSearchParams();
-      qs.set('estado', estado);
-      qs.set('municipio', municipio);
-      if (escola && escola !== 'all') qs.set('escola', escola);
-      if (serie && serie !== 'all') qs.set('serie', serie);
-      if (turma && turma !== 'all') qs.set('turma', turma);
-      if (periodoApi) qs.set('periodo', periodoApi);
       navigate(
-        `/app/cartao-resposta/resultados/gabarito/${gabarito}/aluno/${studentRowId}?${qs.toString()}`
+        buildAnswerSheetStudentDetailHref(gabarito, studentRowId, {
+          estado,
+          municipio,
+          escola: escola && escola !== 'all' ? escola : undefined,
+          serie: serie && serie !== 'all' ? serie : undefined,
+          turma: turma && turma !== 'all' ? turma : undefined,
+          periodo: periodoApi,
+        })
       );
     },
     [navigate, hasMinimumFilters, estado, municipio, gabarito, escola, serie, turma, periodoApi]
