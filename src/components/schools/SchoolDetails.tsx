@@ -3,12 +3,15 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/authContext";
-import { UserPlus, Eye, Pencil, Trash2, Edit, Loader2, ArrowLeft, Building, Users, GraduationCap, MapPin, Globe, Calendar, Plus, BookOpen, School, Upload, MoveRight, Link2, KeyRound } from "lucide-react";
+import { UserPlus, Eye, Pencil, Trash2, Edit, Loader2, ArrowLeft, Building, Users, GraduationCap, MapPin, Globe, Calendar, Plus, BookOpen, School, Upload, MoveRight, Link2, KeyRound, Clock } from "lucide-react";
 import { AddUserForm } from "./AddUserForm";
 import { CreateClassForm } from "./CreateClassForm";
 import { LinkTeacherModal } from "./LinkTeacherModal";
 import { LinkStudentModal } from "./LinkStudentModal";
 import { ManageClassModal } from "./ManageClassModal";
+import { ClassShiftBadge } from "./ClassShiftBadge";
+import { EditClassShiftDialog } from "./EditClassShiftDialog";
+import type { ClassShiftCanonical } from "@/lib/classShift";
 import { LinkDirectorCoordinatorModal } from "./LinkDirectorCoordinatorModal";
 import { ManageSchoolLinksModal } from "./ManageSchoolLinksModal";
 import { BulkUploadStudentsModal } from "./BulkUploadStudentsModal";
@@ -78,6 +81,7 @@ interface School {
 interface Class {
   id: string;
   name: string;
+  shift?: string | null;
   grade?: string | { id: string; name: string; education_stage: any };
   teachers?: Teacher[];
   students?: Student[];
@@ -153,6 +157,7 @@ export default function SchoolDetails() {
   const [activeTab, setActiveTab] = useState("overview");
   const [showManageClassModal, setShowManageClassModal] = useState(false);
   const [selectedClass, setSelectedClass] = useState<Class | null>(null);
+  const [shiftEditClass, setShiftEditClass] = useState<Class | null>(null);
   const [classTeachers, setClassTeachers] = useState<{[key: string]: Teacher[]}>({});
   const [classStudents, setClassStudents] = useState<{[key: string]: Student[]}>({});
   const [showLinkDirectorModal, setShowLinkDirectorModal] = useState(false);
@@ -246,6 +251,21 @@ export default function SchoolDetails() {
 
     fetchCurrentTeacherUserId();
   }, [user?.id, user.role]);
+
+  const canManageClasses =
+    user.role === "admin" ||
+    user.role === "tecadm" ||
+    user.role === "diretor" ||
+    user.role === "coordenador";
+
+  const handleClassShiftSaved = (classId: string, shift: ClassShiftCanonical | null) => {
+    setClasses((prev) =>
+      prev.map((c) => (c.id === classId ? { ...c, shift } : c))
+    );
+    setSelectedClass((prev) =>
+      prev?.id === classId ? { ...prev, shift } : prev
+    );
+  };
 
   // Carregar turmas da escola
   useEffect(() => {
@@ -1091,8 +1111,11 @@ export default function SchoolDetails() {
                   {sortedClasses.map((classItem) => {
                     return (
                       <div key={classItem.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-                        <div className="flex items-center justify-between mb-3">
-                          <h4 className="font-medium text-sm">{upperDisplay(classItem.name)}</h4>
+                        <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                          <h4 className="font-medium text-sm flex items-center gap-2 flex-wrap">
+                            {upperDisplay(classItem.name)}
+                            <ClassShiftBadge shift={classItem.shift} />
+                          </h4>
                           {classItem.grade && (
                             <Badge variant="secondary" className="text-xs">
                               {upperDisplay(
@@ -1167,9 +1190,12 @@ export default function SchoolDetails() {
                   {sortedClasses.map((classItem) => {
                     return (
                       <div key={classItem.id} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
                           <div>
-                            <h4 className="font-medium text-lg">{upperDisplay(classItem.name)}</h4>
+                            <h4 className="font-medium text-lg flex items-center gap-2 flex-wrap">
+                              {upperDisplay(classItem.name)}
+                              <ClassShiftBadge shift={classItem.shift} />
+                            </h4>
                             {classItem.grade && (
                               <div className="text-sm text-muted-foreground">
                                 <p>
@@ -1208,8 +1234,16 @@ export default function SchoolDetails() {
                               </Button>
                             )}
 
-                            {(user.role === 'admin' || user.role === 'tecadm' || user.role === 'diretor' || user.role === 'coordenador') && (
+                            {canManageClasses && (
                               <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setShiftEditClass(classItem)}
+                                >
+                                  <Clock className="h-4 w-4 mr-2" />
+                                  Editar turno
+                                </Button>
                                 <Button 
                                   variant="outline" 
                                   size="sm"
@@ -1339,6 +1373,19 @@ export default function SchoolDetails() {
           }}
         />
       )}
+
+      {shiftEditClass ? (
+        <EditClassShiftDialog
+          open={!!shiftEditClass}
+          onOpenChange={(open) => {
+            if (!open) setShiftEditClass(null);
+          }}
+          classId={shiftEditClass.id}
+          className={shiftEditClass.name}
+          initialShift={shiftEditClass.shift}
+          onSaved={(shift) => handleClassShiftSaved(shiftEditClass.id, shift)}
+        />
+      ) : null}
 
       {/* Manage Class Modal */}
       {showManageClassModal && selectedClass && school && (
