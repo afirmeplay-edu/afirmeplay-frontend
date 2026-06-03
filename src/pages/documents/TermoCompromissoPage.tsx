@@ -315,6 +315,10 @@ export default function TermoCompromissoPage() {
     escola: selectedSchool !== "all" ? selectedSchool : undefined,
     serie: selectedSerie !== "all" ? selectedSerie : undefined,
     turma: selectedTurma !== "all" ? selectedTurma : undefined,
+    modo,
+    evaluation_id: modo === "avaliacao" && selectedAplicadoId !== "all" ? selectedAplicadoId : undefined,
+    answer_sheet_id:
+      modo === "cartao_resposta" && selectedAplicadoId !== "all" ? selectedAplicadoId : undefined,
   });
 
   const handlePreview = async () => {
