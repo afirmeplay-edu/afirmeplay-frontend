@@ -19,15 +19,9 @@ function normalizeSpaces(value: string): string {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
-function formatDateLong(date = new Date()): string {
-  return date.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  });
-}
-
-function cityDisplay(payload: TermoCompromissoDadosResponse): string {
+function municipioCorpoDisplay(payload: TermoCompromissoDadosResponse): string {
+  const fromPayload = normalizeSpaces(payload.contexto.municipio_corpo);
+  if (fromPayload) return fromPayload;
   const city = normalizeSpaces(payload.municipio.name);
   const state = normalizeSpaces(payload.municipio.state);
   return state ? `${city}/${state}` : city;
@@ -39,8 +33,37 @@ function fieldDisplay(value: string): string {
 
 const DEFAULT_NOME_APLICACAO = "AVALIE — Avaliação Institucional da Educação";
 
-function applicationNameDisplay(form: TermoCompromissoFormData): string {
-  return fieldDisplay(form.nomeAplicacao) || DEFAULT_NOME_APLICACAO;
+function applicationNameDisplay(
+  form: TermoCompromissoFormData,
+  payload: TermoCompromissoDadosResponse
+): string {
+  return (
+    fieldDisplay(form.nomeAplicacao) ||
+    normalizeSpaces(payload.contexto.nome_aplicacao_referencia) ||
+    DEFAULT_NOME_APLICACAO
+  );
+}
+
+function periodoAvaliacaoDisplay(payload: TermoCompromissoDadosResponse): string {
+  const fromPayload = normalizeSpaces(payload.contexto.periodo_texto);
+  if (fromPayload) return fromPayload;
+  const mes =
+    normalizeSpaces(payload.contexto.mes_avaliacao) ||
+    new Date().toLocaleDateString("pt-BR", { month: "long" });
+  const ano = payload.contexto.ano || new Date().getFullYear();
+  return `no período de ${mes} de ${ano}`;
+}
+
+function dataDocumentoDisplay(payload: TermoCompromissoDadosResponse): string {
+  const fromPayload = normalizeSpaces(payload.contexto.data_documento);
+  if (fromPayload) return `${fromPayload}.`;
+  const city = normalizeSpaces(payload.municipio.name);
+  const date = new Date().toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+  return `${city}, ${date}.`;
 }
 
 async function drawHeader(
@@ -65,9 +88,12 @@ async function drawHeader(
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
   doc.setTextColor(...COLORS.muted);
-  doc.text("SECRETARIA MUNICIPAL DE EDUCAÇÃO", pageWidth / 2, y, {
-    align: "center",
-  });
+  doc.text(
+    payload.municipio.secretaria_label || "SECRETARIA MUNICIPAL DE EDUCAÇÃO",
+    pageWidth / 2,
+    y,
+    { align: "center" }
+  );
 
   return y + 10;
 }
@@ -179,23 +205,25 @@ export async function generateTermoCompromissoPdf(
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const contentWidth = pageWidth - MARGIN * 2;
-  const city = cityDisplay(payload);
-  const ano = payload.contexto.ano;
-  const nomeAplicacao = applicationNameDisplay(form);
+  const city = municipioCorpoDisplay(payload);
+  const periodoTexto = periodoAvaliacaoDisplay(payload);
+  const nomeAplicacao = applicationNameDisplay(form, payload);
+  const tituloDocumento =
+    normalizeSpaces(payload.documento?.titulo) || "TERMO DE COMPROMISSO E CONFIDENCIALIDADE";
 
   let y = await drawHeader(doc, payload, logo);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
   doc.setTextColor(...COLORS.text);
-  doc.text("TERMO DE COMPROMISSO E CONFIDENCIALIDADE", pageWidth / 2, y, { align: "center" });
+  doc.text(tituloDocumento, pageWidth / 2, y, { align: "center" });
   y += 10;
 
   y = drawIdentBlock(doc, form, MARGIN, y, contentWidth);
 
   y = drawParagraph(
     doc,
-    `Assumo o compromisso de manter confidencialidade e sigilo sobre todas as informações e documentos confidenciais a que tiver acesso durante o desempenho de minhas funções de aplicador(a) e/ou coordenador(a) das aplicações do ${nomeAplicacao} do município de ${city}, no período de março a abril de ${ano}.`,
+    `Assumo o compromisso de manter confidencialidade e sigilo sobre todas as informações e documentos confidenciais a que tiver acesso durante o desempenho de minhas funções de aplicador(a) e/ou coordenador(a) das aplicações do ${nomeAplicacao} do município de ${city}, ${periodoTexto}.`,
     MARGIN,
     y,
     contentWidth,
@@ -237,7 +265,7 @@ export async function generateTermoCompromissoPdf(
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10.5);
   doc.setTextColor(...COLORS.text);
-  doc.text(`${normalizeSpaces(payload.municipio.name)}, ${formatDateLong()}.`, MARGIN, y);
+  doc.text(dataDocumentoDisplay(payload), MARGIN, y);
 
   const signatureLineY = pageHeight - 20;
   const signatureLabelY = pageHeight - 14;

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { PlusCircle, Search, Trash2, Users, Building, Loader2, AlertCircle, UserPlus, X, Eye, GraduationCap } from "lucide-react";
+import { PlusCircle, Search, Trash2, Users, Building, Loader2, AlertCircle, UserPlus, X, Eye, GraduationCap, Clock } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/authContext";
@@ -43,6 +43,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { CreateClassForm } from "@/components/schools/CreateClassForm";
+import { ClassShiftBadge } from "@/components/schools/ClassShiftBadge";
+import { ClassShiftSelector } from "@/components/schools/ClassShiftSelector";
+import { EditClassShiftDialog } from "@/components/schools/EditClassShiftDialog";
+import { type ClassShiftCanonical, toApiShiftValue } from "@/lib/classShift";
 
 interface School {
   id: string;
@@ -82,6 +86,7 @@ interface Turma {
   name: string;
   school_id: string;
   grade_id?: string;
+  shift?: string | null;
   students_count?: number;
   school?: {
     id: string;
@@ -102,6 +107,7 @@ interface FormData {
   name: string;
   school_id: string;
   grade_id?: string;
+  shift: ClassShiftCanonical | null;
 }
 
 interface AddStudentFormData {
@@ -131,6 +137,7 @@ export default function Turmas({ embedded = false }: TurmasProps) {
     name: "",
     school_id: "",
     grade_id: "",
+    shift: null,
   });
 
   // Estados para gerenciar alunos
@@ -148,6 +155,7 @@ export default function Turmas({ embedded = false }: TurmasProps) {
   // Estados para visualização de alunos da turma
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [viewingClass, setViewingClass] = useState<Turma | null>(null);
+  const [shiftEditTurma, setShiftEditTurma] = useState<Turma | null>(null);
   const [viewStudents, setViewStudents] = useState<Student[]>([]);
   /** Aba de escola ativa (modo embedded: turmas separadas por escola) */
   const [activeSchoolTab, setActiveSchoolTab] = useState<string>("");
@@ -381,16 +389,19 @@ export default function Turmas({ embedded = false }: TurmasProps) {
   };
 
   const openViewDialog = (turma: Turma) => {
-    console.log('openViewDialog chamada com turma:', turma);
-    console.log('turma.school_id:', turma.school_id);
-    console.log('turma.id:', turma.id);
-    console.log('turma.school_id tipo:', typeof turma.school_id);
-    console.log('turma.id tipo:', typeof turma.id);
-    console.log('turma.school_id truthy?', !!turma.school_id);
-    console.log('turma.id truthy?', !!turma.id);
     setViewingClass(turma);
     setIsViewDialogOpen(true);
     fetchStudentsForView(turma.id, turma.school_id);
+  };
+
+  const handleShiftSaved = (classId: string, shift: ClassShiftCanonical | null) => {
+    setTurmas((prev) =>
+      prev.map((t) => (t.id === classId ? { ...t, shift } : t))
+    );
+    setViewingClass((prev) => (prev?.id === classId ? { ...prev, shift } : prev));
+    if (shiftEditTurma?.id === classId) {
+      setShiftEditTurma((prev) => (prev ? { ...prev, shift } : null));
+    }
   };
 
   const fetchStudentsByClass = async (classId: string) => {
@@ -456,6 +467,7 @@ export default function Turmas({ embedded = false }: TurmasProps) {
       name: item.name,
       school_id: item.school_id,
       grade_id: item.grade_id || "",
+      shift: toApiShiftValue(item.shift),
     });
     setIsModalOpen(true);
   };
@@ -493,6 +505,7 @@ export default function Turmas({ embedded = false }: TurmasProps) {
         name: formData.name,
         school_id: formData.school_id,
         grade_id: formData.grade_id || null,
+        shift: formData.shift,
       };
 
       if (editingItem) {
@@ -779,9 +792,10 @@ export default function Turmas({ embedded = false }: TurmasProps) {
                   {turmasDaEscola.map((turma) => (
                     <Card key={turma.id} className="hover:shadow-md transition-shadow">
                       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                        <CardTitle className="text-lg font-semibold flex items-center gap-2 flex-wrap">
                           <Users className="h-5 w-5 text-green-600" />
                           {turma.name}
+                          <ClassShiftBadge shift={turma.shift} />
                         </CardTitle>
                         <Badge variant="default">Ativa</Badge>
                       </CardHeader>
@@ -813,11 +827,21 @@ export default function Turmas({ embedded = false }: TurmasProps) {
                               )}
                             </div>
                           </div>
-                          <div className="flex gap-2 mt-4">
+                          <div className="flex flex-wrap gap-2 mt-4">
                             <Button variant="outline" size="sm" onClick={() => openViewDialog(turma)}>
                               <Eye className="h-3 w-3 mr-1" />
                               Visualizar
                             </Button>
+                            {canDeleteTurma && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setShiftEditTurma(turma)}
+                              >
+                                <Clock className="h-3 w-3 mr-1" />
+                                Editar turno
+                              </Button>
+                            )}
                             {canDeleteTurma && (
                               <Button variant="outline" size="sm" onClick={() => openDeleteDialog(turma)}>
                                 <Trash2 className="h-3 w-3 mr-1" />
@@ -853,9 +877,10 @@ export default function Turmas({ embedded = false }: TurmasProps) {
             {filteredTurmas.map((turma) => (
               <Card key={turma.id} className="hover:shadow-md transition-shadow">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <CardTitle className="text-lg font-semibold flex items-center gap-2 flex-wrap">
                     <Users className="h-5 w-5 text-green-600" />
                     {turma.name}
+                    <ClassShiftBadge shift={turma.shift} />
                   </CardTitle>
                   <Badge variant="default">Ativa</Badge>
                 </CardHeader>
@@ -893,11 +918,21 @@ export default function Turmas({ embedded = false }: TurmasProps) {
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-2 mt-4">
+                    <div className="flex flex-wrap gap-2 mt-4">
                       <Button variant="outline" size="sm" onClick={() => openViewDialog(turma)}>
                         <Eye className="h-3 w-3 mr-1" />
                         Visualizar
                       </Button>
+                      {canDeleteTurma && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShiftEditTurma(turma)}
+                        >
+                          <Clock className="h-3 w-3 mr-1" />
+                          Editar turno
+                        </Button>
+                      )}
                       {canDeleteTurma && (
                         <Button variant="outline" size="sm" onClick={() => openDeleteDialog(turma)}>
                           <Trash2 className="h-3 w-3 mr-1" />
@@ -1004,6 +1039,11 @@ export default function Turmas({ embedded = false }: TurmasProps) {
                     </SelectContent>
                   </Select>
                 </div>
+                <ClassShiftSelector
+                  value={formData.shift}
+                  onChange={(shift) => setFormData({ ...formData, shift })}
+                  disabled={isSubmitting}
+                />
                 <div className="flex justify-end space-x-2 pt-4">
                   <Button
                     type="button"
@@ -1245,9 +1285,26 @@ export default function Turmas({ embedded = false }: TurmasProps) {
       }}>
         <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Alunos da Turma {viewingClass?.name || ''}</DialogTitle>
-            <DialogDescription>
-              Lista de alunos vinculados a esta turma
+            <DialogTitle className="flex flex-wrap items-center gap-2">
+              Alunos da Turma {viewingClass?.name || ""}
+              {viewingClass ? <ClassShiftBadge shift={viewingClass.shift} /> : null}
+            </DialogTitle>
+            <DialogDescription className="flex flex-wrap items-center gap-2">
+              <span>Lista de alunos vinculados a esta turma</span>
+              {viewingClass && canDeleteTurma ? (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-primary"
+                  onClick={() => {
+                    setShiftEditTurma(viewingClass);
+                    setIsViewDialogOpen(false);
+                  }}
+                >
+                  Editar turno
+                </Button>
+              ) : null}
             </DialogDescription>
           </DialogHeader>
 
@@ -1288,6 +1345,19 @@ export default function Turmas({ embedded = false }: TurmasProps) {
           )}
         </DialogContent>
       </Dialog>
+
+      {shiftEditTurma ? (
+        <EditClassShiftDialog
+          open={!!shiftEditTurma}
+          onOpenChange={(open) => {
+            if (!open) setShiftEditTurma(null);
+          }}
+          classId={shiftEditTurma.id}
+          className={shiftEditTurma.name}
+          initialShift={shiftEditTurma.shift}
+          onSaved={(shift) => handleShiftSaved(shiftEditTurma.id, shift)}
+        />
+      ) : null}
     </div>
   );
 } 

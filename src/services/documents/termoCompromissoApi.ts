@@ -16,6 +16,9 @@ export async function getTermoCompromissoDados(
   if (params.escola?.trim()) query.append("escola", params.escola.trim());
   if (params.serie?.trim()) query.append("serie", params.serie.trim());
   if (params.turma?.trim()) query.append("turma", params.turma.trim());
+  if (params.modo?.trim()) query.append("modo", params.modo.trim());
+  if (params.evaluation_id?.trim()) query.append("evaluation_id", params.evaluation_id.trim());
+  if (params.answer_sheet_id?.trim()) query.append("answer_sheet_id", params.answer_sheet_id.trim());
 
   const response = await api.get<TermoCompromissoDadosResponse>(
     `/documentos/termo-compromisso/dados?${query.toString()}`,
