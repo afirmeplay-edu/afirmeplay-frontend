@@ -4,6 +4,8 @@ import { cn } from "@/lib/utils";
 import {
   CLASS_SHIFT_OPTIONS,
   type ClassShiftCanonical,
+  classShiftSelectorClearClass,
+  classShiftSelectorOptionClass,
   normalizeClassShift,
 } from "@/lib/classShift";
 
@@ -47,9 +49,7 @@ export function ClassShiftSelector({
                 "inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                 disabled && "opacity-50 cursor-not-allowed",
-                isActive
-                  ? "border-primary bg-primary text-primary-foreground shadow-sm"
-                  : "border-border bg-background hover:bg-muted text-foreground"
+                classShiftSelectorOptionClass(opt.value, isActive)
               )}
               aria-pressed={isActive}
             >
@@ -67,11 +67,7 @@ export function ClassShiftSelector({
               "inline-flex items-center rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               disabled && "opacity-50 cursor-not-allowed",
-              selected === null && !value
-                ? "border-primary bg-primary text-primary-foreground shadow-sm"
-                : selected === null && value
-                  ? "border-muted-foreground/40 bg-muted"
-                  : "border-border bg-background hover:bg-muted text-muted-foreground"
+              classShiftSelectorClearClass(selected === null && !String(value ?? "").trim())
             )}
             aria-pressed={selected === null && !String(value ?? "").trim()}
           >
