@@ -7,6 +7,7 @@ import type {
   EtiquetasDadosResponse,
 } from "@/types/etiquetas";
 import { parseBoldMarkers, truncateText } from "@/utils/richTextMarkers";
+import { etiquetasSerieTurmaLine, etiquetasTurnoLabel } from "@/utils/etiquetasDisplay";
 
 const PAGE_MARGIN = 10;
 const COLS = 2;
@@ -424,11 +425,11 @@ function drawEtiqueta(
   drawCenteredParts(
     doc,
     [
-      { text: "Turma: ", underline: true },
-      { text: normalizeSpaces(context.contexto.serie).toUpperCase() },
+      { text: "Série/Turma: ", underline: true },
+      { text: normalizeSpaces(etiquetasSerieTurmaLine(context)).toUpperCase() },
       { text: " | " },
       { text: "Turno: ", underline: true },
-      { text: normalizeSpaces(context.contexto.turno).toUpperCase() },
+      { text: normalizeSpaces(etiquetasTurnoLabel(context)).toUpperCase() },
     ],
     centerX,
     cursorY,

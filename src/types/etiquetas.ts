@@ -25,6 +25,8 @@ export type EtiquetasDadosResponse = {
     serie: string;
     turma: string;
     turno: string;
+    /** Valor bruto da API (`class.shift`); preferir `turno` ou helper para exibição. */
+    shift?: string;
     ano: number;
   };
   modo: EtiquetasModo;

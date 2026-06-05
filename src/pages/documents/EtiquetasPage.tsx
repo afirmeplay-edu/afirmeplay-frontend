@@ -25,7 +25,7 @@ import type {
 import { loadCityBrandingPdfAssets } from "@/utils/pdfCityBranding";
 import { loadBrandingImage } from "@/utils/brandingImageUtils";
 import { getCityBranding, resolveBrandingUrls } from "@/services/cityBrandingApi";
-import { TEXTO_ACIMA_ASSINATURA_MAX } from "@/utils/etiquetasDisplay";
+import { etiquetasTurnoLabel, TEXTO_ACIMA_ASSINATURA_MAX } from "@/utils/etiquetasDisplay";
 import { EtiquetaAlignToolbar } from "@/components/documents/EtiquetaAlignToolbar";
 import { EtiquetaPreviewDialog } from "@/components/documents/EtiquetaPreviewDialog";
 
@@ -733,9 +733,11 @@ export default function EtiquetasPage() {
               <p className="text-base font-semibold">{previewContext.contexto.escola}</p>
             </div>
             <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Modalidade/Etapa | Turma | Turno</p>
+              <p className="text-xs text-muted-foreground">Modalidade/Etapa | Série | Turma | Turno</p>
               <p className="text-base font-semibold">
-                {previewContext.contexto.nivel} | {previewContext.contexto.serie} | {previewContext.contexto.turno}
+                {previewContext.contexto.nivel} | {previewContext.contexto.serie} |{" "}
+                {previewContext.contexto.turma} |{" "}
+                {etiquetasTurnoLabel(previewContext)}
               </p>
             </div>
           </CardContent>
