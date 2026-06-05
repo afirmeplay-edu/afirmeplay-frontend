@@ -1829,6 +1829,7 @@ const MonitoringPage = () => {
                                   <div>{turma.turma_nome}</div>
                                   <div className="text-xs font-normal text-muted-foreground">
                                     {turma.serie_nome}
+                                    {turma.shift ? ` · ${turma.shift}` : ""}
                                   </div>
                                 </TableCell>
                                 <TableCell className="text-center tabular-nums">{turma.total_alunos}</TableCell>
@@ -2144,6 +2145,7 @@ const MonitoringPage = () => {
                               <p className="font-medium">{row.aluno_nome}</p>
                               <p className="text-xs text-muted-foreground">
                                 {row.serie} · {row.turma}
+                                {row.shift ? ` · ${row.shift}` : ""}
                               </p>
                               {(row.disciplinas_criticas?.length || row.descritores_criticos?.length) ? (
                                 <div className="mt-2 space-y-1 text-xs text-muted-foreground">

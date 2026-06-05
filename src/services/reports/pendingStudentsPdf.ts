@@ -1,8 +1,11 @@
+import { getClassShiftLabel } from "@/lib/classShift";
+
 export type PendingStudentRow = {
   nome?: string;
   escola?: string;
   turma?: string;
   serie?: string;
+  shift?: string;
   statusLabel?: string;
 };
 
@@ -36,7 +39,10 @@ export async function generatePendingStudentsPdf(opts: {
   pdf.setTextColor(0, 0, 0);
 
   const rows = opts.students.map((s) => {
-    const meta = [s.escola, s.turma, s.serie].filter(Boolean).join(' • ') || '—';
+    const turno = s.shift ? getClassShiftLabel(s.shift) : "";
+    const meta = [s.escola, s.turma, s.serie, turno && turno !== "Sem turno" ? turno : ""]
+      .filter(Boolean)
+      .join(' • ') || '—';
     return [s.nome?.trim() || '—', meta, (s.statusLabel ?? 'Pendente').trim() || 'Pendente'];
   });
 

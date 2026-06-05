@@ -83,6 +83,8 @@ export type Presentation19DeckData = {
   serie: string;
   /** Texto exibido no campo Turma(s) da capa (lista separada por vírgula quando há várias). */
   turma: string;
+  /** Turno da turma selecionada ou do recorte (exibição apenas). */
+  turno?: string;
   /** Turmas distintas que participaram (avaliação/cartão), para layout em lista quando necessário. */
   turmasParticipantesCapa: string[];
 
@@ -165,6 +167,8 @@ export type BuildDeckDataArgs = {
   selectedSerieLabel?: string;
   /** Nome da turma selecionada (ex.: rótulo do select de opções). */
   selectedTurmaLabel?: string;
+  /** Turno da turma selecionada no filtro (`class.shift`). */
+  selectedTurmaShift?: string;
   relatorioDetalhado: Partial<RelatorioCompleto> | null;
   novaRespostaAgregados: NovaRespostaAPI | null;
   /** Quando há turma selecionada, agregados do backend para o recorte "geral da série" (mesmos filtros, sem turma). */

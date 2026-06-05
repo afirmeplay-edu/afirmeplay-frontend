@@ -6,6 +6,7 @@ import {
   type PdfImageAsset,
 } from "@/utils/pdfCityBranding";
 import { buildHierarchyPath } from "@/services/reports/hierarchicalDownload";
+import { getClassShiftLabel } from "@/lib/classShift";
 
 const STATUS_ORDER = ["P", "A", "T", "NE", "SE", "SS", "I"];
 
@@ -195,7 +196,8 @@ async function drawListaSection(
   const { serie: serieDisplay, turma: turmaDisplay } = getSerieTurmaDisplay(cab);
   doc.setFontSize(9);
   const escolaLines = doc.splitTextToSize(`NOME DA ESCOLA*: ${cab.nome_escola}`, contentWidth - 8);
-  const boxHeight = 8 + 5 + 5 + escolaLines.length * 4.5 + 5 + 5 + 5 + 6 + 4;
+  const turnoDisplay = getClassShiftLabel(cab.turno);
+  const boxHeight = 8 + 5 + 5 + escolaLines.length * 4.5 + 5 + 5 + 5 + 5 + 6 + 4;
   doc.setDrawColor(...pink);
   doc.setLineWidth(0.4);
   doc.rect(margin, y, contentWidth, boxHeight, "S");
@@ -209,6 +211,8 @@ async function drawListaSection(
   doc.text(`SÉRIE: ${serieDisplay}`, boxX, boxY, { align: "left" });
   boxY += 5;
   doc.text(`TURMA: ${turmaDisplay}`, boxX, boxY, { align: "left" });
+  boxY += 5;
+  doc.text(`TURNO: ${turnoDisplay}`, boxX, boxY, { align: "left" });
   boxY += 5;
   const disciplinaVal = cab.disciplina?.trim() ?? "";
   doc.text(disciplinaVal ? `DISCIPLINA: ${disciplinaVal}` : "DISCIPLINA: ", boxX, boxY, { align: "left" });

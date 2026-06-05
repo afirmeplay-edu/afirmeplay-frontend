@@ -5,9 +5,11 @@ import {
   drawReportHeaderLogoWithFallback,
 } from "@/utils/pdfCityBranding";
 import type {
+  FolhaRascunhoClass,
   FolhaRascunhoDadosResponse,
   FolhaRascunhoStudent,
 } from "@/types/folha-rascunho";
+import { formatClassMetaLine, getClassShiftLabel, hasClassShift } from "@/lib/classShift";
 import { buildHierarchyPath, downloadBlob } from "@/services/reports/hierarchicalDownload";
 
 /** Rosa da lista de frequência (linha da folha do aluno). */
@@ -193,12 +195,17 @@ function drawInstitutionalCoverPage(
   }
 }
 
+function classShiftFromTurma(turma: FolhaRascunhoClass): string | undefined {
+  return turma.turno ?? turma.shift;
+}
+
 function drawCoverPage(
   ctx: PdfCtx,
   kind: "escola" | "serie" | "turma",
   title: string,
   subtitle?: string,
-  escolaName?: string
+  escolaName?: string,
+  shift?: string | null
 ): void {
   const labels = { escola: "ESCOLA", serie: "SÉRIE", turma: "TURMA" };
   const cardLines: Array<{ label: string; value: string }> = [
@@ -210,6 +217,9 @@ function drawCoverPage(
   if (kind === "turma") {
     if (escolaName) cardLines.splice(1, 0, { label: "ESCOLA", value: escolaName });
     if (subtitle) cardLines.splice(escolaName ? 2 : 1, 0, { label: "SÉRIE", value: subtitle });
+    if (hasClassShift(shift)) {
+      cardLines.push({ label: "TURNO", value: getClassShiftLabel(shift) });
+    }
   }
   if (ctx.avaliacaoTitulo) {
     cardLines.push({ label: "REFERÊNCIA", value: ctx.avaliacaoTitulo });
@@ -232,6 +242,7 @@ async function drawInstitutionalHeader(
     ano: number;
     serie: string;
     turma: string;
+    shift?: string | null;
     studentName?: string;
     subtitle?: string;
   }
@@ -268,7 +279,12 @@ async function drawInstitutionalHeader(
   });
 
   y += 1;
-  const meta = `Ano: ${opts.ano} | Série: ${opts.serie} | Turma: ${opts.turma}`;
+  const meta = formatClassMetaLine({
+    ano: opts.ano,
+    serie: opts.serie,
+    turma: opts.turma,
+    shift: opts.shift,
+  });
   doc.setFont("helvetica", "normal");
   doc.setFontSize(6.5);
   doc.setTextColor(...COLORS.textGray);
@@ -300,7 +316,7 @@ async function drawStudentScratchPage(
   ctx: PdfCtx,
   escola: string,
   serie: string,
-  turma: string,
+  turma: FolhaRascunhoClass,
   student: FolhaRascunhoStudent
 ): Promise<void> {
   const { doc, pageWidth, pageHeight } = ctx;
@@ -309,7 +325,8 @@ async function drawStudentScratchPage(
     escola,
     ano: ctx.ano,
     serie,
-    turma,
+    turma: turma.name,
+    shift: classShiftFromTurma(turma),
     studentName: student.name,
     subtitle: "FOLHA DE RASCUNHO",
   });
@@ -360,13 +377,20 @@ export async function generateFolhaRascunhoPdf(
         if (classes.length > 1) {
           if (!firstPage) doc.addPage();
           firstPage = false;
-          drawCoverPage(ctx, "turma", turma.name, serie.name, escola.name);
+          drawCoverPage(
+            ctx,
+            "turma",
+            turma.name,
+            serie.name,
+            escola.name,
+            classShiftFromTurma(turma)
+          );
         }
 
         for (const student of turma.students || []) {
           if (!firstPage) doc.addPage();
           firstPage = false;
-          await drawStudentScratchPage(ctx, escola.name, serie.name, turma.name, student);
+          await drawStudentScratchPage(ctx, escola.name, serie.name, turma, student);
         }
       }
     }

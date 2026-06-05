@@ -28,6 +28,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { EvaluationResultsApiService, REPORT_ENTITY_TYPE_ANSWER_SHEET } from "@/services/evaluation/evaluationResultsApi";
 import { RelatorioCompleto } from "@/types/evaluation-results";
+import { getClassShiftLabel } from "@/lib/classShift";
 import { useAuth } from "@/context/authContext";
 import { BarChartComponent, DonutChartComponent } from "@/components/ui/charts";
 import { FilterComponentAnalise } from "@/components/filters";
@@ -710,8 +711,11 @@ export default function AnaliseAvaliacoes() {
                   <thead>
                     <tr className="bg-muted">
                       <th className="border border-border px-4 py-2 text-left font-medium">
-                        {renderMode === 'escola' ? 'Escola' : 'Série/Turno'}
+                        {renderMode === 'escola' ? 'Escola' : 'Série/Turma'}
                       </th>
+                      {renderMode !== 'escola' ? (
+                        <th className="border border-border px-4 py-2 text-left font-medium">Turno</th>
+                      ) : null}
                       <th className="border border-border px-4 py-2 text-center font-medium">Matriculados</th>
                       <th className="border border-border px-4 py-2 text-center font-medium">Avaliados</th>
                       <th className="border border-border px-4 py-2 text-center font-medium">Percentual</th>
@@ -723,6 +727,7 @@ export default function AnaliseAvaliacoes() {
                       ? apiData.total_alunos.por_escola?.map((escola, index: number) => (
                           <tr key={index} className="hover:bg-muted transition-colors">
                             <td className="border border-border px-4 py-2">{escola.escola}</td>
+                            {renderMode !== 'escola' ? <td className="border border-border px-4 py-2">—</td> : null}
                             <td className="border border-border px-4 py-2 text-center">{escola.matriculados}</td>
                             <td className="border border-border px-4 py-2 text-center">{escola.avaliados}</td>
                             <td className="border border-border px-4 py-2 text-center">{formatPercent1PtBr(escola.percentual, "0,0%")}</td>
@@ -734,6 +739,9 @@ export default function AnaliseAvaliacoes() {
                             <td className="border border-border px-4 py-2">
                               {formatTurmaLabel(turma as unknown as TurmaRowLike) || String((turma as { turma?: string }).turma ?? "")}
                             </td>
+                            <td className="border border-border px-4 py-2">
+                              {getClassShiftLabel((turma as { shift?: string }).shift)}
+                            </td>
                             <td className="border border-border px-4 py-2 text-center">{turma.matriculados}</td>
                             <td className="border border-border px-4 py-2 text-center">{turma.avaliados}</td>
                             <td className="border border-border px-4 py-2 text-center">{formatPercent1PtBr(turma.percentual, "0,0%")}</td>
@@ -742,6 +750,7 @@ export default function AnaliseAvaliacoes() {
                         ))}
                     <tr className="bg-blue-50 dark:bg-blue-950/30 font-semibold">
                       <td className="border border-border px-4 py-2">TOTAL GERAL</td>
+                      {renderMode !== 'escola' ? <td className="border border-border px-4 py-2" /> : null}
                       <td className="border border-border px-4 py-2 text-center">{apiData.total_alunos.total_geral.matriculados}</td>
                       <td className="border border-border px-4 py-2 text-center">{apiData.total_alunos.total_geral.avaliados}</td>
                       <td className="border border-border px-4 py-2 text-center">{formatPercent1PtBr(apiData.total_alunos.total_geral.percentual, "0,0%")}</td>

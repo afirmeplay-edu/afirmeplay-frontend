@@ -12,6 +12,7 @@ export type EvaluationResultsRankingStudentRow = {
   id: string;
   nome: string;
   turma: string;
+  shift?: string;
   escola: string;
   serie: string;
   nota: number;
@@ -99,6 +100,7 @@ export function normalizeEvaluationResultsRanking(raw: unknown[]): EvaluationRes
         id: id || `row-${i}`,
         nome: nome || '—',
         turma: str(nested.turma) || 'N/A',
+        shift: str(nested.shift) || undefined,
         escola: str(nested.escola),
         serie: str(nested.serie),
         nota: num(nested.nota ?? nested.nota_geral, 0),
@@ -127,6 +129,7 @@ export function normalizeEvaluationResultsRanking(raw: unknown[]): EvaluationRes
       id: id || `row-${i}`,
       nome: nome || '—',
       turma: str(row.turma) || 'N/A',
+      shift: str(row.shift) || undefined,
       escola: str(row.escola),
       serie: str(row.serie),
       nota: num(row.nota_geral ?? row.nota ?? row.grade, 0),

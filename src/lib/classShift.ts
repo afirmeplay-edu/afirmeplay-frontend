@@ -139,3 +139,54 @@ export function shiftsAreEqual(
 ): boolean {
   return toApiShiftValue(a) === b;
 }
+
+function normalizeDisplayPart(value: string | null | undefined, fallback = "—"): string {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
+/** Exibição padronizada onde há contexto de turma (série, turma e turno separados). */
+export function formatClassContextDisplay(opts: {
+  serie?: string | null;
+  turma?: string | null;
+  shift?: string | null;
+}): { serie: string; turma: string; turno: string } {
+  return {
+    serie: normalizeDisplayPart(opts.serie),
+    turma: normalizeDisplayPart(opts.turma),
+    turno: getClassShiftLabel(opts.shift),
+  };
+}
+
+export type ClassMetaLineParts = {
+  ano?: string | number | null;
+  serie?: string | null;
+  turma?: string | null;
+  shift?: string | null;
+  escola?: string | null;
+  extra?: Array<{ label: string; value: string }>;
+};
+
+/** Meta de uma linha: "Ano: 2026 | Série: 6º | Turma: A | Turno: Manhã" */
+export function formatClassMetaLine(parts: ClassMetaLineParts): string {
+  const segments: string[] = [];
+  if (parts.ano != null && String(parts.ano).trim()) {
+    segments.push(`Ano: ${String(parts.ano).trim()}`);
+  }
+  if (parts.escola?.trim()) {
+    segments.push(`Escola: ${parts.escola.trim()}`);
+  }
+  const ctx = formatClassContextDisplay({
+    serie: parts.serie,
+    turma: parts.turma,
+    shift: parts.shift,
+  });
+  if (ctx.serie !== "—") segments.push(`Série: ${ctx.serie}`);
+  if (ctx.turma !== "—") segments.push(`Turma: ${ctx.turma}`);
+  if (hasClassShift(parts.shift)) segments.push(`Turno: ${ctx.turno}`);
+  for (const item of parts.extra ?? []) {
+    const v = String(item.value ?? "").trim();
+    if (v) segments.push(`${item.label}: ${v}`);
+  }
+  return segments.join(" | ");
+}

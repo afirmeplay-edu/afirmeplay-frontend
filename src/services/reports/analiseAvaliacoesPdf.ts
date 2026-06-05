@@ -11,6 +11,7 @@ import {
   type PdfImageAsset,
 } from "@/utils/pdfCityBranding";
 import { formatDecimal1PtBr, formatPercent1PtBr } from "@/utils/numberFormat";
+import { getClassShiftLabel } from "@/lib/classShift";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -577,6 +578,7 @@ function buildNiveisEscolaTableRows(
       firstColHeader: "TURMA",
       rows: pt.map((t) => [
         formatTurmaLabel(t as unknown as TurmaRowLike).toUpperCase(),
+        getClassShiftLabel((t as { shift?: string }).shift),
         t.abaixo_do_basico ?? "—",
         t.basico ?? "—",
         t.adequado ?? "—",
@@ -602,6 +604,7 @@ function buildNiveisEscolaTableRows(
       firstColHeader: "TURMA",
       rows: pt.map((t) => [
         formatTurmaLabel(t as unknown as TurmaRowLike).toUpperCase(),
+        getClassShiftLabel((t as { shift?: string }).shift),
         t.abaixo_do_basico ?? "—",
         t.basico ?? "—",
         t.adequado ?? "—",
@@ -1917,7 +1920,12 @@ export async function generateRelatorioOrganizadoPdf(data: RelatorioCompleto): P
       isFirstNivelBlock = false;
 
       const { rows, firstColHeader } = buildNiveisEscolaTableRows(block, { preferTurma: preferTurmaTables });
-      const bodyRows = rows.length > 0 ? rows : [["—", "—", "—", "—", "—"]];
+      const withTurno = firstColHeader === "TURMA";
+      const bodyRows = rows.length > 0
+        ? rows
+        : withTurno
+          ? [["—", "—", "—", "—", "—", "—"]]
+          : [["—", "—", "—", "—", "—"]];
       const discSubtitle =
         discKey.trim().toUpperCase() === "GERAL" ? "GERAL" : discKey.toUpperCase();
       const tituloNivel1 = `NÍVEIS DE APRENDIZAGEM POR ESCOLA/GERAL – ${tituloAval.toUpperCase()}`;
@@ -1936,16 +1944,29 @@ export async function generateRelatorioOrganizadoPdf(data: RelatorioCompleto): P
       autoTable(doc, {
         startY: y,
         margin: { left: MARGIN, right: MARGIN },
-        head: [[firstColHeader, "ABAIXO DO BÁSICO", "BÁSICO", "ADEQUADO", "AVANÇADO"]],
+        head: [
+          withTurno
+            ? [firstColHeader, "TURNO", "ABAIXO DO BÁSICO", "BÁSICO", "ADEQUADO", "AVANÇADO"]
+            : [firstColHeader, "ABAIXO DO BÁSICO", "BÁSICO", "ADEQUADO", "AVANÇADO"],
+        ],
         body: bodyRows,
         foot: [
-          [
-            "MUNICIPAL GERAL",
-            geral.abaixo_do_basico ?? "—",
-            geral.basico ?? "—",
-            geral.adequado ?? "—",
-            geral.avancado ?? "—",
-          ],
+          withTurno
+            ? [
+                "MUNICIPAL GERAL",
+                "—",
+                geral.abaixo_do_basico ?? "—",
+                geral.basico ?? "—",
+                geral.adequado ?? "—",
+                geral.avancado ?? "—",
+              ]
+            : [
+                "MUNICIPAL GERAL",
+                geral.abaixo_do_basico ?? "—",
+                geral.basico ?? "—",
+                geral.adequado ?? "—",
+                geral.avancado ?? "—",
+              ],
         ],
         showFoot: "lastPage",
         theme: "striped",
