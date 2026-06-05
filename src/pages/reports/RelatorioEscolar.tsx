@@ -60,6 +60,7 @@ import {
 } from "@/components/evaluations/results/utils/proficiency";
 import { descricoesNiveisEscolares, aplicarSerieNaDescricao, type NivelDescricao } from "@/lib/relatorioEscolarDescricoesNiveis";
 import { api } from "@/lib/api";
+import { getClassShiftLabel } from "@/lib/classShift";
 import { mapAnswerSheetResultadosAgregadosToNovaResposta, type AnswerSheetResultadosAgregadosRaw } from "@/utils/answer-sheet/mapAnswerSheetResultadosAgregadosToNovaResposta";
 import { getReportProficiencyTagClass, normalizeProficiencyLevelLabel } from "@/utils/report/reportTagStyles";
 import {
@@ -1253,7 +1254,7 @@ export default function RelatorioEscolar({
     gabaritos?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
     escolas?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
     series?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
-    turmas?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
+    turmas?: Array<{ id: string; nome?: string; name?: string; titulo?: string; shift?: string }>;
   }>({});
 
   const asNorm = (o: { id: string; nome?: string; name?: string; titulo?: string }) =>
@@ -3364,6 +3365,13 @@ export default function RelatorioEscolar({
         const reportType = apiData.estatisticas_gerais?.tipo || (isMunicipalView ? 'municipio' : 'escola');
         const serieFromApi = apiData.estatisticas_gerais?.serie;
         const escolaFromApi = apiData.estatisticas_gerais?.escola;
+        const turmaOpcaoPdf =
+          reportAnswerSheet && asTurma !== 'all'
+            ? (asOpcoes.turmas ?? []).find((t) => t.id === asTurma)
+            : undefined;
+        const turnoFromFilter = turmaOpcaoPdf?.shift
+          ? getClassShiftLabel(turmaOpcaoPdf.shift)
+          : '';
 
         let mainTitle = 'RELATÓRIO ESCOLAR';
         if (reportType === 'municipio' || isMunicipalView) {
@@ -3416,6 +3424,7 @@ export default function RelatorioEscolar({
         estimatedCardHeight += 7; // município
         estimatedCardHeight += (!isMunicipalView || escolaFromApi) ? 12 : 0;
         estimatedCardHeight += serieFromApi ? 7 : 0;
+        estimatedCardHeight += turnoFromFilter ? 7 : 0;
         const dataAplicacao = apiData.estatisticas_gerais?.data_aplicacao;
         estimatedCardHeight += dataAplicacao ? 7 : 0;
         const cardHeight = Math.max(estimatedCardHeight, 100);
@@ -3492,6 +3501,16 @@ export default function RelatorioEscolar({
           doc.setFont('helvetica', 'normal');
           doc.setTextColor(...COLORS.textDark);
           doc.text(String(serieFromApi).toUpperCase(), leftColX + labelWidth, cardY);
+          cardY += 7;
+        }
+
+        if (turnoFromFilter) {
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(...COLORS.primary);
+          doc.text('TURNO:', leftColX, cardY);
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(...COLORS.textDark);
+          doc.text(turnoFromFilter.toUpperCase(), leftColX + labelWidth, cardY);
           cardY += 7;
         }
 
@@ -4270,6 +4289,8 @@ export default function RelatorioEscolar({
     repSchool,
     repGabaritoOrEval,
     asOpcoes.gabaritos,
+    asOpcoes.turmas,
+    asTurma,
     performanceDisciplineColumns,
     iaRequestSeq,
     analiseEscolarIa,

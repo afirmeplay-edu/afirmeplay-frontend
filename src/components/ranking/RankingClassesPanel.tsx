@@ -4,6 +4,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RankingResponse } from "@/services/reports/rankingApi";
+import { getClassShiftLabel } from "@/lib/classShift";
 import {
   RankingMetricsTableHead,
   RankingMetricsTableRow,
@@ -72,7 +73,10 @@ export default function RankingClassesPanel({ data, isLoading, isRefreshing, err
           <div className={RANKING_TABLE_SCROLL_CLASS}>
             <table className="w-full min-w-[1100px] text-sm border-collapse">
               <thead>
-                <RankingMetricsTableHead nameHeader="Série / Turma" />
+                <RankingMetricsTableHead
+                  nameHeader="Série / Turma"
+                  leadingHeaders={<th className="px-3 py-2 text-xs font-semibold uppercase text-left">Turno</th>}
+                />
               </thead>
               <tbody>
                 {items.map((row) => (
@@ -81,6 +85,11 @@ export default function RankingClassesPanel({ data, isLoading, isRefreshing, err
                     rowKey={String(row.class_id || row.position)}
                     row={row}
                     nameCell={String(row.class_name || "Turma")}
+                    leadingCells={
+                      <td className="px-3 py-2 text-muted-foreground">
+                        {getClassShiftLabel(String(row.shift || ""))}
+                      </td>
+                    }
                   />
                 ))}
               </tbody>

@@ -8,7 +8,9 @@ export type FolhaRascunhoStudent = {
 export type FolhaRascunhoClass = {
   id: string;
   name: string;
-  turno: string;
+  /** Turno da turma (API pode enviar `shift` ou `turno`). */
+  turno?: string;
+  shift?: string;
   students: FolhaRascunhoStudent[];
 };
 

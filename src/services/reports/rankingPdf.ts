@@ -12,6 +12,11 @@ import {
   type ReportProficiencyLabel,
 } from '@/utils/report/reportTagStyles';
 import { rankingSchoolBarRgb } from '@/lib/rankingChartColors';
+import { getClassShiftLabel } from '@/lib/classShift';
+
+function formatShiftCell(raw: unknown): string {
+  return getClassShiftLabel(typeof raw === 'string' ? raw : null);
+}
 import {
   buildCriticalRowIndexes,
   municipalMetricLevelColumn,
@@ -797,11 +802,13 @@ export type RankingPdfFilterLabels = {
   escola: string;
   serie: string;
   turma: string;
+  turno?: string;
 };
 
 export type RankingPdfStudentInput = {
   nome: string;
   turma?: string;
+  shift?: string;
   escola?: string;
   serie?: string;
   nota: number;
@@ -830,6 +837,7 @@ export type RankingPdfRowBuilt = {
   pos: number;
   nome: string;
   turma: string;
+  turno: string;
   escola: string;
   serie: string;
   nota: string;
@@ -849,6 +857,7 @@ function buildSortedRankingRows(
       pos: s.posicao ?? 0,
       nome: (s.nome || '—').trim() || '—',
       turma: (s.turma || '—').trim() || '—',
+      turno: formatShiftCell(s.shift),
       escola: (s.escola || '').trim() || '—',
       serie: (s.serie || '').trim() || '—',
       nota: Number(s.nota ?? 0).toFixed(1),
@@ -864,6 +873,7 @@ function buildSortedRankingRows(
     pos: i + 1,
     nome: (s.nome || '—').trim() || '—',
     turma: (s.turma || '—').trim() || '—',
+    turno: formatShiftCell(s.shift),
     escola: (s.escola || '').trim() || '—',
     serie: (s.serie || '').trim() || '—',
     nota: Number(s.nota ?? 0).toFixed(1),
@@ -913,6 +923,9 @@ export async function generateRankingPdf(opts: {
   );
   if (!isAllSchoolsRankingReport(filters.escola)) {
     cardLines.push({ label: 'SÉRIE', value: filters.serie }, { label: 'TURMA', value: filters.turma });
+    if (filters.turno?.trim() && filters.turma !== 'Todas') {
+      cardLines.push({ label: 'TURNO', value: filters.turno });
+    }
   }
 
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -946,13 +959,14 @@ export async function generateRankingPdf(opts: {
 
   const emptyPlaceholder = rowModels.length === 0;
 
-  const head = [['Pos.', 'Nome', 'Turma', 'Escola', 'Série', 'Nota', 'Prof.', 'Classificação']];
+  const head = [['Pos.', 'Nome', 'Turma', 'Turno', 'Escola', 'Série', 'Nota', 'Prof.', 'Classificação']];
   const body = emptyPlaceholder
-    ? [['—', 'Nenhum participante no recorte atual', '', '', '', '', '', '']]
+    ? [['—', 'Nenhum participante no recorte atual', '', '', '', '', '', '', '']]
     : rowModels.map((r) => [
         ` ${r.pos}º `,
         r.nome,
         r.turma,
+        r.turno,
         r.escola,
         r.serie,
         r.nota,
@@ -1583,6 +1597,7 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
         const classesBody = (section.items || []).map((r: Record<string, unknown>) => [
           Number(r.position || 0),
           String(r.class_name || '—'),
+          formatShiftCell(r.shift),
           Number(r.average_score || 0).toFixed(1),
           `${Number(r.accuracy_percent || 0).toFixed(1)}%`,
           `${Number(r.completion_rate || 0).toFixed(1)}%`,
@@ -1590,16 +1605,17 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
           Number(r.evaluations_count || 0),
         ]);
         renderTable(
-          [['Pos.', 'Turma', 'Nota', 'Acerto %', 'Conclusão', 'Alunos', 'Avaliações']],
+          [['Pos.', 'Turma', 'Turno', 'Nota', 'Acerto %', 'Conclusão', 'Alunos', 'Avaliações']],
           classesBody,
           {
             0: { cellWidth: 12, halign: 'center' },
-            1: { cellWidth: 44, halign: 'left' },
-            2: { cellWidth: 14, halign: 'right' },
-            3: { cellWidth: 18, halign: 'right' },
-            4: { cellWidth: 18, halign: 'right' },
-            5: { cellWidth: 16, halign: 'center' },
-            6: { cellWidth: 20, halign: 'center' },
+            1: { cellWidth: 36, halign: 'left' },
+            2: { cellWidth: 16, halign: 'left' },
+            3: { cellWidth: 14, halign: 'right' },
+            4: { cellWidth: 16, halign: 'right' },
+            5: { cellWidth: 16, halign: 'right' },
+            6: { cellWidth: 14, halign: 'center' },
+            7: { cellWidth: 18, halign: 'center' },
           }
         );
         }
@@ -1614,24 +1630,26 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
           String(r.school_name || '—'),
           String(r.serie || '—'),
           String(r.class_name || '—'),
+          formatShiftCell(r.shift),
           Number(r.average_score || 0).toFixed(2),
           Number((r.average_proficiency ?? r.average_score) || 0).toFixed(2),
           String(r.classification || '—'),
         ]);
         renderTable(
-          [['Pos.', 'Aluno', 'Escola', 'Série', 'Turma', 'Nota', 'Proficiência', 'Nível']],
+          [['Pos.', 'Aluno', 'Escola', 'Série', 'Turma', 'Turno', 'Nota', 'Proficiência', 'Nível']],
           studentsBody,
           {
             0: { cellWidth: 12, halign: 'center' },
-            1: { cellWidth: 30, halign: 'left' },
-            2: { cellWidth: 50, halign: 'left' },
-            3: { cellWidth: 14, halign: 'left' },
-            4: { cellWidth: 14, halign: 'left' },
-            5: { cellWidth: 14, halign: 'right' },
-            6: { cellWidth: 20, halign: 'right' },
-            7: { cellWidth: 26, halign: 'center' },
+            1: { cellWidth: 28, halign: 'left' },
+            2: { cellWidth: 44, halign: 'left' },
+            3: { cellWidth: 12, halign: 'left' },
+            4: { cellWidth: 12, halign: 'left' },
+            5: { cellWidth: 14, halign: 'left' },
+            6: { cellWidth: 12, halign: 'right' },
+            7: { cellWidth: 18, halign: 'right' },
+            8: { cellWidth: 22, halign: 'center' },
           },
-          7
+          8
         );
         }
       }
@@ -1671,24 +1689,26 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
       String(r.school_name || '—'),
       String(r.serie || '—'),
       String(r.class_name || '—'),
+      formatShiftCell(r.shift),
       Number(r.average_score || 0).toFixed(2),
       Number((r.average_proficiency ?? r.average_score) || 0).toFixed(2),
       String(r.classification || '—'),
     ]);
     renderTable(
-      [['Pos.', 'Aluno', 'Escola', 'Série', 'Turma', 'Nota', 'Proficiência', 'Nível']],
+      [['Pos.', 'Aluno', 'Escola', 'Série', 'Turma', 'Turno', 'Nota', 'Proficiência', 'Nível']],
       studentsBody,
       {
         0: { cellWidth: 12, halign: 'center' },
-        1: { cellWidth: 30, halign: 'left' },
-        2: { cellWidth: 50, halign: 'left' },
-        3: { cellWidth: 14, halign: 'left' },
-        4: { cellWidth: 14, halign: 'left' },
-        5: { cellWidth: 14, halign: 'right' },
-        6: { cellWidth: 20, halign: 'right' },
-        7: { cellWidth: 26, halign: 'center' },
+        1: { cellWidth: 28, halign: 'left' },
+        2: { cellWidth: 44, halign: 'left' },
+        3: { cellWidth: 12, halign: 'left' },
+        4: { cellWidth: 12, halign: 'left' },
+        5: { cellWidth: 14, halign: 'left' },
+        6: { cellWidth: 12, halign: 'right' },
+        7: { cellWidth: 18, halign: 'right' },
+        8: { cellWidth: 22, halign: 'center' },
       },
-      7
+      8
     );
   }
 

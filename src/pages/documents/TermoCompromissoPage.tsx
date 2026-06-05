@@ -23,6 +23,7 @@ import type {
   TermoCompromissoModo,
 } from "@/types/termo-compromisso";
 import { loadCityBrandingPdfAssets } from "@/utils/pdfCityBranding";
+import { getClassShiftLabel } from "@/lib/classShift";
 
 type Option = { id: string; name: string };
 
@@ -616,6 +617,12 @@ export default function TermoCompromissoPage() {
             <div className="rounded-lg border p-3">
               <p className="text-xs text-muted-foreground">Turma</p>
               <p className="text-base font-semibold">{preview.contexto.turma}</p>
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Turno</p>
+              <p className="text-base font-semibold">
+                {getClassShiftLabel(preview.contexto.turno ?? preview.contexto.shift)}
+              </p>
             </div>
             <div className="rounded-lg border p-3 sm:col-span-2">
               <p className="text-xs text-muted-foreground">Nome da aplicação no termo</p>

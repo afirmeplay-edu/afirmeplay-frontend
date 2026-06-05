@@ -258,6 +258,7 @@ export interface RankingResponse {
       position: number;
       class_id?: string;
       class_name?: string;
+      shift?: string;
       grade_name?: string;
       participation_rate: number;
       participating_students: number;

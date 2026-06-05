@@ -636,6 +636,14 @@ function drawSlide(doc: jsPDF, slide: Presentation19SlideSpec, spec: Presentatio
           valueFontSize: P19_SEGMENT_FIELD_VALUE_PX,
         }));
         ({ yTop } = drawLabelValueBlock({ yTop, label: "SÉRIE", value: deckData.serie || "N/A", valueFontSize: P19_SEGMENT_FIELD_VALUE_PX }));
+        if (deckData.turno?.trim()) {
+          ({ yTop } = drawLabelValueBlock({
+            yTop,
+            label: "TURNO",
+            value: deckData.turno,
+            valueFontSize: P19_SEGMENT_FIELD_VALUE_PX,
+          }));
+        }
         const turmaBody =
           deckData.turmasParticipantesCapa.length > 8
             ? deckData.turmasParticipantesCapa.map((t) => `• ${t}`).join("\n")
@@ -741,6 +749,14 @@ function drawSlide(doc: jsPDF, slide: Presentation19SlideSpec, spec: Presentatio
       let yTop = 190;
       ({ yTop } = drawLabelValueBlock({ yTop, label: "CURSO", value: deckData.curso, valueFontSize: P19_SEGMENT_FIELD_VALUE_PX }));
       ({ yTop } = drawLabelValueBlock({ yTop, label: "SÉRIE", value: deckData.serie, valueFontSize: P19_SEGMENT_FIELD_VALUE_PX }));
+      if (deckData.turno?.trim()) {
+        ({ yTop } = drawLabelValueBlock({
+          yTop,
+          label: "TURNO",
+          value: deckData.turno,
+          valueFontSize: P19_SEGMENT_FIELD_VALUE_PX,
+        }));
+      }
 
       if (deckData.comparisonAxis !== "escola") {
         const turmaBody =

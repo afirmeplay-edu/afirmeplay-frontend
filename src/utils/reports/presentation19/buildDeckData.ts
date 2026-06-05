@@ -15,6 +15,7 @@ import type {
   SlideQuestionRow,
   Presentation19Mode,
 } from "@/types/presentation19-slides";
+import { getClassShiftLabel, hasClassShift } from "@/lib/classShift";
 import { getProficiencyLevelDescription, type ProficiencyLevel } from "@/components/evaluations/results/utils/proficiency";
 import { getProficiencyTableInfo } from "@/components/evaluations/results/utils/proficiency";
 import {
@@ -2052,6 +2053,7 @@ export function buildDeckDataForPresentation19Slides(args: BuildDeckDataArgs): P
     selectedSchoolId,
     selectedSerieLabel,
     selectedTurmaLabel,
+    selectedTurmaShift,
     relatorioDetalhado,
     novaRespostaAgregados,
     novaRespostaSerieAgregados,
@@ -2300,6 +2302,19 @@ export function buildDeckDataForPresentation19Slides(args: BuildDeckDataArgs): P
         "N/A";
   const serieNomeCapas = serieFinal;
   const turmaNomeCapas = turmaCapa;
+  const turnoRaw =
+    String(selectedTurmaShift ?? "").trim() ||
+    String(
+      (
+        novaRespostaAgregados?.tabela_detalhada?.geral?.alunos as
+          | Array<{ shift?: string; turma?: string }>
+          | undefined
+      )?.find((a) => {
+        if (!selectedTurmaEffective) return Boolean(a.shift);
+        return String(a.turma ?? "").trim() === selectedTurmaEffective;
+      })?.shift ?? ""
+    ).trim();
+  const turnoCapa = hasClassShift(turnoRaw) ? getClassShiftLabel(turnoRaw) : undefined;
 
   const alunosDetalhados: AlunoPresentationRow[] = [];
 
@@ -2582,6 +2597,7 @@ export function buildDeckDataForPresentation19Slides(args: BuildDeckDataArgs): P
     curso: cursoFinal,
     serie: serieFinal,
     turma: turmaCapa,
+    turno: turnoCapa,
     turmasParticipantesCapa,
     slide2ShowSerieTurmas: Boolean(selectedSchoolId?.trim()),
     schoolMissingRegisteredTurma,

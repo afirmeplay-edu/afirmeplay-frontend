@@ -481,12 +481,20 @@ export default function RelatorioApresentacao19Slides() {
             ? evSerie
             : undefined;
 
+      const turmaOpcao =
+        activeMode === "answer_sheet"
+          ? (asOpcoes.turmas ?? []).find((t) => t.id === asTurma)
+          : undefined;
       const selectedTurmaLabel =
         activeMode === "answer_sheet"
-          ? asNormOpt((asOpcoes.turmas ?? []).find((t) => t.id === asTurma) ?? {}) || undefined
+          ? asNormOpt(turmaOpcao ?? {}) || undefined
           : evTurma !== "all"
             ? evTurma
             : undefined;
+      const selectedTurmaShift =
+        activeMode === "answer_sheet"
+          ? String((turmaOpcao as { shift?: string } | undefined)?.shift ?? "").trim() || undefined
+          : undefined;
 
       const deck = buildDeckDataForPresentation19Slides({
         mode: activeMode,
@@ -494,6 +502,7 @@ export default function RelatorioApresentacao19Slides() {
         selectedSchoolId: selectedSchool !== "all" ? selectedSchool : undefined,
         selectedSerieLabel,
         selectedTurmaLabel,
+        selectedTurmaShift,
         relatorioDetalhado: relatorioNormalizado,
         novaRespostaAgregados: novaRespostas.turma,
         novaRespostaSerieAgregados: novaRespostas.serie,

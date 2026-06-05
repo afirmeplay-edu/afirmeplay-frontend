@@ -51,6 +51,7 @@ export type SkillsMapAlunoLinha = {
   escola?: string;
   serie?: string;
   turma?: string;
+  shift?: string;
 };
 
 export interface SkillsMapErrosResponse {

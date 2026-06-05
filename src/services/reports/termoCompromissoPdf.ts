@@ -3,6 +3,7 @@ import type { PdfImageAsset } from "@/utils/pdfCityBranding";
 import { drawReportHeaderLogoWithFallback } from "@/utils/pdfCityBranding";
 import { downloadBlob } from "@/services/reports/hierarchicalDownload";
 import type { TermoCompromissoDadosResponse, TermoCompromissoFormData } from "@/types/termo-compromisso";
+import { getClassShiftLabel } from "@/lib/classShift";
 
 const MARGIN = 18;
 const LINE_HEIGHT = 5.4;
@@ -155,6 +156,27 @@ function drawIdentField(
   return y + 7;
 }
 
+function drawContextBlock(
+  doc: jsPDF,
+  payload: TermoCompromissoDadosResponse,
+  x: number,
+  y: number,
+  maxWidth: number
+): number {
+  const ctx = payload.contexto;
+  const turno = getClassShiftLabel(ctx.turno ?? ctx.shift);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(...COLORS.text);
+  doc.text("CONTEXTO DA APLICAÇÃO", x + maxWidth / 2, y, { align: "center" });
+  y += 8;
+  y = drawIdentField(doc, "Escola", ctx.escola, x, y, maxWidth);
+  y = drawIdentField(doc, "Série", ctx.serie, x, y, maxWidth);
+  y = drawIdentField(doc, "Turma", ctx.turma, x, y, maxWidth);
+  y = drawIdentField(doc, "Turno", turno, x, y, maxWidth);
+  return y + 2;
+}
+
 function drawIdentBlock(
   doc: jsPDF,
   form: TermoCompromissoFormData,
@@ -219,6 +241,7 @@ export async function generateTermoCompromissoPdf(
   doc.text(tituloDocumento, pageWidth / 2, y, { align: "center" });
   y += 10;
 
+  y = drawContextBlock(doc, payload, MARGIN, y, contentWidth);
   y = drawIdentBlock(doc, form, MARGIN, y, contentWidth);
 
   y = drawParagraph(

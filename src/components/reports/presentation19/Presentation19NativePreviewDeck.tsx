@@ -762,6 +762,12 @@ const NativeSlideFrame = memo(function NativeSlideFrame({
                         <div style={{ fontSize: P19_SEGMENT_FIELD_LABEL_PX, fontWeight: 700, color: P19_TEXT_MUTED }}>SÉRIE</div>
                         <div style={{ marginTop: 6, fontSize: P19_SEGMENT_FIELD_VALUE_PX, fontWeight: 900, color: P19_TEXT_STRONG }}>{deckData.serie}</div>
                       </div>
+                      {deckData.turno?.trim() ? (
+                        <div>
+                          <div style={{ fontSize: P19_SEGMENT_FIELD_LABEL_PX, fontWeight: 700, color: P19_TEXT_MUTED }}>TURNO</div>
+                          <div style={{ marginTop: 6, fontSize: P19_SEGMENT_FIELD_VALUE_PX, fontWeight: 900, color: P19_TEXT_STRONG }}>{deckData.turno}</div>
+                        </div>
+                      ) : null}
                       <div>
                         <div style={{ fontSize: P19_SEGMENT_FIELD_LABEL_PX, fontWeight: 700, color: P19_TEXT_MUTED }}>
                           {deckData.turmasParticipantesCapa.length > 1 ? "TURMAS" : "TURMA"}
@@ -847,6 +853,12 @@ const NativeSlideFrame = memo(function NativeSlideFrame({
                     <div style={{ fontSize: P19_SEGMENT_FIELD_VALUE_PX, fontWeight: 900, color: P19_TEXT_STRONG }}>{deckData.curso}</div>
                     <div style={{ marginTop: 24, fontSize: P19_SEGMENT_FIELD_LABEL_PX, fontWeight: 700, color: P19_TEXT_MUTED }}>SÉRIE</div>
                     <div style={{ fontSize: P19_SEGMENT_FIELD_VALUE_PX, fontWeight: 900, color: P19_TEXT_STRONG }}>{deckData.serie}</div>
+                    {deckData.turno?.trim() ? (
+                      <>
+                        <div style={{ marginTop: 24, fontSize: P19_SEGMENT_FIELD_LABEL_PX, fontWeight: 700, color: P19_TEXT_MUTED }}>TURNO</div>
+                        <div style={{ fontSize: P19_SEGMENT_FIELD_VALUE_PX, fontWeight: 900, color: P19_TEXT_STRONG }}>{deckData.turno}</div>
+                      </>
+                    ) : null}
                     {deckData.comparisonAxis !== "escola" ? (
                       <>
                         <div style={{ marginTop: 24, fontSize: P19_SEGMENT_FIELD_LABEL_PX, fontWeight: 700, color: P19_TEXT_MUTED }}>

@@ -28,6 +28,7 @@ import {
   getSerieTurmaDisplay,
 } from '@/services/reports/listaFrequenciaPdf';
 import { downloadBlob, generateZipBlob, sanitizePathSegment } from '@/services/reports/hierarchicalDownload';
+import { getClassShiftLabel } from '@/lib/classShift';
 
 const STATUS_ORDER = ['P', 'A', 'T', 'NE', 'SE', 'SS', 'I'];
 
@@ -902,6 +903,7 @@ export default function ListaFrequencia() {
                       <p>NOME DA ESCOLA*: {item.cabecalho.nome_escola}</p>
                       <p>SÉRIE: {getSerieTurmaDisplay(item.cabecalho).serie}</p>
                       <p>TURMA: {getSerieTurmaDisplay(item.cabecalho).turma}</p>
+                      <p>TURNO: {getClassShiftLabel(item.cabecalho.turno)}</p>
                       <p className="flex items-baseline gap-1">
                         DISCIPLINA:{' '}
                         {item.cabecalho.disciplina?.trim() ? (

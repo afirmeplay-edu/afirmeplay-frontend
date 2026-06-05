@@ -59,6 +59,7 @@ export type MonitoringClassItem = MonitoringSchoolItem & {
   turma_id: string;
   turma_nome: string;
   serie_nome: string;
+  shift?: string;
 };
 
 export type MonitoringSchoolsResponse = {
@@ -105,6 +106,7 @@ export type MonitoringStudentItem = {
   escola_nome: string;
   serie: string;
   turma: string;
+  shift?: string;
   nota: number;
   proficiencia: number;
   nivel: string;

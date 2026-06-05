@@ -47,6 +47,7 @@ import {
 import type { AnaliseIaRouteResponse } from '@/services/evaluation/evaluationResultsApi';
 import { ResultsPeriodMonthYearPicker } from '@/components/filters';
 import { normalizeResultsPeriodYm } from '@/utils/resultsPeriod';
+import { getClassShiftLabel } from '@/lib/classShift';
 import {
   downloadSkillsHeatMapGeneralPdf,
   downloadSkillsHeatMapSkillPdf,
@@ -74,12 +75,20 @@ const CARD_BG: Record<(typeof FAIXA_ORDER)[number], string> = {
   avancado: 'bg-gradient-to-br from-emerald-700 to-green-600 text-white',
 };
 
-function normEntities(items: unknown): Array<{ id: string; nome: string }> {
+function normEntities(items: unknown): Array<{ id: string; nome: string; shift?: string }> {
   if (!Array.isArray(items)) return [];
   return items.map(
-    (item: { id?: string; nome?: string; name?: string; titulo?: string; title?: string }) => ({
+    (item: {
+      id?: string;
+      nome?: string;
+      name?: string;
+      titulo?: string;
+      title?: string;
+      shift?: string;
+    }) => ({
       id: String(item.id ?? ''),
       nome: item.nome ?? item.name ?? item.titulo ?? item.title ?? '',
+      shift: item.shift?.trim() || undefined,
     })
   );
 }
@@ -820,7 +829,7 @@ export default function SkillsHeatMapPage() {
   const [oAvaliacoes, setOAvaliacoes] = useState<Array<{ id: string; nome: string }>>([]);
   const [oEscolas, setOEscolas] = useState<Array<{ id: string; nome: string }>>([]);
   const [oSeries, setOSeries] = useState<Array<{ id: string; nome: string }>>([]);
-  const [oTurmas, setOTurmas] = useState<Array<{ id: string; nome: string }>>([]);
+  const [oTurmas, setOTurmas] = useState<Array<{ id: string; nome: string; shift?: string }>>([]);
   const [oDisciplinas, setODisciplinas] = useState<Array<{ id: string; nome: string }>>([]);
 
   const [cEstado, setCEstado] = useState('all');
@@ -836,7 +845,7 @@ export default function SkillsHeatMapPage() {
   const [cGabaritos, setCGabaritos] = useState<Array<{ id: string; nome: string }>>([]);
   const [cEscolas, setCEscolas] = useState<Array<{ id: string; nome: string }>>([]);
   const [cSeries, setCSeries] = useState<Array<{ id: string; nome: string }>>([]);
-  const [cTurmas, setCTurmas] = useState<Array<{ id: string; nome: string }>>([]);
+  const [cTurmas, setCTurmas] = useState<Array<{ id: string; nome: string; shift?: string }>>([]);
   const [cDisciplinas, setCDisciplinas] = useState<Array<{ id: string; nome: string }>>([]);
 
   const [mapOnline, setMapOnline] = useState<SkillsMapResponse | null>(null);
@@ -957,6 +966,7 @@ export default function SkillsHeatMapPage() {
     escola:    oEscolas.find((x) => x.id === oEscola)?.nome,
     serie:     oSeries.find((x) => x.id === oSerie)?.nome,
     turma:     oTurmas.find((x) => x.id === oTurma)?.nome,
+    shift:     oTurmas.find((x) => x.id === oTurma)?.shift,
     disciplina: oDisciplinas.find((x) => x.id === oDisciplina)?.nome,
   }), [
     oEstado, oMunicipio, oAvaliacao, oEscola, oSerie, oTurma, oDisciplina,
@@ -970,6 +980,7 @@ export default function SkillsHeatMapPage() {
     escola:    cEscolas.find((x) => x.id === cEscola)?.nome,
     serie:     cSeries.find((x) => x.id === cSerie)?.nome,
     turma:     cTurmas.find((x) => x.id === cTurma)?.nome,
+    shift:     cTurmas.find((x) => x.id === cTurma)?.shift,
     disciplina: cDisciplinas.find((x) => x.id === cDisciplina)?.nome,
   }), [
     cEstado, cMunicipio, cGabarito, cEscola, cSerie, cTurma, cDisciplina,
@@ -2262,7 +2273,9 @@ export default function SkillsHeatMapPage() {
                                 {a.nome}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                {[a.escola, a.serie, a.turma].filter(Boolean).join(' · ')}
+                                {[a.escola, a.serie, a.turma, a.shift ? getClassShiftLabel(a.shift) : '']
+                                  .filter(Boolean)
+                                  .join(' · ')}
                               </div>
                             </li>
                           ))
@@ -2285,7 +2298,9 @@ export default function SkillsHeatMapPage() {
                             >
                               <div className="font-medium text-red-600 dark:text-red-400">{a.nome}</div>
                               <div className="text-xs text-muted-foreground">
-                                {[a.escola, a.serie, a.turma].filter(Boolean).join(' · ')}
+                                {[a.escola, a.serie, a.turma, a.shift ? getClassShiftLabel(a.shift) : '']
+                                  .filter(Boolean)
+                                  .join(' · ')}
                               </div>
                             </li>
                           ))
