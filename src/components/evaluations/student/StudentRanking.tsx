@@ -9,11 +9,13 @@ import {
   formatCoins 
 } from "@/utils/coins";
 import { getReportProficiencyTagClass } from "@/utils/report/reportTagStyles";
+import { getClassShiftLabel } from "@/lib/classShift";
 
 interface Student {
   id: string;
   nome: string;
   turma: string;
+  shift?: string;
   escola?: string;
   serie?: string;
   nota: number;
@@ -193,6 +195,8 @@ export function StudentRanking({
                             {student.serie ? `Série: ${student.serie}` : "Série: —"}
                             {" • "}
                             {student.turma ? `Turma: ${student.turma}` : "Turma: —"}
+                            {" • "}
+                            {student.shift ? `Turno: ${getClassShiftLabel(student.shift)}` : "Turno: Sem turno"}
                           </p>
                         </div>
                       )}
@@ -299,6 +303,8 @@ export function StudentRanking({
                       {student.serie ? `Série: ${student.serie}` : "Série: —"}
                       {" • "}
                       {student.turma ? `Turma: ${student.turma}` : "Turma: —"}
+                      {" • "}
+                      {student.shift ? `Turno: ${getClassShiftLabel(student.shift)}` : "Turno: Sem turno"}
                     </p>
                     {student.escola ? (
                       <p className="text-xs leading-4 text-muted-foreground whitespace-normal break-words">

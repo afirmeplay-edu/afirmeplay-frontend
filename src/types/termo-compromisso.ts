@@ -22,7 +22,9 @@ export type TermoCompromissoDadosResponse = {
     escola: string;
     serie: string;
     turma: string;
-    turno: string;
+    /** Turno da turma (API pode enviar `shift` ou `turno`). */
+    turno?: string;
+    shift?: string;
     /** Nome do mês da avaliação em português (ex.: "junho") */
     mes_avaliacao: string;
     ano: number;

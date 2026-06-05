@@ -3,6 +3,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RankingResponse } from "@/services/reports/rankingApi";
+import { getClassShiftLabel } from "@/lib/classShift";
 import { StudentRanking } from "@/components/evaluations/student/StudentRanking";
 
 type Props = {
@@ -275,6 +276,7 @@ export function RankingGeneralPanel({ data, isLoading, errorMessage, recorteLabe
                       <tr className="bg-muted/40 text-muted-foreground">
                         <th className="w-16 px-3 py-3 text-left text-xs font-semibold uppercase">Pos.</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase">Turma</th>
+                        <th className="px-3 py-3 text-left text-xs font-semibold uppercase">Turno</th>
                         <th className="w-20 px-3 py-3 text-center text-xs font-semibold uppercase">Nota</th>
                         <th className="w-24 px-3 py-3 text-center text-xs font-semibold uppercase">Acerto %</th>
                         <th className="w-24 px-3 py-3 text-center text-xs font-semibold uppercase">Conclusão</th>
@@ -287,6 +289,7 @@ export function RankingGeneralPanel({ data, isLoading, errorMessage, recorteLabe
                         <tr key={String(classItem.class_id || classItem.position)} className="border-t border-border/70 bg-card">
                           <td className="px-3 py-3 text-center font-semibold">{Number(classItem.position || 0)}º</td>
                           <td className="px-4 py-3 font-medium">{String(classItem.class_name || "Sem turma")}</td>
+                          <td className="px-3 py-3 text-muted-foreground">{getClassShiftLabel(classItem.shift)}</td>
                           <td className="px-3 py-3 text-center">{Number(classItem.average_score || 0).toFixed(1)}</td>
                           <td className="px-3 py-3 text-center">{Number(classItem.accuracy_percent || 0).toFixed(1)}%</td>
                           <td className="px-3 py-3 text-center">{Number(classItem.completion_rate || 0).toFixed(1)}%</td>
@@ -306,6 +309,7 @@ export function RankingGeneralPanel({ data, isLoading, errorMessage, recorteLabe
               id: String(item.student_id || ""),
               nome: String(item.name || ""),
               turma: String(item.class_name || "Sem turma"),
+              shift: String(item.shift || ""),
               escola: String(item.school_name || ""),
               serie: String(item.serie || ""),
               nota: Number(item.average_score || 0),
