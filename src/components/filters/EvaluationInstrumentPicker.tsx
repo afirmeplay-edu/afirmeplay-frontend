@@ -11,7 +11,7 @@ import {
   toInstrumentPickerSeries,
 } from "./instrumentPickerHelpers";
 
-export type EvaluationPickerItem = {
+type EvaluationItem = {
   id: string;
   titulo: string;
   disciplina?: string;
@@ -39,7 +39,6 @@ type EvaluationInstrumentPickerProps = {
   municipioLabel?: string;
   escolaLabel?: string;
   periodoLabel?: string;
-  onSelectedItemChange?: (item: EvaluationPickerItem | null) => void;
 };
 
 export function EvaluationInstrumentPicker({
@@ -63,11 +62,10 @@ export function EvaluationInstrumentPicker({
   municipioLabel,
   escolaLabel,
   periodoLabel,
-  onSelectedItemChange,
 }: EvaluationInstrumentPickerProps) {
   const isAnswerSheet = reportEntityType === REPORT_ENTITY_TYPE_ANSWER_SHEET;
-  const [fieldItems, setFieldItems] = useState<EvaluationPickerItem[]>([]);
-  const [modalItems, setModalItems] = useState<EvaluationPickerItem[]>([]);
+  const [fieldItems, setFieldItems] = useState<EvaluationItem[]>([]);
+  const [modalItems, setModalItems] = useState<EvaluationItem[]>([]);
   const [seriesDisponiveis, setSeriesDisponiveis] = useState<Array<{ id: string; nome: string }>>([]);
   const [modalSeriesDisponiveis, setModalSeriesDisponiveis] = useState<
     Array<{ id: string; nome: string }>
@@ -77,9 +75,7 @@ export function EvaluationInstrumentPicker({
   const fieldRequestIdRef = useRef(0);
   const modalRequestIdRef = useRef(0);
   const valueRef = useRef(value);
-  const modalItemsRef = useRef<EvaluationPickerItem[]>([]);
   valueRef.current = value;
-  modalItemsRef.current = modalItems;
 
   const geoReady = estado !== "all" && estado !== "" && municipio !== "all" && municipio !== "";
 
@@ -116,11 +112,8 @@ export function EvaluationInstrumentPicker({
       setFieldItems(evaluations);
       setSeriesDisponiveis(series);
       const currentValue = valueRef.current;
-      const inField = evaluations.some((e) => e.id === currentValue);
-      const inModal = modalItemsRef.current.some((e) => e.id === currentValue);
       if (
-        !inField &&
-        !inModal &&
+        !evaluations.some((e) => e.id === currentValue) &&
         currentValue !== "all" &&
         currentValue !== ""
       ) {
@@ -170,19 +163,6 @@ export function EvaluationInstrumentPicker({
   useEffect(() => {
     void loadFieldItems();
   }, [loadFieldItems]);
-
-  useEffect(() => {
-    if (!onSelectedItemChange) return;
-    if (!value || value === "all") {
-      onSelectedItemChange(null);
-      return;
-    }
-    const found =
-      fieldItems.find((e) => e.id === value) ??
-      modalItems.find((e) => e.id === value) ??
-      null;
-    onSelectedItemChange(found);
-  }, [value, fieldItems, modalItems, onSelectedItemChange]);
 
   const fieldPickerItems = useMemo(() => {
     const base = toInstrumentPickerItems(fieldItems);

@@ -68,11 +68,7 @@ export function getSerieTurmaDisplay(cab: Cabecalho): { serie: string; turma: st
 
 type ColumnStyle = { cellWidth: number; halign?: "left" | "center" | "right"; overflow?: "linebreak" | "hidden" };
 
-function statusColumnWidth(cod: string): number {
-  return cod.length >= 2 ? 10 : 6;
-}
-
-/** Larguras fixas: assinatura ampla; colunas de status proporcionais ao código; nome absorve o restante. */
+/** Larguras fixas: assinatura ampla; demais colunas absorvem o restante sem ultrapassar a página. */
 function buildListaTableColumnStyles(
   codigos: string[],
   tableWidth: number
@@ -80,19 +76,17 @@ function buildListaTableColumnStyles(
   const numeroColW = 8;
   const assinaturaColW = 40;
   const assinaturaColIndex = 2 + codigos.length;
-  const statusTotal = codigos.reduce((acc, cod) => acc + statusColumnWidth(cod), 0);
+  const maxCodLen = Math.max(1, ...codigos.map((c) => c.length));
+  const statusColW = maxCodLen >= 2 ? 8 : 6;
+  const statusTotal = statusColW * codigos.length;
   const nomeColW = Math.max(28, tableWidth - numeroColW - statusTotal - assinaturaColW);
 
   const styles: Record<number, ColumnStyle> = {
     0: { cellWidth: numeroColW, halign: "center" },
     1: { cellWidth: nomeColW, overflow: "linebreak" },
   };
-  codigos.forEach((cod, i) => {
-    styles[2 + i] = {
-      cellWidth: statusColumnWidth(cod),
-      halign: "center",
-      overflow: "hidden",
-    };
+  codigos.forEach((_, i) => {
+    styles[2 + i] = { cellWidth: statusColW, halign: "center", overflow: "hidden" };
   });
   styles[assinaturaColIndex] = { cellWidth: assinaturaColW };
 
@@ -284,8 +278,32 @@ async function drawListaSection(
       fillColor: pinkLight,
       textColor: statusHeaderText,
       fontStyle: "bold",
+      overflow: "hidden",
     },
     columnStyles,
+    didParseCell: (tableData: {
+      section: string;
+      column: { index: number };
+      cell: {
+        text: string | string[];
+        styles: {
+          halign?: string;
+          overflow?: string;
+          cellPadding?: { top: number; right: number; bottom: number; left: number };
+        };
+      };
+    }) => {
+      if (
+        tableData.section === "head" &&
+        tableData.column.index >= statusColStart &&
+        tableData.column.index < assinaturaColIndex
+      ) {
+        tableData.cell.text = "";
+        tableData.cell.styles.halign = "center";
+        tableData.cell.styles.overflow = "hidden";
+        tableData.cell.styles.cellPadding = { top: 1.5, right: 0.4, bottom: 1.5, left: 0.4 };
+      }
+    },
     didDrawPage: (pageData: { pageNumber: number }) => {
       if (options.cityBranding.logo && pageData.pageNumber > tableStartPage) {
         drawPageLogo();
@@ -299,21 +317,31 @@ async function drawListaSection(
       doc: import("jspdf").default;
     }) => {
       if (
-        tableData.section !== "body" ||
         tableData.column.index < statusColStart ||
         tableData.column.index >= assinaturaColIndex
       )
         return;
+
       const colIdx = tableData.column.index - statusColStart;
       const cod = codigos[colIdx];
+      const cx = tableData.cell.x + tableData.cell.width / 2;
+      const cy = tableData.cell.y + tableData.cell.height / 2;
+
+      if (tableData.section === "head") {
+        tableData.doc.setFont("helvetica", "bold");
+        tableData.doc.setFontSize(8);
+        tableData.doc.setTextColor(...statusHeaderText);
+        tableData.doc.text(cod, cx, cy, { align: "center", baseline: "middle" });
+        return;
+      }
+
+      if (tableData.section !== "body") return;
       const est = item.estudantes[tableData.row.index];
       const isAusente = cod === "A";
       const mostrarPreenchido =
         est &&
         est.status === cod &&
         (!isAusente || options.provaExpirada === true);
-      const cx = tableData.cell.x + tableData.cell.width / 2;
-      const cy = tableData.cell.y + tableData.cell.height / 2;
       const r = 2.2;
       tableData.doc.setLineWidth(0.18);
       if (mostrarPreenchido) {

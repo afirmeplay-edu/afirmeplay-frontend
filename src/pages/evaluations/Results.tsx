@@ -31,10 +31,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { format, parse } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { EvaluationResultsApiService } from "@/services/evaluation/evaluationResultsApi";
-import {
-  EvaluationInstrumentPicker,
-  type EvaluationPickerItem,
-} from "@/components/filters/EvaluationInstrumentPicker";
+import { EvaluationInstrumentPicker } from "@/components/filters";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/authContext";
 import { getUserHierarchyContext, type UserHierarchyContext } from "@/utils/userHierarchy";
@@ -423,6 +420,26 @@ async function resultsFetchOpcoesFiltros(
   } as ResultsFilterOptionsResponse;
 }
 
+function resultsFilterEvaluationsForDropdown(
+  avaliacoes: ResultsFilterOptionsResponse["avaliacoes"]
+): Array<{ id: string; titulo: string }> {
+  const list = avaliacoes || [];
+  return list
+    .filter((evaluation) => {
+      const raw = (evaluation.type ?? evaluation.tipo ?? "").toString().trim();
+      const type = raw.toUpperCase();
+      const title = String(evaluation.titulo ?? evaluation.title ?? "").toUpperCase();
+      if (type === "OLIMPIADAS" || type === "OLIMPIADA" || type.includes("OLIMPI")) return false;
+      if (type === "COMPETICAO" || type === "COMPETIÇÃO" || type.includes("COMPET")) return false;
+      if (title.includes("OLIMPI") || title.includes("OLÍMPIC")) return false;
+      return type === "" || type === "AVALIACAO" || type === "SIMULADO";
+    })
+    .map((e) => ({
+      id: e.id,
+      titulo: e.titulo ?? e.title ?? "Sem título",
+    }));
+}
+
 async function resultsGetFilterMunicipalities(
   stateId: string,
   periodo?: string
@@ -595,7 +612,13 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
   // Estados dos dados dos filtros
   const [states, setStates] = useState<State[]>([]);
   const [municipalities, setMunicipalities] = useState<Municipality[]>([]);
-  const [evaluationPickerMeta, setEvaluationPickerMeta] = useState<EvaluationPickerItem | null>(null);
+  const [evaluationsByMunicipality, setEvaluationsByMunicipality] = useState<Array<{ 
+    id: string; 
+    titulo: string; 
+    disciplina: string; 
+    status: string; 
+    data_aplicacao: string; 
+  }>>([]);
   const [schools, setSchools] = useState<School[]>([]);
   const [grades, setGrades] = useState<Grade[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
@@ -948,6 +971,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
             state: selectedState
           })));
           if (!isRestoringFiltersRef.current) {
+            setEvaluationsByMunicipality([]);
             if (stateChanged) {
               resetAfterState();
             } else {
@@ -962,6 +986,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
         }
       } else {
         setMunicipalities([]);
+        setEvaluationsByMunicipality([]);
         if (!isRestoringFiltersRef.current) {
           if (stateChanged) {
             resetAfterState();
@@ -974,6 +999,51 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
 
     loadMunicipalities();
   }, [selectedState, resetAfterState, resetAfterEvaluation, periodoApi, toastFilterOptionsError]);
+
+  // Carregar avaliações quando município for selecionado
+  useEffect(() => {
+    const loadEvaluations = async () => {
+      // Só carregar avaliações se Estado e Município estiverem selecionados
+      if (selectedState !== 'all' && selectedMunicipality !== 'all') {
+        try {
+          setIsLoadingFilters(true);
+
+          const opEv = await resultsFetchOpcoesFiltros({
+            estado: selectedState,
+            municipio: selectedMunicipality,
+            ...(periodoApi ? { periodo: periodoApi } : {}),
+          });
+          const evaluationsData = resultsFilterEvaluationsForDropdown(opEv.avaliacoes);
+          setEvaluationsByMunicipality(evaluationsData.map(evaluation => ({
+                    id: evaluation.id || 'unknown',
+        titulo: evaluation.titulo || 'Sem título',
+            disciplina: '',
+            status: 'concluida',
+            data_aplicacao: new Date().toISOString()
+          })));
+
+          // ✅ CORRIGIDO: Não resetar em cascata se estamos restaurando filtros
+          if (!isRestoringFiltersRef.current) {
+            resetAfterEvaluation();
+          }
+        } catch (error) {
+          console.error("Erro ao carregar avaliações:", error);
+          toastFilterOptionsError(error);
+          setEvaluationsByMunicipality([]);
+        } finally {
+          setIsLoadingFilters(false);
+        }
+      } else {
+        setEvaluationsByMunicipality([]);
+        // ✅ CORRIGIDO: Não resetar em cascata se estamos restaurando filtros
+        if (!isRestoringFiltersRef.current) {
+          resetAfterEvaluation();
+        }
+      }
+    };
+
+    loadEvaluations();
+  }, [selectedMunicipality, selectedState, resetAfterEvaluation, periodoApi, toastFilterOptionsError]);
 
   // Carregar escolas quando avaliação for selecionada
   useEffect(() => {
@@ -1178,17 +1248,6 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
           if (subjectsFromResults.length > 0) {
             resumo.disciplinas = subjectsFromResults;
             resumo.disciplina = subjectsFromResults[0];
-          } else if (evaluationPickerMeta && evaluationPickerMeta.id === selectedEvaluation) {
-            const pickerDisciplinas =
-              evaluationPickerMeta.disciplinas?.filter(Boolean) ??
-              (evaluationPickerMeta.disciplina ? [evaluationPickerMeta.disciplina] : []);
-            if (pickerDisciplinas.length > 0) {
-              resumo.disciplinas = pickerDisciplinas;
-              resumo.disciplina = pickerDisciplinas[0];
-            }
-            if (!resumo.titulo || resumo.titulo === 'Avaliação') {
-              resumo.titulo = evaluationPickerMeta.titulo || resumo.titulo;
-            }
           }
 
           setEvaluationInfo(resumo);
@@ -1224,7 +1283,6 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
     selectedGrade,
     selectedClass,
     periodoApi,
-    evaluationPickerMeta,
     schools,
     grades,
     classes,
@@ -2347,7 +2405,6 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
               municipio={selectedMunicipality}
               value={selectedEvaluation}
               onChange={setSelectedEvaluation}
-              onSelectedItemChange={setEvaluationPickerMeta}
               periodo={periodoApi}
               estadoLabel={states.find((s) => s.id === selectedState)?.name}
               municipioLabel={municipalities.find((m) => m.id === selectedMunicipality)?.name}
