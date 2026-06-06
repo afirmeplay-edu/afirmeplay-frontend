@@ -45,7 +45,8 @@ import {
   type SkillsMapResponse,
 } from '@/services/evaluation/skillsMapApi';
 import type { AnaliseIaRouteResponse } from '@/services/evaluation/evaluationResultsApi';
-import { ResultsPeriodMonthYearPicker } from '@/components/filters';
+import { ResultsPeriodMonthYearPicker, EvaluationInstrumentPicker } from '@/components/filters';
+import { REPORT_ENTITY_TYPE_ANSWER_SHEET } from '@/services/evaluation/evaluationResultsApi';
 import { normalizeResultsPeriodYm } from '@/utils/resultsPeriod';
 import { getClassShiftLabel } from '@/lib/classShift';
 import {
@@ -1790,18 +1791,30 @@ export default function SkillsHeatMapPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Avaliação</label>
-                <Select value={oAvaliacao} onValueChange={(v) => { setOAvaliacao(v); setOEscola('all'); setOSerie('all'); setOTurma('all'); setODisciplina('all'); setMapOnline(null); }} disabled={oMunicipio === 'all'}>
-                  <SelectTrigger><SelectValue placeholder="Avaliação" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
-                    {oAvaliacoes.map((x) => (
-                      <SelectItem key={x.id} value={x.id}>{x.nome}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <EvaluationInstrumentPicker
+                label="Avaliação"
+                className="space-y-1 [&_label]:text-xs [&_label]:font-medium [&_label]:text-muted-foreground"
+                estado={oEstado}
+                municipio={oMunicipio}
+                periodo={periodoYm}
+                estadoLabel={oEstados.find((x) => x.id === oEstado)?.nome}
+                municipioLabel={oMunicipios.find((x) => x.id === oMunicipio)?.nome}
+                periodoLabel={periodoYm}
+                value={oAvaliacao}
+                onChange={(v) => {
+                  setOAvaliacao(v);
+                  setOEscola('all');
+                  setOSerie('all');
+                  setOTurma('all');
+                  setODisciplina('all');
+                  setMapOnline(null);
+                }}
+                disabled={oMunicipio === 'all'}
+                loading={loadingFilters}
+                allowAll
+                allLabel="Todos"
+                placeholder="Avaliação"
+              />
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Escola</label>
                 <Select value={oEscola} onValueChange={(v) => { setOEscola(v); setOSerie('all'); setOTurma('all'); setMapOnline(null); }} disabled={oAvaliacao === 'all'}>
@@ -1976,17 +1989,32 @@ export default function SkillsHeatMapPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-muted-foreground">Gabarito / cartão</label>
-                <Select value={cGabarito} onValueChange={(v) => { setCGabarito(v); setCEscola('all'); setCSerie('all'); setCTurma('all'); setCDisciplina('all'); setMapCartao(null); }} disabled={cMunicipio === 'all'}>
-                  <SelectTrigger><SelectValue placeholder="Gabarito" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
-                    {cGabaritos.map((x) => (
-                      <SelectItem key={x.id} value={x.id}>{x.nome}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="md:col-span-2">
+                <EvaluationInstrumentPicker
+                  label="Gabarito / cartão"
+                  className="space-y-1 [&_label]:text-xs [&_label]:font-medium [&_label]:text-muted-foreground"
+                  estado={cEstado}
+                  municipio={cMunicipio}
+                  periodo={periodoYm}
+                  reportEntityType={REPORT_ENTITY_TYPE_ANSWER_SHEET}
+                  estadoLabel={cEstados.find((x) => x.id === cEstado)?.nome}
+                  municipioLabel={cMunicipios.find((x) => x.id === cMunicipio)?.nome}
+                  periodoLabel={periodoYm}
+                  value={cGabarito}
+                  onChange={(v) => {
+                    setCGabarito(v);
+                    setCEscola('all');
+                    setCSerie('all');
+                    setCTurma('all');
+                    setCDisciplina('all');
+                    setMapCartao(null);
+                  }}
+                  disabled={cMunicipio === 'all'}
+                  loading={loadingFilters}
+                  allowAll
+                  allLabel="Todos"
+                  placeholder="Gabarito"
+                />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Escola</label>

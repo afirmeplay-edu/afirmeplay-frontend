@@ -8,6 +8,7 @@ interface RawInseSaebFilterOptionsResponse {
   avaliacoes?: Array<{ id: string; titulo?: string; nome?: string }>;
   escolas?: Array<{ id: string; nome?: string; name?: string; city_id?: string; municipio_id?: string }>;
   series?: Array<{ id: string; nome?: string; name?: string; education_stage_id?: string; educationStageId?: string }>;
+  series_disponiveis?: Array<{ id: string; nome?: string; name?: string }>;
   turmas?: Array<{ id: string; nome?: string; name?: string; grade_id?: string; school_id?: string }>;
 }
 
@@ -18,6 +19,7 @@ export interface InseSaebFilterOptions {
   avaliacoes: Array<{ id: string; name: string }>;
   escolas: Array<{ id: string; name: string }>;
   series: Array<{ id: string; name: string }>;
+  series_disponiveis: Array<{ id: string; name: string }>;
   turmas: Array<{ id: string; name: string }>;
 }
 
@@ -28,6 +30,7 @@ const emptyOptions: InseSaebFilterOptions = {
   avaliacoes: [],
   escolas: [],
   series: [],
+  series_disponiveis: [],
   turmas: [],
 };
 
@@ -49,6 +52,8 @@ export class InseSaebFiltersApiService {
     escola?: string;
     serie?: string;
     turma?: string;
+    serie_filtro?: string;
+    nome?: string;
   }): Promise<InseSaebFilterOptions> {
     try {
       const queryParams = new URLSearchParams();
@@ -59,6 +64,10 @@ export class InseSaebFiltersApiService {
       if (params.escola && params.escola !== 'all') queryParams.append('escola', params.escola);
       if (params.serie && params.serie !== 'all') queryParams.append('serie', params.serie);
       if (params.turma && params.turma !== 'all') queryParams.append('turma', params.turma);
+      if (params.serie_filtro && params.serie_filtro !== 'all') {
+        queryParams.append('serie_filtro', params.serie_filtro);
+      }
+      if (params.nome?.trim()) queryParams.append('nome', params.nome.trim());
 
       const url = `/forms/results/inse-saeb/filter-options${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
       const requestConfig =
@@ -90,6 +99,10 @@ export class InseSaebFiltersApiService {
           name: normalizeName(e.nome ?? e.name),
         })),
         series: (data.series ?? []).map((s) => ({
+          id: s.id,
+          name: normalizeName(s.nome ?? s.name),
+        })),
+        series_disponiveis: (data.series_disponiveis ?? []).map((s) => ({
           id: s.id,
           name: normalizeName(s.nome ?? s.name),
         })),

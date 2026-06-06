@@ -9,6 +9,9 @@ const MARGIN = 18;
 const LINE_HEIGHT = 5.4;
 const SECTION_GAP = 4;
 const PARAGRAPH_GAP = 3;
+/** Espaço entre a data e a linha de assinatura + altura do bloco de assinatura. */
+const SIGNATURE_GAP_BEFORE = 14;
+const SIGNATURE_BLOCK_HEIGHT = 12;
 
 const COLORS = {
   text: [28, 28, 28] as [number, number, number],
@@ -285,13 +288,23 @@ export async function generateTermoCompromissoPdf(
     { gapAfter: 4 }
   );
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10.5);
-  doc.setTextColor(...COLORS.text);
-  doc.text(dataDocumentoDisplay(payload), MARGIN, y);
+  y = drawParagraph(
+    doc,
+    dataDocumentoDisplay(payload),
+    MARGIN,
+    y,
+    contentWidth,
+    { gapAfter: 0 }
+  );
 
-  const signatureLineY = pageHeight - 20;
-  const signatureLabelY = pageHeight - 14;
+  y += SIGNATURE_GAP_BEFORE;
+  if (y + SIGNATURE_BLOCK_HEIGHT > pageHeight - MARGIN) {
+    doc.addPage();
+    y = MARGIN;
+  }
+
+  const signatureLineY = y;
+  const signatureLabelY = y + 6;
   const signatureLineWidth = contentWidth * 0.55;
   const signatureX = (pageWidth - signatureLineWidth) / 2;
   doc.setDrawColor(...COLORS.line);

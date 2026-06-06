@@ -34,6 +34,7 @@ import {
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { InseSaebFiltersApiService } from '@/services/inseSaebFiltersApi';
+import { InseEvaluationPicker } from '@/components/filters';
 import { FormMultiSelect } from '@/components/ui/form-multi-select';
 import { EvaluationApiService } from '@/services/evaluation/evaluationApi';
 import { EvaluationResultsApiService } from '@/services/evaluation/evaluationResultsApi';
@@ -1910,31 +1911,24 @@ const InseSaebReport = () => {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Avaliação *</label>
-              <Select
-                value={selectedAvaliacao}
-                onValueChange={setSelectedAvaliacao}
-                disabled={isLoadingFilters || selectedState === 'all' || selectedMunicipality === 'all'}
-              >
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={
-                      isLoadingFilters
-                        ? 'Carregando...'
-                        : avaliacoes.length === 0 && selectedMunicipality !== 'all'
-                          ? 'Nenhuma avaliação'
-                          : 'Selecione a avaliação'
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {avaliacoes.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <InseEvaluationPicker
+              label="Avaliação *"
+              estado={selectedState}
+              municipio={selectedMunicipality}
+              value={selectedAvaliacao}
+              onChange={setSelectedAvaliacao}
+              estadoLabel={states.find((s) => s.id === selectedState)?.name}
+              municipioLabel={municipalities.find((m) => m.id === selectedMunicipality)?.name}
+              disabled={isLoadingFilters || selectedState === 'all' || selectedMunicipality === 'all'}
+              loading={isLoadingFilters}
+              placeholder={
+                isLoadingFilters
+                  ? 'Carregando...'
+                  : avaliacoes.length === 0 && selectedMunicipality !== 'all'
+                    ? 'Nenhuma avaliação'
+                    : 'Selecione a avaliação'
+              }
+            />
             <div className="space-y-2">
               <label className="text-sm font-medium">Escola(s) *</label>
               <FormMultiSelect

@@ -68,7 +68,11 @@ export function getSerieTurmaDisplay(cab: Cabecalho): { serie: string; turma: st
 
 type ColumnStyle = { cellWidth: number; halign?: "left" | "center" | "right"; overflow?: "linebreak" | "hidden" };
 
-/** Larguras fixas: assinatura ampla; demais colunas absorvem o restante sem ultrapassar a página. */
+function statusColumnWidth(cod: string): number {
+  return cod.length >= 2 ? 10 : 6;
+}
+
+/** Larguras fixas: assinatura ampla; colunas de status proporcionais ao código; nome absorve o restante. */
 function buildListaTableColumnStyles(
   codigos: string[],
   tableWidth: number
@@ -76,16 +80,19 @@ function buildListaTableColumnStyles(
   const numeroColW = 8;
   const assinaturaColW = 40;
   const assinaturaColIndex = 2 + codigos.length;
-  const statusColW = 5;
-  const statusTotal = statusColW * codigos.length;
+  const statusTotal = codigos.reduce((acc, cod) => acc + statusColumnWidth(cod), 0);
   const nomeColW = Math.max(28, tableWidth - numeroColW - statusTotal - assinaturaColW);
 
   const styles: Record<number, ColumnStyle> = {
     0: { cellWidth: numeroColW, halign: "center" },
     1: { cellWidth: nomeColW, overflow: "linebreak" },
   };
-  codigos.forEach((_, i) => {
-    styles[2 + i] = { cellWidth: statusColW, halign: "center" };
+  codigos.forEach((cod, i) => {
+    styles[2 + i] = {
+      cellWidth: statusColumnWidth(cod),
+      halign: "center",
+      overflow: "hidden",
+    };
   });
   styles[assinaturaColIndex] = { cellWidth: assinaturaColW };
 
