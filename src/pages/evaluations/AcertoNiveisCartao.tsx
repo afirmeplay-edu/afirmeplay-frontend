@@ -9,6 +9,12 @@ import { useToast } from "@/hooks/use-toast";
 import { FileText, Loader2, Filter, Users, Check } from "lucide-react";
 import { useAuth } from "@/context/authContext";
 import { EvaluationResultsApiService, REPORT_ENTITY_TYPE_ANSWER_SHEET } from "@/services/evaluation/evaluationResultsApi";
+import { EvaluationInstrumentPicker, InstrumentPickerField } from "@/components/filters";
+import {
+  buildPickerContextLines,
+  toInstrumentPickerItems,
+  toInstrumentPickerSeries,
+} from "@/components/filters/instrumentPickerHelpers";
 import { getUserHierarchyContext, getRestrictionMessage, validateReportAccess, UserHierarchyContext, cityIdQueryParamForAdmin } from "@/utils/userHierarchy";
 import { api } from "@/lib/api";
 import type { jsPDF } from "jspdf";
@@ -657,7 +663,15 @@ export default function AcertoNiveis({
     escolas?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
     series?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
     turmas?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
+    series_disponiveis?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
   }>({});
+  const [pickerGabaritos, setPickerGabaritos] = useState<
+    Array<{ id: string; nome?: string; name?: string; titulo?: string }>
+  >([]);
+  const [pickerSeriesDisponiveis, setPickerSeriesDisponiveis] = useState<
+    Array<{ id: string; nome?: string; name?: string; titulo?: string }>
+  >([]);
+  const [pickerModalLoading, setPickerModalLoading] = useState(false);
   const asOpcoesRef = React.useRef(asOpcoes);
   asOpcoesRef.current = asOpcoes;
   const [isLoadingFiltersAg, setIsLoadingFiltersAg] = useState(false);
@@ -909,6 +923,7 @@ export default function AcertoNiveis({
         estados?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
         municipios?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
         gabaritos?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
+        series_disponiveis?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
         escolas?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
         series?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
         turmas?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
@@ -939,6 +954,43 @@ export default function AcertoNiveis({
     periodoYmRelatorio,
     toast,
   ]);
+
+  const fetchPickerGabaritos = useCallback(
+    async (modalFilters?: { serieFiltro: string; nome: string }) => {
+      if (!isAnswerSheetAgregados || !asEstado || asEstado === "all" || !asMunicipio || asMunicipio === "all") {
+        setPickerGabaritos([]);
+        setPickerSeriesDisponiveis([]);
+        return;
+      }
+      const params = new URLSearchParams();
+      params.set("estado", asEstado);
+      params.set("municipio", asMunicipio);
+      if (periodoYmRelatorio) params.set("periodo", periodoYmRelatorio);
+      if (modalFilters?.serieFiltro && modalFilters.serieFiltro !== "all") {
+        params.set("serie_filtro", modalFilters.serieFiltro);
+      }
+      if (modalFilters?.nome?.trim()) params.set("nome", modalFilters.nome.trim());
+      try {
+        setPickerModalLoading(true);
+        const url = `/answer-sheets/opcoes-filtros-results?${params.toString()}`;
+        const res = await api.get<{
+          gabaritos?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
+          series_disponiveis?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
+        }>(url);
+        const raw = res.data || {};
+        const gabaritosFiltrados = await filtrarGabaritosOpcoesSomenteComHabilidadesVinculadas(
+          (raw.gabaritos ?? []) as GabaritoOpcaoFiltrosResults[]
+        );
+        setPickerGabaritos(gabaritosFiltrados);
+        if (!modalFilters) setPickerSeriesDisponiveis(raw.series_disponiveis ?? []);
+      } catch {
+        setPickerGabaritos([]);
+      } finally {
+        setPickerModalLoading(false);
+      }
+    },
+    [isAnswerSheetAgregados, asEstado, asMunicipio, periodoYmRelatorio]
+  );
 
   useEffect(() => {
     if (isAnswerSheetAgregados) {
@@ -4889,59 +4941,76 @@ export default function AcertoNiveis({
               }
             />
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">
-                Cartão resposta
-              </label>
-              {isAnswerSheetAgregados ? (
-                <Select
-                  value={asGabarito}
-                  onValueChange={setAsGabaritoAndReset}
-                  disabled={isLoadingFiltersAg || asMunicipio === "all"}
-                >
-                  <SelectTrigger className="w-full min-w-0">
-                    <SelectValue placeholder="Selecione o cartão resposta" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
-                    {(asOpcoes.gabaritos ?? []).map((g) => (
-                      <SelectItem key={g.id} value={g.id}>
-                        {asNorm(g)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Select
-                  value={selectedEvaluationId}
-                  onValueChange={handleSelectEvaluation}
-                  disabled={!selectedMunicipality}
-                >
-                  <SelectTrigger className="w-full min-w-0">
-                    <SelectValue
-                      placeholder={
-                        selectedMunicipality
-                          ? "Selecione o cartão resposta"
-                          : "Primeiro selecione um município"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent className="max-w-md">
-                    {evaluations.map((ev) => {
-                      const dataStr = ev.data_aplicacao
-                        ? new Date(ev.data_aplicacao).toLocaleDateString("pt-BR")
-                        : "";
-                      const titleHint = dataStr ? `${ev.titulo} — ${dataStr}` : ev.titulo;
-                      return (
-                        <SelectItem key={ev.id} value={ev.id} title={titleHint}>
-                          {ev.titulo}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
+            {isAnswerSheetAgregados ? (
+              <InstrumentPickerField
+                label="Cartão resposta"
+                value={asGabarito}
+                onChange={setAsGabaritoAndReset}
+                items={toInstrumentPickerItems(
+                  (() => {
+                    const base =
+                      pickerGabaritos.length > 0 ? pickerGabaritos : (asOpcoes.gabaritos ?? []);
+                    if (asGabarito === "all" || base.some((g) => g.id === asGabarito)) return base;
+                    const selected = (asOpcoes.gabaritos ?? []).find((g) => g.id === asGabarito);
+                    return selected ? [...base, selected] : base;
+                  })().map((g) => ({
+                    id: g.id,
+                    titulo: asNorm(g),
+                  }))
+                )}
+                seriesOptions={toInstrumentPickerSeries(
+                  pickerSeriesDisponiveis.length > 0
+                    ? pickerSeriesDisponiveis
+                    : (asOpcoes.series_disponiveis ?? [])
+                )}
+                disabled={isLoadingFiltersAg || asMunicipio === "all"}
+                loading={isLoadingFiltersAg}
+                modalLoading={pickerModalLoading}
+                placeholder="Selecione o cartão resposta"
+                modalTitle="Selecionar cartão resposta"
+                allowAll
+                allLabel="Todos"
+                contextLines={buildPickerContextLines({
+                  estado:
+                    asEstado === "all"
+                      ? undefined
+                      : asNorm((asOpcoes.estados ?? []).find((s) => s.id === asEstado) ?? { id: asEstado }),
+                  municipio:
+                    asMunicipio === "all"
+                      ? undefined
+                      : asNorm(
+                          (asOpcoes.municipios ?? []).find((m) => m.id === asMunicipio) ?? {
+                            id: asMunicipio,
+                          }
+                        ),
+                  periodo: periodoYmRelatorio,
+                })}
+                contextRequiredMessage="Selecione estado e município nos filtros antes de escolher."
+                onModalOpen={() => void fetchPickerGabaritos()}
+                onModalFiltersChange={(filters) => void fetchPickerGabaritos(filters)}
+              />
+            ) : (
+              <EvaluationInstrumentPicker
+                label="Cartão resposta"
+                estado={selectedState}
+                municipio={selectedMunicipality}
+                value={selectedEvaluationId}
+                onChange={handleSelectEvaluation}
+                reportEntityType={REPORT_ENTITY_TYPE_ANSWER_SHEET}
+                cityId={adminCityIdQuery}
+                periodo={periodoYmRelatorio}
+                estadoLabel={states.find((s) => s.id === selectedState)?.nome}
+                municipioLabel={municipalities.find((m) => m.id === selectedMunicipality)?.nome}
+                periodoLabel={periodoYmRelatorio}
+                disabled={!selectedMunicipality}
+                loading={isLoading}
+                placeholder={
+                  selectedMunicipality
+                    ? "Selecione o cartão resposta"
+                    : "Primeiro selecione um município"
+                }
+              />
+            )}
 
             <div className="space-y-2">
               <div className="text-sm font-medium flex flex-wrap items-center gap-2">

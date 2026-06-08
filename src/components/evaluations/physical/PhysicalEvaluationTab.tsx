@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { EvaluationResultsApiService } from "@/services/evaluation/evaluationResultsApi";
+import { EvaluationInstrumentPicker } from "@/components/filters";
 import { api } from "@/lib/api";
 import { useBatchCorrection } from "@/hooks/useBatchCorrection";
 import { BatchCorrectionImage } from "@/services/evaluation/batchCorrectionService";
@@ -568,27 +569,18 @@ export default function PhysicalEvaluationTab() {
               </Select>
             </div>
 
-            {/* Avaliações */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Avaliações</label>
-              <Select
-                value={selectedEvaluation}
-                onValueChange={setSelectedEvaluation}
-                disabled={isLoadingFilters || selectedMunicipality === 'all'}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione a avaliação" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas</SelectItem>
-                  {Array.isArray(evaluationsByMunicipality) && evaluationsByMunicipality.map(evaluation => (
-                    <SelectItem key={evaluation.id || 'unknown'} value={evaluation.id || 'unknown'}>
-                      {evaluation.titulo || 'Sem título'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <EvaluationInstrumentPicker
+              label="Avaliações"
+              estado={selectedState}
+              municipio={selectedMunicipality}
+              value={selectedEvaluation}
+              onChange={setSelectedEvaluation}
+              disabled={isLoadingFilters || selectedMunicipality === 'all'}
+              loading={isLoadingFilters}
+              allowAll
+              allLabel="Todas"
+              placeholder="Selecione a avaliação"
+            />
 
             {/* Escola */}
             <div className="space-y-2">

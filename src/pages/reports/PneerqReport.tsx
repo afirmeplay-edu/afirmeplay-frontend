@@ -28,6 +28,7 @@ import {
 } from 'recharts';
 import { useToast } from '@/hooks/use-toast';
 import { InseSaebFiltersApiService } from '@/services/inseSaebFiltersApi';
+import { InseEvaluationPicker } from '@/components/filters';
 import { FormMultiSelect } from '@/components/ui/form-multi-select';
 import {
   buildPneerqQueryParams,
@@ -593,32 +594,25 @@ export default function PneerqReport() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2 xl:col-span-1">
-              <Label>Avaliação *</Label>
-              <Select
+            <div className="xl:col-span-1">
+              <InseEvaluationPicker
+                label="Avaliação *"
+                estado={selectedState}
+                municipio={selectedMunicipality}
                 value={selectedAvaliacao}
-                onValueChange={setSelectedAvaliacao}
+                onChange={setSelectedAvaliacao}
+                estadoLabel={states.find((s) => s.id === selectedState)?.name}
+                municipioLabel={municipalities.find((m) => m.id === selectedMunicipality)?.name}
                 disabled={isLoadingFilters || selectedState === 'all' || selectedMunicipality === 'all'}
-              >
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={
-                      isLoadingFilters
-                        ? 'Carregando...'
-                        : avaliacoes.length === 0 && selectedMunicipality !== 'all'
-                          ? 'Nenhuma avaliação'
-                          : 'Selecione a avaliação'
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {avaliacoes.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                loading={isLoadingFilters}
+                placeholder={
+                  isLoadingFilters
+                    ? 'Carregando...'
+                    : avaliacoes.length === 0 && selectedMunicipality !== 'all'
+                      ? 'Nenhuma avaliação'
+                      : 'Selecione a avaliação'
+                }
+              />
             </div>
             <div className="space-y-2 xl:col-span-1">
               <Label>Escola(s) *</Label>

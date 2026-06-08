@@ -40,6 +40,7 @@ import {
   EvaluationResultsApiService,
   REPORT_ENTITY_TYPE_ANSWER_SHEET,
 } from "@/services/evaluation/evaluationResultsApi";
+import { EvaluationInstrumentPicker } from "@/components/filters";
 import {
   buildAtaSalaHierarchyPath,
   createAtaSalaPdfBlob,
@@ -1077,35 +1078,26 @@ export default function AtaSalaPage() {
               </Select>
             </div>
             {isModoAplicada ? (
-              <div className="space-y-2">
-                <Label>{labelItemAplicado}</Label>
-                <Select
-                  value={selectedAvaliacaoId}
-                  onValueChange={setSelectedAvaliacaoId}
-                  disabled={
-                    !hasContextForAta ||
-                    loading.avaliacoes
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        !hasContextForAta
-                          ? "Selecione estado e município"
-                          : `Selecione ${labelItemAplicado.toLowerCase()}`
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Selecione</SelectItem>
-                    {avaliacoes.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.titulo}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <EvaluationInstrumentPicker
+                label={labelItemAplicado}
+                estado={selectedEstado}
+                municipio={selectedMunicipio}
+                escola={selectedSchool !== "all" ? selectedSchool : undefined}
+                reportEntityType={
+                  modoLista === "cartao_resposta" ? REPORT_ENTITY_TYPE_ANSWER_SHEET : undefined
+                }
+                value={selectedAvaliacaoId}
+                onChange={setSelectedAvaliacaoId}
+                disabled={!hasContextForAta}
+                loading={loading.avaliacoes}
+                allowAll
+                allLabel="Selecione"
+                placeholder={
+                  !hasContextForAta
+                    ? "Selecione estado e município"
+                    : `Selecione ${labelItemAplicado.toLowerCase()}`
+                }
+              />
             ) : null}
           </div>
 

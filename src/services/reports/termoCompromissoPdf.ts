@@ -5,10 +5,69 @@ import { downloadBlob } from "@/services/reports/hierarchicalDownload";
 import type { TermoCompromissoDadosResponse, TermoCompromissoFormData } from "@/types/termo-compromisso";
 import { getClassShiftLabel } from "@/lib/classShift";
 
-const MARGIN = 18;
-const LINE_HEIGHT = 5.4;
-const SECTION_GAP = 4;
+const MARGIN = 16;
+const SECTION_GAP = 3;
 const PARAGRAPH_GAP = 3;
+const BLOCK_GAP = 4;
+/** Espaço entre a borda inferior da página e o rótulo da assinatura. */
+const SIGNATURE_BOTTOM_MARGIN = 18;
+const SIGNATURE_LINE_ABOVE_LABEL = 5;
+/** Espaço mínimo entre o fim do texto (data) e a linha de assinatura. */
+const MIN_GAP_CONTENT_TO_SIGNATURE = 10;
+
+type TermoTypography = {
+  lineHeight: number;
+  bodyFontSize: number;
+  clauseFontSize: number;
+  labelFontSize: number;
+  valueFontSize: number;
+  sectionTitleFontSize: number;
+  docTitleFontSize: number;
+  headerPrefeituraFontSize: number;
+  headerSecretariaFontSize: number;
+  signatureFontSize: number;
+  sectionTitleGap: number;
+  identFieldGap: number;
+  clauseGap: number;
+  headerBottomGap: number;
+  titleBottomGap: number;
+};
+
+const TERMO_TYPOGRAPHY_COMPACT: TermoTypography = {
+  lineHeight: 4.1,
+  bodyFontSize: 8,
+  clauseFontSize: 8,
+  labelFontSize: 7.5,
+  valueFontSize: 8,
+  sectionTitleFontSize: 8.5,
+  docTitleFontSize: 10.5,
+  headerPrefeituraFontSize: 9,
+  headerSecretariaFontSize: 7.5,
+  signatureFontSize: 8.5,
+  sectionTitleGap: 5,
+  identFieldGap: 2,
+  clauseGap: 1.2,
+  headerBottomGap: 6,
+  titleBottomGap: 7,
+};
+
+const TERMO_TYPOGRAPHY_DEFAULT: TermoTypography = {
+  lineHeight: 4.7,
+  bodyFontSize: 8.5,
+  clauseFontSize: 8.5,
+  labelFontSize: 8,
+  valueFontSize: 8.5,
+  sectionTitleFontSize: 9,
+  docTitleFontSize: 11,
+  headerPrefeituraFontSize: 9.5,
+  headerSecretariaFontSize: 8,
+  signatureFontSize: 9,
+  sectionTitleGap: 7,
+  identFieldGap: 3,
+  clauseGap: 2,
+  headerBottomGap: 8,
+  titleBottomGap: 9,
+};
 
 const COLORS = {
   text: [28, 28, 28] as [number, number, number],
@@ -70,24 +129,25 @@ function dataDocumentoDisplay(payload: TermoCompromissoDadosResponse): string {
 async function drawHeader(
   doc: jsPDF,
   payload: TermoCompromissoDadosResponse,
-  logo: PdfImageAsset | null
+  logo: PdfImageAsset | null,
+  typography: TermoTypography
 ): Promise<number> {
   const pageWidth = doc.internal.pageSize.getWidth();
-  let y = 10;
+  let y = 8;
 
   y = await drawReportHeaderLogoWithFallback(doc, pageWidth, y, logo);
-  y += 2;
+  y += 1;
 
   doc.setTextColor(...COLORS.text);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
+  doc.setFontSize(typography.headerPrefeituraFontSize);
   doc.text(payload.municipio.prefeitura_label || "PREFEITURA MUNICIPAL", pageWidth / 2, y, {
     align: "center",
   });
-  y += 5;
+  y += 4;
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
+  doc.setFontSize(typography.headerSecretariaFontSize);
   doc.setTextColor(...COLORS.muted);
   doc.text(
     payload.municipio.secretaria_label || "SECRETARIA MUNICIPAL DE EDUCAÇÃO",
@@ -96,7 +156,7 @@ async function drawHeader(
     { align: "center" }
   );
 
-  return y + 10;
+  return y + typography.headerBottomGap;
 }
 
 function drawParagraph(
@@ -105,9 +165,10 @@ function drawParagraph(
   x: number,
   y: number,
   maxWidth: number,
+  typography: TermoTypography,
   opts?: { fontSize?: number; style?: "normal" | "bold" | "italic"; gapAfter?: number }
 ): number {
-  const fontSize = opts?.fontSize ?? 10.5;
+  const fontSize = opts?.fontSize ?? typography.bodyFontSize;
   const style = opts?.style ?? "normal";
   doc.setFont("helvetica", style);
   doc.setFontSize(fontSize);
@@ -115,7 +176,7 @@ function drawParagraph(
   const lines = doc.splitTextToSize(text, maxWidth) as string[];
   lines.forEach((line) => {
     doc.text(line, x, y);
-    y += LINE_HEIGHT;
+    y += typography.lineHeight;
   });
   return y + (opts?.gapAfter ?? PARAGRAPH_GAP);
 }
@@ -126,11 +187,12 @@ function drawIdentField(
   value: string,
   x: number,
   y: number,
-  maxWidth: number
+  maxWidth: number,
+  typography: TermoTypography
 ): number {
   const labelText = `${label}:`;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(9.5);
+  doc.setFontSize(typography.labelFontSize);
   doc.setTextColor(...COLORS.text);
   doc.text(labelText, x, y);
 
@@ -141,19 +203,19 @@ function drawIdentField(
 
   if (displayValue) {
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
+    doc.setFontSize(typography.valueFontSize);
     const valueLines = doc.splitTextToSize(displayValue, fieldWidth) as string[];
     valueLines.forEach((line, index) => {
-      doc.text(line, fieldX, y + index * LINE_HEIGHT);
+      doc.text(line, fieldX, y + index * typography.lineHeight);
     });
-    return y + valueLines.length * LINE_HEIGHT + 3;
+    return y + valueLines.length * typography.lineHeight + typography.identFieldGap;
   }
 
   const lineY = y + 1.2;
   doc.setDrawColor(...COLORS.line);
   doc.setLineWidth(0.3);
   doc.line(fieldX, lineY, x + maxWidth, lineY);
-  return y + 7;
+  return y + 6;
 }
 
 function drawContextBlock(
@@ -161,20 +223,21 @@ function drawContextBlock(
   payload: TermoCompromissoDadosResponse,
   x: number,
   y: number,
-  maxWidth: number
+  maxWidth: number,
+  typography: TermoTypography
 ): number {
   const ctx = payload.contexto;
   const turno = getClassShiftLabel(ctx.turno ?? ctx.shift);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
+  doc.setFontSize(typography.sectionTitleFontSize);
   doc.setTextColor(...COLORS.text);
   doc.text("CONTEXTO DA APLICAÇÃO", x + maxWidth / 2, y, { align: "center" });
-  y += 8;
-  y = drawIdentField(doc, "Escola", ctx.escola, x, y, maxWidth);
-  y = drawIdentField(doc, "Série", ctx.serie, x, y, maxWidth);
-  y = drawIdentField(doc, "Turma", ctx.turma, x, y, maxWidth);
-  y = drawIdentField(doc, "Turno", turno, x, y, maxWidth);
-  return y + 2;
+  y += typography.sectionTitleGap;
+  y = drawIdentField(doc, "Escola", ctx.escola, x, y, maxWidth, typography);
+  y = drawIdentField(doc, "Série", ctx.serie, x, y, maxWidth, typography);
+  y = drawIdentField(doc, "Turma", ctx.turma, x, y, maxWidth, typography);
+  y = drawIdentField(doc, "Turno", turno, x, y, maxWidth, typography);
+  return y + BLOCK_GAP;
 }
 
 function drawIdentBlock(
@@ -182,17 +245,29 @@ function drawIdentBlock(
   form: TermoCompromissoFormData,
   x: number,
   y: number,
-  maxWidth: number
+  maxWidth: number,
+  typography: TermoTypography
 ): number {
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
+  doc.setFontSize(typography.sectionTitleFontSize);
   doc.setTextColor(...COLORS.text);
   doc.text("DADOS DO(A) DECLARANTE", x + maxWidth / 2, y, { align: "center" });
-  y += 8;
-  y = drawIdentField(doc, "Nome completo", form.nome, x, y, maxWidth);
-  y = drawIdentField(doc, "CPF", form.cpf, x, y, maxWidth);
-  y = drawIdentField(doc, "RG", form.rg, x, y, maxWidth);
-  return y + 2;
+  y += typography.sectionTitleGap;
+  y = drawIdentField(doc, "Nome completo", form.nome, x, y, maxWidth, typography);
+  y = drawIdentField(doc, "CPF", form.cpf, x, y, maxWidth, typography);
+  y = drawIdentField(doc, "RG", form.rg, x, y, maxWidth, typography);
+  return y + BLOCK_GAP;
+}
+
+function getSignaturePositions(pageHeight: number): { lineY: number; labelY: number } {
+  const labelY = pageHeight - SIGNATURE_BOTTOM_MARGIN;
+  const lineY = labelY - SIGNATURE_LINE_ABOVE_LABEL;
+  return { lineY, labelY };
+}
+
+function contentFitsWithBottomSignature(contentEndY: number, pageHeight: number): boolean {
+  const { lineY } = getSignaturePositions(pageHeight);
+  return contentEndY + MIN_GAP_CONTENT_TO_SIGNATURE <= lineY;
 }
 
 function drawClause(
@@ -201,11 +276,12 @@ function drawClause(
   text: string,
   x: number,
   y: number,
-  maxWidth: number
+  maxWidth: number,
+  typography: TermoTypography
 ): number {
   const marker = `${number}.`;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
+  doc.setFontSize(typography.clauseFontSize);
   doc.setTextColor(...COLORS.text);
   doc.text(marker, x, y);
 
@@ -213,19 +289,19 @@ function drawClause(
   doc.setFont("helvetica", "normal");
   const lines = doc.splitTextToSize(text, maxWidth - markerWidth) as string[];
   lines.forEach((line, index) => {
-    doc.text(line, x + markerWidth, y + index * LINE_HEIGHT);
+    doc.text(line, x + markerWidth, y + index * typography.lineHeight);
   });
-  return y + lines.length * LINE_HEIGHT + 2;
+  return y + lines.length * typography.lineHeight + typography.clauseGap;
 }
 
-export async function generateTermoCompromissoPdf(
+async function renderTermoContent(
+  doc: jsPDF,
   payload: TermoCompromissoDadosResponse,
   form: TermoCompromissoFormData,
-  logo: PdfImageAsset | null
-): Promise<jsPDF> {
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  logo: PdfImageAsset | null,
+  typography: TermoTypography
+): Promise<number> {
   const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
   const contentWidth = pageWidth - MARGIN * 2;
   const city = municipioCorpoDisplay(payload);
   const periodoTexto = periodoAvaliacaoDisplay(payload);
@@ -233,16 +309,16 @@ export async function generateTermoCompromissoPdf(
   const tituloDocumento =
     normalizeSpaces(payload.documento?.titulo) || "TERMO DE COMPROMISSO E CONFIDENCIALIDADE";
 
-  let y = await drawHeader(doc, payload, logo);
+  let y = await drawHeader(doc, payload, logo, typography);
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
+  doc.setFontSize(typography.docTitleFontSize);
   doc.setTextColor(...COLORS.text);
   doc.text(tituloDocumento, pageWidth / 2, y, { align: "center" });
-  y += 10;
+  y += typography.titleBottomGap;
 
-  y = drawContextBlock(doc, payload, MARGIN, y, contentWidth);
-  y = drawIdentBlock(doc, form, MARGIN, y, contentWidth);
+  y = drawContextBlock(doc, payload, MARGIN, y, contentWidth, typography);
+  y = drawIdentBlock(doc, form, MARGIN, y, contentWidth, typography);
 
   y = drawParagraph(
     doc,
@@ -250,6 +326,7 @@ export async function generateTermoCompromissoPdf(
     MARGIN,
     y,
     contentWidth,
+    typography,
     { gapAfter: SECTION_GAP }
   );
 
@@ -259,6 +336,7 @@ export async function generateTermoCompromissoPdf(
     MARGIN,
     y,
     contentWidth,
+    typography,
     { style: "bold", gapAfter: 2 }
   );
 
@@ -272,7 +350,7 @@ export async function generateTermoCompromissoPdf(
   ];
 
   clauses.forEach((clause, index) => {
-    y = drawClause(doc, index + 1, clause, MARGIN, y, contentWidth);
+    y = drawClause(doc, index + 1, clause, MARGIN, y, contentWidth, typography);
   });
 
   y += 1;
@@ -282,26 +360,57 @@ export async function generateTermoCompromissoPdf(
     MARGIN,
     y,
     contentWidth,
-    { gapAfter: 4 }
+    typography,
+    { gapAfter: 3 }
   );
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10.5);
-  doc.setTextColor(...COLORS.text);
-  doc.text(dataDocumentoDisplay(payload), MARGIN, y);
+  return drawParagraph(
+    doc,
+    dataDocumentoDisplay(payload),
+    MARGIN,
+    y,
+    contentWidth,
+    typography,
+    { gapAfter: 0 }
+  );
+}
 
-  const signatureLineY = pageHeight - 20;
-  const signatureLabelY = pageHeight - 14;
+function drawSignatureBlock(doc: jsPDF, typography: TermoTypography): void {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const contentWidth = pageWidth - MARGIN * 2;
+  const { lineY: signatureLineY, labelY: signatureLabelY } = getSignaturePositions(pageHeight);
   const signatureLineWidth = contentWidth * 0.55;
   const signatureX = (pageWidth - signatureLineWidth) / 2;
   doc.setDrawColor(...COLORS.line);
   doc.setLineWidth(0.35);
   doc.line(signatureX, signatureLineY, signatureX + signatureLineWidth, signatureLineY);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(9.5);
+  doc.setFontSize(typography.signatureFontSize);
   doc.setTextColor(...COLORS.text);
   doc.text("Assinatura do(a) declarante", pageWidth / 2, signatureLabelY, { align: "center" });
+}
 
+export async function generateTermoCompromissoPdf(
+  payload: TermoCompromissoDadosResponse,
+  form: TermoCompromissoFormData,
+  logo: PdfImageAsset | null
+): Promise<jsPDF> {
+  const pageHeight = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" }).internal.pageSize.getHeight();
+  const typographyCandidates = [TERMO_TYPOGRAPHY_DEFAULT, TERMO_TYPOGRAPHY_COMPACT];
+
+  for (const typography of typographyCandidates) {
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const y = await renderTermoContent(doc, payload, form, logo, typography);
+    if (contentFitsWithBottomSignature(y, pageHeight)) {
+      drawSignatureBlock(doc, typography);
+      return doc;
+    }
+  }
+
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  await renderTermoContent(doc, payload, form, logo, TERMO_TYPOGRAPHY_COMPACT);
+  drawSignatureBlock(doc, TERMO_TYPOGRAPHY_COMPACT);
   return doc;
 }
 
