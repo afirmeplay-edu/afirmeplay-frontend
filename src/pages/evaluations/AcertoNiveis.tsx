@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { EvaluationInstrumentPicker } from "@/components/filters";
 import { useToast } from "@/hooks/use-toast";
 import { FileText, Filter, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/authContext";
@@ -4173,34 +4174,23 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
               onChange={setSelectedPeriod}
               disabled={isLoading || !selectedMunicipality}
             />
-            <div>
-              <div className="text-sm font-medium mb-2">Avaliação</div>
-              <Select value={selectedEvaluationId} onValueChange={handleSelectEvaluation} disabled={!selectedMunicipality}>
-                <SelectTrigger className="w-full">
-                  <SelectValue
-                    placeholder={
-                      selectedMunicipality
-                        ? "Selecione uma avaliação"
-                        : "Primeiro selecione um município"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {evaluations.map(ev => (
-                    <SelectItem key={ev.id} value={ev.id}>
-                      <div className="flex flex-col">
-                        <span className="font-medium">{ev.titulo}</span>
-                        {ev.data_aplicacao && (
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(ev.data_aplicacao).toLocaleDateString('pt-BR')}
-                          </span>
-                        )}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <EvaluationInstrumentPicker
+              label="Avaliação"
+              estado={selectedState}
+              municipio={selectedMunicipality}
+              value={selectedEvaluationId}
+              onChange={handleSelectEvaluation}
+              cityId={adminCityIdQuery}
+              periodo={periodoYmRelatorio}
+              estadoLabel={states.find((s) => s.id === selectedState)?.nome}
+              municipioLabel={municipalities.find((m) => m.id === selectedMunicipality)?.nome}
+              periodoLabel={periodoYmRelatorio}
+              disabled={!selectedMunicipality}
+              loading={isLoading}
+              placeholder={
+                selectedMunicipality ? "Selecione uma avaliação" : "Primeiro selecione um município"
+              }
+            />
           </div>
 
           {/* Filtros Específicos (apenas quando avaliação selecionada) */}

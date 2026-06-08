@@ -31,6 +31,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { format, parse } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { EvaluationResultsApiService } from "@/services/evaluation/evaluationResultsApi";
+import { EvaluationInstrumentPicker } from "@/components/filters";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/authContext";
 import { getUserHierarchyContext, type UserHierarchyContext } from "@/utils/userHierarchy";
@@ -2398,27 +2399,22 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
               </Popover>
             </div>
 
-            {/* Avaliações */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Avaliações</label>
-              <Select
-                value={selectedEvaluation}
-                onValueChange={setSelectedEvaluation}
-                disabled={isLoadingFilters || selectedMunicipality === 'all'}
-              >
-                <SelectTrigger className="w-full min-w-0">
-                  <SelectValue placeholder="Selecione a avaliação" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas</SelectItem>
-                  {Array.isArray(evaluationsByMunicipality) && evaluationsByMunicipality.map(evaluation => (
-                        <SelectItem key={evaluation.id || 'unknown'} value={evaluation.id || 'unknown'}>
-                          {evaluation.titulo || 'Sem título'}
-                        </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <EvaluationInstrumentPicker
+              label="Avaliações"
+              estado={selectedState}
+              municipio={selectedMunicipality}
+              value={selectedEvaluation}
+              onChange={setSelectedEvaluation}
+              periodo={periodoApi}
+              estadoLabel={states.find((s) => s.id === selectedState)?.name}
+              municipioLabel={municipalities.find((m) => m.id === selectedMunicipality)?.name}
+              periodoLabel={periodoApi}
+              disabled={isLoadingFilters}
+              loading={isLoadingFilters}
+              allowAll
+              allLabel="Todas"
+              placeholder="Selecione a avaliação"
+            />
 
             {/* Escola */}
             <div className="space-y-2">

@@ -12,6 +12,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FormFiltersApiService } from "@/services/formFiltersApi";
 import { EvaluationResultsApiService, REPORT_ENTITY_TYPE_ANSWER_SHEET } from "@/services/evaluation/evaluationResultsApi";
+import { EvaluationInstrumentPicker } from "@/components/filters";
 import { RankingApiService, type RankingFilters, type RankingScope } from "@/services/reports/rankingApi";
 import { formatRankingDisciplinaLabel, generateRankingReportPdf } from "@/services/reports/rankingPdf";
 import { useToast } from "@/hooks/use-toast";
@@ -776,64 +777,58 @@ export default function RankingHub() {
             </Popover>
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor={rankingEntityTab === "avaliacao" ? "evaluation_id" : "answer_sheet_id"}>
-              {rankingEntityTab === "avaliacao" ? "Avaliação" : "Cartão resposta"}
-            </Label>
-            {rankingEntityTab === "avaliacao" ? (
-              <Select
-                value={filters.evaluation_id || "all"}
-                onValueChange={(value) =>
-                  setFilters({
-                    evaluation_id: value === "all" ? "" : value,
-                    answer_sheet_id: "",
-                      disciplina: "",
-                  })
-                }
-                disabled={!filters.municipio || loadingFilters.avaliacao}
-              >
-                <SelectTrigger id="evaluation_id">
-                  <SelectValue
-                    placeholder={loadingFilters.avaliacao ? "Carregando avaliações..." : "Selecione a avaliação"}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas as avaliações</SelectItem>
-                  {evaluationItems.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Select
-                value={filters.answer_sheet_id || "all"}
-                onValueChange={(value) =>
-                  setFilters({
-                    answer_sheet_id: value === "all" ? "" : value,
-                    evaluation_id: "",
-                      disciplina: "",
-                  })
-                }
-                disabled={!filters.municipio || loadingFilters.cartao}
-              >
-                <SelectTrigger id="answer_sheet_id">
-                  <SelectValue
-                    placeholder={loadingFilters.cartao ? "Carregando cartões..." : "Selecione o cartão resposta"}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os cartões</SelectItem>
-                  {answerSheetItems.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
+          {rankingEntityTab === "avaliacao" ? (
+            <EvaluationInstrumentPicker
+              id="evaluation_id"
+              label="Avaliação"
+              estado={filters.estado || "all"}
+              municipio={filters.municipio || "all"}
+              escola={filters.escola}
+              periodo={filters.periodo}
+              estadoLabel={estadoNome}
+              municipioLabel={municipioNome}
+              periodoLabel={filters.periodo}
+              value={filters.evaluation_id || "all"}
+              onChange={(value) =>
+                setFilters({
+                  evaluation_id: value === "all" ? "" : value,
+                  answer_sheet_id: "",
+                  disciplina: "",
+                })
+              }
+              disabled={!filters.municipio}
+              loading={loadingFilters.avaliacao}
+              allowAll
+              allLabel="Todas as avaliações"
+              placeholder={loadingFilters.avaliacao ? "Carregando avaliações..." : "Selecione a avaliação"}
+            />
+          ) : (
+            <EvaluationInstrumentPicker
+              id="answer_sheet_id"
+              label="Cartão resposta"
+              estado={filters.estado || "all"}
+              municipio={filters.municipio || "all"}
+              escola={filters.escola}
+              periodo={filters.periodo}
+              reportEntityType={REPORT_ENTITY_TYPE_ANSWER_SHEET}
+              estadoLabel={estadoNome}
+              municipioLabel={municipioNome}
+              periodoLabel={filters.periodo}
+              value={filters.answer_sheet_id || "all"}
+              onChange={(value) =>
+                setFilters({
+                  answer_sheet_id: value === "all" ? "" : value,
+                  evaluation_id: "",
+                  disciplina: "",
+                })
+              }
+              disabled={!filters.municipio}
+              loading={loadingFilters.cartao}
+              allowAll
+              allLabel="Todos os cartões"
+              placeholder={loadingFilters.cartao ? "Carregando cartões..." : "Selecione o cartão resposta"}
+            />
+          )}
 
           <div className="space-y-1.5">
             <Label htmlFor="escola">Escola</Label>

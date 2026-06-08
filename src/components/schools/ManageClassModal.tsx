@@ -10,10 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
-import { Loader2, Users, GraduationCap, Trash2, Plus, Eye, EyeOff, UserPlus, CheckCircle2, AlertCircle, Upload, ArrowLeftRight, Search, Clock } from "lucide-react";
-import { ClassShiftBadge } from "./ClassShiftBadge";
-import { EditClassShiftDialog } from "./EditClassShiftDialog";
-import { type ClassShiftCanonical, toApiShiftValue } from "@/lib/classShift";
+import { Loader2, Users, GraduationCap, Trash2, Plus, Eye, EyeOff, UserPlus, CheckCircle2, AlertCircle, Upload, ArrowLeftRight, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { LinkTeacherModal } from "./LinkTeacherModal";
 import { LinkStudentModal } from "./LinkStudentModal";
@@ -80,7 +77,6 @@ interface ClassData {
   school_id?: string;
   grade?: string | GradeObject;
   grade_id?: string;
-  shift?: string | null;
 }
 
 interface ManageClassModalProps {
@@ -115,8 +111,6 @@ export function ManageClassModal({
   const [viewingStudent, setViewingStudent] = useState<Student | null>(null);
   const [viewingTeacher, setViewingTeacher] = useState<Teacher | null>(null);
   const [activeTab, setActiveTab] = useState("manage");
-  const [classShift, setClassShift] = useState<ClassShiftCanonical | null>(null);
-  const [showEditShiftDialog, setShowEditShiftDialog] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [showStudentPassword, setShowStudentPassword] = useState(false);
   const [formData, setFormData] = useState({
@@ -215,25 +209,11 @@ export function ManageClassModal({
     }
   }, [classData.id, schoolId, toast]);
 
-  const refreshClassShift = useCallback(async () => {
-    try {
-      const res = await api.get<ApiResponse<{ shift?: string | null }>>(`/classes/${classData.id}`);
-      const data = res.data as Record<string, unknown> | undefined;
-      const shiftRaw =
-        (data && typeof data === "object" && "shift" in data ? data.shift : null) ??
-        classData.shift;
-      setClassShift(toApiShiftValue(shiftRaw as string | null));
-    } catch {
-      setClassShift(toApiShiftValue(classData.shift));
-    }
-  }, [classData.id, classData.shift]);
-
   // Buscar professores e alunos da turma
   useEffect(() => {
     if (!isOpen) return;
     fetchClassData();
-    void refreshClassShift();
-  }, [isOpen, fetchClassData, refreshClassShift]);
+  }, [isOpen, fetchClassData]);
 
   useEffect(() => {
     if (!isOpen) setStudentSearchQuery("");
@@ -436,32 +416,9 @@ export function ManageClassModal({
                     </span>
                   </span>
                 )}
-                <span className="flex items-center gap-1">
-                  <span className="hidden sm:inline">•</span>
-                  <ClassShiftBadge shift={classShift ?? classData.shift} />
-                </span>
               </div>
             </DialogDescription>
           </DialogHeader>
-
-          <div className="px-4 sm:px-6 pt-2 pb-0 border-b border-border/60 bg-muted/30">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-3">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm text-muted-foreground">Turno:</span>
-                <ClassShiftBadge shift={classShift ?? classData.shift} />
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="w-full sm:w-auto"
-                onClick={() => setShowEditShiftDialog(true)}
-              >
-                <Clock className="h-4 w-4 mr-2" />
-                Editar turno
-              </Button>
-            </div>
-          </div>
 
           <div className="flex-1 overflow-hidden px-4 sm:px-6 min-h-0">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
@@ -953,18 +910,6 @@ export function ManageClassModal({
             : String(classData.grade || "")
         }
         onSuccess={fetchClassData}
-      />
-
-      <EditClassShiftDialog
-        open={showEditShiftDialog}
-        onOpenChange={setShowEditShiftDialog}
-        classId={classData.id}
-        className={classData.name}
-        initialShift={classShift ?? classData.shift}
-        onSaved={(shift) => {
-          setClassShift(shift);
-          onSuccess();
-        }}
       />
 
       {schoolCityId ? (

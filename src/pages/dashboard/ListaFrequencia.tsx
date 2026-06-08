@@ -10,6 +10,7 @@ import { ClipboardList, Filter, Loader2, Printer } from 'lucide-react';
 import { api } from '@/lib/api';
 import { FormFiltersApiService } from '@/services/formFiltersApi';
 import { EvaluationResultsApiService, REPORT_ENTITY_TYPE_ANSWER_SHEET } from '@/services/evaluation/evaluationResultsApi';
+import { EvaluationInstrumentPicker } from '@/components/filters';
 import {
   getListaFrequencia,
   getListaFrequenciaPorAvaliacao,
@@ -686,36 +687,27 @@ export default function ListaFrequencia() {
             </div>
 
             {isModoAplicada && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">{labelItemAplicado}</label>
-                <Select
-                  value={selectedAvaliacaoId}
-                  onValueChange={setSelectedAvaliacaoId}
-                  disabled={
-                    isLoadingAvaliacoes ||
-                    !selectedMunicipio ||
-                    selectedMunicipio === 'all'
-                  }
-                >
-                  <SelectTrigger className="max-w-md">
-                    <SelectValue
-                      placeholder={
-                        !selectedMunicipio || selectedMunicipio === 'all'
-                          ? 'Selecione o município primeiro'
-                          : `Selecione o(a) ${labelItemAplicado.toLowerCase()}`
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">{`Selecione o(a) ${labelItemAplicado.toLowerCase()}`}</SelectItem>
-                    {avaliacoes.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.titulo}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <EvaluationInstrumentPicker
+                label={labelItemAplicado}
+                className="max-w-md"
+                estado={selectedEstado}
+                municipio={selectedMunicipio}
+                escola={selectedSchool !== 'all' ? selectedSchool : undefined}
+                reportEntityType={
+                  modoLista === 'cartao_resposta' ? REPORT_ENTITY_TYPE_ANSWER_SHEET : undefined
+                }
+                value={selectedAvaliacaoId}
+                onChange={setSelectedAvaliacaoId}
+                disabled={!selectedMunicipio || selectedMunicipio === 'all'}
+                loading={isLoadingAvaliacoes}
+                allowAll
+                allLabel={`Selecione o(a) ${labelItemAplicado.toLowerCase()}`}
+                placeholder={
+                  !selectedMunicipio || selectedMunicipio === 'all'
+                    ? 'Selecione o município primeiro'
+                    : `Selecione o(a) ${labelItemAplicado.toLowerCase()}`
+                }
+              />
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
             <div className="space-y-2">

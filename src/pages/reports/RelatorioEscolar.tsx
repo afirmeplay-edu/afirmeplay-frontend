@@ -42,7 +42,12 @@ import {
 } from "@/services/evaluation/evaluationResultsApi";
 import { RelatorioCompleto } from "@/types/evaluation-results";
 import { useAuth } from "@/context/authContext";
-import { FilterComponentAnalise, ResultsPeriodMonthYearPicker } from "@/components/filters";
+import { FilterComponentAnalise, ResultsPeriodMonthYearPicker, InstrumentPickerField } from "@/components/filters";
+import {
+  buildPickerContextLines,
+  toInstrumentPickerItems,
+  toInstrumentPickerSeries,
+} from "@/components/filters/instrumentPickerHelpers";
 import { normalizeResultsPeriodYm } from "@/utils/resultsPeriod";
 import { getUserHierarchyContext, getRestrictionMessage, validateReportAccess, UserHierarchyContext, cityIdQueryParamForAdmin } from "@/utils/userHierarchy";
 import {
@@ -1252,10 +1257,18 @@ export default function RelatorioEscolar({
     estados?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
     municipios?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
     gabaritos?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
+    series_disponiveis?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
     escolas?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
     series?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
     turmas?: Array<{ id: string; nome?: string; name?: string; titulo?: string; shift?: string }>;
   }>({});
+  const [pickerGabaritos, setPickerGabaritos] = useState<
+    Array<{ id: string; nome?: string; name?: string; titulo?: string }>
+  >([]);
+  const [pickerSeriesDisponiveis, setPickerSeriesDisponiveis] = useState<
+    Array<{ id: string; nome?: string; name?: string; titulo?: string }>
+  >([]);
+  const [pickerModalLoading, setPickerModalLoading] = useState(false);
 
   const asNorm = (o: { id: string; nome?: string; name?: string; titulo?: string }) =>
     o.nome ?? o.name ?? o.titulo ?? o.id;
@@ -1761,6 +1774,7 @@ export default function RelatorioEscolar({
         estados?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
         municipios?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
         gabaritos?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
+        series_disponiveis?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
         escolas?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
         series?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
         turmas?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
@@ -1791,6 +1805,43 @@ export default function RelatorioEscolar({
     periodoYmRelatorio,
     toast,
   ]);
+
+  const fetchPickerGabaritos = useCallback(
+    async (modalFilters?: { serieFiltro: string; nome: string }) => {
+      if (!isAnswerSheetAgregados || !asEstado || asEstado === 'all' || !asMunicipio || asMunicipio === 'all') {
+        setPickerGabaritos([]);
+        setPickerSeriesDisponiveis([]);
+        return;
+      }
+      const params = new URLSearchParams();
+      params.set('estado', asEstado);
+      params.set('municipio', asMunicipio);
+      if (periodoYmRelatorio) params.set('periodo', periodoYmRelatorio);
+      if (modalFilters?.serieFiltro && modalFilters.serieFiltro !== 'all') {
+        params.set('serie_filtro', modalFilters.serieFiltro);
+      }
+      if (modalFilters?.nome?.trim()) params.set('nome', modalFilters.nome.trim());
+      try {
+        setPickerModalLoading(true);
+        const url = `/answer-sheets/opcoes-filtros-results?${params.toString()}`;
+        const res = await api.get<{
+          gabaritos?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
+          series_disponiveis?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
+        }>(url);
+        const raw = res.data || {};
+        const gabaritosFiltrados = await filtrarGabaritosOpcoesSomenteComHabilidadesVinculadas(
+          (raw.gabaritos ?? []) as GabaritoOpcaoFiltrosResults[]
+        );
+        setPickerGabaritos(gabaritosFiltrados);
+        if (!modalFilters) setPickerSeriesDisponiveis(raw.series_disponiveis ?? []);
+      } catch {
+        setPickerGabaritos([]);
+      } finally {
+        setPickerModalLoading(false);
+      }
+    },
+    [isAnswerSheetAgregados, asEstado, asMunicipio, periodoYmRelatorio]
+  );
 
   useEffect(() => {
     if (isAnswerSheetAgregados) {
@@ -5367,22 +5418,50 @@ export default function RelatorioEscolar({
                 }}
                 disabled={isLoadingFilters || asMunicipio === 'all'}
               />
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Cartão resposta</label>
-                <Select value={asGabarito} onValueChange={setAsGabaritoAndReset} disabled={isLoadingFilters || asMunicipio === 'all'}>
-                  <SelectTrigger className="w-full min-w-0">
-                    <SelectValue placeholder="Selecione o cartão resposta" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
-                    {(asOpcoes.gabaritos ?? []).map((g) => (
-                      <SelectItem key={g.id} value={g.id}>
-                        {asNorm(g)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <InstrumentPickerField
+                label="Cartão resposta"
+                value={asGabarito}
+                onChange={setAsGabaritoAndReset}
+                items={toInstrumentPickerItems(
+                  (() => {
+                    const base =
+                      pickerGabaritos.length > 0 ? pickerGabaritos : (asOpcoes.gabaritos ?? []);
+                    if (asGabarito === 'all' || base.some((g) => g.id === asGabarito)) return base;
+                    const selected = (asOpcoes.gabaritos ?? []).find((g) => g.id === asGabarito);
+                    return selected ? [...base, selected] : base;
+                  })().map((g) => ({ id: g.id, titulo: asNorm(g) }))
+                )}
+                seriesOptions={toInstrumentPickerSeries(
+                  pickerSeriesDisponiveis.length > 0
+                    ? pickerSeriesDisponiveis
+                    : (asOpcoes.series_disponiveis ?? [])
+                )}
+                disabled={isLoadingFilters || asMunicipio === 'all'}
+                loading={isLoadingFilters}
+                modalLoading={pickerModalLoading}
+                placeholder="Selecione o cartão resposta"
+                modalTitle="Selecionar cartão resposta"
+                allowAll
+                allLabel="Todos"
+                contextLines={buildPickerContextLines({
+                  estado:
+                    asEstado === 'all'
+                      ? undefined
+                      : asNorm((asOpcoes.estados ?? []).find((s) => s.id === asEstado) ?? { id: asEstado }),
+                  municipio:
+                    asMunicipio === 'all'
+                      ? undefined
+                      : asNorm(
+                          (asOpcoes.municipios ?? []).find((m) => m.id === asMunicipio) ?? {
+                            id: asMunicipio,
+                          }
+                        ),
+                  periodo: periodoYmRelatorio,
+                })}
+                contextRequiredMessage="Selecione estado e município nos filtros antes de escolher."
+                onModalOpen={() => void fetchPickerGabaritos()}
+                onModalFiltersChange={(filters) => void fetchPickerGabaritos(filters)}
+              />
               <div className="space-y-2">
                 <label className="text-sm font-medium">Escola</label>
                 <Select value={asEscola} onValueChange={setAsEscolaAndReset} disabled={isLoadingFilters || asGabarito === 'all'}>

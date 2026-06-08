@@ -94,8 +94,10 @@ export function EtiquetaPreviewCanvas({ label, context, logoUrl, className = "" 
         <p className="text-[11px] uppercase break-words">
           <EtiquetaUnderlinedLabel
             label="Série/Turma: "
-            value={`${etiquetasSerieTurmaLine(context).toUpperCase()} | `}
+            value={etiquetasSerieTurmaLine(context).toUpperCase()}
           />
+        </p>
+        <p className="text-[11px] uppercase break-words">
           <EtiquetaUnderlinedLabel
             label="Turno: "
             value={etiquetasTurnoLabel(context).toUpperCase()}
