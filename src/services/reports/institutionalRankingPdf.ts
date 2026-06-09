@@ -4,7 +4,7 @@
  */
 import { jsPDF } from 'jspdf';
 import type { UserOptions } from 'jspdf-autotable';
-import { urlToPngAsset } from '@/utils/pdfCityBranding';
+import { loadCityBrandingForReportPdf } from '@/utils/pdfCityBranding';
 
 export type InstitutionalRankingPdfFilterLabels = {
   estado: string;
@@ -109,7 +109,8 @@ async function addCover(
   doc: jsPDF,
   titleBand: string,
   subtitleBand: string,
-  escopoLinha: string
+  escopoLinha: string,
+  cityId: string | null
 ): Promise<void> {
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -122,7 +123,7 @@ async function addCover(
   doc.setFillColor(...C.primary);
   doc.rect(0, 0, pageW, BAND_H, 'F');
 
-  const logoAsset = await urlToPngAsset('/LOGO-1.png');
+  const { logo: logoAsset } = await loadCityBrandingForReportPdf(cityId);
   let logoBottom = 0;
   if (logoAsset?.dataUrl && logoAsset.iw > 0 && logoAsset.ih > 0) {
     const { w, h } = scaledSize(logoAsset.iw, logoAsset.ih, 38);
@@ -167,6 +168,8 @@ export async function generateInstitutionalRankingPdf(opts: {
   colEntidade: string;
   rows: InstitutionalRankingPdfRow[];
   fileNameBase?: string;
+  /** UUID do município para logo municipal no PDF. */
+  cityId?: string | null;
 }): Promise<void> {
   const { default: autoTable } = await import('jspdf-autotable');
   const filters = opts.filterLabels;
@@ -177,7 +180,8 @@ export async function generateInstitutionalRankingPdf(opts: {
     doc,
     'RANKING AGREGADO',
     'Desempenho por escola, série ou turma (conforme recorte)',
-    escopo
+    escopo,
+    opts.cityId ?? null
   );
 
   doc.addPage();

@@ -247,7 +247,11 @@ export function AtaSalaSavedList({ refreshToken = 0, defaultCityId }: AtaSalaSav
     try {
       const detail = await getSavedAta(item.id, item.city_id || defaultCityId);
       const pdfData = normalizePdfData(detail.content);
-      downloadAtaSalaPdf(pdfData, buildPdfFileName(detail.title || item.title));
+      await downloadAtaSalaPdf(
+        pdfData,
+        buildPdfFileName(detail.title || item.title),
+        item.city_id || defaultCityId
+      );
       toast({
         title: "PDF gerado",
         description: "O download da ata foi iniciado.",

@@ -3,7 +3,7 @@ import type { ComparisonResponse } from '@/services/evaluation/evaluationCompari
 import { EvolutionPDFLayout } from '@/components/evolution/EvolutionPDFLayout';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { urlToPngAsset } from '@/utils/pdfCityBranding';
+import { loadCityBrandingForReportPdf, type PdfImageAsset, urlToPngAsset } from '@/utils/pdfCityBranding';
 
 interface FilterInfo {
   state?: { id: string; name: string };
@@ -392,7 +392,8 @@ async function addCoverPage(
   pageHeight: number,
   evaluationNames: string[],
   comparisonData: ComparisonResponse | null,
-  filterInfo: FilterInfo | null
+  filterInfo: FilterInfo | null,
+  logoAsset: PdfImageAsset | null
 ): Promise<void> {
   // Garantir fundo branco limpo
   pdf.setFillColor(...COLORS.white);
@@ -407,7 +408,6 @@ async function addCoverPage(
 
   // Logo na faixa
   let logoBottomInBand = 0;
-  const logoAsset = await urlToPngAsset('/LOGO-1.png');
   if (logoAsset?.dataUrl && logoAsset.iw > 0 && logoAsset.ih > 0) {
     const desiredLogoWidth = 38;
     const desiredLogoHeight = (logoAsset.ih * desiredLogoWidth) / logoAsset.iw;
@@ -609,7 +609,8 @@ async function addCategoryDivider(
   categoryDescription: string,
   filterInfo?: FilterInfo | null,
   evaluationNames?: string[],
-  ico?: { dataUrl: string; iw: number; ih: number } | null
+  ico?: { dataUrl: string; iw: number; ih: number } | null,
+  reportLogo?: PdfImageAsset | null
 ): Promise<void> {
   // Garantir fundo branco
   pdf.setFillColor(...COLORS.white);
@@ -623,18 +624,22 @@ async function addCategoryDivider(
   pdf.setFillColor(...COLORS.primary);
   pdf.rect(0, 0, pageWidth, BAND_H, 'F');
 
-  // Ícone na faixa (preferir ico)
+  // Ícone na faixa (preferir ico); senão logo municipal/institucional
   if (ico?.dataUrl && ico.iw > 0 && ico.ih > 0) {
     const icoH = 14;
     const icoW = (ico.iw * icoH) / ico.ih;
     pdf.addImage(ico.dataUrl, 'PNG', margin, (BAND_H - icoH) / 2, icoW, icoH);
-  } else {
-    const logoAsset = await urlToPngAsset('/LOGO-1.png');
-    if (logoAsset?.dataUrl && logoAsset.iw > 0 && logoAsset.ih > 0) {
-      const desiredLogoWidth = 22;
-      const desiredLogoHeight = (logoAsset.ih * desiredLogoWidth) / logoAsset.iw;
-      pdf.addImage(logoAsset.dataUrl, 'PNG', margin, (BAND_H - desiredLogoHeight) / 2, desiredLogoWidth, desiredLogoHeight);
-    }
+  } else if (reportLogo?.dataUrl && reportLogo.iw > 0 && reportLogo.ih > 0) {
+    const desiredLogoWidth = 22;
+    const desiredLogoHeight = (reportLogo.ih * desiredLogoWidth) / reportLogo.iw;
+    pdf.addImage(
+      reportLogo.dataUrl,
+      'PNG',
+      margin,
+      (BAND_H - desiredLogoHeight) / 2,
+      desiredLogoWidth,
+      desiredLogoHeight
+    );
   }
 
   // Título na faixa
@@ -891,9 +896,19 @@ export async function generateEvolutionPDFFromHTML(
 
     // Ícone para cabeçalhos internos
     const icoAsset = await urlToPngAsset('/AFIRME-PLAY-ico.png');
+    const cityId = filterInfo?.municipality?.id ?? null;
+    const { logo: reportLogo } = await loadCityBrandingForReportPdf(cityId);
 
     // Adicionar capa como primeira página
-    await addCoverPage(pdf, imgWidth, pageHeight, evaluationNames, comparisonData, filterInfo || null);
+    await addCoverPage(
+      pdf,
+      imgWidth,
+      pageHeight,
+      evaluationNames,
+      comparisonData,
+      filterInfo || null,
+      reportLogo
+    );
     
     // Adicionar página de informações sobre filtros e avaliações
     pdf.addPage();
@@ -975,7 +990,8 @@ export async function generateEvolutionPDFFromHTML(
         'Análise de Nota e Proficiência Geral',
         filterInfo || null,
         evaluationNames,
-        icoAsset
+        icoAsset,
+        reportLogo
       );
       // Criar página para os gráficos
       pdf.addPage();
@@ -994,7 +1010,8 @@ export async function generateEvolutionPDFFromHTML(
         'Análise Detalhada por Disciplina (Nota e Proficiência)',
         filterInfo || null,
         evaluationNames,
-        icoAsset
+        icoAsset,
+        reportLogo
       );
       pdf.addPage();
       currentY = addHeader(pdf, imgWidth, filterInfo || null, 'GRÁFICOS POR DISCIPLINA', icoAsset) || marginTop;
@@ -1012,7 +1029,8 @@ export async function generateEvolutionPDFFromHTML(
         'Análise de Proficiência por Níveis de Desempenho',
         filterInfo || null,
         evaluationNames,
-        icoAsset
+        icoAsset,
+        reportLogo
       );
       pdf.addPage();
       currentY = addHeader(pdf, imgWidth, filterInfo || null, 'GRÁFICOS POR NÍVEL', icoAsset) || marginTop;

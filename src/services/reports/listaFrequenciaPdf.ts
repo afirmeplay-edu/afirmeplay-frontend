@@ -2,7 +2,6 @@ import type { ListaFrequenciaResponse, Cabecalho } from "@/types/lista-frequenci
 import {
   loadCityBrandingForReportPdf,
   paintLetterheadBackground,
-  urlToPngAsset,
   type PdfImageAsset,
 } from "@/utils/pdfCityBranding";
 import { buildHierarchyPath } from "@/services/reports/hierarchicalDownload";
@@ -114,15 +113,6 @@ function drawListaHeaderLogo(
   }
   doc.addImage(logo.dataUrl, "PNG", (pageWidth - lw) / 2, y, lw, lh);
   return y + lh + 8;
-}
-
-async function resolveListaPdfBranding(cityId: string | null) {
-  const branding = await loadCityBrandingForReportPdf(cityId);
-  const hdLogo = await urlToPngAsset("/LOGO-1.png");
-  if (hdLogo && (!branding.logo || hdLogo.iw >= branding.logo.iw)) {
-    return { ...branding, logo: hdLogo };
-  }
-  return branding;
 }
 
 async function drawListaSection(
@@ -354,7 +344,7 @@ export async function createListaFrequenciaPdfDoc(
   const jsPDF = (await import("jspdf")).default;
   const autoTable = (await import("jspdf-autotable")).default;
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const cityBranding = await resolveListaPdfBranding(options.cityId);
+  const cityBranding = await loadCityBrandingForReportPdf(options.cityId);
 
   for (let sectionIndex = 0; sectionIndex < items.length; sectionIndex += 1) {
     await drawListaSection(doc, autoTable, items[sectionIndex], {

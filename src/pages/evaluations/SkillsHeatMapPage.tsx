@@ -953,6 +953,7 @@ export default function SkillsHeatMapPage() {
   const filtrosMetaOnline = useMemo<SkillsHeatMapPdfMeta>(() => ({
     estado:    oEstados.find((x) => x.id === oEstado)?.nome,
     municipio: oMunicipios.find((x) => x.id === oMunicipio)?.nome,
+    municipioId: oMunicipio !== 'all' ? oMunicipio : undefined,
     avaliacao: oAvaliacoes.find((x) => x.id === oAvaliacao)?.nome,
     escola:    oEscolas.find((x) => x.id === oEscola)?.nome,
     serie:     oSeries.find((x) => x.id === oSerie)?.nome,
@@ -966,6 +967,7 @@ export default function SkillsHeatMapPage() {
   const filtrosMetaCartao = useMemo<SkillsHeatMapPdfMeta>(() => ({
     estado:    cEstados.find((x) => x.id === cEstado)?.nome,
     municipio: cMunicipios.find((x) => x.id === cMunicipio)?.nome,
+    municipioId: cMunicipio !== 'all' ? cMunicipio : undefined,
     gabarito:  cGabaritos.find((x) => x.id === cGabarito)?.nome,
     escola:    cEscolas.find((x) => x.id === cEscola)?.nome,
     serie:     cSeries.find((x) => x.id === cSerie)?.nome,

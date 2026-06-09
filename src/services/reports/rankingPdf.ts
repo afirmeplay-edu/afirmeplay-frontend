@@ -5,7 +5,7 @@
  */
 import { jsPDF } from 'jspdf';
 import type { UserOptions } from 'jspdf-autotable';
-import { urlToPngAsset } from '@/utils/pdfCityBranding';
+import { loadCityBrandingForReportPdf } from '@/utils/pdfCityBranding';
 import type { RankingFilters, RankingResponse, RankingType } from '@/services/reports/rankingApi';
 import {
   normalizeProficiencyLevelLabel,
@@ -663,13 +663,20 @@ function borderFromFill(fill: [number, number, number]): [number, number, number
   ];
 }
 
+function resolveRankingCityId(municipio?: string): string | null {
+  const id = String(municipio ?? '').trim();
+  if (!id || /^todos?$/i.test(id) || id.toLowerCase() === 'all') return null;
+  return id;
+}
+
 async function addRankingCoverPage(
   doc: jsPDF,
   titleBand: string,
   subtitleBand: string,
   mainTitle: string,
   mainSubtitle: string,
-  cardLines: Array<{ label: string; value: string }>
+  cardLines: Array<{ label: string; value: string }>,
+  cityId: string | null
 ): Promise<void> {
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -687,7 +694,7 @@ async function addRankingCoverPage(
   doc.line(18, BAND_H - 1, pageW - 18, BAND_H - 1);
 
   let logoBottomInBand = 0;
-  const logoAsset = await urlToPngAsset('/LOGO-1.png');
+  const { logo: logoAsset } = await loadCityBrandingForReportPdf(cityId);
   if (logoAsset?.dataUrl && logoAsset.iw > 0 && logoAsset.ih > 0) {
     const { w, h } = scaledSize(logoAsset.iw, logoAsset.ih, 40);
     doc.addImage(logoAsset.dataUrl, 'PNG', centerX - w / 2, 8, w, h);
@@ -883,6 +890,8 @@ export async function generateRankingPdf(opts: {
   fileNameBase?: string;
   /** Avaliação online: manter ordem e posição exatamente como o backend enviou no `ranking`. */
   respectBackendRankingOrder?: boolean;
+  /** UUID do município para logo municipal no PDF. */
+  cityId?: string | null;
 }): Promise<void> {
   const { default: autoTable } = await import('jspdf-autotable');
   const maxRows = opts.maxRows ?? 100;
@@ -923,7 +932,8 @@ export async function generateRankingPdf(opts: {
     'Classificação por proficiência',
     'RANKING',
     contextSubtitle,
-    cardLines
+    cardLines,
+    opts.cityId ?? null
   );
 
   pdf.addPage();
@@ -1118,7 +1128,8 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
     subtitleBand,
     'RANKING',
     mainSubtitle,
-    cardLines
+    cardLines,
+    resolveRankingCityId(filters.municipio)
   );
 
   doc.addPage();
