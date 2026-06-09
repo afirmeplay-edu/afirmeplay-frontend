@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { useForm, useFieldArray, useWatch } from "react-hook-form";
+import { useForm, useFieldArray, useWatch, type FieldErrors } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Book, Check, List as ListIcon, Plus, Save, Eye, Type, Trash } from "lucide-react";
@@ -28,8 +28,20 @@ import { Option } from "@/components/ui/multi-select";
 import { useAuth } from "@/context/authContext";
 import QuestionPreview from "./QuestionPreview";
 import SkillsSelector from "./SkillsSelector";
-import { AlternativeInputWithMathButtons } from "./AlternativeInputWithMathButtons";
-import { scrollToFirstError, getFieldLabel } from "@/utils/formValidation";
+import { QuestionOptionInput } from "./QuestionOptionInput";
+import {
+  mapOptionFromApi,
+  mapOptionToApiPayload,
+  optionHasContent,
+  getActiveQuestionOptions,
+} from "@/utils/questionOptionImages";
+import type { QuestionOptionApi } from "@/types/question-option";
+import {
+  scrollToFirstError,
+  scrollToFirstFormError,
+  getFieldLabel,
+  getFirstFormErrorMessage,
+} from "@/utils/formValidation";
 import { UpdateQuestionResponse } from "@/types/question-update";
 
 // Form schema
@@ -44,8 +56,20 @@ const baseSchema = z.object({
   solution: z.string().optional(),
   options: z.array(
     z.object({
-      text: z.string().min(1, "O texto da opção é obrigatório"),
+      id: z.string().optional(),
+      text: z.string(),
       isCorrect: z.boolean(),
+      image: z
+        .object({
+          kind: z.enum(['new', 'existing']),
+          dataUrl: z.string().optional(),
+          id: z.string().optional(),
+          imageUrl: z.string().optional(),
+          width: z.number().optional(),
+          height: z.number().optional(),
+        })
+        .optional()
+        .nullable(),
     })
   ).optional(),
   secondStatement: z.string().optional(),
@@ -55,23 +79,25 @@ const baseSchema = z.object({
 
 const questionSchema = baseSchema.superRefine((data, ctx) => {
   if (data.questionType === 'multipleChoice') {
-    if (!data.options || data.options.length < 2) {
+    const activeOptions = getActiveQuestionOptions(data.options);
+
+    if (activeOptions.length < 2) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'Adicione pelo menos duas alternativas.',
         path: ['options'],
       });
     } else {
-      data.options.forEach((opt, idx) => {
-        if (!opt.text || opt.text.trim() === '') {
+      activeOptions.forEach((opt, idx) => {
+        if (!optionHasContent(opt)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: 'O texto da alternativa é obrigatório.',
+            message: 'Preencha o texto, uma expressão ou uma imagem na alternativa.',
             path: ['options', idx, 'text'],
           });
         }
       });
-      if (!data.options.some(opt => opt.isCorrect)) {
+      if (!activeOptions.some((opt) => opt.isCorrect)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: 'Marque uma alternativa como correta.',
@@ -149,11 +175,11 @@ const QuestionForm = ({
       value: "",
       solution: "",
       options: [
-        { text: "", isCorrect: false },
-        { text: "", isCorrect: false },
-        { text: "", isCorrect: false },
-        { text: "", isCorrect: false },
-        { text: "", isCorrect: false },
+        { text: "", isCorrect: false, image: null },
+        { text: "", isCorrect: false, image: null },
+        { text: "", isCorrect: false, image: null },
+        { text: "", isCorrect: false, image: null },
+        { text: "", isCorrect: false, image: null },
       ],
       secondStatement: "",
       skills: [],
@@ -248,10 +274,9 @@ const QuestionForm = ({
           const textForEditor = resolveQuestionImageSrc(questionData.formattedText || questionData.text || "", BASE_URL);
           const solutionForEditor = resolveQuestionImageSrc(questionData.formattedSolution || questionData.solution || "", BASE_URL);
           const secondStatementForEditor = resolveQuestionImageSrc(questionData.secondStatement || "", BASE_URL);
-          const optionsForEditor = (questionData.options || []).map((opt: { text?: string; isCorrect?: boolean; id?: string }) => ({
-            ...opt,
-            text: typeof opt.text === 'string' ? resolveQuestionImageSrc(opt.text, BASE_URL) : (opt as { text?: string }).text || "",
-          }));
+          const optionsForEditor = (questionData.options || []).map((opt) =>
+            mapOptionFromApi(opt as QuestionOptionApi, questionId)
+          );
 
                      const formData: QuestionFormValues = { // Keep the explicit type here for clarity
              title: questionData.title || "",
@@ -491,6 +516,16 @@ const QuestionForm = ({
     return tempDiv.textContent || tempDiv.innerText || '';
   }
 
+  const handleFormInvalid = (errors: FieldErrors<QuestionFormValues>) => {
+    setHasAttemptedSubmit(true);
+    scrollToFirstFormError(errors);
+    toast({
+      title: "Não foi possível salvar a questão",
+      description: getFirstFormErrorMessage(errors),
+      variant: "destructive",
+    });
+  };
+
   const handleFormSubmit = async (data: QuestionFormValues) => {
     setHasAttemptedSubmit(true);
     
@@ -512,8 +547,10 @@ const QuestionForm = ({
 
     // Validação customizada para alternativas (múltipla escolha)
     if (data.questionType === 'multipleChoice') {
-      if (!data.options || data.options.length < 2) {
-        scrollToFirstError({ options: 'error' });
+      const activeOptions = getActiveQuestionOptions(data.options);
+
+      if (activeOptions.length < 2) {
+        scrollToFirstFormError({ options: { message: 'Adicione pelo menos duas alternativas.' } });
         toast({
           title: "Alternativas insuficientes",
           description: "Adicione pelo menos 2 alternativas para questões de múltipla escolha",
@@ -521,12 +558,25 @@ const QuestionForm = ({
         });
         return;
       }
-      
-      if (!data.options.some(opt => opt.isCorrect)) {
-        scrollToFirstError({ options: 'error' });
+
+      if (!activeOptions.some((opt) => opt.isCorrect)) {
+        scrollToFirstFormError({ options: { message: 'Marque uma alternativa como correta.' } });
         toast({
           title: "Resposta correta não marcada",
-          description: "Marque pelo menos uma alternativa como correta",
+          description: "Clique no círculo à esquerda de uma alternativa para marcá-la como correta",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const emptyOptionIndex = activeOptions.findIndex((opt) => !optionHasContent(opt));
+      if (emptyOptionIndex !== -1) {
+        scrollToFirstFormError({
+          options: [{ text: { message: 'Preencha o texto, uma expressão ou uma imagem na alternativa.' } }],
+        });
+        toast({
+          title: "Alternativa incompleta",
+          description: `Preencha texto, expressão LaTeX ou imagem na alternativa ${String.fromCharCode(65 + emptyOptionIndex)}`,
           variant: "destructive",
         });
         return;
@@ -559,12 +609,10 @@ const QuestionForm = ({
     const formattedSolutionForApi = toRelativeQuestionImageSrc(data.solution || "", BASE_URL);
     const secondStatementForApi = toRelativeQuestionImageSrc(data.secondStatement || '', BASE_URL);
 
-    // Monta as opções com id baseado na letra (apenas para múltipla escolha)
-    const options = data.questionType === 'multipleChoice' && data.options ? data.options.map((opt, index) => ({
-        id: String.fromCharCode(65 + index), // "A", "B", "C", "D"...
-        text: typeof opt.text === 'string' ? toRelativeQuestionImageSrc(opt.text, BASE_URL) : opt.text,
-        isCorrect: opt.isCorrect,
-    })) : [];
+    const options =
+      data.questionType === 'multipleChoice' && data.options
+        ? data.options.map((opt, index) => mapOptionToApiPayload(opt, index))
+        : [];
 
     const payload = {
       title: data.title,
@@ -680,8 +728,8 @@ const QuestionForm = ({
     if (!isLoadingQuestion) {
       if (type === 'multipleChoice') {
         form.setValue('options', [
-          { text: '', isCorrect: false },
-          { text: '', isCorrect: false },
+          { text: '', isCorrect: false, image: null },
+          { text: '', isCorrect: false, image: null },
         ]);
         form.clearErrors('options');
       } else if (type === 'dissertativa') {
@@ -727,12 +775,14 @@ const QuestionForm = ({
               value: Number(formData.value),
               solution: formData.solution || '',
               formattedSolution: formData.solution || '',
-              options: formData.questionType === 'multipleChoice' ? formData.options.map((o, i) => ({
-                ...o,
-                id: `preview-${i}`,
-                text: o.text || '',
-                isCorrect: o.isCorrect || false
-              })) : [],
+              options: formData.questionType === 'multipleChoice'
+                ? (formData.options ?? []).map((o, i) => ({
+                    id: o.id ?? `preview-${i}`,
+                    text: o.text || '',
+                    isCorrect: o.isCorrect || false,
+                    image: o.image ?? undefined,
+                  }))
+                : [],
               skills: formData.skills || [],
               created_by: user?.id || '',
               secondStatement: formData.secondStatement,
@@ -743,7 +793,7 @@ const QuestionForm = ({
         </div>
       ) : (
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-8">
+          <form onSubmit={form.handleSubmit(handleFormSubmit, handleFormInvalid)} className="space-y-8">
 
             {/* Seção: Informações Básicas */}
             <div className="bg-blue-50 dark:bg-muted/40 rounded-xl p-6 border border-blue-200 dark:border-border">
@@ -1067,8 +1117,15 @@ const QuestionForm = ({
 
             {/* Seção: Alternativas (apenas para múltipla escolha) */}
             {questionType === 'multipleChoice' && (
-              <div className="bg-orange-50 dark:bg-muted/40 rounded-xl p-6 border border-orange-200 dark:border-border">
-                <div className="flex items-center justify-between mb-4">
+              <div
+                id="question-form-options"
+                className={`bg-orange-50 dark:bg-muted/40 rounded-xl p-6 border transition-colors ${
+                  form.formState.errors.options
+                    ? 'border-red-500 dark:border-red-500 ring-2 ring-red-200 dark:ring-red-900/50'
+                    : 'border-orange-200 dark:border-border'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <Check className="h-5 w-5 text-orange-600 dark:text-orange-400" />
                     <h3 className="text-lg font-semibold text-foreground">Alternativas</h3>
@@ -1078,7 +1135,7 @@ const QuestionForm = ({
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => append({ text: "", isCorrect: false })}
+                      onClick={() => append({ text: "", isCorrect: false, image: null })}
                       className="flex items-center gap-2 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-orange-900/50"
                     >
                       <Plus className="h-4 w-4" />
@@ -1086,6 +1143,19 @@ const QuestionForm = ({
                     </Button>
                   )}
                 </div>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Clique no círculo à esquerda de uma alternativa para marcá-la como{" "}
+                  <span className="font-medium text-green-700 dark:text-green-400">correta</span>.
+                </p>
+
+                {hasAttemptedSubmit && form.formState.errors.options?.message && (
+                  <div
+                    role="alert"
+                    className="mb-4 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-300"
+                  >
+                    {form.formState.errors.options.message}
+                  </div>
+                )}
 
                 <div className="space-y-4">
                   {fields.map((field, index) => (
@@ -1096,11 +1166,15 @@ const QuestionForm = ({
                           form.getValues("options").forEach((_, i) => {
                             form.setValue(`options.${i}.isCorrect`, i === index);
                           });
+                          form.clearErrors('options');
                         }}
-                        className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${form.watch("options")?.[index]?.isCorrect
+                        className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all shrink-0 ${form.watch("options")?.[index]?.isCorrect
                             ? 'bg-green-500 border-green-500 text-white shadow-lg'
-                            : 'bg-card border-border hover:border-border/80'
+                            : hasAttemptedSubmit && form.formState.errors.options
+                              ? 'bg-card border-red-400 dark:border-red-500 hover:border-red-500'
+                              : 'bg-card border-border hover:border-green-400 dark:hover:border-green-600'
                           }`}
+                        title="Marcar como alternativa correta"
                         aria-label={`Marcar alternativa ${String.fromCharCode(65 + index)} como correta`}
                       >
                         {form.watch("options")?.[index]?.isCorrect ? <Check className="w-4 h-4" /> : null}
@@ -1116,11 +1190,17 @@ const QuestionForm = ({
                         render={({ field }) => (
                           <FormItem className="flex-1 min-w-0">
                             <FormControl>
-                              <AlternativeInputWithMathButtons
+                              <QuestionOptionInput
                                 value={field.value}
                                 onChange={field.onChange}
                                 onBlur={field.onBlur}
                                 ref={field.ref}
+                                image={form.watch(`options.${index}.image`)}
+                                onImageChange={(image) =>
+                                  form.setValue(`options.${index}.image`, image, {
+                                    shouldDirty: true,
+                                  })
+                                }
                                 placeholder={`Digite a alternativa ${String.fromCharCode(65 + index)}`}
                                 className="h-11 text-base"
                               />
@@ -1146,11 +1226,6 @@ const QuestionForm = ({
                   ))}
                 </div>
 
-                {hasAttemptedSubmit && form.formState.errors.options && (
-                  <p className="text-red-600 dark:text-red-400 text-sm mt-2">
-                    {form.formState.errors.options.message}
-                  </p>
-                )}
               </div>
             )}
 

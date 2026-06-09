@@ -918,9 +918,10 @@ export default function AtaSalaPage() {
 
   const onDownload = async () => {
     warnInvalidCpf();
+    const ataCityId = selectedMunicipio !== "all" ? selectedMunicipio : null;
     const shouldZip = Boolean(loadedLista && loadedLista.length > 1 && selectedTurma === "all");
     if (!shouldZip) {
-      downloadAtaSalaPdf(pdfData, "ata-de-sala.pdf");
+      await downloadAtaSalaPdf(pdfData, "ata-de-sala.pdf", ataCityId);
       toast({ title: "PDF baixado", description: "A ata de sala foi baixada com sucesso." });
       return;
     }
@@ -929,7 +930,7 @@ export default function AtaSalaPage() {
       const zipEntries: Array<{ path: string; blob: Blob }> = [];
       for (const item of loadedLista) {
         const ataData = buildAtaDataForClass(item);
-        const blob = createAtaSalaPdfBlob(ataData);
+        const blob = await createAtaSalaPdfBlob(ataData, ataCityId);
         const serieTurma = getSerieTurmaDisplay(item.cabecalho);
         zipEntries.push({
           path: buildAtaSalaHierarchyPath({
@@ -953,15 +954,17 @@ export default function AtaSalaPage() {
     }
   };
 
-  const onPreview = () => {
+  const onPreview = async () => {
     warnInvalidCpf();
-    previewAtaSalaPdf(pdfData);
+    const ataCityId = selectedMunicipio !== "all" ? selectedMunicipio : null;
+    await previewAtaSalaPdf(pdfData, ataCityId);
     toast({ title: "PDF gerado", description: "A ata de sala foi aberta em nova guia." });
   };
 
-  const onPrint = () => {
+  const onPrint = async () => {
     warnInvalidCpf();
-    printAtaSalaPdf(pdfData);
+    const ataCityId = selectedMunicipio !== "all" ? selectedMunicipio : null;
+    await printAtaSalaPdf(pdfData, ataCityId);
     toast({ title: "Abrindo impressão", description: "A janela de impressão da ata foi aberta." });
   };
 

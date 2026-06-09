@@ -77,7 +77,12 @@ export interface Question {
   value: number; // Garantir que é number
   solution?: string;
   formattedSolution?: string;
-  options?: { id?: string; text: string; isCorrect: boolean; }[];
+  options?: {
+    id?: string;
+    text: string;
+    isCorrect: boolean;
+    image?: import('@/types/question-option').QuestionOptionImageApi | string;
+  }[];
   secondStatement?: string;
   skills?: string | string[]; // id(s) ou códigos (normalizado como array no front)
   /** Código da habilidade vinculada (skill_code) para exibição */

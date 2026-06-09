@@ -939,6 +939,7 @@ const MonitoringPage = () => {
             value: `${payload.resumo_geral.total_alunos} alunos · ${payload.resumo_geral.total_escolas} escolas · ${payload.resumo_geral.total_acoes} ações`,
           },
         ],
+        cityId: filters.municipio || null,
       });
       toast({ title: "PDF gerado com sucesso", description: "O relatório de monitoramento foi exportado." });
     } catch {

@@ -1871,6 +1871,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
         context: 'avaliacoes',
         escopoTitulo: evaluationInfo?.titulo,
         filterLabels: rankingPdfFilterLabels,
+        cityId: selectedMunicipality !== 'all' ? selectedMunicipality : null,
         students: rankingStudents.map((s) => ({
           nome: s.nome,
           turma: s.turma,
@@ -1900,7 +1901,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
         variant: 'destructive',
       });
     }
-  }, [rankingStudents, rankingPdfFilterLabels, evaluationInfo?.titulo, toast]);
+  }, [rankingStudents, rankingPdfFilterLabels, evaluationInfo?.titulo, selectedMunicipality, toast]);
 
   const buildDisciplineStatsForStudent = useCallback((studentId: string): DisciplineStatsMap | null => {
     const tabelaDetalhada = apiData?.tabela_detalhada as TabelaDetalhada | undefined;
@@ -3137,6 +3138,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                       await generatePendingStudentsPdf({
                         title: "Alunos pendentes — Avaliação",
                         subtitle: evaluationInfo?.titulo ? String(evaluationInfo.titulo) : undefined,
+                        cityId: selectedMunicipality !== 'all' ? selectedMunicipality : null,
                         students: filteredPendingStudents.map((a) => ({
                           nome: a.nome,
                           escola: a.escola,

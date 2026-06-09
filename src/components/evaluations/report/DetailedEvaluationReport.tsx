@@ -9,7 +9,8 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
-import { urlToPngAsset } from "@/utils/pdfCityBranding";
+import { loadCityBrandingForReportPdf, urlToPngAsset } from "@/utils/pdfCityBranding";
+import { useAuth } from "@/context/authContext";
 import { 
   FileText, 
   FileSpreadsheet, 
@@ -70,6 +71,7 @@ interface PerformanceInsight {
 }
 
 export function DetailedEvaluationReport({ evaluationId, onBack }: DetailedEvaluationReportProps) {
+  const { user } = useAuth();
   const [reportData, setReportData] = useState<DetailedReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showSkills, setShowSkills] = useState(true);
@@ -436,7 +438,8 @@ export function DetailedEvaluationReport({ evaluationId, onBack }: DetailedEvalu
         white: [255, 255, 255] as [number, number, number],
       };
 
-      const logoAsset = await urlToPngAsset('/LOGO-1.png');
+      const brandingCityId = user?.city_id || user?.tenant_id || null;
+      const { logo: logoAsset } = await loadCityBrandingForReportPdf(brandingCityId);
       const icoAsset = await urlToPngAsset('/AFIRME-PLAY-ico.png');
 
       const drawCover = () => {

@@ -5,7 +5,7 @@
  */
 import { jsPDF } from "jspdf";
 import type { CellHookData, UserOptions } from "jspdf-autotable";
-import { urlToPngAsset } from "@/utils/pdfCityBranding";
+import { loadCityBrandingForReportPdf } from "@/utils/pdfCityBranding";
 import type {
   MonitoringReportData,
   MonitoringSchoolItem,
@@ -473,7 +473,8 @@ async function addMonitoringCoverPage(
   doc: jsPDF,
   title: string,
   periodicidade: "semanal" | "mensal",
-  cardLines: Array<{ label: string; value: string }>
+  cardLines: Array<{ label: string; value: string }>,
+  cityId: string | null
 ) {
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -490,7 +491,7 @@ async function addMonitoringCoverPage(
   doc.line(18, BAND_H - 1, pageW - 18, BAND_H - 1);
 
   let logoBottomInBand = 0;
-  const logoAsset = await urlToPngAsset("/LOGO-1.png");
+  const { logo: logoAsset } = await loadCityBrandingForReportPdf(cityId);
   if (logoAsset?.dataUrl && logoAsset.iw > 0 && logoAsset.ih > 0) {
     const { w, h } = scaledSize(logoAsset.iw, logoAsset.ih, 40);
     doc.addImage(logoAsset.dataUrl, "PNG", centerX - w / 2, 8, w, h);
@@ -621,6 +622,8 @@ export async function generateMonitoringPdf(opts: {
   title: string;
   filterLines?: string[];
   coverCardLines?: Array<{ label: string; value: string }>;
+  /** UUID do município para logo municipal no PDF. */
+  cityId?: string | null;
 }): Promise<void> {
   const { default: autoTable } = await import("jspdf-autotable");
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -659,7 +662,8 @@ export async function generateMonitoringPdf(opts: {
     doc,
     opts.title,
     opts.periodicidade,
-    opts.coverCardLines?.length ? opts.coverCardLines : defaultCoverLines
+    opts.coverCardLines?.length ? opts.coverCardLines : defaultCoverLines,
+    opts.cityId ?? null
   );
 
   doc.addPage();

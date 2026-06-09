@@ -2,7 +2,6 @@ import type { ListaFrequenciaResponse, Cabecalho } from "@/types/lista-frequenci
 import {
   loadCityBrandingForReportPdf,
   paintLetterheadBackground,
-  urlToPngAsset,
   type PdfImageAsset,
 } from "@/utils/pdfCityBranding";
 import { buildHierarchyPath } from "@/services/reports/hierarchicalDownload";
@@ -22,48 +21,115 @@ function formatLegenda(legenda: Cabecalho["legenda"]): string {
     .join("; ");
 }
 
+/** Remove traços/espaços iniciais do sufixo da turma (ex.: "- 4º ANO" → "4º ANO"). */
+function normalizeTurmaSuffix(value: string): string {
+  return value.replace(/^[\s\-–—]+/, "").trim();
+}
+
+function startsWithSerie(serie: string, serieTurma: string): boolean {
+  const s = serie.trim().toLowerCase();
+  const st = serieTurma.trim().toLowerCase();
+  if (!s || !st) return false;
+  if (st === s) return true;
+  return st.startsWith(`${s} `) || st.startsWith(`${s}-`);
+}
+
+/** Detecta `turma` vindo truncado do backend (ex.: "ANO" em "- 4º ANO"). */
+function isAmbiguousTurmaToken(turma: string, serieTurma: string): boolean {
+  if (!turma || !serieTurma) return false;
+  if (turma.toUpperCase() === "ANO") return true;
+
+  const normalized = normalizeTurmaSuffix(serieTurma);
+  if (normalized.length > turma.length && normalized.toUpperCase().includes(turma.toUpperCase())) {
+    const parts = normalized.split(/\s+/).filter(Boolean);
+    if (parts.length > 1 && parts[parts.length - 1] === turma) return true;
+  }
+  return false;
+}
+
+/**
+ * Deriva o rótulo da turma a partir de `serie_turma` (= Class.name no cadastro).
+ * Suporta letra única, número, nome personalizado e sufixos como "- 4º ANO".
+ */
+function deriveTurmaFromSerieTurma(serie: string, serieTurma: string): string {
+  const s = serie.trim();
+  const st = serieTurma.trim();
+  if (!st) return "";
+
+  if (s && !startsWithSerie(s, st)) {
+    return normalizeTurmaSuffix(st);
+  }
+
+  const dashParts = st.split(/\s*-\s*/);
+  if (dashParts.length >= 2) {
+    const left = dashParts[0].trim();
+    const right = normalizeTurmaSuffix(dashParts.slice(1).join(" - "));
+    if (right && (!s || !left || left.toLowerCase() === s.toLowerCase())) {
+      return right;
+    }
+  }
+
+  if (s && st.toLowerCase().startsWith(s.toLowerCase())) {
+    const rest = st.slice(s.length).replace(/^[\s\-–—]+/, "").trim();
+    if (rest) return rest;
+  }
+
+  const parts = st.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) {
+    return normalizeTurmaSuffix(parts[0]);
+  }
+
+  const last = parts[parts.length - 1] ?? "";
+  if (last.length === 1 && /[A-Za-z0-9]/.test(last)) {
+    return last;
+  }
+
+  if (!s) {
+    return normalizeTurmaSuffix(st);
+  }
+
+  return "";
+}
+
+function deriveSerieLabel(serie: string, serieTurma: string, turma: string): string {
+  const s = serie.trim();
+  const st = serieTurma.trim();
+  if (s) return s;
+  if (!st) return "—";
+
+  if (turma && turma !== "—") {
+    const idx = st.lastIndexOf(turma);
+    if (idx > 0) {
+      const prefix = st.slice(0, idx).replace(/[\s\-–—]+$/, "").trim();
+      if (prefix) return prefix;
+    }
+  }
+
+  const dashParts = st.split(/\s*-\s*/);
+  if (dashParts.length >= 2 && dashParts[0].trim()) {
+    return dashParts[0].trim();
+  }
+
+  return st;
+}
+
 export function getSerieTurmaDisplay(cab: Cabecalho): { serie: string; turma: string } {
   const s = cab.serie?.trim() ?? "";
   const t = cab.turma?.trim() ?? "";
   const st = cab.serie_turma?.trim() ?? "";
 
-  const turmaRemovendoSerie = (): string => {
-    if (!s || !st) return "";
-    const serieLen = s.toUpperCase().length;
-    let rest = st.slice(serieLen);
-    rest = rest.replace(/^[\s\-–—]+/, "").trim();
-    return rest;
-  };
+  const derivedTurma = deriveTurmaFromSerieTurma(s, st);
 
-  const turmaUltimaPalavra = (): string => {
-    if (!st) return "";
-    const parts = st.split(/\s+/).filter(Boolean);
-    if (parts.length > 2) return parts[parts.length - 1] ?? "";
-    if (parts.length === 2 && parts[1]?.length === 1) return parts[1];
-    return "";
-  };
-
-  if (s && t) return { serie: s, turma: t };
-  if (t) return { serie: st || s || "—", turma: t };
-
-  if (s) {
-    const derived = turmaRemovendoSerie() || turmaUltimaPalavra();
-    return { serie: s, turma: derived || "—" };
+  let turma = "—";
+  if (derivedTurma) {
+    turma = derivedTurma;
+  } else if (t && !isAmbiguousTurmaToken(t, st)) {
+    turma = t;
   }
 
-  if (st) {
-    const dashSplit = st.split(/\s*-\s*/);
-    if (dashSplit.length >= 2) return { serie: dashSplit[0].trim(), turma: dashSplit[1].trim() };
-    const derived = turmaUltimaPalavra();
-    if (derived) {
-      const parts = st.split(/\s+/).filter(Boolean);
-      const serieFromSt = parts.length > 1 ? parts.slice(0, -1).join(" ") : st;
-      return { serie: serieFromSt || st, turma: derived };
-    }
-    return { serie: st, turma: "—" };
-  }
+  const serie = deriveSerieLabel(s, st, turma);
 
-  return { serie: "—", turma: "—" };
+  return { serie, turma };
 }
 
 type ColumnStyle = { cellWidth: number; halign?: "left" | "center" | "right"; overflow?: "linebreak" | "hidden" };
@@ -116,15 +182,6 @@ function drawListaHeaderLogo(
   }
   doc.addImage(logo.dataUrl, "PNG", (pageWidth - lw) / 2, y, lw, lh);
   return y + lh + 8;
-}
-
-async function resolveListaPdfBranding(cityId: string | null) {
-  const branding = await loadCityBrandingForReportPdf(cityId);
-  const hdLogo = await urlToPngAsset("/LOGO-1.png");
-  if (hdLogo && (!branding.logo || hdLogo.iw >= branding.logo.iw)) {
-    return { ...branding, logo: hdLogo };
-  }
-  return branding;
 }
 
 async function drawListaSection(
@@ -393,7 +450,7 @@ export async function createListaFrequenciaPdfDoc(
   const jsPDF = (await import("jspdf")).default;
   const autoTable = (await import("jspdf-autotable")).default;
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const cityBranding = await resolveListaPdfBranding(options.cityId);
+  const cityBranding = await loadCityBrandingForReportPdf(options.cityId);
 
   for (let sectionIndex = 0; sectionIndex < items.length; sectionIndex += 1) {
     await drawListaSection(doc, autoTable, items[sectionIndex], {
