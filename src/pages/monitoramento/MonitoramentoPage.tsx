@@ -56,6 +56,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/authContext";
 import { cn } from "@/lib/utils";
+import { InstrumentPickerField } from "@/components/filters";
+import {
+  buildPickerContextLines,
+  toInstrumentPickerItems,
+  toInstrumentPickerSeries,
+} from "@/components/filters/instrumentPickerHelpers";
 import {
   getReportProficiencyTagClass,
   type ReportProficiencyLabel,
@@ -301,6 +307,7 @@ const MonitoringPage = () => {
   const disciplinaAutoSourceRef = useRef("");
 
   const [filters, setFilters] = useState<MonitoringFilters>(defaultFilters);
+  const [pickerModalFilters, setPickerModalFilters] = useState({ serieFiltro: "all", nome: "" });
   const [selectedSchoolId, setSelectedSchoolId] = useState<string>("");
   const [studentsModalOpen, setStudentsModalOpen] = useState(false);
   const [searchText, setSearchText] = useState("");
@@ -388,6 +395,25 @@ const MonitoringPage = () => {
     [filters, editorSchoolId]
   );
 
+  const pickerSourceFilters = useMemo(
+    () => ({
+      tipo_origem: filters.tipo_origem,
+      periodo: filters.periodo,
+      estado: filters.estado,
+      municipio: filters.municipio,
+      serie_filtro:
+        pickerModalFilters.serieFiltro !== "all" ? pickerModalFilters.serieFiltro : undefined,
+      nome: pickerModalFilters.nome.trim() || undefined,
+    }),
+    [
+      filters.tipo_origem,
+      filters.periodo,
+      filters.estado,
+      filters.municipio,
+      pickerModalFilters,
+    ]
+  );
+
   const optionsQuery = useQuery({
     queryKey: [
       "monitoramento-options",
@@ -402,6 +428,25 @@ const MonitoringPage = () => {
     ],
     queryFn: () => MonitoramentoApiService.getFilterOptions(optionsFilters),
     staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  });
+
+  const pickerSourceQuery = useQuery({
+    queryKey: [
+      "monitoramento-picker-source",
+      pickerSourceFilters.tipo_origem,
+      pickerSourceFilters.periodo,
+      pickerSourceFilters.estado,
+      pickerSourceFilters.municipio,
+      pickerSourceFilters.serie_filtro,
+      pickerSourceFilters.nome,
+    ],
+    queryFn: () =>
+      MonitoramentoApiService.getFilterOptions(
+        pickerSourceFilters as Parameters<typeof MonitoramentoApiService.getFilterOptions>[0]
+      ),
+    enabled: geoFiltersReady,
+    staleTime: 30_000,
     placeholderData: keepPreviousData,
   });
 
@@ -912,16 +957,26 @@ const MonitoringPage = () => {
     filters.tipo_origem === "avaliacao" ? filters.avaliacao_id || "all" : filters.gabarito_id || "all";
   const sourceItems =
     filters.tipo_origem === "avaliacao"
-      ? optionsQuery.data?.avaliacoes ?? []
-      : optionsQuery.data?.gabaritos ?? [];
+      ? pickerSourceQuery.data?.avaliacoes ?? []
+      : pickerSourceQuery.data?.gabaritos ?? [];
+
+  const pickerContextLines = useMemo(
+    () =>
+      buildPickerContextLines({
+        estado: optionsQuery.data?.estados?.find((e) => e.id === filters.estado)?.name,
+        municipio: optionsQuery.data?.municipios?.find((m) => m.id === filters.municipio)?.name,
+        periodo: filters.periodo,
+      }),
+    [optionsQuery.data?.estados, optionsQuery.data?.municipios, filters.estado, filters.municipio, filters.periodo]
+  );
 
   const isLoadingFilters = optionsQuery.isLoading && !optionsQuery.data;
   const isListLoading = listQuery.isLoading && !listQuery.data;
 
   const noSourceItems =
     geoFiltersReady &&
-    !isLoadingFilters &&
-    !optionsQuery.isError &&
+    !pickerSourceQuery.isLoading &&
+    !pickerSourceQuery.isError &&
     sourceItems.length === 0;
 
   const sourceEmptyLabel =
@@ -1278,41 +1333,47 @@ const MonitoringPage = () => {
                 <Label htmlFor="monitoramento-origem">
                   {filters.tipo_origem === "avaliacao" ? "Avaliação" : "Cartão-resposta"}
                 </Label>
-                <Select
+                <InstrumentPickerField
+                  id="monitoramento-origem"
                   value={sourceSelectValue}
-                  onValueChange={(value) => {
+                  onChange={(value) => {
                     const nextValue = value === "all" ? "" : value;
                     if (filters.tipo_origem === "avaliacao") handleFilterChange("avaliacao_id", nextValue);
                     else handleFilterChange("gabarito_id", nextValue);
                   }}
+                  items={toInstrumentPickerItems(
+                    sourceItems.map((item) => ({ id: item.id, nome: item.name }))
+                  )}
+                  seriesOptions={toInstrumentPickerSeries(
+                    pickerSourceQuery.data?.series_disponiveis ?? []
+                  )}
                   disabled={!geoFiltersReady || isLoadingFilters || optionsQuery.isError}
-                >
-                  <SelectTrigger id="monitoramento-origem" className="w-full min-w-0">
-                    <SelectValue
-                      placeholder={
-                        !geoFiltersReady
-                          ? "Selecione estado e município antes"
-                          : noSourceItems
-                            ? sourceEmptyLabel
-                            : "Selecione a avaliação ou cartão"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {noSourceItems ? (
-                      <SelectItem value="all" disabled>
-                        {sourceEmptyLabel}
-                      </SelectItem>
-                    ) : (
-                      <SelectItem value="all">Selecione</SelectItem>
-                    )}
-                    {sourceItems.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {item.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  loading={isLoadingFilters}
+                  modalLoading={
+                    pickerSourceQuery.isLoading ||
+                    (pickerSourceQuery.isFetching && sourceItems.length === 0)
+                  }
+                  placeholder={
+                    !geoFiltersReady
+                      ? "Selecione estado e município antes"
+                      : noSourceItems
+                        ? sourceEmptyLabel
+                        : "Selecione a avaliação ou cartão"
+                  }
+                  modalTitle={
+                    filters.tipo_origem === "avaliacao"
+                      ? "Selecionar avaliação"
+                      : "Selecionar cartão resposta"
+                  }
+                  emptyMessage={sourceEmptyLabel}
+                  contextLines={pickerContextLines}
+                  contextRequiredMessage="Selecione estado e município nos filtros antes de escolher."
+                  onModalOpen={() => {
+                    setPickerModalFilters({ serieFiltro: "all", nome: "" });
+                    void pickerSourceQuery.refetch();
+                  }}
+                  onModalFiltersChange={setPickerModalFilters}
+                />
               </div>
 
               <div className="space-y-1.5">
@@ -1830,6 +1891,7 @@ const MonitoringPage = () => {
                                   <div>{turma.turma_nome}</div>
                                   <div className="text-xs font-normal text-muted-foreground">
                                     {turma.serie_nome}
+                                    {turma.shift ? ` · ${turma.shift}` : ""}
                                   </div>
                                 </TableCell>
                                 <TableCell className="text-center tabular-nums">{turma.total_alunos}</TableCell>
@@ -2145,6 +2207,7 @@ const MonitoringPage = () => {
                               <p className="font-medium">{row.aluno_nome}</p>
                               <p className="text-xs text-muted-foreground">
                                 {row.serie} · {row.turma}
+                                {row.shift ? ` · ${row.shift}` : ""}
                               </p>
                               {(row.disciplinas_criticas?.length || row.descritores_criticos?.length) ? (
                                 <div className="mt-2 space-y-1 text-xs text-muted-foreground">

@@ -35,6 +35,7 @@ export function RankingAnswerSheetPanel({ data, isLoading, errorMessage }: Props
     id: String(item.student_id || ""),
     nome: String(item.name || ""),
     turma: String(item.class_name || "Sem turma"),
+    shift: String(item.shift || ""),
     escola: String(item.school_name || ""),
     serie: String(item.serie || ""),
     nota: Number(item.average_score || 0),

@@ -15,6 +15,7 @@ import {
   EvaluationResultsApiService,
   REPORT_ENTITY_TYPE_ANSWER_SHEET,
 } from "@/services/evaluation/evaluationResultsApi";
+import { EvaluationInstrumentPicker } from "@/components/filters";
 import { getEtiquetasApiError, getEtiquetasDados } from "@/services/documents/etiquetasApi";
 import { downloadEtiquetasPdf } from "@/services/reports/etiquetasPdf";
 import type {
@@ -25,7 +26,11 @@ import type {
 import { loadCityBrandingPdfAssets } from "@/utils/pdfCityBranding";
 import { loadBrandingImage } from "@/utils/brandingImageUtils";
 import { getCityBranding, resolveBrandingUrls } from "@/services/cityBrandingApi";
-import { TEXTO_ACIMA_ASSINATURA_MAX } from "@/utils/etiquetasDisplay";
+import {
+  enrichEtiquetasContext,
+  etiquetasTurnoLabel,
+  TEXTO_ACIMA_ASSINATURA_MAX,
+} from "@/utils/etiquetasDisplay";
 import { EtiquetaAlignToolbar } from "@/components/documents/EtiquetaAlignToolbar";
 import { EtiquetaPreviewDialog } from "@/components/documents/EtiquetaPreviewDialog";
 
@@ -388,6 +393,12 @@ export default function EtiquetasPage() {
     selectedTurno,
   ]);
 
+  const filterLabelsForContext = () => ({
+    serieLabel: series.find((s) => s.id === selectedSerie)?.name,
+    turmaLabel: turmas.find((t) => t.id === selectedTurma)?.name,
+    turnoLabel: TURNO_OPTIONS.find((t) => t.id === selectedTurno)?.name,
+  });
+
   const buildParams = () => ({
     modo,
     municipio: selectedMunicipio,
@@ -417,7 +428,10 @@ export default function EtiquetasPage() {
     setLoadingPreview(true);
     setError(null);
     try {
-      const context = await getEtiquetasDados(buildParams());
+      const context = enrichEtiquetasContext(
+        await getEtiquetasDados(buildParams()),
+        filterLabelsForContext()
+      );
       const branding = await loadCityBrandingPdfAssets(selectedMunicipio);
       let logoDisplayUrl = branding.logo?.dataUrl ?? null;
       if (!logoDisplayUrl) {
@@ -458,7 +472,12 @@ export default function EtiquetasPage() {
     setError(null);
     try {
       const branding = await loadCityBrandingPdfAssets(selectedMunicipio);
-      await downloadEtiquetasPdf(previewContext, labels, branding.logo);
+      const context = enrichEtiquetasContext(
+        await getEtiquetasDados(buildParams()),
+        filterLabelsForContext()
+      );
+      setPreviewContext(context);
+      await downloadEtiquetasPdf(context, labels, branding.logo);
       toast({ title: "PDF gerado", description: `${labels.length} etiqueta(s) exportada(s).` });
     } catch (err) {
       const msg = getEtiquetasApiError(err, "Não foi possível gerar o PDF de etiquetas.");
@@ -560,25 +579,23 @@ export default function EtiquetasPage() {
           </div>
 
           {isAppliedMode ? (
-            <div className="space-y-2 sm:col-span-2">
-              <Label>{modo === "cartao_resposta" ? "Cartão-resposta" : "Avaliação"}</Label>
-              <Select
+            <div className="sm:col-span-2">
+              <EvaluationInstrumentPicker
+                label={modo === "cartao_resposta" ? "Cartão-resposta" : "Avaliação"}
+                estado={selectedEstado}
+                municipio={selectedMunicipio}
+                escola={selectedSchool !== "all" ? selectedSchool : undefined}
+                reportEntityType={
+                  modo === "cartao_resposta" ? REPORT_ENTITY_TYPE_ANSWER_SHEET : undefined
+                }
                 value={selectedAplicadoId}
-                onValueChange={setSelectedAplicadoId}
-                disabled={selectedMunicipio === "all" || loadingAplicados}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={loadingAplicados ? "Carregando..." : "Selecione"} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Selecione</SelectItem>
-                  {aplicados.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onChange={setSelectedAplicadoId}
+                disabled={selectedMunicipio === "all"}
+                loading={loadingAplicados}
+                allowAll
+                allLabel="Selecione"
+                placeholder={loadingAplicados ? "Carregando..." : "Selecione"}
+              />
             </div>
           ) : (
             <div className="space-y-2 sm:col-span-2">
@@ -733,9 +750,11 @@ export default function EtiquetasPage() {
               <p className="text-base font-semibold">{previewContext.contexto.escola}</p>
             </div>
             <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Modalidade/Etapa | Turma | Turno</p>
+              <p className="text-xs text-muted-foreground">Modalidade/Etapa | Série | Turma | Turno</p>
               <p className="text-base font-semibold">
-                {previewContext.contexto.nivel} | {previewContext.contexto.serie} | {previewContext.contexto.turno}
+                {previewContext.contexto.nivel} | {previewContext.contexto.serie} |{" "}
+                {previewContext.contexto.turma} |{" "}
+                {etiquetasTurnoLabel(previewContext)}
               </p>
             </div>
           </CardContent>

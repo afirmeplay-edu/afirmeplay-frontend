@@ -504,6 +504,7 @@ interface FilterOptionsResponse {
   gabaritos?: Array<{ id: string; titulo: string }>;
   escolas?: Array<{ id: string; nome: string }>;
   series?: Array<{ id: string; nome: string }>;
+  series_disponiveis?: Array<{ id: string; nome: string; name?: string }>;
   turmas?: Array<{ id: string; nome: string }>;
 }
 
@@ -1814,6 +1815,10 @@ export class EvaluationResultsApiService {
     city_id?: string;
     /** YYYY-MM quando aplicável (avaliação online: aplicação; cartão: correções). */
     periodo?: string;
+    /** Filtro do modal de seleção: série aplicada. */
+    serie_filtro?: string;
+    /** Filtro do modal de seleção: busca por nome. */
+    nome?: string;
   }): Promise<FilterOptionsResponse> {
     try {
       const isAnswerSheet = params.report_entity_type === REPORT_ENTITY_TYPE_ANSWER_SHEET;
@@ -1838,6 +1843,12 @@ export class EvaluationResultsApiService {
         const p = normalizeResultsPeriodYm(params.periodo);
         if (p !== 'all') queryParams.append('periodo', p);
       }
+      if (params.serie_filtro && params.serie_filtro !== 'all') {
+        queryParams.append('serie_filtro', params.serie_filtro);
+      }
+      if (params.nome?.trim()) {
+        queryParams.append('nome', params.nome.trim());
+      }
 
       const basePath = isAnswerSheet
         ? '/answer-sheets/opcoes-filtros-results'
@@ -1861,6 +1872,7 @@ export class EvaluationResultsApiService {
         municipios: this.normalizeFilterEntities(data.municipios),
         escolas: this.normalizeFilterEntities(data.escolas),
         series: this.normalizeFilterEntities(data.series),
+        series_disponiveis: this.normalizeFilterEntities(data.series_disponiveis),
         turmas: this.normalizeFilterEntities(data.turmas),
       } as FilterOptionsResponse;
     } catch (error) {
@@ -2064,10 +2076,13 @@ export class EvaluationResultsApiService {
     report_entity_type?: ReportEntityTypeQuery;
     city_id?: string;
     periodo?: string;
+    serie_filtro?: string;
+    nome?: string;
   }): Promise<Array<{
     id: string;
     titulo: string;
     disciplina?: string;
+    disciplinas?: string[];
   }>> {
     try {
       const response = await this.getFilterOptions({
@@ -2077,6 +2092,8 @@ export class EvaluationResultsApiService {
         ...(filters.report_entity_type ? { report_entity_type: filters.report_entity_type } : {}),
         ...(filters.city_id ? { city_id: filters.city_id } : {}),
         ...(filters.periodo?.trim() ? { periodo: filters.periodo } : {}),
+        ...(filters.serie_filtro && filters.serie_filtro !== 'all' ? { serie_filtro: filters.serie_filtro } : {}),
+        ...(filters.nome?.trim() ? { nome: filters.nome.trim() } : {}),
       });
       const avaliacoes = response.avaliacoes || [];
       // Para cartões resposta, manter a lista como veio do backend (gabaritos).
@@ -2118,6 +2135,38 @@ export class EvaluationResultsApiService {
     } catch (error) {
       console.error('Erro ao buscar avaliações para filtros:', error);
       return [];
+    }
+  }
+
+  static async getFilterEvaluationsWithSeries(filters: {
+    estado: string;
+    municipio: string;
+    escola?: string;
+    report_entity_type?: ReportEntityTypeQuery;
+    city_id?: string;
+    periodo?: string;
+    serie_filtro?: string;
+    nome?: string;
+  }): Promise<{
+    evaluations: Array<{ id: string; titulo: string; disciplina?: string; disciplinas?: string[] }>;
+    seriesDisponiveis: Array<{ id: string; nome: string }>;
+  }> {
+    const evaluations = await this.getFilterEvaluations(filters);
+    try {
+      const response = await this.getFilterOptions({
+        estado: filters.estado,
+        municipio: filters.municipio,
+        escola: filters.escola,
+        ...(filters.report_entity_type ? { report_entity_type: filters.report_entity_type } : {}),
+        ...(filters.city_id ? { city_id: filters.city_id } : {}),
+        ...(filters.periodo?.trim() ? { periodo: filters.periodo } : {}),
+      });
+      return {
+        evaluations,
+        seriesDisponiveis: response.series_disponiveis ?? [],
+      };
+    } catch {
+      return { evaluations, seriesDisponiveis: [] };
     }
   }
 

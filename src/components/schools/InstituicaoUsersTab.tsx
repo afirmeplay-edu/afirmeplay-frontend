@@ -114,6 +114,44 @@ function getSchoolDisplay(u: MunicipioUser): string | null {
   return null;
 }
 
+type SchoolLike = { id?: string; name?: string; nome?: string };
+
+function schoolNameFromRef(ref: SchoolLike | null | undefined): string | null {
+  if (!ref) return null;
+  const name = String(ref.name ?? ref.nome ?? "").trim();
+  return name || null;
+}
+
+function resolveSchoolNameFromApiPayload(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const d = data as Record<string, unknown>;
+  const studentDetails = d.student_details as Record<string, unknown> | undefined;
+  const student = d.student as Record<string, unknown> | undefined;
+
+  const fromStudentDetails = schoolNameFromRef(studentDetails?.school as SchoolLike | undefined);
+  if (fromStudentDetails) return fromStudentDetails;
+
+  const fromStudent = schoolNameFromRef(student?.school as SchoolLike | undefined);
+  if (fromStudent) return fromStudent;
+
+  const fromRootSchool = schoolNameFromRef(d.school as SchoolLike | undefined);
+  if (fromRootSchool) return fromRootSchool;
+
+  const escola = d.escola as SchoolLike | undefined;
+  const fromEscola = schoolNameFromRef(escola);
+  if (fromEscola) return fromEscola;
+
+  const schools = d.schools;
+  if (Array.isArray(schools) && schools.length > 0) {
+    const names = schools
+      .map((s) => schoolNameFromRef(s as SchoolLike))
+      .filter((n): n is string => Boolean(n));
+    if (names.length) return names.join(", ");
+  }
+
+  return null;
+}
+
 function getCityDisplay(u: MunicipioUser): string | null {
   if (u.city_name) return u.city_name;
   if (u.city?.name) return u.city.name;
@@ -321,27 +359,34 @@ export function InstituicaoUsersTab({
     let cancelled = false;
     setLoadingViewDetails(true);
     setViewingUserSchool(null);
-    api
-      .get(`/users/${viewingUser.id}`)
-      .then((res) => {
-        if (cancelled) return;
-        const d = res.data?.user ?? res.data;
-        const name =
-          d?.student?.school?.name ??
-          d?.student?.school?.nome ??
-          d?.school?.name ??
-          d?.school?.nome ??
-          (Array.isArray(d?.schools) && d.schools.length > 0
-            ? d.schools.map((s: { name?: string; nome?: string }) => s?.name ?? s?.nome).filter(Boolean).join(", ")
-            : null);
-        setViewingUserSchool(name || null);
-      })
-      .catch(() => {
-        if (!cancelled) setViewingUserSchool(null);
+
+    const loadSchoolForViewingUser = async (): Promise<string | null> => {
+      try {
+        const userRes = await api.get(`/users/${viewingUser.id}`);
+        const fromUser = resolveSchoolNameFromApiPayload(userRes.data?.user ?? userRes.data);
+        if (fromUser) return fromUser;
+      } catch {
+        /* tenta fallback abaixo */
+      }
+
+      if (toCanonicalRole(viewingUser.role) !== "aluno") return null;
+
+      try {
+        const studentRes = await api.get(`/students/${viewingUser.id}`);
+        return resolveSchoolNameFromApiPayload(studentRes.data);
+      } catch {
+        return null;
+      }
+    };
+
+    void loadSchoolForViewingUser()
+      .then((name) => {
+        if (!cancelled) setViewingUserSchool(name);
       })
       .finally(() => {
         if (!cancelled) setLoadingViewDetails(false);
       });
+
     return () => {
       cancelled = true;
     };
@@ -402,20 +447,42 @@ export function InstituicaoUsersTab({
           console.warn("Erro ao carregar managers da cidade (escola por diretor/coordenador):", e);
         }
 
+        const citySchoolsById = new Map<string, { id: string; name: string }>();
+        try {
+          const schoolsRes = await api.get(`/school/city/${cityId}`);
+          const schoolsList = Array.isArray(schoolsRes.data)
+            ? schoolsRes.data
+            : schoolsRes.data?.schools ?? schoolsRes.data?.escolas ?? [];
+          for (const escola of schoolsList) {
+            const id = escola?.id;
+            const name = escola?.name ?? escola?.nome;
+            if (id && name) citySchoolsById.set(String(id), { id: String(id), name: String(name) });
+          }
+        } catch (e) {
+          console.warn("Erro ao carregar escolas do município:", e);
+        }
+
         try {
           const studentsRes = await api.get("/students");
           const studentsList = Array.isArray(studentsRes.data) ? studentsRes.data : studentsRes.data?.data ?? studentsRes.data?.alunos ?? studentsRes.data?.students ?? [];
           for (const s of studentsList) {
-            const school = s.school;
-            if (!school) continue;
-            const schoolCityId = school.city_id;
+            const userId = s.user?.id ?? s.user_id ?? s.usuario_id;
+            if (!userId) continue;
+
+            const schoolFromPayload = s.school as SchoolLike | undefined;
+            const schoolId = String(s.school_id ?? schoolFromPayload?.id ?? "").trim();
+            const schoolName = schoolNameFromRef(schoolFromPayload);
+            const schoolCityId = (s.school as { city_id?: string } | undefined)?.city_id;
+
             if (schoolCityId && schoolCityId !== cityId) continue;
-            const userId = s.user_id ?? s.usuario_id ?? s.user?.id ?? s.id;
-            if (userId) {
-              studentSchoolMap.set(userId, {
-                id: school.id,
-                name: school.name ?? school.nome ?? "Escola",
-              });
+
+            if (schoolId && schoolName) {
+              studentSchoolMap.set(String(userId), { id: schoolId, name: schoolName });
+              continue;
+            }
+
+            if (schoolId && citySchoolsById.has(schoolId)) {
+              studentSchoolMap.set(String(userId), citySchoolsById.get(schoolId)!);
             }
           }
         } catch (e) {

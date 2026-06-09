@@ -66,6 +66,12 @@ import {
   RESULTS_MONTH_NAMES_PT,
 } from '@/utils/resultsPeriod';
 import { getReportProficiencyTagClass } from '@/utils/report/reportTagStyles';
+import { InstrumentPickerField } from '@/components/filters';
+import {
+  buildPickerContextLines,
+  toInstrumentPickerItems,
+  toInstrumentPickerSeries,
+} from '@/components/filters/instrumentPickerHelpers';
 
 // Opções dos filtros (resposta de GET /answer-sheets/opcoes-filtros-results)
 interface FilterOption {
@@ -79,6 +85,7 @@ interface OpcoesFiltrosResponse {
   estados?: FilterOption[];
   municipios?: FilterOption[];
   gabaritos?: FilterOption[];
+  series_disponiveis?: FilterOption[];
   escolas?: FilterOption[];
   series?: FilterOption[];
   turmas?: FilterOption[];
@@ -443,6 +450,9 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
 
   // Opções dos filtros (carregadas em cascata)
   const [opcoes, setOpcoes] = useState<OpcoesFiltrosResponse>({});
+  const [pickerGabaritos, setPickerGabaritos] = useState<FilterOption[]>([]);
+  const [pickerSeriesDisponiveis, setPickerSeriesDisponiveis] = useState<FilterOption[]>([]);
+  const [pickerModalLoading, setPickerModalLoading] = useState(false);
   const [isLoadingFilters, setIsLoadingFilters] = useState(false);
 
   // Dados agregados
@@ -632,7 +642,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     setPeriodPickerOpen(false);
   }, []);
 
-  // Carregar opções de filtros (cascata)
+  // Carregar opções de filtros (cascata da página)
   const fetchOpcoesFiltros = useCallback(async () => {
     const params = new URLSearchParams();
     if (estado && estado !== 'all') params.set('estado', estado);
@@ -662,6 +672,38 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
       setIsLoadingFilters(false);
     }
   }, [estado, municipio, periodoApi, gabarito, escola, serie, turma, toast]);
+
+  // Lista do modal: apenas estado, município e período (filtros anteriores)
+  const fetchPickerGabaritos = useCallback(
+    async (modalFilters?: { serieFiltro: string; nome: string }) => {
+      if (!estado || estado === 'all' || !municipio || municipio === 'all') {
+        setPickerGabaritos([]);
+        setPickerSeriesDisponiveis([]);
+        return;
+      }
+      const params = new URLSearchParams();
+      params.set('estado', estado);
+      params.set('municipio', municipio);
+      if (periodoApi) params.set('periodo', periodoApi);
+      if (modalFilters?.serieFiltro && modalFilters.serieFiltro !== 'all') {
+        params.set('serie_filtro', modalFilters.serieFiltro);
+      }
+      if (modalFilters?.nome?.trim()) params.set('nome', modalFilters.nome.trim());
+      try {
+        setPickerModalLoading(true);
+        const url = `/answer-sheets/opcoes-filtros-results?${params.toString()}`;
+        const res = await api.get<OpcoesFiltrosResponse>(url);
+        const data = res.data || {};
+        setPickerGabaritos(data.gabaritos ?? []);
+        if (!modalFilters) setPickerSeriesDisponiveis(data.series_disponiveis ?? []);
+      } catch {
+        setPickerGabaritos([]);
+      } finally {
+        setPickerModalLoading(false);
+      }
+    },
+    [estado, municipio, periodoApi]
+  );
 
   useEffect(() => {
     fetchOpcoesFiltros();
@@ -809,6 +851,26 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   const escolas = opcoes.escolas ?? [];
   const series = opcoes.series ?? [];
   const turmas = opcoes.turmas ?? [];
+
+  const pickerGabaritoItems = useMemo(() => {
+    const base = pickerGabaritos.length > 0 ? pickerGabaritos : gabaritos;
+    if (gabarito === 'all' || base.some((g) => g.id === gabarito)) return base;
+    const selected = gabaritos.find((g) => g.id === gabarito);
+    return selected ? [...base, selected] : base;
+  }, [pickerGabaritos, gabaritos, gabarito]);
+
+  const pickerContextLines = useMemo(
+    () =>
+      buildPickerContextLines({
+        estado: estado === 'all' ? undefined : norm(estados.find((e) => e.id === estado) ?? { id: estado }),
+        municipio:
+          municipio === 'all'
+            ? undefined
+            : norm(municipios.find((m) => m.id === municipio) ?? { id: municipio }),
+        periodo: periodoApi,
+      }),
+    [estado, municipio, periodoApi, estados, municipios]
+  );
 
   const disciplinasTabela = useMemo(() => apiData?.tabela_detalhada?.disciplinas ?? [], [apiData?.tabela_detalhada?.disciplinas]);
   const ranking = useMemo(() => apiData?.ranking ?? [], [apiData?.ranking]);
@@ -1450,22 +1512,30 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                 </PopoverContent>
               </Popover>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Cartão resposta</label>
-              <Select value={gabarito} onValueChange={setGabaritoAndReset} disabled={isLoadingFilters || municipio === 'all'}>
-                <SelectTrigger className="w-full min-w-0">
-                  <SelectValue placeholder="Selecione o cartão resposta" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  {gabaritos.map((g) => (
-                    <SelectItem key={g.id} value={g.id}>
-                      {norm(g)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <InstrumentPickerField
+              label="Cartão resposta"
+              value={gabarito}
+              onChange={setGabaritoAndReset}
+              items={toInstrumentPickerItems(
+                pickerGabaritoItems.map((g) => ({ id: g.id, titulo: norm(g) }))
+              )}
+              seriesOptions={toInstrumentPickerSeries(
+                pickerSeriesDisponiveis.length > 0
+                  ? pickerSeriesDisponiveis
+                  : (opcoes.series_disponiveis ?? [])
+              )}
+              disabled={isLoadingFilters || municipio === 'all'}
+              loading={isLoadingFilters}
+              modalLoading={pickerModalLoading}
+              placeholder="Selecione o cartão resposta"
+              modalTitle="Selecionar cartão resposta"
+              allowAll
+              allLabel="Todos"
+              contextLines={pickerContextLines}
+              contextRequiredMessage="Selecione estado e município nos filtros antes de escolher."
+              onModalOpen={() => void fetchPickerGabaritos()}
+              onModalFiltersChange={(filters) => void fetchPickerGabaritos(filters)}
+            />
             <div className="space-y-2">
               <label className="text-sm font-medium">Escola</label>
               <Select value={escola} onValueChange={setEscolaAndReset} disabled={isLoadingFilters || gabarito === 'all'}>

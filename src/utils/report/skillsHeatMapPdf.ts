@@ -5,7 +5,11 @@ import type {
   SkillsMapHabilidade,
   SkillsMapResponse,
 } from '@/services/evaluation/skillsMapApi';
+
 import { loadCityBrandingForReportPdf, urlToPngAsset } from '@/utils/pdfCityBranding';
+
+import { getClassShiftLabel } from '@/lib/classShift';
+
 import {
   buildStructuredIaSegmentsFromRoot,
   hasAnyStructuredIaContent,
@@ -26,6 +30,7 @@ export interface SkillsHeatMapPdfMeta {
   escola?: string;
   serie?: string;
   turma?: string;
+  shift?: string;
   disciplina?: string;
 }
 
@@ -353,6 +358,7 @@ async function addCoverPage(
     if (meta.escola?.trim()) cardLines.push({ label: 'ESCOLA', value: meta.escola.trim() });
     if (meta.serie?.trim()) cardLines.push({ label: 'SÉRIE', value: meta.serie.trim() });
     if (meta.turma?.trim()) cardLines.push({ label: 'TURMA', value: meta.turma.trim() });
+    if (meta.shift?.trim()) cardLines.push({ label: 'TURNO', value: getClassShiftLabel(meta.shift) });
     const disc =
       meta.disciplina?.trim() || coverOptions.skillDisciplinaFallback?.trim();
     if (disc) {
@@ -369,6 +375,7 @@ async function addCoverPage(
     }
     if (meta.serie)      cardLines.push({ label: 'SÉRIE',      value: meta.serie });
     if (meta.turma)      cardLines.push({ label: 'TURMA',      value: meta.turma });
+    if (meta.shift?.trim()) cardLines.push({ label: 'TURNO', value: getClassShiftLabel(meta.shift) });
     if (meta.disciplina) cardLines.push({ label: 'DISCIPLINA', value: meta.disciplina });
   }
   cardLines.push(...extraCardLines);
@@ -998,7 +1005,13 @@ export async function downloadSkillsHeatMapSkillPdf(opts: {
   const autoTable = (await import('jspdf-autotable')).default;
 
   const buildStudentRows = (list: SkillsMapAlunoLinha[]) =>
-    list.map((a) => [a.nome || '—', a.escola || '—', a.serie || '—', a.turma || '—']);
+    list.map((a) => [
+      a.nome || '—',
+      a.escola || '—',
+      a.serie || '—',
+      a.turma || '—',
+      getClassShiftLabel(a.shift),
+    ]);
 
   const okList  = erros.alunos_que_acertaram ?? [];
   const errList = erros.alunos_que_erraram ?? erros.alunos ?? [];
@@ -1013,8 +1026,8 @@ export async function downloadSkillsHeatMapSkillPdf(opts: {
   autoTable(doc, {
     startY: y,
     theme: 'grid',
-    head: [['Nome', 'Escola', 'Série', 'Turma']],
-    body: okList.length > 0 ? buildStudentRows(okList) : [['Nenhum participante nesta situação', '', '', '']],
+    head: [['Nome', 'Escola', 'Série', 'Turma', 'Turno']],
+    body: okList.length > 0 ? buildStudentRows(okList) : [['Nenhum participante nesta situação', '', '', '', '']],
     margin: { left: margin, right: margin },
     tableLineColor: C.borderLight,
     tableLineWidth: 0.2,
@@ -1064,8 +1077,8 @@ export async function downloadSkillsHeatMapSkillPdf(opts: {
   autoTable(doc, {
     startY: ye,
     theme: 'grid',
-    head: [['Nome', 'Escola', 'Série', 'Turma']],
-    body: errList.length > 0 ? buildStudentRows(errList) : [['Nenhum participante nesta situação', '', '', '']],
+    head: [['Nome', 'Escola', 'Série', 'Turma', 'Turno']],
+    body: errList.length > 0 ? buildStudentRows(errList) : [['Nenhum participante nesta situação', '', '', '', '']],
     margin: { left: margin, right: margin },
     tableLineColor: C.borderLight,
     tableLineWidth: 0.2,

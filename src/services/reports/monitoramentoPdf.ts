@@ -11,6 +11,7 @@ import type {
   MonitoringSchoolItem,
   MonitoringStudentItem,
 } from "@/services/monitoramento/monitoramentoApi";
+import { getClassShiftLabel } from "@/lib/classShift";
 import {
   normalizeProficiencyLevelLabel,
   type ReportProficiencyLabel,
@@ -857,7 +858,7 @@ export async function generateMonitoringPdf(opts: {
 
   const studentsBody = opts.payload.tabela_alunos.map((row) => [
     row.aluno_nome,
-    `${row.serie || "—"} · ${row.turma || "—"}`,
+    `${row.serie || "—"} · ${row.turma || "—"} · ${getClassShiftLabel(row.shift)}`,
     fmtPt(row.nota),
     fmtPt(row.proficiencia),
     row.nivel,

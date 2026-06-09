@@ -832,6 +832,12 @@ function renderSlide(slide: PptxGenJS.Slide, slideSpec: Presentation19SlideSpec,
             { text: `${escolaNomeCapa}\n\n`, options: { fontSize: valPt, color: "18181B", bold: true } },
             { text: "SÉRIE\n", options: { fontSize: labPt, color: "52525B", bold: true } },
             { text: `${deckData.serie ?? "N/A"}\n\n`, options: { fontSize: valPt, color: "18181B", bold: true } },
+            ...(deckData.turno?.trim()
+              ? ([
+                  { text: "TURNO\n", options: { fontSize: labPt, color: "52525B", bold: true } },
+                  { text: `${deckData.turno}\n\n`, options: { fontSize: valPt, color: "18181B", bold: true } },
+                ] as const)
+              : []),
             {
               text: `${deckData.turmasParticipantesCapa.length > 1 ? "TURMAS" : "TURMA"}\n`,
               options: { fontSize: labPt, color: "52525B", bold: true },
@@ -928,6 +934,12 @@ function renderSlide(slide: PptxGenJS.Slide, slideSpec: Presentation19SlideSpec,
           { text: `${deckData.curso}\n\n`, options: { fontSize: valPt, color: "18181B", bold: true } },
           { text: "SÉRIE\n", options: { fontSize: labPt, color: "52525B", bold: true } },
           { text: `${deckData.serie}\n\n`, options: { fontSize: valPt, color: "18181B", bold: true } },
+          ...(deckData.turno?.trim()
+            ? ([
+                { text: "TURNO\n", options: { fontSize: labPt, color: "52525B", bold: true } },
+                { text: `${deckData.turno}\n\n`, options: { fontSize: valPt, color: "18181B", bold: true } },
+              ] as const)
+            : []),
           ...(deckData.comparisonAxis !== "escola"
             ? ([
                 {

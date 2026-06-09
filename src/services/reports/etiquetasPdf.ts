@@ -7,6 +7,7 @@ import type {
   EtiquetasDadosResponse,
 } from "@/types/etiquetas";
 import { parseBoldMarkers, truncateText } from "@/utils/richTextMarkers";
+import { etiquetasSerieTurmaLine, etiquetasTurnoLabel } from "@/utils/etiquetasDisplay";
 
 const PAGE_MARGIN = 10;
 const COLS = 2;
@@ -421,20 +422,27 @@ function drawEtiqueta(
   );
   cursorY += 3.4;
 
-  drawCenteredParts(
+  const serieTurmaText = normalizeSpaces(etiquetasSerieTurmaLine(context)).toUpperCase();
+  cursorY = drawCenteredWrapped(
     doc,
-    [
-      { text: "Turma: ", underline: true },
-      { text: normalizeSpaces(context.contexto.serie).toUpperCase() },
-      { text: " | " },
-      { text: "Turno: ", underline: true },
-      { text: normalizeSpaces(context.contexto.turno).toUpperCase() },
-    ],
+    `Série/Turma: ${serieTurmaText}`,
     centerX,
     cursorY,
-    7.2
+    innerW,
+    6.8,
+    { style: "bold", uppercase: false, maxLines: 2 }
   );
-  cursorY += 3.4;
+  cursorY += 0.25;
+  cursorY = drawCenteredWrapped(
+    doc,
+    `Turno: ${normalizeSpaces(etiquetasTurnoLabel(context)).toUpperCase()}`,
+    centerX,
+    cursorY,
+    innerW,
+    6.8,
+    { style: "bold", uppercase: false, maxLines: 1 }
+  );
+  cursorY += 0.4;
 
   cursorY += 0.6;
   doc.setLineWidth(0.2);

@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import type { EtiquetaEditItem, EtiquetasDadosResponse } from "@/types/etiquetas";
-import { cityStateDisplay, TEXTO_ACIMA_ASSINATURA_MAX } from "@/utils/etiquetasDisplay";
+import {
+  cityStateDisplay,
+  etiquetasSerieTurmaLine,
+  etiquetasTurnoLabel,
+  TEXTO_ACIMA_ASSINATURA_MAX,
+} from "@/utils/etiquetasDisplay";
 import { getCityBranding, resolveBrandingUrls } from "@/services/cityBrandingApi";
 import { loadBrandingImage } from "@/utils/brandingImageUtils";
 import { loadCityBrandingPdfAssets } from "@/utils/pdfCityBranding";
@@ -88,10 +93,15 @@ export function EtiquetaPreviewCanvas({ label, context, logoUrl, className = "" 
         </p>
         <p className="text-[11px] uppercase break-words">
           <EtiquetaUnderlinedLabel
-            label="Turma: "
-            value={`${context.contexto.serie.toUpperCase()} | `}
+            label="Série/Turma: "
+            value={etiquetasSerieTurmaLine(context).toUpperCase()}
           />
-          <EtiquetaUnderlinedLabel label="Turno: " value={context.contexto.turno.toUpperCase()} />
+        </p>
+        <p className="text-[11px] uppercase break-words">
+          <EtiquetaUnderlinedLabel
+            label="Turno: "
+            value={etiquetasTurnoLabel(context).toUpperCase()}
+          />
         </p>
       </div>
 

@@ -11,6 +11,7 @@ import {
   EvaluationResultsApiService,
   REPORT_ENTITY_TYPE_ANSWER_SHEET,
 } from "@/services/evaluation/evaluationResultsApi";
+import { EvaluationInstrumentPicker } from "@/components/filters";
 import { getFolhaRascunhoDados, getFolhaRascunhoApiError } from "@/services/documents/folhaRascunhoApi";
 import type { FolhaRascunhoDadosResponse, FolhaRascunhoModo } from "@/types/folha-rascunho";
 import {
@@ -459,25 +460,23 @@ export default function FolhaRascunhoPage() {
           </div>
 
           {isAplicado && (
-            <div className="space-y-2 sm:col-span-2">
-              <Label>{modo === "cartao_resposta" ? "Cartão-resposta" : "Avaliação"}</Label>
-              <Select
+            <div className="sm:col-span-2">
+              <EvaluationInstrumentPicker
+                label={modo === "cartao_resposta" ? "Cartão-resposta" : "Avaliação"}
+                estado={selectedEstado}
+                municipio={selectedMunicipio}
+                escola={selectedSchool !== "all" ? selectedSchool : undefined}
+                reportEntityType={
+                  modo === "cartao_resposta" ? REPORT_ENTITY_TYPE_ANSWER_SHEET : undefined
+                }
                 value={selectedAplicadoId}
-                onValueChange={setSelectedAplicadoId}
-                disabled={loadingAplicados || selectedMunicipio === "all"}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={loadingAplicados ? "Carregando..." : "Selecione"} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Selecione</SelectItem>
-                  {avaliacoes.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onChange={setSelectedAplicadoId}
+                disabled={selectedMunicipio === "all"}
+                loading={loadingAplicados}
+                allowAll
+                allLabel="Selecione"
+                placeholder={loadingAplicados ? "Carregando..." : "Selecione"}
+              />
             </div>
           )}
 

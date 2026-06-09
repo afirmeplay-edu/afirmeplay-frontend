@@ -14,6 +14,8 @@ export type MonitoringFilters = {
   disciplina?: string;
   serie_id?: string;
   turma_id?: string;
+  serie_filtro?: string;
+  nome?: string;
   coordenador_id?: string;
   sort_by?: string;
   sort_order?: "asc" | "desc";
@@ -31,6 +33,7 @@ export type MonitoringFilterOptions = {
   gabaritos: MonitoringOption[];
   disciplinas: MonitoringOption[];
   series: MonitoringOption[];
+  series_disponiveis?: MonitoringOption[];
   turmas: MonitoringOption[];
   coordenadores: MonitoringOption[];
   defaults?: {
@@ -59,6 +62,7 @@ export type MonitoringClassItem = MonitoringSchoolItem & {
   turma_id: string;
   turma_nome: string;
   serie_nome: string;
+  shift?: string;
 };
 
 export type MonitoringSchoolsResponse = {
@@ -105,6 +109,7 @@ export type MonitoringStudentItem = {
   escola_nome: string;
   serie: string;
   turma: string;
+  shift?: string;
   nota: number;
   proficiencia: number;
   nivel: string;
@@ -231,6 +236,8 @@ const FILTER_OPTION_KEYS = [
   "disciplina",
   "serie_id",
   "turma_id",
+  "serie_filtro",
+  "nome",
 ] as const;
 
 export class MonitoramentoApiService {

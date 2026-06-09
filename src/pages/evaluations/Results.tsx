@@ -31,6 +31,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { format, parse } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { EvaluationResultsApiService } from "@/services/evaluation/evaluationResultsApi";
+import { EvaluationInstrumentPicker } from "@/components/filters";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/authContext";
 import { getUserHierarchyContext, type UserHierarchyContext } from "@/utils/userHierarchy";
@@ -53,6 +54,7 @@ import { StudentCard } from "@/components/evaluations/student/StudentCard";
 import { QuestionData as TableQuestionData, DetailedReport as TableDetailedReport } from "@/types/results-table";
 import { generatePendingStudentsPdf } from "@/services/reports/pendingStudentsPdf";
 import { generateRankingPdf } from "@/services/reports/rankingPdf";
+import { getClassShiftLabel } from "@/lib/classShift";
 import { normalizeEvaluationResultsRanking } from "@/utils/evaluation/normalizeEvaluationResultsRanking";
 import {
   normalizePendingStudentSearchText,
@@ -181,7 +183,8 @@ interface Grade {
 
 interface Class { 
   id: string; 
-  name: string; 
+  name: string;
+  shift?: string;
 }
 
 // Tipagem auxiliar para lidar com respostas legadas que usam "data" e "total"
@@ -375,16 +378,17 @@ interface ResultsFilterOptionsResponse {
   }>;
   escolas?: Array<{ id: string; nome?: string; name?: string }>;
   series?: Array<{ id: string; nome?: string; name?: string }>;
-  turmas?: Array<{ id: string; nome?: string; name?: string }>;
+  turmas?: Array<{ id: string; nome?: string; name?: string; shift?: string }>;
 }
 
 function resultsNormalizeFilterEntities(
-  items: Array<{ id: string; nome?: string; name?: string }> | undefined
-): Array<{ id: string; nome: string }> {
+  items: Array<{ id: string; nome?: string; name?: string; shift?: string }> | undefined
+): Array<{ id: string; nome: string; shift?: string }> {
   if (!Array.isArray(items) || !items.length) return [];
   return items.map((item) => ({
     id: item.id,
     nome: item.nome ?? item.name ?? "",
+    shift: item.shift?.trim() || undefined,
   }));
 }
 
@@ -1144,7 +1148,8 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
           const classesData = opCl.turmas || [];
           setClasses(classesData.map(classItem => ({
             id: classItem.id,
-            name: classItem.nome
+            name: classItem.nome,
+            shift: classItem.shift,
           })));
 
           // ✅ CORRIGIDO: Não resetar seleção dependente se estamos restaurando filtros
@@ -1792,6 +1797,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
       id: r.id,
       nome: r.nome,
       turma: r.turma,
+      shift: r.shift,
       escola: r.escola || undefined,
       serie: r.serie || undefined,
       nota: r.nota,
@@ -1826,16 +1832,24 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
       selectedGrade === 'all'
         ? 'Todas'
         : grades.find((g) => g.id === selectedGrade)?.name ?? selectedGrade;
+    const turmaSelecionada = selectedClass === 'all'
+      ? undefined
+      : classes.find((c) => c.id === selectedClass);
     const turmaLabel =
       selectedClass === 'all'
         ? 'Todas'
-        : classes.find((c) => c.id === selectedClass)?.name ?? selectedClass;
+        : turmaSelecionada?.name ?? selectedClass;
+    const turnoLabel =
+      selectedClass === 'all'
+        ? 'Todos'
+        : getClassShiftLabel(turmaSelecionada?.shift);
     return {
       estado: estadoLabel,
       municipio: municipioLabel,
       escola: escolaLabel,
       serie: serieLabel,
       turma: turmaLabel,
+      turno: turnoLabel,
     };
   }, [
     selectedState,
@@ -1861,6 +1875,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
         students: rankingStudents.map((s) => ({
           nome: s.nome,
           turma: s.turma,
+          shift: s.shift,
           escola: s.escola,
           serie: s.serie,
           nota: s.nota,
@@ -2385,27 +2400,22 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
               </Popover>
             </div>
 
-            {/* Avaliações */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Avaliações</label>
-              <Select
-                value={selectedEvaluation}
-                onValueChange={setSelectedEvaluation}
-                disabled={isLoadingFilters || selectedMunicipality === 'all'}
-              >
-                <SelectTrigger className="w-full min-w-0">
-                  <SelectValue placeholder="Selecione a avaliação" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas</SelectItem>
-                  {Array.isArray(evaluationsByMunicipality) && evaluationsByMunicipality.map(evaluation => (
-                        <SelectItem key={evaluation.id || 'unknown'} value={evaluation.id || 'unknown'}>
-                          {evaluation.titulo || 'Sem título'}
-                        </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <EvaluationInstrumentPicker
+              label="Avaliações"
+              estado={selectedState}
+              municipio={selectedMunicipality}
+              value={selectedEvaluation}
+              onChange={setSelectedEvaluation}
+              periodo={periodoApi}
+              estadoLabel={states.find((s) => s.id === selectedState)?.name}
+              municipioLabel={municipalities.find((m) => m.id === selectedMunicipality)?.name}
+              periodoLabel={periodoApi}
+              disabled={isLoadingFilters}
+              loading={isLoadingFilters}
+              allowAll
+              allLabel="Todas"
+              placeholder="Selecione a avaliação"
+            />
 
             {/* Escola */}
             <div className="space-y-2">

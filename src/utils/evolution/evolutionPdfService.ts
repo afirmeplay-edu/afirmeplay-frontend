@@ -689,10 +689,17 @@ async function addCategoryDivider(
   const muni = filterInfo?.municipality?.name || '—';
   const grade = filterInfo?.grade?.name || '—';
   const turma = filterInfo?.class?.name || '—';
+  const turno = (filterInfo?.class as { shift?: string } | undefined)?.shift?.trim() || '';
   const evalCount = evaluationNames?.length ? `${evaluationNames.length}` : '0';
   pdf.text(`Município: ${muni}`, cardX + ACCENT_W + 10, cy);
   cy += 7;
-  pdf.text(`Série: ${grade}  •  Turma: ${turma}`, cardX + ACCENT_W + 10, cy);
+  pdf.text(
+    turno
+      ? `Série: ${grade}  •  Turma: ${turma}  •  Turno: ${turno}`
+      : `Série: ${grade}  •  Turma: ${turma}`,
+    cardX + ACCENT_W + 10,
+    cy
+  );
   cy += 7;
   pdf.text(`Avaliações: ${evalCount}`, cardX + ACCENT_W + 10, cy);
 }
@@ -803,6 +810,8 @@ function addHeader(
 
   if (filterInfo?.class) {
     headerParts.push(`Turma: ${filterInfo.class.name}`);
+    const turno = (filterInfo.class as { shift?: string }).shift?.trim();
+    if (turno) headerParts.push(`Turno: ${turno}`);
   }
 
   if (headerParts.length > 0) {

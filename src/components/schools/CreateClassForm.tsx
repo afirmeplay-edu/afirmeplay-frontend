@@ -153,7 +153,15 @@ async function createClassesInBatch(
       const n = parseInt(data.capacity, 10);
       return Number.isFinite(n) ? n : undefined;
     })(),
-    shift: data.shift,
+    shift:
+      (
+        {
+          morning: "Manhã",
+          afternoon: "Tarde",
+          evening: "Noturno",
+          full: "Integral",
+        } as Record<string, string>
+      )[data.shift] ?? data.shift,
     room: data.room?.trim() ? data.room.trim() : undefined,
   }));
 

@@ -5,6 +5,7 @@ import {
   type PdfImageAsset,
 } from "@/utils/pdfCityBranding";
 import { buildHierarchyPath } from "@/services/reports/hierarchicalDownload";
+import { getClassShiftLabel } from "@/lib/classShift";
 
 const STATUS_ORDER = ["P", "A", "T", "NE", "SE", "SS", "I"];
 
@@ -141,7 +142,8 @@ function buildListaTableColumnStyles(
   const numeroColW = 8;
   const assinaturaColW = 40;
   const assinaturaColIndex = 2 + codigos.length;
-  const statusColW = 5;
+  const maxCodLen = Math.max(1, ...codigos.map((c) => c.length));
+  const statusColW = maxCodLen >= 2 ? 8 : 6;
   const statusTotal = statusColW * codigos.length;
   const nomeColW = Math.max(28, tableWidth - numeroColW - statusTotal - assinaturaColW);
 
@@ -150,7 +152,7 @@ function buildListaTableColumnStyles(
     1: { cellWidth: nomeColW, overflow: "linebreak" },
   };
   codigos.forEach((_, i) => {
-    styles[2 + i] = { cellWidth: statusColW, halign: "center" };
+    styles[2 + i] = { cellWidth: statusColW, halign: "center", overflow: "hidden" };
   });
   styles[assinaturaColIndex] = { cellWidth: assinaturaColW };
 
@@ -252,7 +254,8 @@ async function drawListaSection(
   const { serie: serieDisplay, turma: turmaDisplay } = getSerieTurmaDisplay(cab);
   doc.setFontSize(9);
   const escolaLines = doc.splitTextToSize(`NOME DA ESCOLA*: ${cab.nome_escola}`, contentWidth - 8);
-  const boxHeight = 8 + 5 + 5 + escolaLines.length * 4.5 + 5 + 5 + 5 + 6 + 4;
+  const turnoDisplay = getClassShiftLabel(cab.turno);
+  const boxHeight = 8 + 5 + 5 + escolaLines.length * 4.5 + 5 + 5 + 5 + 5 + 6 + 4;
   doc.setDrawColor(...pink);
   doc.setLineWidth(0.4);
   doc.rect(margin, y, contentWidth, boxHeight, "S");
@@ -266,6 +269,8 @@ async function drawListaSection(
   doc.text(`SÉRIE: ${serieDisplay}`, boxX, boxY, { align: "left" });
   boxY += 5;
   doc.text(`TURMA: ${turmaDisplay}`, boxX, boxY, { align: "left" });
+  boxY += 5;
+  doc.text(`TURNO: ${turnoDisplay}`, boxX, boxY, { align: "left" });
   boxY += 5;
   const disciplinaVal = cab.disciplina?.trim() ?? "";
   doc.text(disciplinaVal ? `DISCIPLINA: ${disciplinaVal}` : "DISCIPLINA: ", boxX, boxY, { align: "left" });
@@ -330,8 +335,32 @@ async function drawListaSection(
       fillColor: pinkLight,
       textColor: statusHeaderText,
       fontStyle: "bold",
+      overflow: "hidden",
     },
     columnStyles,
+    didParseCell: (tableData: {
+      section: string;
+      column: { index: number };
+      cell: {
+        text: string | string[];
+        styles: {
+          halign?: string;
+          overflow?: string;
+          cellPadding?: { top: number; right: number; bottom: number; left: number };
+        };
+      };
+    }) => {
+      if (
+        tableData.section === "head" &&
+        tableData.column.index >= statusColStart &&
+        tableData.column.index < assinaturaColIndex
+      ) {
+        tableData.cell.text = "";
+        tableData.cell.styles.halign = "center";
+        tableData.cell.styles.overflow = "hidden";
+        tableData.cell.styles.cellPadding = { top: 1.5, right: 0.4, bottom: 1.5, left: 0.4 };
+      }
+    },
     didDrawPage: (pageData: { pageNumber: number }) => {
       if (options.cityBranding.logo && pageData.pageNumber > tableStartPage) {
         drawPageLogo();
@@ -345,21 +374,31 @@ async function drawListaSection(
       doc: import("jspdf").default;
     }) => {
       if (
-        tableData.section !== "body" ||
         tableData.column.index < statusColStart ||
         tableData.column.index >= assinaturaColIndex
       )
         return;
+
       const colIdx = tableData.column.index - statusColStart;
       const cod = codigos[colIdx];
+      const cx = tableData.cell.x + tableData.cell.width / 2;
+      const cy = tableData.cell.y + tableData.cell.height / 2;
+
+      if (tableData.section === "head") {
+        tableData.doc.setFont("helvetica", "bold");
+        tableData.doc.setFontSize(8);
+        tableData.doc.setTextColor(...statusHeaderText);
+        tableData.doc.text(cod, cx, cy, { align: "center", baseline: "middle" });
+        return;
+      }
+
+      if (tableData.section !== "body") return;
       const est = item.estudantes[tableData.row.index];
       const isAusente = cod === "A";
       const mostrarPreenchido =
         est &&
         est.status === cod &&
         (!isAusente || options.provaExpirada === true);
-      const cx = tableData.cell.x + tableData.cell.width / 2;
-      const cy = tableData.cell.y + tableData.cell.height / 2;
       const r = 2.2;
       tableData.doc.setLineWidth(0.18);
       if (mostrarPreenchido) {
