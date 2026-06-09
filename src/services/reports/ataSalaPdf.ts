@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import type { AtaOptions, AtaSalaPdfData } from "@/types/ata-sala";
 import { buildHierarchyPath } from "@/services/reports/hierarchicalDownload";
+import { drawMunicipalLogoTopCenter, loadCityBrandingForReportPdf } from "@/utils/pdfCityBranding";
 
 export type { AtaOptions, AtaSalaPdfData } from "@/types/ata-sala";
 
@@ -190,14 +191,14 @@ function measureAtaHeaderBoxInnerHeight(
   return 6 + rowGap + rowGap + escolaH + 1 + rowGap + rowGap + 5;
 }
 
-function drawHeader(doc: jsPDF, data: AtaSalaPdfData): number {
+function drawHeader(doc: jsPDF, data: AtaSalaPdfData, startY = M): number {
   const pageW = doc.internal.pageSize.getWidth();
   const contentW = pageW - 2 * M;
   const tx0 = M + 4;
   const lineEnd = M + contentW - 4;
   const innerW = contentW - 8;
   const rowGap = 5.2;
-  let y = M;
+  let y = startY;
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
@@ -345,7 +346,7 @@ function fillTextInOpenBox(
   }
 }
 
-function drawPage1(doc: jsPDF, data: AtaSalaPdfData): void {
+async function drawPage1(doc: jsPDF, data: AtaSalaPdfData, cityId: string | null): Promise<void> {
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const contentW = pageW - 2 * M;
@@ -353,7 +354,13 @@ function drawPage1(doc: jsPDF, data: AtaSalaPdfData): void {
   doc.setFillColor(...C.bg);
   doc.rect(0, 0, pageW, pageH, "F");
 
-  let y = drawHeader(doc, data);
+  let y = M;
+  const { logo } = await loadCityBrandingForReportPdf(cityId);
+  if (logo) {
+    y = drawMunicipalLogoTopCenter(doc, pageW, y, logo, 34, 13);
+    y += 2;
+  }
+  y = drawHeader(doc, data, y);
   y = drawWrappedText(
     doc,
     "Prezado(a) Aplicador(a), registre nesta ata as ocorrências referentes à aplicação e preencha obrigatoriamente todos os campos com as informações solicitadas.",
@@ -631,25 +638,38 @@ function drawPage2(doc: jsPDF, data: AtaSalaPdfData): void {
   );
 }
 
-export function createAtaSalaPdfDoc(data: AtaSalaPdfData): jsPDF {
+export async function createAtaSalaPdfDoc(
+  data: AtaSalaPdfData,
+  cityId: string | null = null
+): Promise<jsPDF> {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  drawPage1(doc, data);
+  await drawPage1(doc, data, cityId);
   drawPage2(doc, data);
   return doc;
 }
 
-export function createAtaSalaPdfBlob(data: AtaSalaPdfData): Blob {
-  const doc = createAtaSalaPdfDoc(data);
+export async function createAtaSalaPdfBlob(
+  data: AtaSalaPdfData,
+  cityId: string | null = null
+): Promise<Blob> {
+  const doc = await createAtaSalaPdfDoc(data, cityId);
   return doc.output("blob");
 }
 
-export function downloadAtaSalaPdf(data: AtaSalaPdfData, fileName = "ata-de-sala.pdf"): void {
-  const doc = createAtaSalaPdfDoc(data);
+export async function downloadAtaSalaPdf(
+  data: AtaSalaPdfData,
+  fileName = "ata-de-sala.pdf",
+  cityId: string | null = null
+): Promise<void> {
+  const doc = await createAtaSalaPdfDoc(data, cityId);
   doc.save(fileName);
 }
 
-export function printAtaSalaPdf(data: AtaSalaPdfData): void {
-  const doc = createAtaSalaPdfDoc(data);
+export async function printAtaSalaPdf(
+  data: AtaSalaPdfData,
+  cityId: string | null = null
+): Promise<void> {
+  const doc = await createAtaSalaPdfDoc(data, cityId);
   const blob = doc.output("blob");
   const url = URL.createObjectURL(blob);
   const win = window.open(url, "_blank");
@@ -661,8 +681,11 @@ export function printAtaSalaPdf(data: AtaSalaPdfData): void {
   });
 }
 
-export function previewAtaSalaPdf(data: AtaSalaPdfData): void {
-  const doc = createAtaSalaPdfDoc(data);
+export async function previewAtaSalaPdf(
+  data: AtaSalaPdfData,
+  cityId: string | null = null
+): Promise<void> {
+  const doc = await createAtaSalaPdfDoc(data, cityId);
   const blob = doc.output("blob");
   const url = URL.createObjectURL(blob);
   const win = window.open(url, "_blank");

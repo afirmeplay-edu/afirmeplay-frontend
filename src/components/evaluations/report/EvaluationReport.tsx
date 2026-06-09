@@ -43,7 +43,8 @@ import html2canvas from 'html2canvas';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from "../results/constants";
-import { urlToPngAsset } from "@/utils/pdfCityBranding";
+import { loadCityBrandingForReportPdf, urlToPngAsset } from "@/utils/pdfCityBranding";
+import { useAuth } from "@/context/authContext";
 
 interface EvaluationReportProps {
   onBack?: () => void;
@@ -56,6 +57,7 @@ export default function EvaluationReport({ onBack }: EvaluationReportProps) {
   const [isBackendConnected, setIsBackendConnected] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   useEffect(() => {
     fetchResults();
@@ -111,8 +113,14 @@ export default function EvaluationReport({ onBack }: EvaluationReportProps) {
       let position = 0;
 
 
-      // Assets: logo de capa + ícone do cabeçalho
-      const logoAsset = await urlToPngAsset('/LOGO-1.png');
+      const uniqueMunicipalityIds = [
+        ...new Set(results.map((r) => r.municipalityId).filter((id) => Boolean(id?.trim()))),
+      ];
+      const brandingCityId =
+        uniqueMunicipalityIds.length === 1
+          ? uniqueMunicipalityIds[0]
+          : user?.city_id || user?.tenant_id || null;
+      const { logo: logoAsset } = await loadCityBrandingForReportPdf(brandingCityId);
       const icoAsset = await urlToPngAsset('/AFIRME-PLAY-ico.png');
 
       const COLORS = {

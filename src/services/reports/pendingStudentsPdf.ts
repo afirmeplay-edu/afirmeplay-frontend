@@ -1,4 +1,8 @@
+
+import { drawMunicipalLogoTopCenter, loadCityBrandingForReportPdf } from '@/utils/pdfCityBranding';
+
 import { getClassShiftLabel } from "@/lib/classShift";
+
 
 export type PendingStudentRow = {
   nome?: string;
@@ -14,6 +18,8 @@ export async function generatePendingStudentsPdf(opts: {
   subtitle?: string;
   students: PendingStudentRow[];
   fileName?: string;
+  /** UUID do município para logo municipal no PDF. */
+  cityId?: string | null;
 }) {
   const { jsPDF } = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
@@ -22,20 +28,29 @@ export async function generatePendingStudentsPdf(opts: {
   const pageWidth = pdf.internal.pageSize.getWidth();
   const margin = 14;
 
+  const { logo } = await loadCityBrandingForReportPdf(opts.cityId ?? null);
+  let y = margin;
+  if (logo) {
+    y = drawMunicipalLogoTopCenter(pdf, pageWidth, y, logo, 34, 13);
+    y += 2;
+  }
+
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(14);
-  pdf.text(opts.title, pageWidth / 2, 16, { align: 'center' });
+  pdf.text(opts.title, pageWidth / 2, y, { align: 'center' });
+  y += 8;
 
   const subtitle = (opts.subtitle ?? '').trim();
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(10);
   if (subtitle) {
-    pdf.text(subtitle, pageWidth / 2, 22, { align: 'center' });
+    pdf.text(subtitle, pageWidth / 2, y, { align: 'center' });
+    y += 6;
   }
 
   pdf.setFontSize(9);
   pdf.setTextColor(107, 114, 128);
-  pdf.text(`Total: ${opts.students.length} • Gerado em: ${new Date().toLocaleString('pt-BR')}`, margin, 28);
+  pdf.text(`Total: ${opts.students.length} • Gerado em: ${new Date().toLocaleString('pt-BR')}`, margin, y + 4);
   pdf.setTextColor(0, 0, 0);
 
   const rows = opts.students.map((s) => {
@@ -49,7 +64,7 @@ export async function generatePendingStudentsPdf(opts: {
   autoTable(pdf, {
     head: [['Aluno', 'Escola • Turma • Série', 'Status']],
     body: rows,
-    startY: 34,
+    startY: y + 10,
     theme: 'grid',
     margin: { left: margin, right: margin },
     styles: { font: 'helvetica', fontSize: 9, cellPadding: 2.5 },
@@ -83,4 +98,3 @@ export async function generatePendingStudentsPdf(opts: {
   const fileName = `${safeNameBase}-${new Date().toISOString().slice(0, 10)}.pdf`;
   pdf.save(fileName);
 }
-

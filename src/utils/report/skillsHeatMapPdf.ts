@@ -5,8 +5,11 @@ import type {
   SkillsMapHabilidade,
   SkillsMapResponse,
 } from '@/services/evaluation/skillsMapApi';
-import { urlToPngAsset } from '@/utils/pdfCityBranding';
+
+import { loadCityBrandingForReportPdf, urlToPngAsset } from '@/utils/pdfCityBranding';
+
 import { getClassShiftLabel } from '@/lib/classShift';
+
 import {
   buildStructuredIaSegmentsFromRoot,
   hasAnyStructuredIaContent,
@@ -20,6 +23,8 @@ import {
 export interface SkillsHeatMapPdfMeta {
   estado?: string;
   municipio?: string;
+  /** UUID do município para logo municipal no PDF. */
+  municipioId?: string;
   avaliacao?: string;
   gabarito?: string;
   escola?: string;
@@ -279,7 +284,8 @@ async function addCoverPage(
 
   // Logo na faixa
   let logoBottomInBand = 0;
-  const logoAsset = await urlToPngAsset('/LOGO-1.png');
+  const cityId = meta.municipioId && meta.municipioId !== 'all' ? meta.municipioId : null;
+  const { logo: logoAsset } = await loadCityBrandingForReportPdf(cityId);
   if (logoAsset?.dataUrl && logoAsset.iw > 0 && logoAsset.ih > 0) {
     const { w, h } = scaledSize(logoAsset.iw, logoAsset.ih, 38);
     doc.addImage(logoAsset.dataUrl, 'PNG', centerX - w / 2, 7, w, h);

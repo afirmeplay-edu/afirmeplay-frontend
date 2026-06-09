@@ -29,11 +29,14 @@ export interface Question {
     options?: {
         id: string;
         text: string;
+        isCorrect?: boolean;
+        image?: import('@/types/question-option').QuestionOptionImageApi | string;
     }[];
     alternatives?: {
         id?: string;
         text: string;
         isCorrect?: boolean;
+        image?: import('@/types/question-option').QuestionOptionImageApi | string;
     }[];
     points: number;
     difficulty: "easy" | "medium" | "hard";
@@ -206,8 +209,18 @@ export interface Evaluation {
         points?: number;
         difficulty?: string;
         solution?: string;
-        options?: Array<{ id: string; text: string; isCorrect?: boolean }>;
-        alternatives?: Array<{ id?: string; text: string; isCorrect?: boolean }>;
+        options?: Array<{
+          id: string;
+          text: string;
+          isCorrect?: boolean;
+          image?: import('@/types/question-option').QuestionOptionImageApi | string;
+        }>;
+        alternatives?: Array<{
+          id?: string;
+          text: string;
+          isCorrect?: boolean;
+          image?: import('@/types/question-option').QuestionOptionImageApi | string;
+        }>;
         subject?: Subject;
         skills?: string[];
     }>;

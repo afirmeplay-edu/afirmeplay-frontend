@@ -1190,6 +1190,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
         context: 'cartao-resposta',
         escopoTitulo: tituloGabarito,
         filterLabels: rankingPdfFilterLabels,
+        cityId: municipio !== 'all' ? municipio : null,
         students: rankingStudents.map((s) => ({
           nome: s.nome,
           turma: s.turma,
@@ -1218,7 +1219,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
         variant: 'destructive',
       });
     }
-  }, [rankingStudents, rankingPdfFilterLabels, tituloGabarito, toast]);
+  }, [rankingStudents, rankingPdfFilterLabels, tituloGabarito, municipio, toast]);
 
   // Mapear tabela_detalhada da API para o formato esperado por DisciplineTables (questões com numero + campos opcionais)
   const tabelaDetalhadaForDisciplineTables = useMemo(() => {
@@ -2115,6 +2116,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                       await generatePendingStudentsPdf({
                         title: 'Faltosos / Pendentes — Cartão Resposta',
                         subtitle: tituloGabarito ? String(tituloGabarito) : undefined,
+                        cityId: municipio !== 'all' ? municipio : null,
                         students: filteredAbsentStudents.map((a) => ({
                           nome: a.nome,
                           escola: a.escola,

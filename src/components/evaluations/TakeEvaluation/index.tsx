@@ -31,6 +31,7 @@ import { BASE_URL } from "@/lib/api";
 import { resolveQuestionImageSrc, getQuestionHtmlForDisplay } from "@/utils/questionImages";
 import { cleanLegacyText, isLikelyPlainText } from "@/utils/textFormatter";
 import { QuestionRenderer } from "@/components/evaluations/questions/QuestionRenderer";
+import { QuestionOptionContent } from "@/components/evaluations/questions/QuestionOptionContent";
 
 /** State passado quando a prova é feita no contexto de uma competição. */
 interface CompetitionLocationState {
@@ -2002,7 +2003,7 @@ function QuestionOptions({
                 >
                     {questionOptions.map((option, index) => {
                         const optionId = option.id || `option-${index}`;
-                        const optionText = option.text || option;
+                        const optionText = typeof option.text === 'string' ? option.text : '';
                         // ✅ CORRIGIDO: Marcar como selecionado se answer for o ID da opção
                         const isSelected = answer === optionId;
                         
@@ -2029,7 +2030,13 @@ function QuestionOptions({
                                         <span className="font-bold text-foreground min-w-[24px] sm:min-w-[30px] text-base sm:text-lg md:text-xl flex-shrink-0">
                                             {String.fromCharCode(65 + index)})
                                         </span>
-                                        <div className="text-sm sm:text-base md:text-lg leading-relaxed" dangerouslySetInnerHTML={{ __html: resolveQuestionImageSrc(typeof optionText === 'string' ? optionText : '', BASE_URL) }} />
+                                        <QuestionOptionContent
+                                            text={optionText}
+                                            image={option.image}
+                                            questionId={question.id}
+                                            apiBase={BASE_URL}
+                                            textClassName="text-sm sm:text-base md:text-lg leading-relaxed"
+                                        />
                                     </div>
                                 </Label>
                             </div>
@@ -2091,7 +2098,7 @@ function QuestionOptions({
                 <div className="space-y-2">
                     {questionOptions.map((option, index) => {
                         const optionId = option.id || `option-${index}`;
-                        const optionText = option.text || option;
+                        const optionText = typeof option.text === 'string' ? option.text : '';
                         const isSelected = selectedAnswers.includes(optionId);
 
                         return (
@@ -2132,7 +2139,13 @@ function QuestionOptions({
                                         <span className="font-medium text-muted-foreground min-w-[20px] flex-shrink-0">
                                             {String.fromCharCode(65 + index)})
                                         </span>
-                                        <div className="text-xs sm:text-sm" dangerouslySetInnerHTML={{ __html: resolveQuestionImageSrc(typeof optionText === 'string' ? optionText : '', BASE_URL) }} />
+                                        <QuestionOptionContent
+                                            text={optionText}
+                                            image={option.image}
+                                            questionId={question.id}
+                                            apiBase={BASE_URL}
+                                            textClassName="text-xs sm:text-sm"
+                                        />
                                     </div>
                                 </Label>
                             </div>
