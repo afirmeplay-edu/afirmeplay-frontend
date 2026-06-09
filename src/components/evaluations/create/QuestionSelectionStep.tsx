@@ -35,7 +35,8 @@ import {
   AlertCircle,
   FileText
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, BASE_URL } from "@/lib/api";
+import { QuestionOptionContent } from "@/components/evaluations/questions/QuestionOptionContent";
 import { useToast } from "@/hooks/use-toast";
 import { EvaluationFormData, Question, Subject } from "../types";
 import { QuestionBank } from "../QuestionBank";
@@ -665,12 +666,20 @@ export default function QuestionSelectionStep({
                 <div className="mt-2 space-y-2">
                   {previewData.question.options.map((option, index) => (
                     <div key={index} className={`p-2 rounded border ${option.isCorrect ? 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800' : 'bg-muted'}`}>
-                      <span className="font-medium">
-                        {String.fromCharCode(65 + index)}) 
-                      </span>
-                      {option.text}
+                      <div className="flex items-start gap-2">
+                        <span className="font-medium shrink-0">
+                          {String.fromCharCode(65 + index)})
+                        </span>
+                        <QuestionOptionContent
+                          text={option.text}
+                          image={option.image}
+                          questionId={previewData.question.id}
+                          apiBase={BASE_URL}
+                          textClassName="text-sm"
+                        />
+                      </div>
                       {option.isCorrect && (
-                        <Badge variant="secondary" className="ml-2 text-xs">
+                        <Badge variant="secondary" className="mt-2 text-xs">
                           Correta
                         </Badge>
                       )}

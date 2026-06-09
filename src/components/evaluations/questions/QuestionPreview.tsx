@@ -10,6 +10,7 @@ import { Question } from "../types";
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { api, BASE_URL } from "@/lib/api";
 import { resolveQuestionImageSrc, getQuestionHtmlForDisplay } from "@/utils/questionImages";
+import { QuestionOptionContent } from "./QuestionOptionContent";
 import { cleanLegacyText, isLikelyPlainText } from "@/utils/textFormatter";
 import { QuestionRenderer } from "./QuestionRenderer";
 import './QuestionPreview.css';
@@ -277,9 +278,12 @@ const QuestionPreview: React.FC<QuestionPreviewProps> = ({ question: initialQues
                                                     <span className="font-bold text-foreground min-w-[24px] sm:min-w-[30px] text-base sm:text-lg md:text-xl flex-shrink-0">
                                                         {String.fromCharCode(65 + index)})
                                                     </span>
-                                                    <div
-                                                        className="text-sm sm:text-base md:text-lg leading-relaxed [&_*]:dark:text-gray-100"
-                                                        dangerouslySetInnerHTML={{ __html: resolveQuestionImageSrc(optionText, BASE_URL) }}
+                                                    <QuestionOptionContent
+                                                        text={optionText}
+                                                        image={option.image}
+                                                        questionId={question.id !== 'preview' ? question.id : undefined}
+                                                        apiBase={BASE_URL}
+                                                        textClassName="text-sm sm:text-base md:text-lg leading-relaxed [&_*]:dark:text-gray-100"
                                                     />
                                                 </div>
                                                 {isCorrect && (
