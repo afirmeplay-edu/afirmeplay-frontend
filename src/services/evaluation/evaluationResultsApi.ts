@@ -665,7 +665,7 @@ export class EvaluationResultsApiService {
       report_entity_type?: ReportEntityTypeQuery;
       /** Somente admin: município selecionado (query). */
       city_id?: string;
-      /** YYYY-MM: aplicação (online) ou corrected_at (cartão). */
+      /** YYYY-MM: só em opcoes-filtros (não enviado em listagens de resultados). */
       periodo?: string;
     } = {}
   ): Promise<NovaRespostaAPI | null> {
@@ -704,13 +704,6 @@ export class EvaluationResultsApiService {
       if (filters.city_id) {
         params.append('city_id', filters.city_id);
       }
-      const periodoYm = filters.periodo?.trim()
-        ? normalizeResultsPeriodYm(filters.periodo)
-        : 'all';
-      if (periodoYm !== 'all') {
-        params.append('periodo', periodoYm);
-      }
-
       const requestConfig = filters.municipio && filters.municipio !== 'all'
         ? { meta: { cityId: filters.municipio } }
         : {};
@@ -808,13 +801,6 @@ export class EvaluationResultsApiService {
       if (filters.city_id) {
         params.append('city_id', filters.city_id);
       }
-      const periodoYm = filters.periodo?.trim()
-        ? normalizeResultsPeriodYm(filters.periodo)
-        : 'all';
-      if (periodoYm !== 'all') {
-        params.append('periodo', periodoYm);
-      }
-
       const requestConfig =
         filters.municipio && filters.municipio !== 'all'
           ? { meta: { cityId: filters.municipio } }
@@ -833,10 +819,6 @@ export class EvaluationResultsApiService {
     const params = new URLSearchParams();
     if (options?.report_entity_type) params.append('report_entity_type', options.report_entity_type);
     if (options?.city_id) params.append('city_id', options.city_id);
-    if (options?.periodo?.trim()) {
-      const p = normalizeResultsPeriodYm(options.periodo);
-      if (p !== 'all') params.append('periodo', p);
-    }
     const qs = params.toString();
     return qs ? `?${qs}` : '';
   }

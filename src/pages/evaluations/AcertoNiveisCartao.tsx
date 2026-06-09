@@ -1042,7 +1042,6 @@ export default function AcertoNiveis({
         if (asEscola !== "all") params.set("escola", asEscola);
         if (asSerie !== "all") params.set("serie", asSerie);
         if (asTurma !== "all") params.set("turma", asTurma);
-        if (periodoYmRelatorio) params.set("periodo", periodoYmRelatorio);
         const agregadosPath = `/answer-sheets/resultados-agregados?${params.toString()}`;
 
         const skillsParams = {
@@ -1235,10 +1234,9 @@ export default function AcertoNiveis({
     if (overrides.classId) filters.turma = overrides.classId;
     if (!isAnswerSheetAgregados) filters.report_entity_type = REPORT_ENTITY_TYPE_ANSWER_SHEET;
     if (adminCityIdQuery) filters.city_id = adminCityIdQuery;
-    if (periodoYmRelatorio) filters.periodo = periodoYmRelatorio;
 
     return filters;
-  }, [selectedMunicipality, getStateFilterValue, isAnswerSheetAgregados, adminCityIdQuery, periodoYmRelatorio]);
+  }, [selectedMunicipality, getStateFilterValue, isAnswerSheetAgregados, adminCityIdQuery]);
 
   const fetchEvaluationData = React.useCallback(
     async (

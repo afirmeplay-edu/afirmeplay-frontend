@@ -127,7 +127,6 @@ export default function AnswerSheetStudentDetailedResults({ onBack }: AnswerShee
       if (escola) params.set('escola', escola);
       if (serie) params.set('serie', serie);
       if (turma) params.set('turma', turma);
-      if (periodoApi) params.set('periodo', periodoApi);
       const res = await api.get<ResultadosAgregadosResponse>(
         `/answer-sheets/resultados-agregados?${params.toString()}`
       );

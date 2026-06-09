@@ -354,7 +354,7 @@ interface SimpleDetailedReport {
   }>;
 }
 
-// ----- Somente esta página: opcoes-filtros + listar avaliacoes com periodo=YYYY-MM (sem alterar o serviço compartilhado) -----
+// ----- Somente esta página: periodo=YYYY-MM só em opcoes-filtros (não na listagem de resultados) -----
 
 type ResultsOpcoesFiltrosParams = {
   estado?: string;
@@ -506,9 +506,6 @@ async function resultsFetchEvaluationsList(
   if (filters.escola && filters.escola !== "all") params.append("escola", filters.escola);
   if (filters.serie && filters.serie !== "all") params.append("serie", filters.serie);
   if (filters.turma && filters.turma !== "all") params.append("turma", filters.turma);
-  if (filters.periodo && /^\d{4}-\d{2}$/.test(filters.periodo)) {
-    params.append("periodo", filters.periodo);
-  }
   const requestConfig =
     filters.municipio && filters.municipio !== "all"
       ? { meta: { cityId: filters.municipio } }

@@ -4368,7 +4368,6 @@ export default function RelatorioEscolar({
             escola: selectedSchool !== 'all' ? selectedSchool : undefined,
             ...(adminCityIdQuery ? { city_id: adminCityIdQuery } : {}),
             ...(reportEntityTypeParam ? { report_entity_type: reportEntityTypeParam } : {}),
-            ...(periodoYmRelatorio ? { periodo: periodoYmRelatorio } : {}),
           };
 
           const evaluationsResponse = await EvaluationResultsApiService.getEvaluationsList(1, 200, filters);
@@ -4394,7 +4393,6 @@ export default function RelatorioEscolar({
                     escola: undefined,
                     ...(adminCityIdQuery ? { city_id: adminCityIdQuery } : {}),
                     ...(reportEntityTypeParam ? { report_entity_type: reportEntityTypeParam } : {}),
-                    ...(periodoYmRelatorio ? { periodo: periodoYmRelatorio } : {}),
                   };
 
                   const municipioResponse = await EvaluationResultsApiService.getEvaluationsList(
@@ -4541,7 +4539,6 @@ export default function RelatorioEscolar({
       escola: selectedSchool !== 'all' ? selectedSchool : undefined,
       ...(adminCityIdQuery ? { city_id: adminCityIdQuery } : {}),
       ...(reportEntityTypeParam ? { report_entity_type: reportEntityTypeParam } : {}),
-      ...(periodoYmRelatorio ? { periodo: periodoYmRelatorio } : {}),
     };
 
     const applyIaErrorMessage = (ia: AnaliseIaRouteResponse) => {
@@ -4658,7 +4655,6 @@ export default function RelatorioEscolar({
         if (asEscola !== 'all') params.set('escola', asEscola);
         if (asSerie !== 'all') params.set('serie', asSerie);
         if (asTurma !== 'all') params.set('turma', asTurma);
-        if (periodoYmRelatorio) params.set('periodo', periodoYmRelatorio);
 
         const res = await api.get<AnswerSheetResultadosAgregadosRaw>(
           `/answer-sheets/resultados-agregados?${params.toString()}`
@@ -4732,7 +4728,6 @@ export default function RelatorioEscolar({
     if (asEscola !== 'all') iaParams.set('escola', asEscola);
     if (asSerie !== 'all') iaParams.set('serie', asSerie);
     if (asTurma !== 'all') iaParams.set('turma', asTurma);
-    if (periodoYmRelatorio) iaParams.set('periodo', periodoYmRelatorio);
 
     const applyAgregadosIaErrorMessage = (ia: AnaliseIaRouteResponse) => {
       const details = readTrimmedString(ia.details);

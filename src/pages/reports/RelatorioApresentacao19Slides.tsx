@@ -393,7 +393,6 @@ export default function RelatorioApresentacao19Slides() {
           if (selectedSchool !== "all") params.set("escola", selectedSchool);
           if (asSerie !== "all") params.set("serie", asSerie);
           if (turmaId !== "all") params.set("turma", turmaId);
-          if (periodoApi) params.set("periodo", periodoApi);
           return params;
         };
         const requestCfg = selectedMunicipality !== "all" ? { meta: { cityId: selectedMunicipality } } : {};
@@ -430,7 +429,6 @@ export default function RelatorioApresentacao19Slides() {
       params.set("avaliacao", evaluationId);
       if (selectedSchool !== "all") params.set("escola", selectedSchool);
       if (adminCityIdQuery) params.set("city_id", adminCityIdQuery);
-      if (periodoApi) params.set("periodo", periodoApi);
       const resEval = await api.get<NovaRespostaAPI>(
         `/evaluation-results/avaliacoes?${params.toString()}`,
         selectedMunicipality !== "all" ? { meta: { cityId: selectedMunicipality } } : {}
