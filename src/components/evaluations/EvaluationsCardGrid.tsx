@@ -20,7 +20,15 @@ import {
   Trash2,
 } from "lucide-react";
 import type { Evaluation } from "@/types/evaluation-types";
-import { formatEvaluationQuestionCount } from "./evaluationListUtils";
+import {
+  formatEvaluationListDate,
+  formatEvaluationListDateTime,
+  formatEvaluationQuestionCount,
+  getEvaluationAppliedAt,
+  getEvaluationApplicationEnd,
+  getEvaluationApplicationStart,
+  getEvaluationCreatedAt,
+} from "./evaluationListUtils";
 import { cn } from "@/lib/utils";
 
 type VariantMode = "default" | "transformTab" | "correctionTab";
@@ -55,7 +63,6 @@ export function EvaluationsCardGrid({
   variant = "default",
   getTypeColor,
   getModelColor,
-  formatDate,
   SubjectsList,
 }: EvaluationsCardGridProps) {
   const showSelection = variant !== "transformTab" && variant !== "correctionTab";
@@ -175,15 +182,29 @@ export function EvaluationsCardGrid({
                     </Badge>
                   ) : null}
                 </div>
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                  <span>
-                    Criador: {evaluation.createdBy?.name ?? "—"}
-                  </span>
-                  <span>
-                    {evaluation.createdAt
-                      ? formatDate(evaluation.createdAt)
-                      : "—"}
-                  </span>
+                <div className="space-y-1.5 border-t border-border/60 pt-2 text-xs text-muted-foreground">
+                  <div>
+                    <span className="font-medium text-foreground/80">Criador: </span>
+                    {evaluation.createdBy?.name ?? "—"}
+                  </div>
+                  <div className="grid gap-0.5">
+                    <div>
+                      <span className="font-medium text-foreground/80">Criada em: </span>
+                      {formatEvaluationListDate(getEvaluationCreatedAt(evaluation))}
+                    </div>
+                    <div>
+                      <span className="font-medium text-foreground/80">Aplicada em: </span>
+                      {formatEvaluationListDateTime(getEvaluationAppliedAt(evaluation))}
+                    </div>
+                    <div>
+                      <span className="font-medium text-foreground/80">Início: </span>
+                      {formatEvaluationListDateTime(getEvaluationApplicationStart(evaluation))}
+                    </div>
+                    <div>
+                      <span className="font-medium text-foreground/80">Término: </span>
+                      {formatEvaluationListDateTime(getEvaluationApplicationEnd(evaluation))}
+                    </div>
+                  </div>
                 </div>
               </CardHeader>
               <CardFooter className="mt-auto border-t bg-muted/20 pt-4">

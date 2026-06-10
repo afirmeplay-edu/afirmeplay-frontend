@@ -1363,6 +1363,14 @@ export function CreateEvaluationModal({
     });
   };
 
+  const handleSelectAllClasses = () => {
+    setSelectedClasses(availableClasses);
+    toast({
+      title: "Todas as turmas selecionadas",
+      description: `${availableClasses.length} turmas foram selecionadas`,
+    });
+  };
+
   // Filtrar escolas por busca
   const filteredSchools = schools.filter(school =>
     school.name.toLowerCase().includes(schoolSearchTerm.toLowerCase())
@@ -2076,12 +2084,24 @@ export function CreateEvaluationModal({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label>Turmas *</Label>
-                    {selectedClasses.length > 0 && (
-                      <Badge variant="secondary" className="flex items-center gap-1">
-                        <Users className="h-3 w-3" />
-                        {selectedClasses.length} turma{selectedClasses.length !== 1 ? 's' : ''} selecionada{selectedClasses.length !== 1 ? 's' : ''}
-                      </Badge>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {availableClasses.length > 0 && !loadingClasses && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleSelectAllClasses}
+                        >
+                          Selecionar Todas
+                        </Button>
+                      )}
+                      {selectedClasses.length > 0 && (
+                        <Badge variant="secondary" className="flex items-center gap-1">
+                          <Users className="h-3 w-3" />
+                          {selectedClasses.length} turma{selectedClasses.length !== 1 ? 's' : ''} selecionada{selectedClasses.length !== 1 ? 's' : ''}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   
                   {!municipality || !grade || selectedSchools.length === 0 ? (
