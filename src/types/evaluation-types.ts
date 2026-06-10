@@ -229,6 +229,8 @@ export interface Evaluation {
     max_score?: number | null;
     createdAt?: string;
     created_at?: string; // Campo alternativo
+    updatedAt?: string;
+    updated_at?: string; // Campo alternativo
     createdBy?: Author;
     created_by?: Author; // Campo alternativo
     startDateTime?: string; // Data de início quando ativada
