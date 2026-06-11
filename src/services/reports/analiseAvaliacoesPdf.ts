@@ -37,6 +37,15 @@ const NIVEL_HEAD: [number, number, number][] = [
   [22, 101, 52],
 ];
 
+function nivelHeadFillColor(columnIndex: number, withTurno: boolean): [number, number, number] | null {
+  if (withTurno) {
+    if (columnIndex <= 1) return NIVEL_HEAD[0];
+    const nivelIdx = columnIndex - 1;
+    return nivelIdx >= 0 && nivelIdx < NIVEL_HEAD.length ? NIVEL_HEAD[nivelIdx] : null;
+  }
+  return columnIndex >= 0 && columnIndex < NIVEL_HEAD.length ? NIVEL_HEAD[columnIndex] : null;
+}
+
 const NIVEL_CHART_FILL: [number, number, number][] = [
   COLORS.abaixo,
   COLORS.basico,
@@ -1990,18 +1999,28 @@ export async function generateRelatorioOrganizadoPdf(data: RelatorioCompleto): P
           halign: "center",
           valign: "middle",
         },
-        columnStyles: {
-          0: { cellWidth: 75, halign: "left" },
-          1: { halign: "center", cellWidth: 26 },
-          2: { halign: "center", cellWidth: 26 },
-          3: { halign: "center", cellWidth: 26 },
-          4: { halign: "center", cellWidth: 22 },
-        },
+        columnStyles: withTurno
+          ? {
+              0: { cellWidth: 52, halign: "left" },
+              1: { cellWidth: 24, halign: "center" },
+              2: { halign: "center", cellWidth: 26 },
+              3: { halign: "center", cellWidth: 26 },
+              4: { halign: "center", cellWidth: 26 },
+              5: { halign: "center", cellWidth: 22 },
+            }
+          : {
+              0: { cellWidth: 75, halign: "left" },
+              1: { halign: "center", cellWidth: 26 },
+              2: { halign: "center", cellWidth: 26 },
+              3: { halign: "center", cellWidth: 26 },
+              4: { halign: "center", cellWidth: 22 },
+            },
         didParseCell: (hookData) => {
           if (hookData.section === "head") {
             const idx = hookData.column.index;
-            if (idx >= 0 && idx < NIVEL_HEAD.length) {
-              hookData.cell.styles.fillColor = NIVEL_HEAD[idx];
+            const fill = nivelHeadFillColor(idx, withTurno);
+            if (fill) {
+              hookData.cell.styles.fillColor = fill;
               hookData.cell.styles.textColor = 255;
             }
             if (idx === 0) hookData.cell.styles.halign = "left";
