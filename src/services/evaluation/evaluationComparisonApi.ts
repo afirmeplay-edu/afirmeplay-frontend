@@ -124,11 +124,30 @@ export interface Comparison {
   skills_comparison: SkillsComparison;
 }
 
+export interface ParticipationSnapshot {
+  total_students: number;
+  participating_students: number;
+  participation_rate: number;
+}
+
+export interface ComparisonParticipation {
+  general?: {
+    evaluation_1?: ParticipationSnapshot;
+    evaluation_2?: ParticipationSnapshot;
+  };
+  by_school?: {
+    evaluation_1?: Record<string, ParticipationSnapshot & { school_name?: string }>;
+    evaluation_2?: Record<string, ParticipationSnapshot & { school_name?: string }>;
+  };
+}
+
 export interface ComparisonResponse {
+  source_type?: 'cartao_resposta' | string;
   evaluations: EvaluationInfo[];
   total_evaluations: number;
   comparisons: Comparison[];
   total_comparisons: number;
+  participation?: ComparisonParticipation;
 }
 
 export interface StudentComparisonResponse {

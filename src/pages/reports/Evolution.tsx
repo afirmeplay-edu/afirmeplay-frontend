@@ -58,7 +58,9 @@ interface Evaluation {
   turma?: string | null;
 }
 
-export default function Evolution() {
+type EvolutionProps = { hidePageHeading?: boolean };
+
+export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
   const { autoLogin } = useAuth();
   const { toast } = useToast();
 
@@ -696,8 +698,8 @@ export default function Evolution() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-6 space-y-6">
-      {/* Header — mobile: título/desc alinhados, botões centralizados abaixo */}
+    <div className={hidePageHeading ? 'space-y-6' : 'container mx-auto px-4 py-6 space-y-6'}>
+      {!hidePageHeading && (
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between lg:justify-between">
         <div className="space-y-1.5">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex flex-wrap items-center gap-2 sm:gap-3">
@@ -708,8 +710,10 @@ export default function Evolution() {
             Compare múltiplas avaliações e acompanhe a evolução dos resultados ao longo do tempo com insights detalhados.
           </p>
         </div>
+      </div>
+      )}
 
-        <div className="flex flex-wrap justify-center gap-2 w-full sm:w-auto sm:justify-end">
+      <div className="flex flex-wrap justify-center gap-2 w-full sm:w-auto sm:justify-end">
           <Button 
             variant="outline" 
             onClick={() => window.location.reload()} 
@@ -1002,7 +1006,6 @@ export default function Evolution() {
               </Button>
             </>
         )}
-        </div>
       </div>
 
       {/* Filtros */}
