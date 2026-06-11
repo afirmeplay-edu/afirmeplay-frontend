@@ -54,6 +54,45 @@ export function toggleInSet(ids: Set<string>, id: string, checked: boolean): Set
   return next;
 }
 
+/** Séries das turmas selecionadas — usado para pré-preencher filtro de série na edição. */
+export function gradeIdsFromClassIds(
+  classIds: Iterable<string>,
+  classes: ClassRow[]
+): Set<string> {
+  const selected = new Set(classIds);
+  const gradeIds = new Set<string>();
+  for (const cl of classes) {
+    if (selected.has(cl.id) && cl.grade?.id) gradeIds.add(cl.grade.id);
+  }
+  return gradeIds;
+}
+
+/** Remove turmas que não pertencem às séries filtradas na UI. */
+export function pruneClassIdsByGrades(
+  classIds: Set<string>,
+  classes: ClassRow[],
+  gradeIds: Set<string>
+): Set<string> {
+  if (gradeIds.size === 0) return classIds;
+  const visible = new Set(
+    classes.filter((c) => c.grade?.id && gradeIds.has(c.grade.id)).map((c) => c.id)
+  );
+  return new Set([...classIds].filter((id) => visible.has(id)));
+}
+
+/** Remove turmas que não pertencem às escolas selecionadas. */
+export function pruneClassIdsBySchools(
+  classIds: Set<string>,
+  classes: ClassRow[],
+  schoolIds: Set<string>
+): Set<string> {
+  if (schoolIds.size === 0) return classIds;
+  const visible = new Set(
+    classes.filter((c) => c.school?.id && schoolIds.has(c.school.id)).map((c) => c.id)
+  );
+  return new Set([...classIds].filter((id) => visible.has(id)));
+}
+
 export function formatExpiresAt(iso: string): string {
   try {
     return new Intl.DateTimeFormat('pt-BR', {
