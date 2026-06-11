@@ -26,7 +26,8 @@ export type OfflinePackScopePayload =
       school_ids: string[];
       test_ids: string[];
       class_ids: string[];
-      student_ids: string[];
+      /** Omitir quando o escopo é por turma/escola/prova — não enviar array vazio. */
+      student_ids?: string[];
     };
 
 export interface OfflinePackItem {
@@ -196,12 +197,13 @@ export function buildScopePayload(
   if (scopeMode === 'municipality') {
     return { type: 'municipality' };
   }
+  const studentIds = [...selections.studentIds];
   return {
     type: 'custom',
     school_ids: [...selections.schoolIds],
     test_ids: [...selections.testIds],
     class_ids: [...selections.classIds],
-    student_ids: [...selections.studentIds],
+    ...(studentIds.length > 0 ? { student_ids: studentIds } : {}),
   };
 }
 

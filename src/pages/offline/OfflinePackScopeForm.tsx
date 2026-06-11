@@ -328,6 +328,12 @@ function CustomScopeFields(props: {
                               }
                   />
                   <span className="text-sm">
+                    {cl.grade?.name ? (
+                      <>
+                        {cl.grade.name}
+                        <span className="text-muted-foreground"> · </span>
+                      </>
+                    ) : null}
                     {cl.name}
                     {cl.school?.name ? (
                       <span className="text-muted-foreground"> · {cl.school.name}</span>
