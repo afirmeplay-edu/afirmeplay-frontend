@@ -17,8 +17,11 @@ import {
   OFFLINE_SELECT_NONE,
   isValidSchoolCityId,
   applyScopeToSelectionState,
+  gradeIdsFromClassIds,
   normalizePackScope,
   normalizeToClassRows,
+  pruneClassIdsByGrades,
+  pruneClassIdsBySchools,
   scopeClassIdsFromPack,
   scopeSchoolIdsFromPack,
   scopeTestIdsFromPack,
@@ -55,6 +58,10 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
   const packScopeRef = useRef(initialScope ? normalizePackScope(initialScope) : null);
   const locationHydratedRef = useRef(false);
   const pendingCityIdRef = useRef<string | undefined>(initialCityId);
+  /** Baselines pós-hidratação — evita limpar seleções ao carregar o pacote na edição. */
+  const syncedClassIdsKeyRef = useRef<string | null>(null);
+  const syncedSchoolIdsKeyRef = useRef<string | null>(null);
+  const syncedGradeIdsKeyRef = useRef<string | null>(null);
 
   if (initialScope) {
     packScopeRef.current = normalizePackScope(initialScope);
@@ -308,10 +315,14 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
       }
       setClasses(list);
       const allowed = new Set(list.map((c) => c.id));
-      const scopeClassIds = scopeClassIdsFromPack(packScopeRef.current);
       setSelectedClassIds((prev) => {
-        const merged = new Set([...prev, ...scopeClassIds]);
-        return new Set([...merged].filter((id) => allowed.has(id)));
+        if (!scopeInitialSyncDoneRef.current) {
+          const scopeClassIds = scopeClassIdsFromPack(packScopeRef.current);
+          if (scopeClassIds.length > 0) {
+            return new Set(scopeClassIds.filter((id) => allowed.has(id)));
+          }
+        }
+        return new Set([...prev].filter((id) => allowed.has(id)));
       });
     } catch {
       setClasses([]);
@@ -392,6 +403,51 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
     };
   }, [singleClassIdForStudents, selectedCityId]);
 
+  /** Limpa filtros personalizados ao voltar para município inteiro. */
+  useEffect(() => {
+    if (scopeMode !== 'municipality') return;
+    setSelectedSchoolIds(new Set());
+    setSelectedGradeIds(new Set());
+    setSelectedClassIds(new Set());
+    setSelectedTestIds(new Set());
+    setSelectedStudentIds(new Set());
+    syncedClassIdsKeyRef.current = null;
+    syncedSchoolIdsKeyRef.current = null;
+    syncedGradeIdsKeyRef.current = null;
+  }, [scopeMode]);
+
+  /** Criação: sem pacote inicial, efeitos de poda valem assim que o formulário monta. */
+  useEffect(() => {
+    if (initialScope) return;
+    scopeInitialSyncDoneRef.current = true;
+  }, [initialScope]);
+
+  /** Após hidratação: turmas fora das escolas selecionadas saem do escopo. */
+  useEffect(() => {
+    if (!scopeInitialSyncDoneRef.current || selectedSchoolIds.size === 0) return;
+    const key = [...selectedSchoolIds].sort().join(',');
+    if (syncedSchoolIdsKeyRef.current === key) return;
+    setSelectedClassIds((prev) => pruneClassIdsBySchools(prev, classes, selectedSchoolIds));
+    setSelectedStudentIds(new Set());
+  }, [selectedSchoolIds, classes]);
+
+  /** Filtro de série poda turmas ocultas e invalida seleção de alunos. */
+  useEffect(() => {
+    if (!scopeInitialSyncDoneRef.current || selectedGradeIds.size === 0) return;
+    const key = [...selectedGradeIds].sort().join(',');
+    if (syncedGradeIdsKeyRef.current === key) return;
+    setSelectedClassIds((prev) => pruneClassIdsByGrades(prev, classes, selectedGradeIds));
+    setSelectedStudentIds(new Set());
+  }, [selectedGradeIds, classes]);
+
+  /** Troca de turma(s) descarta alunos — escopo por turma não combina com student_ids antigos. */
+  useEffect(() => {
+    if (!scopeInitialSyncDoneRef.current) return;
+    const key = [...selectedClassIds].sort().join(',');
+    if (syncedClassIdsKeyRef.current === key) return;
+    setSelectedStudentIds(new Set());
+  }, [selectedClassIds]);
+
   /** Pré-seleciona escopo do GET assim que o município existe (antes das listas). */
   useEffect(() => {
     const scope = packScopeRef.current;
@@ -431,6 +487,16 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
       setSelectedClassIds,
       setSelectedStudentIds,
     });
+    const hydratedGradeIds =
+      parsed.classIds.size > 0 && classes.length > 0
+        ? gradeIdsFromClassIds(parsed.classIds, classes)
+        : new Set<string>();
+    if (hydratedGradeIds.size > 0) {
+      setSelectedGradeIds(hydratedGradeIds);
+    }
+    syncedClassIdsKeyRef.current = [...parsed.classIds].sort().join(',');
+    syncedSchoolIdsKeyRef.current = [...parsed.schoolIds].sort().join(',');
+    syncedGradeIdsKeyRef.current = [...hydratedGradeIds].sort().join(',');
     scopeInitialSyncDoneRef.current = true;
   }, [
     initialScope,
