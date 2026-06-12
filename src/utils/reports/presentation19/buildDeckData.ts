@@ -1191,74 +1191,6 @@ function mediaNotaDasTurmasNoRelatorio(
   return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
 }
 
-function findResultadoPorDisciplinaNova(
-  rows: NonNullable<NovaRespostaAPI["resultados_por_disciplina"]>,
-  disciplina: string
-): (NonNullable<NovaRespostaAPI["resultados_por_disciplina"]>[number]) | undefined {
-  const d = String(disciplina ?? "").trim();
-  if (!d || !rows.length) return undefined;
-  const exact = rows.find((r) => String(r.disciplina ?? "").trim() === d);
-  if (exact) return exact;
-  const dk = normKey(d);
-  return rows.find((r) => normKey(String(r.disciplina ?? "")) === dk);
-}
-
-/**
- * No recorte município + comparação por escola, acrescenta linha GERAL por disciplina a partir de
- * `resultados_por_disciplina` (mesma API do cartão-resposta), para não recalcular média municipal no front.
- */
-function appendMunicipalGeralPorDisciplinaFromNova(
-  comparisonAxis: PresentationComparisonAxis,
-  nova: NovaRespostaAPI | null,
-  profRows: ProficiencyByDisciplineByTurmaRow[],
-  notaRows: NotaByDisciplineByTurmaRow[]
-): {
-  prof: ProficiencyByDisciplineByTurmaRow[];
-  nota: NotaByDisciplineByTurmaRow[];
-} {
-  if (comparisonAxis !== "escola" || nova?.nivel_granularidade !== "municipio") {
-    return { prof: profRows, nota: notaRows };
-  }
-  const res = nova.resultados_por_disciplina ?? [];
-  if (res.length === 0) return { prof: profRows, nota: notaRows };
-
-  const mergeProf = profRows.map((d) => {
-    const m = findResultadoPorDisciplinaNova(res, d.disciplina);
-    if (!m) return d;
-    const p = clampToNumber(m.media_proficiencia, NaN);
-    if (!Number.isFinite(p)) return d;
-    if (d.valuesByTurma.some((v) => v.turma === "GERAL")) return d;
-    return { ...d, valuesByTurma: [...d.valuesByTurma, { turma: "GERAL", proficiencia: p }] };
-  });
-
-  const mergeNota = notaRows.map((d) => {
-    const m = findResultadoPorDisciplinaNova(res, d.disciplina);
-    if (!m) return d;
-    const n = clampToNumber(m.media_nota, NaN);
-    if (!Number.isFinite(n)) return d;
-    if (d.valuesByTurma.some((v) => v.turma === "GERAL")) return d;
-    return { ...d, valuesByTurma: [...d.valuesByTurma, { turma: "GERAL", mediaNota: n }] };
-  });
-
-  return { prof: mergeProf, nota: mergeNota };
-}
-
-function municipalEstatisticasGeraisMunicipio(nova: NovaRespostaAPI | null): {
-  mediaProficienciaMunicipalAgregados: number | null;
-  mediaNotaMunicipalAgregados: number | null;
-} {
-  if (!nova?.estatisticas_gerais || nova.nivel_granularidade !== "municipio") {
-    return { mediaProficienciaMunicipalAgregados: null, mediaNotaMunicipalAgregados: null };
-  }
-  const eg = nova.estatisticas_gerais;
-  const prof = clampToNumber(eg.media_proficiencia_geral, NaN);
-  const nota = clampToNumber(eg.media_nota_geral, NaN);
-  return {
-    mediaProficienciaMunicipalAgregados: Number.isFinite(prof) ? prof : null,
-    mediaNotaMunicipalAgregados: Number.isFinite(nota) ? nota : null,
-  };
-}
-
 function inferSerieForTurmaFromNova(nova: NovaRespostaAPI | null, turmaLabel: string): string {
   const tKey = normKey(turmaLabel);
   if (!tKey) return "";
@@ -2230,14 +2162,8 @@ export function buildDeckDataForPresentation19Slides(args: BuildDeckDataArgs): P
     notasPorDisciplinaPorTurma = filterPresentation19RealDisciplineRows(notasPorDisciplinaPorTurma);
   }
 
-  const municipalDiscMerged = appendMunicipalGeralPorDisciplinaFromNova(
-    comparisonAxis,
-    novaRespostaAgregados,
-    proficienciaPorDisciplinaPorTurma,
-    notasPorDisciplinaPorTurma
-  );
-  proficienciaPorDisciplinaPorTurma = filterPresentation19RealDisciplineRows(municipalDiscMerged.prof);
-  notasPorDisciplinaPorTurma = filterPresentation19RealDisciplineRows(municipalDiscMerged.nota);
+  proficienciaPorDisciplinaPorTurma = filterPresentation19RealDisciplineRows(proficienciaPorDisciplinaPorTurma);
+  notasPorDisciplinaPorTurma = filterPresentation19RealDisciplineRows(notasPorDisciplinaPorTurma);
 
   const notasNova = buildNotasFromNova(novaRespostaAgregados);
   const notasRel = buildNotasFromRelatorio(relatorioDetalhado);
@@ -2317,9 +2243,6 @@ export function buildDeckDataForPresentation19Slides(args: BuildDeckDataArgs): P
   const turnoCapa = hasClassShift(turnoRaw) ? getClassShiftLabel(turnoRaw) : undefined;
 
   const alunosDetalhados: AlunoPresentationRow[] = [];
-
-  const { mediaProficienciaMunicipalAgregados, mediaNotaMunicipalAgregados } =
-    municipalEstatisticasGeraisMunicipio(novaRespostaAgregados);
 
   warnIfProficiencyOutOfRange(serieFinal, proficienciaGeralPorTurma, proficienciaPorDisciplinaPorTurma);
 
@@ -2620,9 +2543,6 @@ export function buildDeckDataForPresentation19Slides(args: BuildDeckDataArgs): P
     notaMediaMunicipalPorDisciplinaRelatorio: cloneMediaMunicipalPorDisciplinaMap(
       relatorioDetalhado?.nota_geral?.media_municipal_por_disciplina as Record<string, number> | undefined
     ),
-
-    mediaProficienciaMunicipalAgregados,
-    mediaNotaMunicipalAgregados,
 
     alunosDetalhados,
 

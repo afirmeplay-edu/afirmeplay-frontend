@@ -38,7 +38,7 @@ interface StudentRankingProps {
 
 export function StudentRanking({ 
   students, 
-  maxStudents = 50,
+  maxStudents,
   showCoins = false,
   isCompetition = false,
   backendRankingOrder = false,
@@ -67,14 +67,17 @@ export function StudentRanking({
       sorted = [...completedStudents].sort((a, b) => (b.proficiencia || 0) - (a.proficiencia || 0));
     }
 
-    return sorted
-      .map((student, index) => ({
-        ...student,
-        posicao: backendRankingOrder
-          ? (student.posicao ?? index + 1)
-          : student.posicao || index + 1,
-      }))
-      .slice(0, maxStudents);
+    const mapped = sorted.map((student, index) => ({
+      ...student,
+      posicao: backendRankingOrder
+        ? (student.posicao ?? index + 1)
+        : student.posicao || index + 1,
+    }));
+
+    if (maxStudents != null && Number.isFinite(maxStudents) && maxStudents > 0) {
+      return mapped.slice(0, maxStudents);
+    }
+    return mapped;
   }, [backendRankingOrder, completedStudents, maxStudents, isCompetition, students]);
 
   const maxProficiencyBySerie = useMemo(() => {
