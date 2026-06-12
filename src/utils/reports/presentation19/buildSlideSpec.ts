@@ -11,6 +11,10 @@ import {
   presentation19GradesDisciplineChartTitle,
   presentation19ProficiencyDisciplineChartTitle,
 } from "@/utils/reports/presentation19/presentation19Labels";
+import {
+  mediaMunicipalRelatorioGeral,
+  mediaMunicipalRelatorioPorDisciplina,
+} from "@/utils/reports/presentation19/presentation19MunicipalMedia";
 
 const MAX_CATEGORY_ROWS_PER_SLIDE = 14;
 /** Proficiência por disciplina: 1 gráfico por slide (largura total, uma disciplina por “linha”). */
@@ -35,34 +39,6 @@ const levelColors = {
 } as const;
 
 const disciplinePalette = ["#f59e0b", "#10b981", "#3b82f6", "#8b5cf6", "#f43f5e", "#06b6d4", "#84cc16", "#d946ef"];
-
-/** Mesmas chaves que o backend (`media_municipal_por_disciplina.GERAL`) e os outros relatórios. */
-function normDiscKeySlide(s: string) {
-  return s
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
-}
-
-function mediaMunicipalRelatorioGeral(mm: Record<string, number> | null | undefined): number | null {
-  if (!mm) return null;
-  if (mm.GERAL != null && Number.isFinite(Number(mm.GERAL))) return Number(mm.GERAL);
-  const e = Object.entries(mm).find(([k]) => k.trim().toUpperCase() === "GERAL");
-  return e != null && Number.isFinite(Number(e[1])) ? Number(e[1]) : null;
-}
-
-function mediaMunicipalRelatorioPorDisciplina(
-  mm: Record<string, number> | null | undefined,
-  disciplina: string
-): number | null {
-  if (!mm || !String(disciplina ?? "").trim()) return null;
-  const d = String(disciplina).trim();
-  if (mm[d] != null && Number.isFinite(Number(mm[d]))) return Number(mm[d]);
-  const nk = normDiscKeySlide(d);
-  const found = Object.entries(mm).find(([k]) => normDiscKeySlide(k) === nk);
-  return found != null && Number.isFinite(Number(found[1])) ? Number(found[1]) : null;
-}
 
 function buildLinearTicks(min: number, max: number, segments: number): number[] {
   if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min || segments <= 0) return [min, max];
@@ -298,10 +274,9 @@ function buildGradesChartMunicipalCompare(deckData: Presentation19DeckData): Exp
       color: disciplinePalette[idx % disciplinePalette.length],
     });
   });
-  const notaMunicipalOficial =
-    mediaMunicipalRelatorioGeral(deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined) ??
-    deckData.mediaNotaMunicipalAgregados ??
-    deckData.mediaNotaGeral;
+  const notaMunicipalOficial = mediaMunicipalRelatorioGeral(
+    deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined
+  );
   let munNotaRounded: number | null = null;
   if (notaMunicipalOficial != null && Number.isFinite(notaMunicipalOficial)) {
     munNotaRounded = Number(clampToRange(notaMunicipalOficial, 0, 1000).toFixed(1));
@@ -368,16 +343,7 @@ function buildGeneralProficiencyChart(deckData: Presentation19DeckData, rows = d
 }
 
 function resolveMunicipalProficiencyGeral(deckData: Presentation19DeckData): number | null {
-  const oficialRel = mediaMunicipalRelatorioGeral(deckData.proficienciaMediaMunicipalPorDisciplinaRelatorio ?? undefined);
-  if (oficialRel != null && Number.isFinite(oficialRel)) return oficialRel;
-
-  const ag = deckData.mediaProficienciaMunicipalAgregados;
-  if (ag != null && Number.isFinite(ag)) return ag;
-
-  const geral = deckData.proficienciaGeralPorTurma.find((r) => r.label === "GERAL");
-  if (geral && Number.isFinite(geral.proficiencia)) return geral.proficiencia;
-
-  return null;
+  return mediaMunicipalRelatorioGeral(deckData.proficienciaMediaMunicipalPorDisciplinaRelatorio ?? undefined);
 }
 
 /** Todas as escolas + barra «Média municipal» no mesmo gráfico. */
@@ -455,18 +421,11 @@ function buildDefaultProficiencyByDisciplineCharts(deckData: Presentation19DeckD
     });
 }
 
-function municipalProficiencyForDiscipline(
-  deckData: Presentation19DeckData,
-  disciplina: { disciplina: string; valuesByTurma: Array<{ turma: string; proficiencia: number }> }
-): number | null {
-  const mm = deckData.proficienciaMediaMunicipalPorDisciplinaRelatorio;
-  const oficial = mediaMunicipalRelatorioPorDisciplina(mm ?? undefined, disciplina.disciplina);
-  if (oficial != null && Number.isFinite(oficial)) return oficial;
-
-  const g = disciplina.valuesByTurma.find((v) => v.turma === "GERAL");
-  if (g && Number.isFinite(g.proficiencia)) return g.proficiencia;
-
-  return null;
+function municipalProficiencyForDiscipline(deckData: Presentation19DeckData, disciplinaNome: string): number | null {
+  return mediaMunicipalRelatorioPorDisciplina(
+    deckData.proficienciaMediaMunicipalPorDisciplinaRelatorio ?? undefined,
+    disciplinaNome
+  );
 }
 
 /** Por disciplina: todas as escolas + «Média municipal» no mesmo mini-gráfico. */
@@ -490,7 +449,7 @@ function buildProficiencyByDisciplineChartsMunicipalCompare(
       })
       .filter((x): x is { escola: string; proficiencia: number } => x != null)
       .sort((a, b) => a.escola.localeCompare(b.escola, "pt-BR", { sensitivity: "base" }));
-    const mun = municipalProficiencyForDiscipline(deckData, disciplina);
+    const mun = municipalProficiencyForDiscipline(deckData, disciplina.disciplina);
     const data =
       mun != null && Number.isFinite(mun)
         ? [
@@ -561,18 +520,11 @@ function buildDefaultGradesByDisciplineCharts(deckData: Presentation19DeckData):
   });
 }
 
-function municipalNotaForDiscipline(
-  deckData: Presentation19DeckData,
-  disciplina: { disciplina: string; valuesByTurma: Array<{ turma: string; mediaNota: number }> }
-): number | null {
-  const mm = deckData.notaMediaMunicipalPorDisciplinaRelatorio;
-  const oficial = mediaMunicipalRelatorioPorDisciplina(mm ?? undefined, disciplina.disciplina);
-  if (oficial != null && Number.isFinite(oficial)) return oficial;
-
-  const g = disciplina.valuesByTurma.find((v) => v.turma === "GERAL");
-  if (g && Number.isFinite(g.mediaNota)) return g.mediaNota;
-
-  return null;
+function municipalNotaForDiscipline(deckData: Presentation19DeckData, disciplinaNome: string): number | null {
+  return mediaMunicipalRelatorioPorDisciplina(
+    deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined,
+    disciplinaNome
+  );
 }
 
 function buildGradesByDisciplineChartsMunicipalCompare(
@@ -589,7 +541,7 @@ function buildGradesByDisciplineChartsMunicipalCompare(
       })
       .filter((x): x is { escola: string; nota: number } => x != null)
       .sort((a, b) => a.escola.localeCompare(b.escola, "pt-BR", { sensitivity: "base" }));
-    const mun = municipalNotaForDiscipline(deckData, disciplina);
+    const mun = municipalNotaForDiscipline(deckData, disciplina.disciplina);
     const yMax = gradesYMaxFromValues([
       ...schoolData.map((s) => s.nota),
       ...(mun != null && Number.isFinite(mun) ? [mun] : []),
@@ -640,9 +592,7 @@ function buildGradesTableRows(deckData: Presentation19DeckData): Array<Array<str
   const out: Array<Array<string | number>> = [];
   const medLabel = escolaMulti ? PRESENTATION19_MUNICIPAL_AVG_LABEL : "Média geral";
   const notaMedResumo = escolaMulti
-    ? mediaMunicipalRelatorioGeral(deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined) ??
-      deckData.mediaNotaMunicipalAgregados ??
-      deckData.mediaNotaGeral
+    ? mediaMunicipalRelatorioGeral(deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined)
     : deckData.mediaNotaGeral;
   if (notaMedResumo != null && Number.isFinite(notaMedResumo)) {
     out.push([medLabel, Number(notaMedResumo).toFixed(1).replace(".", ",")]);

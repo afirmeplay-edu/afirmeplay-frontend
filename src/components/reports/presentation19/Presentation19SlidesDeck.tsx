@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { mediaMunicipalRelatorioGeral } from "@/utils/reports/presentation19/presentation19MunicipalMedia";
 import {
   BarChart,
   Bar,
@@ -292,13 +293,9 @@ export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation1
 
   const gradesChartData = useMemo(() => {
     const rows: Array<{ escopo: string; nota: number; fill: string }> = [];
-    const notaMunicipalOficialGeral = (() => {
-      const mm = deckData.notaMediaMunicipalPorDisciplinaRelatorio;
-      if (!mm) return null;
-      if (mm.GERAL != null && Number.isFinite(Number(mm.GERAL))) return Number(mm.GERAL);
-      const e = Object.entries(mm).find(([k]) => k.trim().toUpperCase() === "GERAL");
-      return e != null && Number.isFinite(Number(e[1])) ? Number(e[1]) : null;
-    })();
+    const notaMunicipalOficialGeral = mediaMunicipalRelatorioGeral(
+      deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined
+    );
     if (multiSchool) {
       const sortedSchools = [...deckData.niveisPorSerie].sort((a, b) =>
         a.label.localeCompare(b.label, "pt-BR", { sensitivity: "base" })
@@ -312,7 +309,7 @@ export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation1
           fill: disciplinePalette[idx % disciplinePalette.length],
         });
       });
-      const notaBarraMunicipal = notaMunicipalOficialGeral ?? deckData.mediaNotaGeral;
+      const notaBarraMunicipal = notaMunicipalOficialGeral;
       if (notaBarraMunicipal != null && Number.isFinite(notaBarraMunicipal)) {
         rows.push({ escopo: "MÉDIA MUNICIPAL", nota: notaBarraMunicipal, fill: deckData.primaryColor });
       }
@@ -927,15 +924,9 @@ export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation1
                 rows={(() => {
                   const out: Array<Array<string | number>> = [];
                   const medLabel = multiSchool ? "MÉDIA MUNICIPAL" : "Média geral";
-                  const mm = deckData.notaMediaMunicipalPorDisciplinaRelatorio;
-                  const notaMunGeral =
-                    multiSchool && mm
-                      ? (() => {
-                          if (mm.GERAL != null && Number.isFinite(Number(mm.GERAL))) return Number(mm.GERAL);
-                          const e = Object.entries(mm).find(([k]) => k.trim().toUpperCase() === "GERAL");
-                          return e != null && Number.isFinite(Number(e[1])) ? Number(e[1]) : null;
-                        })() ?? deckData.mediaNotaGeral
-                      : deckData.mediaNotaGeral;
+                  const notaMunGeral = multiSchool
+                    ? mediaMunicipalRelatorioGeral(deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined)
+                    : deckData.mediaNotaGeral;
                   if (notaMunGeral != null && Number.isFinite(notaMunGeral)) {
                     out.push([medLabel, notaMunGeral.toFixed(1).replace(".", ",")]);
                   }

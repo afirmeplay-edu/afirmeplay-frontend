@@ -1,5 +1,6 @@
-import { ComparisonResponse } from '@/services/evaluation/evaluationComparisonApi';
+import { ComparisonResponse, EvaluationInfo } from '@/services/evaluation/evaluationComparisonApi';
 import { EvolutionData } from '@/components/evolution/EvolutionChart';
+import { sortEvaluationsByOrder } from '@/utils/evolution/evaluationScopeLabels';
 
 /**
  * Valida e limita variações percentuais extremas
@@ -29,6 +30,8 @@ export interface ProcessedEvolutionData {
   levelsData: Record<string, EvolutionData[]>;
   /** nomes das avaliações para exibição */
   evaluationNames: string[];
+  /** metadados completos (série, turmas, datas) */
+  evaluations: EvaluationInfo[];
 }
 
 /**
@@ -43,10 +46,8 @@ export function processComparisonData(comparison: ComparisonResponse): Processed
   const classificationData = processClassificationData(comparison);
   const levelsData = processLevelsData(comparison);
   
-  // Extrair nomes das avaliações
-  const evaluationNames = comparison.evaluations
-    ?.sort((a, b) => a.order - b.order)
-    ?.map(evaluation => evaluation.title) || [];
+  const evaluations = sortEvaluationsByOrder(comparison.evaluations ?? []);
+  const evaluationNames = evaluations.map((evaluation) => evaluation.title);
 
   return {
     generalData,
@@ -56,7 +57,8 @@ export function processComparisonData(comparison: ComparisonResponse): Processed
     approvalData,
     classificationData,
     levelsData,
-    evaluationNames
+    evaluationNames,
+    evaluations,
   };
 }
 

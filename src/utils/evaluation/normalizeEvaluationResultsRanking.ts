@@ -1,11 +1,8 @@
 /**
- * Normaliza o array `ranking` das rotas de resultados agregados
+ * Adapta o array `ranking` das rotas de resultados agregados
  * (`/evaluation-results/avaliacoes`, `/answer-sheets/resultados-agregados`, etc.)
- * — formato plano (RankingItem / cartão-resposta) ou aninhado com `aluno` + `posicao`.
- * Ordem relativa: `posicao` do backend; mantém participantes mesmo com nota/proficiência 0,
- * desde que `status` (ou `status_geral`) indique avaliação concluída (ou omitido —
- * tratado como concluída por compatibilidade). Exclui não participantes (ex.: pendente).
- * Posições exibidas são renumeradas 1..n na ordem resultante.
+ * ao formato usado pela UI — sem filtrar, recalcular posições nem descartar participantes.
+ * Ordem e `posicao` vêm do backend; só normaliza formato aninhado (`aluno` + `posicao`) vs plano.
  */
 
 export type EvaluationResultsRankingStudentRow = {
@@ -67,16 +64,9 @@ function participationStatusForNestedEntry(
   return participationStatusFromSource(nested);
 }
 
-/** Inclui concluídos com nota/proficiência finitas ≥ 0; nível vazio não descarta linha. */
-function rowEligibleForRanking(r: EvaluationResultsRankingStudentRow): boolean {
-  if (r.status !== 'concluida') return false;
-  if (!Number.isFinite(r.nota) || !Number.isFinite(r.proficiencia)) return false;
-  return r.nota >= 0 && r.proficiencia >= 0;
-}
-
 /**
  * Converte cada entrada do `ranking` da API numa linha única por aluno,
- * ordenada por `posicao` ascendente (critério do servidor).
+ * preservando ordem e posição definidas pelo servidor.
  */
 export function normalizeEvaluationResultsRanking(raw: unknown[]): EvaluationResultsRankingStudentRow[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
@@ -109,10 +99,7 @@ export function normalizeEvaluationResultsRanking(raw: unknown[]): EvaluationRes
         questoes_respondidas: num(nested.total_respondidas ?? nested.total_questoes, 0),
         acertos: num(nested.total_acertos, 0),
         erros: num(nested.total_erros, 0),
-        em_branco:
-          nested.total_em_branco != null && String(nested.total_em_branco).trim() !== ''
-            ? num(nested.total_em_branco, 0)
-            : Math.max(0, num(nested.total_questoes, 0) - num(nested.total_respondidas, 0)),
+        em_branco: num(nested.total_em_branco, 0),
         tempo_gasto: 0,
         status: participationStatusForNestedEntry(row, nested),
         posicao,
@@ -152,6 +139,5 @@ export function normalizeEvaluationResultsRanking(raw: unknown[]): EvaluationRes
     return (a.nome || '').localeCompare(b.nome || '', undefined, { sensitivity: 'base' });
   });
 
-  const eligible = rows.filter(rowEligibleForRanking);
-  return eligible.map((r, index) => ({ ...r, posicao: index + 1 }));
+  return rows;
 }

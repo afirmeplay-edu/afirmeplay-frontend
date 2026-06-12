@@ -211,14 +211,10 @@ function calculateGeneralStats(processedData: ProcessedEvolutionData) {
   if (etapas.length === 0) return null;
   
   const media = etapas.reduce((sum, val) => sum + val, 0) / etapas.length;
-  const melhorNota = Math.max(...etapas);
-  const piorNota = Math.min(...etapas);
   const variacaoTotal = etapas.length > 1 ? pct(etapas[0], etapas[etapas.length - 1]) : 0;
   
   return {
     media,
-    melhorNota,
-    piorNota,
     variacaoTotal: variacaoTotal || 0,
     totalAvaliacoes: etapas.length,
   };
@@ -405,18 +401,6 @@ export const EvolutionPDFLayout = ({ processedData, evaluationNames }: Evolution
               <div style={{ fontSize: '9px', color: '#6b7280', marginBottom: '4px' }}>Média Geral</div>
               <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#1f2937', lineHeight: '1.2' }}>
                 {generalStats.media.toFixed(1).replace('.', ',')}
-              </div>
-              <div style={{ fontSize: '8px', color: '#9ca3af', marginTop: '2px' }}>pontos</div>
-            </div>
-            <div style={{ 
-              padding: '12px', 
-              border: '1px solid #e5e7eb', 
-              borderRadius: '6px',
-              backgroundColor: '#f9fafb'
-            }}>
-              <div style={{ fontSize: '9px', color: '#6b7280', marginBottom: '4px' }}>Melhor Resultado</div>
-              <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#1f2937', lineHeight: '1.2' }}>
-                {generalStats.melhorNota.toFixed(1).replace('.', ',')}
               </div>
               <div style={{ fontSize: '8px', color: '#9ca3af', marginTop: '2px' }}>pontos</div>
             </div>
