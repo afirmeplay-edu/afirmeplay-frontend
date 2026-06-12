@@ -1689,11 +1689,8 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                   <div className="text-sm font-medium text-muted-foreground">Taxa de participação</div>
                   <div className="text-2xl font-bold text-blue-600">
                     {backendStats.percentualComparecimento != null
-                      ? backendStats.percentualComparecimento.toFixed(1)
-                      : backendStats.totalAlunos > 0
-                        ? ((backendStats.participantes / backendStats.totalAlunos) * 100).toFixed(1)
-                        : '0'}
-                    %
+                      ? `${backendStats.percentualComparecimento.toFixed(1)}%`
+                      : '-'}
                   </div>
                 </div>
                 <div className="space-y-1">

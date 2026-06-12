@@ -7,10 +7,30 @@ export interface EvolutionMetrics {
   direction: 'increase' | 'decrease' | 'stable';
 }
 
-export interface EvaluationInfo {
+export interface EvaluationClassRef {
+  id: string;
+  name: string;
+}
+
+export interface EvaluationScopeFields {
+  grade_id?: string;
+  grade_name?: string;
+  grade_names?: string[];
+  classes?: EvaluationClassRef[];
+}
+
+export interface EvaluationInfo extends EvaluationScopeFields {
   order: number;
   id: string;
   title: string;
+  created_at?: string;
+  application_date?: string;
+}
+
+export interface ComparisonEvaluationRef extends EvaluationScopeFields {
+  id: string;
+  title: string;
+  order: number;
   created_at?: string;
   application_date?: string;
 }
@@ -109,16 +129,8 @@ export interface SkillsComparison {
 }
 
 export interface Comparison {
-  from_evaluation: {
-    id: string;
-    title: string;
-    order: number;
-  };
-  to_evaluation: {
-    id: string;
-    title: string;
-    order: number;
-  };
+  from_evaluation: ComparisonEvaluationRef;
+  to_evaluation: ComparisonEvaluationRef;
   general_comparison: GeneralComparison;
   subject_comparison: SubjectComparison;
   skills_comparison: SkillsComparison;

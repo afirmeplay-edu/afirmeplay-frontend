@@ -4,6 +4,11 @@ import { EvolutionPDFLayout } from '@/components/evolution/EvolutionPDFLayout';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { loadCityBrandingForReportPdf, type PdfImageAsset, urlToPngAsset } from '@/utils/pdfCityBranding';
+import {
+  formatEvaluationClassNames,
+  formatEvaluationGradeNames,
+  sortEvaluationsByOrder,
+} from '@/utils/evolution/evaluationScopeLabels';
 
 interface FilterInfo {
   state?: { id: string; name: string };
@@ -140,7 +145,8 @@ function addFiltersInfoPage(
   filterInfo: FilterInfo | null,
   evaluationNames: string[],
   processedData: ProcessedEvolutionData | null,
-  ico?: { dataUrl: string; iw: number; ih: number } | null
+  ico?: { dataUrl: string; iw: number; ih: number } | null,
+  instrumentLabel = 'avaliações'
 ): void {
   pdf.setFillColor(...COLORS.white);
   pdf.rect(0, 0, pageWidth, pageHeight, 'F');
@@ -191,8 +197,8 @@ function addFiltersInfoPage(
     filterLines.push({ label: 'PERÍODO', value: `${filterInfo.periodStart || '—'} → ${filterInfo.periodEnd || '—'}` });
   }
 
-  const evalLabel = evaluationNames?.length ? `${evaluationNames.length} avaliação(ões)` : 'Nenhuma avaliação selecionada';
-  filterLines.push({ label: 'AVALIAÇÕES', value: evalLabel });
+  const evalLabel = evaluationNames?.length ? `${evaluationNames.length} ${instrumentLabel}` : `Nenhuma ${instrumentLabel.slice(0, -1)} selecionada`;
+  filterLines.push({ label: instrumentLabel === 'gabaritos' ? 'GABARITOS' : 'AVALIAÇÕES', value: evalLabel });
 
   const cardH = Math.max(64, 24 + filterLines.length * rowH + 16);
   pdf.setFillColor(...COLORS.bgLight);
@@ -229,7 +235,7 @@ function addFiltersInfoPage(
     cy += Math.max(rowH, vLines.length * 5);
   }
 
-  currentY += cardH + 12
+  currentY += cardH + 12;
 
   // Seção de Análise Estatística / Análise de Evolução
   if (processedData) {
@@ -256,16 +262,12 @@ function addFiltersInfoPage(
 
       const etapas = geral.etapas;
       const media = etapas.reduce((sum, val) => sum + val, 0) / etapas.length;
-      const melhorNota = Math.max(...etapas);
-      const piorNota = Math.min(...etapas);
       const variacaoTotal = etapas.length > 1 
         ? ((etapas[etapas.length - 1] - etapas[0]) / etapas[0]) * 100
         : 0;
 
       return {
         media,
-        melhorNota,
-        piorNota,
         variacaoTotal,
         totalAvaliacoes: etapas.length,
       };
@@ -311,7 +313,7 @@ function addFiltersInfoPage(
       pdf.setFont('helvetica', 'normal');
       pdf.text('pontos', leftColX + 8, currentY + 25);
 
-      // Card 2: Melhor Resultado
+      // Variação Total
       pdf.setFillColor(...COLORS.bgLight);
       pdf.rect(rightColX, currentY, cardWidth, cardHeight, 'F');
       pdf.setDrawColor(...COLORS.borderLight);
@@ -321,21 +323,22 @@ function addFiltersInfoPage(
       pdf.setFontSize(9);
       pdf.setTextColor(...COLORS.textGray);
       pdf.setFont('helvetica', 'normal');
-      pdf.text('Melhor Resultado', rightColX + 8, currentY + 8);
+      pdf.text('Variação Total', rightColX + 8, currentY + 8);
       
+      const variacaoColor = generalStats.variacaoTotal > 0 ? [16, 185, 129] : generalStats.variacaoTotal < 0 ? [239, 68, 68] : COLORS.textGray;
       pdf.setFontSize(16);
-      pdf.setTextColor(...COLORS.textDark);
+      pdf.setTextColor(variacaoColor[0], variacaoColor[1], variacaoColor[2]);
       pdf.setFont('helvetica', 'bold');
-      pdf.text(`${generalStats.melhorNota.toFixed(1).replace('.', ',')}`, rightColX + 8, currentY + 18);
+      pdf.text(`${generalStats.variacaoTotal > 0 ? '+' : ''}${generalStats.variacaoTotal.toFixed(1).replace('.', ',')}%`, rightColX + 8, currentY + 18);
       
       pdf.setFontSize(8);
       pdf.setTextColor(...COLORS.textGray);
       pdf.setFont('helvetica', 'normal');
-      pdf.text('pontos', rightColX + 8, currentY + 25);
+      pdf.text('período', rightColX + 8, currentY + 25);
 
       currentY += cardHeight + 10;
 
-      // Card 3: Variação Total
+      // Total de Avaliações
       pdf.setFillColor(...COLORS.bgLight);
       pdf.rect(leftColX, currentY, cardWidth, cardHeight, 'F');
       pdf.setDrawColor(...COLORS.borderLight);
@@ -345,40 +348,17 @@ function addFiltersInfoPage(
       pdf.setFontSize(9);
       pdf.setTextColor(...COLORS.textGray);
       pdf.setFont('helvetica', 'normal');
-      pdf.text('Variação Total', leftColX + 8, currentY + 8);
-      
-      const variacaoColor = generalStats.variacaoTotal > 0 ? [16, 185, 129] : generalStats.variacaoTotal < 0 ? [239, 68, 68] : COLORS.textGray;
-      pdf.setFontSize(16);
-      pdf.setTextColor(variacaoColor[0], variacaoColor[1], variacaoColor[2]);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(`${generalStats.variacaoTotal > 0 ? '+' : ''}${generalStats.variacaoTotal.toFixed(1).replace('.', ',')}%`, leftColX + 8, currentY + 18);
-      
-      pdf.setFontSize(8);
-      pdf.setTextColor(...COLORS.textGray);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text('período', leftColX + 8, currentY + 25);
-
-      // Card 4: Total de Avaliações
-      pdf.setFillColor(...COLORS.bgLight);
-      pdf.rect(rightColX, currentY, cardWidth, cardHeight, 'F');
-      pdf.setDrawColor(...COLORS.borderLight);
-      pdf.setLineWidth(0.5);
-      pdf.rect(rightColX, currentY, cardWidth, cardHeight, 'S');
-      
-      pdf.setFontSize(9);
-      pdf.setTextColor(...COLORS.textGray);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text('Total de Avaliações', rightColX + 8, currentY + 8);
+      pdf.text('Total de Avaliações', leftColX + 8, currentY + 8);
       
       pdf.setFontSize(16);
       pdf.setTextColor(...COLORS.textDark);
       pdf.setFont('helvetica', 'bold');
-      pdf.text(`${generalStats.totalAvaliacoes}`, rightColX + 8, currentY + 18);
+      pdf.text(`${generalStats.totalAvaliacoes}`, leftColX + 8, currentY + 18);
       
       pdf.setFontSize(8);
       pdf.setTextColor(...COLORS.textGray);
       pdf.setFont('helvetica', 'normal');
-      pdf.text('avaliações', rightColX + 8, currentY + 25);
+      pdf.text('avaliações', leftColX + 8, currentY + 25);
     }
   }
 }
@@ -610,7 +590,9 @@ async function addCategoryDivider(
   filterInfo?: FilterInfo | null,
   evaluationNames?: string[],
   ico?: { dataUrl: string; iw: number; ih: number } | null,
-  reportLogo?: PdfImageAsset | null
+  reportLogo?: PdfImageAsset | null,
+  processedData?: ProcessedEvolutionData | null,
+  instrumentLabel = 'avaliações'
 ): Promise<void> {
   // Garantir fundo branco
   pdf.setFillColor(...COLORS.white);
@@ -659,10 +641,17 @@ async function addCategoryDivider(
 
   y += lines.length * 6 + 10;
 
-  // Card com resumo do escopo (para não ficar “layout sem info”)
+  const scopeEvaluations = sortEvaluationsByOrder(processedData?.evaluations ?? []);
+  const contentX = margin + 14;
+  const contentMaxW = pageWidth - margin * 2 - 14;
+
+  let cardContentHeight = 36;
+  cardContentHeight += scopeEvaluations.length > 0 ? scopeEvaluations.length * 16 : 7;
+  const cardH = Math.max(44, cardContentHeight);
+
+  // Card com resumo do escopo
   const cardW = pageWidth - margin * 2;
   const cardX = margin;
-  const cardH = 44;
   const ACCENT_W = 4;
   pdf.setFillColor(...COLORS.bgLight);
   pdf.rect(cardX, y, cardW, cardH, 'F');
@@ -687,21 +676,44 @@ async function addCategoryDivider(
   pdf.setFontSize(9);
   pdf.setTextColor(...COLORS.textDark);
   const muni = filterInfo?.municipality?.name || '—';
-  const grade = filterInfo?.grade?.name || '—';
-  const turma = filterInfo?.class?.name || '—';
-  const turno = (filterInfo?.class as { shift?: string } | undefined)?.shift?.trim() || '';
-  const evalCount = evaluationNames?.length ? `${evaluationNames.length}` : '0';
-  pdf.text(`Município: ${muni}`, cardX + ACCENT_W + 10, cy);
+  pdf.text(`Município: ${muni}`, contentX, cy);
   cy += 7;
-  pdf.text(
-    turno
-      ? `Série: ${grade}  •  Turma: ${turma}  •  Turno: ${turno}`
-      : `Série: ${grade}  •  Turma: ${turma}`,
-    cardX + ACCENT_W + 10,
-    cy
-  );
-  cy += 7;
-  pdf.text(`Avaliações: ${evalCount}`, cardX + ACCENT_W + 10, cy);
+
+  if (scopeEvaluations.length > 0) {
+    for (const [index, ev] of scopeEvaluations.entries()) {
+      const grades = formatEvaluationGradeNames(ev) || '—';
+      const classes = formatEvaluationClassNames(ev) || '—';
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8);
+      const titleLines = pdf.splitTextToSize(`${index + 1}. ${ev.title}`, contentMaxW) as string[];
+      pdf.text(titleLines, contentX, cy);
+      cy += titleLines.length * 4.5;
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8);
+      const scopeLine = `Série: ${grades}  •  Turmas: ${classes}`;
+      const scopeLines = pdf.splitTextToSize(scopeLine, contentMaxW) as string[];
+      pdf.text(scopeLines, contentX, cy);
+      cy += scopeLines.length * 4.5 + 3;
+    }
+  } else {
+    const grade = filterInfo?.grade?.name || '—';
+    const turma = filterInfo?.class?.name || '—';
+    const turno = (filterInfo?.class as { shift?: string } | undefined)?.shift?.trim() || '';
+    pdf.text(
+      turno
+        ? `Série: ${grade}  •  Turma: ${turma}  •  Turno: ${turno}`
+        : `Série: ${grade}  •  Turma: ${turma}`,
+      contentX,
+      cy
+    );
+    cy += 7;
+  }
+
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(9);
+  const evalLabel = instrumentLabel === 'gabaritos' ? 'Gabaritos' : 'Avaliações';
+  pdf.text(`${evalLabel}: ${evaluationNames?.length ? evaluationNames.length : '0'}`, contentX, cy);
 }
 
 /**
@@ -835,7 +847,8 @@ export async function generateEvolutionPDFFromHTML(
   processedData: ProcessedEvolutionData,
   comparisonData: ComparisonResponse | null,
   evaluationNames: string[],
-  filterInfo?: FilterInfo | null
+  filterInfo?: FilterInfo | null,
+  instrumentLabel = 'avaliações'
 ): Promise<void> {
   try {
     // Importar bibliotecas dinamicamente
@@ -921,7 +934,7 @@ export async function generateEvolutionPDFFromHTML(
     
     // Adicionar página de informações sobre filtros e avaliações
     pdf.addPage();
-    addFiltersInfoPage(pdf, imgWidth, pageHeight, filterInfo || null, evaluationNames, processedData, icoAsset);
+    addFiltersInfoPage(pdf, imgWidth, pageHeight, filterInfo || null, evaluationNames, processedData, icoAsset, instrumentLabel);
     
     // Não criar página vazia - a primeira página divisória ou gráfico criará quando necessário
     let currentY = marginTop;
@@ -1000,7 +1013,9 @@ export async function generateEvolutionPDFFromHTML(
         filterInfo || null,
         evaluationNames,
         icoAsset,
-        reportLogo
+        reportLogo,
+        processedData,
+        instrumentLabel
       );
       // Criar página para os gráficos
       pdf.addPage();
@@ -1020,7 +1035,9 @@ export async function generateEvolutionPDFFromHTML(
         filterInfo || null,
         evaluationNames,
         icoAsset,
-        reportLogo
+        reportLogo,
+        processedData,
+        instrumentLabel
       );
       pdf.addPage();
       currentY = addHeader(pdf, imgWidth, filterInfo || null, 'GRÁFICOS POR DISCIPLINA', icoAsset) || marginTop;
@@ -1039,7 +1056,9 @@ export async function generateEvolutionPDFFromHTML(
         filterInfo || null,
         evaluationNames,
         icoAsset,
-        reportLogo
+        reportLogo,
+        processedData,
+        instrumentLabel
       );
       pdf.addPage();
       currentY = addHeader(pdf, imgWidth, filterInfo || null, 'GRÁFICOS POR NÍVEL', icoAsset) || marginTop;

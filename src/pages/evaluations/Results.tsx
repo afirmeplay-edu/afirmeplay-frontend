@@ -1888,7 +1888,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
           erros: s.erros,
           em_branco: s.em_branco,
         })),
-        maxRows: 100,
+        maxRows: rankingStudents.length,
         fileNameBase: `ranking-avaliacoes-${evaluationInfo?.titulo ?? 'resultados'}`,
         respectBackendRankingOrder: true,
       });
@@ -2101,12 +2101,17 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
   // Métricas gerais: sempre do backend (sem derivar/calcular no frontend).
   const backendStats = useMemo(() => {
     const s = apiData?.estatisticas_gerais;
+    const pct =
+      s?.percentual_comparecimento != null && Number.isFinite(Number(s.percentual_comparecimento))
+        ? Number(s.percentual_comparecimento)
+        : null;
     return {
       totalAlunos: s?.total_alunos ?? 0,
       participantes: s?.alunos_participantes ?? 0,
       pendentes: s?.alunos_pendentes ?? 0,
       mediaNota: s?.media_nota_geral ?? 0,
       mediaProficiencia: s?.media_proficiencia_geral ?? 0,
+      percentualComparecimento: pct,
     };
   }, [apiData?.estatisticas_gerais]);
 
@@ -2630,6 +2635,14 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                     <div className="text-2xl font-bold text-red-600">{backendStats.pendentes}</div>
                   </div>
                   <div className="space-y-2">
+                    <div className="text-sm font-medium text-muted-foreground">Taxa de participação</div>
+                    <div className="text-2xl font-bold text-blue-600">
+                      {backendStats.percentualComparecimento != null
+                        ? `${backendStats.percentualComparecimento.toFixed(1)}%`
+                        : '-'}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
                     <div className="text-sm font-medium text-muted-foreground">Nota Geral</div>
                     <div className="text-2xl font-bold text-purple-600">{Number(backendStats.mediaNota || 0).toFixed(1)}</div>
                   </div>
@@ -3003,7 +3016,6 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                     </div>
                     <StudentRanking
                       students={rankingStudents}
-                      maxStudents={100}
                       backendRankingOrder
                     />
                   </TabsContent>

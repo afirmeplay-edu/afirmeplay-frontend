@@ -120,13 +120,6 @@ export type Presentation19DeckData = {
   proficienciaMediaMunicipalPorDisciplinaRelatorio: Record<string, number> | null;
   notaMediaMunicipalPorDisciplinaRelatorio: Record<string, number> | null;
 
-  /**
-   * `media_proficiencia_geral` / `media_nota_geral` dos agregados (cartão-resposta) quando
-   * `nivel_granularidade === "municipio"` — mesma base do painel «Informações do Cartão Resposta».
-   */
-  mediaProficienciaMunicipalAgregados: number | null;
-  mediaNotaMunicipalAgregados: number | null;
-
   /** Legado: mantido vazio (slides de alunos removidos do deck). */
   alunosDetalhados: AlunoPresentationRow[];
 

@@ -16,81 +16,45 @@ import { EvolutionCharts } from '@/components/evolution/EvolutionCharts';
 import type { ProcessedEvolutionData } from '@/components/evolution/EvolutionCharts';
 import { processComparisonData } from '@/utils/evolution/evolutionDataProcessor';
 import { generateEvolutionPDFFromHTML } from '@/utils/evolution/evolutionPdfService';
-import { ResultsPeriodMonthYearPicker } from '@/components/filters';
-import { normalizeResultsPeriodYm } from '@/utils/resultsPeriod';
-import { api } from '@/lib/api';
+import { EvolutionScopeMetaLines } from '@/components/evolution/EvolutionEvaluationsScopeList';
 
-interface FilterOption {
+interface State {
   id: string;
-  nome?: string;
-  name?: string;
-  titulo?: string;
-  created_at?: string | null;
-  data_aplicacao?: string | null;
-  data?: string | null;
+  name: string;
 }
 
-interface OpcoesFiltrosResponse {
-  estados?: FilterOption[];
-  municipios?: FilterOption[];
-  gabaritos?: FilterOption[];
-  escolas?: FilterOption[];
-  series?: FilterOption[];
-  turmas?: FilterOption[];
+interface Municipality {
+  id: string;
+  name: string;
+}
+
+interface School {
+  id: string;
+  name: string;
+}
+
+interface Grade {
+  id: string;
+  name: string;
+}
+
+interface ClassItem {
+  id: string;
+  name: string;
 }
 
 interface GabaritoItem {
   id: string;
   titulo: string;
-  data_aplicacao: string | null;
+  data?: string | null;
 }
 
 const MAX_GABARITOS = 10;
 
-const normLabel = (o: FilterOption) => o.nome ?? o.name ?? o.titulo ?? o.id;
-
-function pickDate(a: FilterOption): string | null {
-  const v = a.data_aplicacao ?? a.data ?? a.created_at;
-  if (v == null || v === '') return null;
-  if (typeof v === 'number') return new Date(v).toISOString();
-  if (typeof v === 'string') {
-    const trimmed = v.trim();
-    const match = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-    if (match) {
-      const [, d, m, y] = match;
-      let year = parseInt(y!, 10);
-      if (year < 100) year += 2000;
-      const date = new Date(year, parseInt(m!, 10) - 1, parseInt(d!, 10));
-      if (!Number.isNaN(date.getTime())) return date.toISOString();
-    }
-    return trimmed;
-  }
-  return null;
-}
-
-function formatDate(dateString: string | null | undefined) {
-  if (dateString == null || String(dateString).trim() === '') return 'Data não disponível';
-  try {
-    let d: Date;
-    if (typeof dateString === 'number') {
-      d = new Date(dateString);
-    } else {
-      const s = String(dateString).trim();
-      const match = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-      if (match) {
-        const [, day, month, year] = match;
-        let y = parseInt(year!, 10);
-        if (y < 100) y += 2000;
-        d = new Date(y, parseInt(month!, 10) - 1, parseInt(day!, 10));
-      } else {
-        d = new Date(s);
-      }
-    }
-    if (Number.isNaN(d.getTime())) return 'Data não disponível';
-    return d.toLocaleDateString('pt-BR');
-  } catch {
-    return 'Data não informada';
-  }
+function isoDateToBR(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  if (!y || !m || !d) return iso;
+  return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
 }
 
 function extractApiError(error: unknown): string {
@@ -117,13 +81,18 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
   const [selectedSchool, setSelectedSchool] = useState<string>('all');
   const [selectedGrade, setSelectedGrade] = useState<string>('all');
   const [selectedClass, setSelectedClass] = useState<string>('all');
-  const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
+  const [periodStart, setPeriodStart] = useState<string>('');
+  const [periodEnd, setPeriodEnd] = useState<string>('');
   const [gabaritoSearch, setGabaritoSearch] = useState<string>('');
 
   const [selectedGabaritosForComparison, setSelectedGabaritosForComparison] = useState<GabaritoItem[]>([]);
   const [availableGabaritosForPicker, setAvailableGabaritosForPicker] = useState<GabaritoItem[]>([]);
 
-  const [opcoes, setOpcoes] = useState<OpcoesFiltrosResponse>({});
+  const [states, setStates] = useState<State[]>([]);
+  const [municipalities, setMunicipalities] = useState<Municipality[]>([]);
+  const [schools, setSchools] = useState<School[]>([]);
+  const [grades, setGrades] = useState<Grade[]>([]);
+  const [classes, setClasses] = useState<ClassItem[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingFilters, setIsLoadingFilters] = useState(false);
@@ -137,37 +106,9 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
 
   const lastComparisonIdsRef = useRef<string>('');
   const selectedIdsRef = useRef<string>('');
-  const prevStateRef = useRef<string>(selectedState);
   const prevMunicipalityRef = useRef<string>(selectedMunicipality);
   const prevSchoolRef = useRef<string>(selectedSchool);
   const prevGradeRef = useRef<string>(selectedGrade);
-
-  const normalizedPeriod = useMemo(
-    () => (selectedPeriod === 'all' ? 'all' : normalizeResultsPeriodYm(selectedPeriod)),
-    [selectedPeriod]
-  );
-  const periodoApi = normalizedPeriod === 'all' ? undefined : normalizedPeriod;
-
-  const states = useMemo(
-    () => (opcoes.estados ?? []).map((s) => ({ id: s.id, name: normLabel(s) })),
-    [opcoes.estados]
-  );
-  const municipalities = useMemo(
-    () => (opcoes.municipios ?? []).map((m) => ({ id: m.id, name: normLabel(m), state: selectedState })),
-    [opcoes.municipios, selectedState]
-  );
-  const schools = useMemo(
-    () => (opcoes.escolas ?? []).map((s) => ({ id: s.id, name: normLabel(s) })),
-    [opcoes.escolas]
-  );
-  const grades = useMemo(
-    () => (opcoes.series ?? []).map((s) => ({ id: s.id, name: normLabel(s) })),
-    [opcoes.series]
-  );
-  const classes = useMemo(
-    () => (opcoes.turmas ?? []).map((c) => ({ id: c.id, name: normLabel(c) })),
-    [opcoes.turmas]
-  );
 
   useEffect(() => {
     if (!isLoadingComparison) {
@@ -181,40 +122,32 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
     return () => clearInterval(t);
   }, [isLoadingComparison]);
 
-  const fetchOpcoesFiltros = useCallback(async () => {
-    const params = new URLSearchParams();
-    if (selectedState !== 'all') params.set('estado', selectedState);
-    if (selectedMunicipality !== 'all') params.set('municipio', selectedMunicipality);
-    if (periodoApi) params.set('periodo', periodoApi);
-    if (selectedSchool !== 'all') params.set('escola', selectedSchool);
-    if (selectedGrade !== 'all') params.set('serie', selectedGrade);
-    if (selectedClass !== 'all') params.set('turma', selectedClass);
-
-    const query = params.toString();
-    const requestConfig =
-      selectedMunicipality !== 'all' ? { meta: { cityId: selectedMunicipality } } : {};
-
+  const loadInitialFilters = useCallback(async () => {
     try {
       setIsLoadingFilters(true);
-      const url = `/answer-sheets/opcoes-filtros-results${query ? `?${query}` : ''}`;
-      const res = await api.get<OpcoesFiltrosResponse>(url, requestConfig);
-      setOpcoes(res.data ?? {});
+      const response = await AnswerSheetComparisonApiService.getEvolucaoOpcoesFiltros({});
+      const list = response.estados ?? [];
+      setStates(
+        list.map((s) => ({
+          id: s.id,
+          name: s.nome ?? s.name ?? s.id,
+        }))
+      );
     } catch (error) {
-      console.error('Erro ao carregar filtros (cartão-resposta):', error);
+      console.error('Erro ao carregar filtros iniciais (cartão-resposta):', error);
       toast({
         title: 'Erro ao carregar filtros',
         description: 'Não foi possível carregar os filtros. Tente novamente.',
         variant: 'destructive',
       });
-      setOpcoes({});
     } finally {
       setIsLoadingFilters(false);
       setIsLoading(false);
     }
-  }, [selectedState, selectedMunicipality, periodoApi, selectedSchool, selectedGrade, selectedClass, toast]);
+  }, [toast]);
 
   useEffect(() => {
-    const boot = async () => {
+    const ensureAuth = async () => {
       const token = localStorage.getItem('token');
       if (!token) {
         try {
@@ -230,21 +163,57 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
           return;
         }
       }
-      await fetchOpcoesFiltros();
+      await loadInitialFilters();
     };
-    boot();
-  }, [autoLogin, fetchOpcoesFiltros, toast]);
+    ensureAuth();
+  }, [autoLogin, loadInitialFilters, toast]);
 
   useEffect(() => {
-    if (prevStateRef.current !== selectedState) {
-      prevStateRef.current = selectedState;
-      setSelectedMunicipality('all');
-      setSelectedSchool('all');
-      setSelectedGrade('all');
-      setSelectedClass('all');
-      setSelectedPeriod('all');
-    }
-  }, [selectedState]);
+    const loadMunicipalities = async () => {
+      if (selectedState !== 'all') {
+        try {
+          setIsLoadingFilters(true);
+          const response = await AnswerSheetComparisonApiService.getEvolucaoOpcoesFiltros({
+            estado: selectedState,
+          });
+          const list = response.municipios ?? [];
+          const newMunicipalities = list.map((m) => ({
+            id: m.id,
+            name: m.nome ?? m.name ?? m.id,
+          }));
+          setMunicipalities(newMunicipalities);
+          const currentExists = newMunicipalities.some((m) => m.id === selectedMunicipality);
+          if (!currentExists && selectedMunicipality !== 'all') {
+            setSelectedMunicipality('all');
+            setSelectedSchool('all');
+            setSelectedGrade('all');
+            setSelectedClass('all');
+            setSelectedGabaritosForComparison([]);
+          }
+        } catch (error) {
+          console.error('Erro ao carregar municípios:', error);
+          toast({
+            title: 'Erro ao carregar municípios',
+            description: 'Não foi possível carregar os municípios. Tente novamente.',
+            variant: 'destructive',
+          });
+          setMunicipalities([]);
+        } finally {
+          setIsLoadingFilters(false);
+        }
+      } else {
+        setMunicipalities([]);
+        setSelectedMunicipality('all');
+        setSelectedSchool('all');
+        setSelectedGrade('all');
+        setSelectedClass('all');
+        setAvailableGabaritosForPicker([]);
+        setSelectedGabaritosForComparison([]);
+      }
+    };
+
+    loadMunicipalities();
+  }, [selectedState, selectedMunicipality, toast]);
 
   useEffect(() => {
     if (prevMunicipalityRef.current !== selectedMunicipality) {
@@ -252,6 +221,7 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
       setSelectedSchool('all');
       setSelectedGrade('all');
       setSelectedClass('all');
+      setSelectedGabaritosForComparison([]);
     }
   }, [selectedMunicipality]);
 
@@ -270,67 +240,168 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
     }
   }, [selectedGrade]);
 
-  const fetchAvailableGabaritos = useCallback(async () => {
-    const estadoValido = selectedState && selectedState !== 'all';
-    const municipioValido = selectedMunicipality && selectedMunicipality !== 'all';
-    if (!estadoValido || !municipioValido) {
-      setAvailableGabaritosForPicker([]);
-      return;
-    }
+  useEffect(() => {
+    const loadSchools = async () => {
+      if (selectedState !== 'all' && selectedMunicipality !== 'all') {
+        try {
+          setIsLoadingFilters(true);
+          const response = await AnswerSheetComparisonApiService.getEvolucaoOpcoesFiltros({
+            estado: selectedState,
+            municipio: selectedMunicipality,
+          });
+          const list = response.escolas ?? [];
+          setSchools(
+            list.map((s) => ({
+              id: s.id,
+              name: s.nome ?? s.name ?? s.id,
+            }))
+          );
+        } catch (error) {
+          console.error('Erro ao carregar escolas:', error);
+          setSchools([]);
+        } finally {
+          setIsLoadingFilters(false);
+        }
+      } else {
+        setSchools([]);
+      }
+    };
 
-    const params = new URLSearchParams();
-    params.set('estado', selectedState);
-    params.set('municipio', selectedMunicipality);
-    if (periodoApi) params.set('periodo', periodoApi);
-    if (selectedSchool !== 'all') params.set('escola', selectedSchool);
-    if (selectedGrade !== 'all') params.set('serie', selectedGrade);
-    if (selectedClass !== 'all') params.set('turma', selectedClass);
+    loadSchools();
+  }, [selectedState, selectedMunicipality]);
 
-    try {
+  useEffect(() => {
+    const loadGrades = async () => {
+      if (selectedState !== 'all' && selectedMunicipality !== 'all' && selectedSchool !== 'all') {
+        try {
+          setIsLoadingFilters(true);
+          const response = await AnswerSheetComparisonApiService.getEvolucaoOpcoesFiltros({
+            estado: selectedState,
+            municipio: selectedMunicipality,
+            escola: selectedSchool,
+          });
+          const list = response.series ?? [];
+          setGrades(
+            list.map((s) => ({
+              id: s.id,
+              name: s.nome ?? s.name ?? s.id,
+            }))
+          );
+        } catch (error) {
+          console.error('Erro ao carregar séries:', error);
+          setGrades([]);
+        } finally {
+          setIsLoadingFilters(false);
+        }
+      } else {
+        setGrades([]);
+      }
+    };
+
+    loadGrades();
+  }, [selectedState, selectedMunicipality, selectedSchool]);
+
+  useEffect(() => {
+    const loadClasses = async () => {
+      if (
+        selectedState !== 'all' &&
+        selectedMunicipality !== 'all' &&
+        selectedSchool !== 'all' &&
+        selectedGrade !== 'all'
+      ) {
+        try {
+          setIsLoadingFilters(true);
+          const response = await AnswerSheetComparisonApiService.getEvolucaoOpcoesFiltros({
+            estado: selectedState,
+            municipio: selectedMunicipality,
+            escola: selectedSchool,
+            serie: selectedGrade,
+          });
+          const list = response.turmas ?? [];
+          setClasses(
+            list.map((c) => {
+              const nome = c.nome ?? c.name ?? c.id;
+              const label = c.shift ? `${nome} (${c.shift})` : nome;
+              return { id: c.id, name: label };
+            })
+          );
+        } catch (error) {
+          console.error('Erro ao carregar turmas:', error);
+          setClasses([]);
+        } finally {
+          setIsLoadingFilters(false);
+        }
+      } else {
+        setClasses([]);
+      }
+    };
+
+    loadClasses();
+  }, [selectedState, selectedMunicipality, selectedSchool, selectedGrade]);
+
+  useEffect(() => {
+    const loadGabaritos = async () => {
+      const estadoValido = selectedState && selectedState !== 'all';
+      const municipioValido = selectedMunicipality && selectedMunicipality !== 'all';
+      if (!estadoValido || !municipioValido) {
+        setAvailableGabaritosForPicker([]);
+        return;
+      }
+
       setIsLoadingFilters(true);
-      const url = `/answer-sheets/opcoes-filtros-results?${params.toString()}`;
-      const requestConfig = { meta: { cityId: selectedMunicipality } };
-      const res = await api.get<OpcoesFiltrosResponse>(url, requestConfig);
-      const rawList = res.data?.gabaritos ?? [];
-      const seen = new Set<string>();
-      const list: GabaritoItem[] = rawList
-        .filter((g) => {
-          if (!g?.id) return false;
-          const key = String(g.id).trim();
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        })
-        .map((g) => ({
-          id: String(g.id),
-          titulo: normLabel(g),
-          data_aplicacao: pickDate(g),
-        }));
-      setAvailableGabaritosForPicker(list);
-    } catch (error) {
-      console.error('Erro ao carregar gabaritos:', error);
-      setAvailableGabaritosForPicker([]);
-      toast({
-        title: 'Erro ao carregar gabaritos',
-        description: 'Não foi possível carregar os gabaritos. Tente novamente.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoadingFilters(false);
-    }
+      try {
+        const response = await AnswerSheetComparisonApiService.getEvolucaoGabaritos({
+          estado: selectedState,
+          municipio: selectedMunicipality,
+          escola: selectedSchool === 'all' ? undefined : selectedSchool,
+          serie: selectedGrade === 'all' ? undefined : selectedGrade,
+          turma: selectedClass === 'all' ? undefined : selectedClass,
+          data_inicio: periodStart ? isoDateToBR(periodStart) : undefined,
+          data_fim: periodEnd ? isoDateToBR(periodEnd) : undefined,
+          nome: gabaritoSearch.trim() || undefined,
+        });
+
+        const seen = new Set<string>();
+        const list: GabaritoItem[] = (response.gabaritos ?? [])
+          .filter((g) => {
+            if (!g?.id) return false;
+            const key = String(g.id).trim();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .map((g) => ({
+            id: String(g.id),
+            titulo: g.titulo ?? g.id,
+            data: g.data ?? null,
+          }));
+
+        setAvailableGabaritosForPicker(list);
+      } catch (error) {
+        console.error('Erro ao carregar gabaritos:', error);
+        setAvailableGabaritosForPicker([]);
+        toast({
+          title: 'Erro ao carregar gabaritos',
+          description: 'Não foi possível carregar os gabaritos. Tente novamente.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsLoadingFilters(false);
+      }
+    };
+
+    loadGabaritos();
   }, [
     selectedState,
     selectedMunicipality,
-    periodoApi,
     selectedSchool,
     selectedGrade,
     selectedClass,
+    periodStart,
+    periodEnd,
+    gabaritoSearch,
     toast,
   ]);
-
-  useEffect(() => {
-    fetchAvailableGabaritos();
-  }, [fetchAvailableGabaritos]);
 
   const filteredGabaritos = useMemo(() => {
     const term = gabaritoSearch.trim().toLowerCase();
@@ -338,7 +409,8 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
     return availableGabaritosForPicker.filter((g) => {
       const titulo = (g.titulo ?? '').toLowerCase();
       const id = (g.id ?? '').toLowerCase();
-      return titulo.includes(term) || id.includes(term);
+      const data = (g.data ?? '').toLowerCase();
+      return titulo.includes(term) || id.includes(term) || data.includes(term);
     });
   }, [availableGabaritosForPicker, gabaritoSearch]);
 
@@ -507,13 +579,16 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
           selectedClass !== 'all'
             ? { id: selectedClass, name: classes.find((c) => c.id === selectedClass)?.name ?? selectedClass }
             : undefined,
+        periodStart: periodStart || undefined,
+        periodEnd: periodEnd || undefined,
       };
 
       await generateEvolutionPDFFromHTML(
         processedData,
         comparisonData,
         processedData.evaluationNames,
-        filterInfo
+        filterInfo,
+        'gabaritos'
       );
       toast({
         title: 'PDF gerado com sucesso!',
@@ -672,10 +747,16 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
                         </div>
                         <div className="flex-1 min-w-0">
                           <h4 className="font-semibold text-foreground text-sm leading-tight mb-1">{gabarito.titulo}</h4>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <Calendar className="h-3 w-3" />
-                            {formatDate(gabarito.data_aplicacao)}
-                          </div>
+                          {gabarito.data ? (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Calendar className="h-3 w-3" />
+                              {gabarito.data}
+                            </div>
+                          ) : null}
+                          {(() => {
+                            const scopeMeta = comparisonData?.evaluations?.find((e) => e.id === gabarito.id);
+                            return scopeMeta ? <EvolutionScopeMetaLines evaluation={scopeMeta} /> : null;
+                          })()}
                         </div>
                       </div>
                       <Button
@@ -829,17 +910,21 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
 
           {selectedMunicipality !== 'all' && (
             <div className="mt-6 pt-6 border-t border-border">
-              <ResultsPeriodMonthYearPicker
-                value={selectedPeriod}
-                onChange={(next) => {
-                  setSelectedPeriod(next);
-                  if (next !== 'all' && next !== selectedPeriod) {
-                    setSelectedGabaritosForComparison([]);
-                  }
-                }}
-                disabled={isLoadingFilters}
-                label="Período (mês da correção)"
-              />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Data Início</label>
+                  <Input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Data Fim</label>
+                  <Input
+                    type="date"
+                    value={periodEnd}
+                    onChange={(e) => setPeriodEnd(e.target.value)}
+                    min={periodStart}
+                  />
+                </div>
+              </div>
             </div>
           )}
 
@@ -917,10 +1002,16 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
                           />
                           <div className="flex-1 min-w-0">
                             <h4 className="font-semibold text-foreground text-sm leading-tight mb-1">{gabarito.titulo}</h4>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <Calendar className="h-3 w-3" />
-                              {formatDate(gabarito.data_aplicacao)}
-                            </div>
+                            {gabarito.data ? (
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <Calendar className="h-3 w-3" />
+                                {gabarito.data}
+                              </div>
+                            ) : null}
+                            {(() => {
+                              const scopeMeta = comparisonData?.evaluations?.find((e) => e.id === gabarito.id);
+                              return scopeMeta ? <EvolutionScopeMetaLines evaluation={scopeMeta} /> : null;
+                            })()}
                           </div>
                           {isAlreadyAdded && (
                             <Badge variant="outline" className="bg-green-100 dark:bg-green-950/30 text-green-800 dark:text-green-400">
@@ -976,7 +1067,7 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
       )}
 
       {processedData && !isLoadingComparison && (
-        <EvolutionCharts data={processedData} isLoading={false} />
+        <EvolutionCharts data={processedData} isLoading={false} instrumentLabel="gabaritos" />
       )}
 
       {isLoading && isLoadingFilters && selectedState === 'all' && (
