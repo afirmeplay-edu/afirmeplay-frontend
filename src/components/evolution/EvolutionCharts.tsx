@@ -33,6 +33,8 @@ import {
 } from 'lucide-react';
 import { Eye, EyeOff } from 'lucide-react';
 import { EvolutionData } from './EvolutionChart';
+import type { EvaluationInfo } from '@/services/evaluation/evaluationComparisonApi';
+import { EvolutionEvaluationsScopeList } from './EvolutionEvaluationsScopeList';
 
 export interface ProcessedEvolutionData {
   /** "Geral" por etapa (notas) */
@@ -51,11 +53,15 @@ export interface ProcessedEvolutionData {
   levelsData: Record<string, EvolutionData[]>;
   /** nomes das avaliações para exibição */
   evaluationNames: string[];
+  /** metadados completos (série, turmas, datas) */
+  evaluations: EvaluationInfo[];
 }
 
 interface EvolutionChartsProps {
   data: ProcessedEvolutionData;
   isLoading?: boolean;
+  /** Rótulo plural do instrumento (avaliações / gabaritos). */
+  instrumentLabel?: string;
   /** Se true, exibe apenas o conteúdo da aba "Visão Geral" (sem abas Por Disciplina / Por Níveis) */
   onlyOverviewTab?: boolean;
 }
@@ -336,7 +342,7 @@ function mergeByName(rows: EvolutionData[]): EvolutionDataWithDynamicKeys[] {
   return [...map.values()];
 }
 
-export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = false }: EvolutionChartsProps) {
+export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = false, instrumentLabel = 'avaliações' }: EvolutionChartsProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'subjects' | 'levels'>('general');
   const [hiddenByChart, setHiddenByChart] = useState<Record<string, Set<string>>>({});
   const [collapsedCharts, setCollapsedCharts] = useState<Set<string>>(new Set());
@@ -463,15 +469,11 @@ export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = fal
     if (etapas.length === 0) return null;
     
     const media = etapas.reduce((sum, val) => sum + val, 0) / etapas.length;
-    const melhorNota = Math.max(...etapas);
-    const piorNota = Math.min(...etapas);
     const variacaoTotal = etapas.length > 1 ? pct(etapas[0], etapas[etapas.length - 1]) : 0;
     const tendencia = variacaoTotal && variacaoTotal > 0 ? 'up' : variacaoTotal && variacaoTotal < 0 ? 'down' : 'stable';
     
     return {
       media,
-      melhorNota,
-      piorNota,
       variacaoTotal: variacaoTotal || 0,
       tendencia,
       totalAvaliacoes: etapas.length,
@@ -845,10 +847,17 @@ export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = fal
           {/* Controles globais removidos: visibilidade agora é por gráfico */}
         </div>
 
+        {data.evaluations?.length > 0 && (
+          <EvolutionEvaluationsScopeList
+            evaluations={data.evaluations}
+            instrumentLabel={instrumentLabel}
+            variant="screen"
+          />
+        )}
 
         {/* Resumo Estatístico */}
         {generalStats && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Card className="border border-border">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-2">
@@ -857,19 +866,6 @@ export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = fal
                 </div>
                 <p className="text-2xl font-semibold text-foreground">
                   {generalStats.media.toFixed(1).replace(".", ",")}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">pontos</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border border-border">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <TrendingUp className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-sm font-medium text-muted-foreground">Melhor Resultado</span>
-                </div>
-                <p className="text-2xl font-semibold text-foreground">
-                  {generalStats.melhorNota.toFixed(1).replace(".", ",")}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">pontos</p>
               </CardContent>

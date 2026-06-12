@@ -5,6 +5,7 @@ import type {
   SubjectComparison,
   SkillsComparison,
   EvolutionMetrics,
+  EvaluationInfo,
 } from '@/services/evaluation/evaluationComparisonApi';
 
 /**
@@ -137,11 +138,15 @@ export function studentComparisonToComparisonResponse(
   });
 
   const evaluations = student.evaluations.map((e) => ({
-    order: e.order,
+    order: e.order ?? 0,
     id: e.id,
     title: e.title,
     created_at: e.created_at,
     application_date: e.application_date,
+    grade_id: (e as { grade_id?: string }).grade_id,
+    grade_name: (e as { grade_name?: string }).grade_name,
+    grade_names: (e as { grade_names?: string[] }).grade_names,
+    classes: (e as { classes?: EvaluationInfo['classes'] }).classes,
   }));
 
   return {

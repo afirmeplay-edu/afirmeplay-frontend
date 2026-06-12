@@ -18,6 +18,7 @@ import { EvolutionCharts } from '@/components/evolution/EvolutionCharts';
 import type { ProcessedEvolutionData } from '@/components/evolution/EvolutionCharts';
 import { processComparisonData } from '@/utils/evolution/evolutionDataProcessor';
 import { generateEvolutionPDFFromHTML } from '@/utils/evolution/evolutionPdfService';
+import { EvolutionScopeMetaLines } from '@/components/evolution/EvolutionEvaluationsScopeList';
 
 // Interfaces para os filtros
 interface State {
@@ -775,6 +776,10 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
                                 <Calendar className="h-3 w-3" />
                                 {formatDate(evaluation.data_aplicacao)}
                               </div>
+                              {(() => {
+                                const scopeMeta = comparisonData?.evaluations?.find((e) => e.id === evaluation.id);
+                                return scopeMeta ? <EvolutionScopeMetaLines evaluation={scopeMeta} /> : null;
+                              })()}
                             </div>
                           </div>
                           <Button
@@ -877,7 +882,8 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
                       processedData,
                       comparisonData,
                       processedData.evaluationNames,
-                      filterInfo
+                      filterInfo,
+                      'avaliações'
                     );
                     toast({
                       title: "PDF gerado com sucesso!",
@@ -1254,6 +1260,10 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
                                     <Calendar className="h-3 w-3" />
                                     {formatDate(evaluation.data_aplicacao)}
                                   </div>
+                                  {(() => {
+                                    const scopeMeta = comparisonData?.evaluations?.find((e) => e.id === evaluation.id);
+                                    return scopeMeta ? <EvolutionScopeMetaLines evaluation={scopeMeta} /> : null;
+                                  })()}
                                 </div>
                                 {isAlreadyAdded && (
                                   <Badge variant="outline" className="bg-green-100 dark:bg-green-950/30 text-green-800 dark:text-green-400 border-green-300 dark:border-green-800">
@@ -1345,6 +1355,7 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
         <EvolutionCharts 
           data={processedData} 
           isLoading={false}
+          instrumentLabel="avaliações"
         />
       )}
     </div>
