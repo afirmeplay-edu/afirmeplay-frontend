@@ -814,6 +814,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     }));
     return {
       estatisticas_gerais: {
+        tipo: apiData.estatisticas_gerais.tipo,
         media_nota_geral: apiData.estatisticas_gerais.media_nota_geral ?? 0,
         media_proficiencia_geral: apiData.estatisticas_gerais.media_proficiencia_geral ?? 0,
         distribuicao_classificacao_geral: apiData.estatisticas_gerais.distribuicao_classificacao_geral,

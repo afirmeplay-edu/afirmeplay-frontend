@@ -24,8 +24,10 @@ export type ExportChart = {
   valueKeys: ExportChartSeries[];
   data: Array<Record<string, string | number>>;
   yAxis?: ExportChartAxis;
-  /** Linha horizontal de referência (ex.: média municipal no `grades-chart`). */
+  /** Linha horizontal de referência no topo da barra municipal (valor Y da barra). */
   referenceLineY?: number;
+  /** Categoria da barra municipal (`categoryKey`). */
+  referenceLineAnchorCategory?: string;
 };
 
 export type ExportTable = {

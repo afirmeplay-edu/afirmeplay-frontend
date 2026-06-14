@@ -14,11 +14,13 @@ interface ChartData {
     donutColors?: string[];
   }>;
   proficiencyMax: number;
+  scopeAverageLabel: string;
 }
 
 /** Fonte dos gráficos por disciplina: `estatisticas_gerais.por_disciplina` (backend). */
 interface ChartsApiData {
   estatisticas_gerais?: {
+    tipo?: string;
     media_nota_geral?: number;
     media_proficiencia_geral?: number;
     por_disciplina?: Array<{
@@ -28,6 +30,15 @@ interface ChartsApiData {
       distribuicao_classificacao?: Record<string, number>;
     }>;
   };
+}
+
+function resolveScopeAverageLabel(tipo?: string): string {
+  const t = String(tipo ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  return t === "municipio" ? "Municipal" : "Geral";
 }
 
 const DONUT_SLICE_COLORS = [
@@ -112,7 +123,8 @@ function useChartData(
     }
 
     const porDisciplina = apiData.estatisticas_gerais.por_disciplina ?? [];
-    // Não duplicar barra "Geral" quando o backend envia disciplina "GERAL" (cartão-resposta).
+    const scopeAverageLabel = resolveScopeAverageLabel(apiData.estatisticas_gerais.tipo);
+    // Não duplicar barra agregada quando o backend envia disciplina "GERAL" (cartão-resposta).
     const disciplineItems = porDisciplina.filter(
       (it) => normalizeDiscKey(it.disciplina) !== "geral"
     );
@@ -120,7 +132,7 @@ function useChartData(
     const createScoreData = () => {
       const scoreData = [
         {
-          name: "Geral",
+          name: scopeAverageLabel,
           value:
             typeof apiData.estatisticas_gerais!.media_nota_geral === "number"
               ? apiData.estatisticas_gerais!.media_nota_geral
@@ -137,7 +149,7 @@ function useChartData(
     const createProficiencyData = () => {
       const proficiencyData = [
         {
-          name: "Geral",
+          name: scopeAverageLabel,
           value:
             typeof apiData.estatisticas_gerais!.media_proficiencia_geral === "number"
               ? apiData.estatisticas_gerais!.media_proficiencia_geral
@@ -179,6 +191,7 @@ function useChartData(
       averageProficiencyData: createProficiencyData(),
       distributionData: createDistributionData(),
       proficiencyMax: calculateProficiencyMax(),
+      scopeAverageLabel,
     };
   }, [apiData, inferStageGroup, getMaxForDiscipline]);
 }
@@ -190,11 +203,19 @@ const ScoreChart = ({ data }: { data: ChartData }) => (
       <BarChartComponent
         data={data.averageScoreData}
         title="Média de Nota"
-        subtitle="Média de Nota (Geral + Disciplinas)"
+        subtitle={`Média de Nota (${data.scopeAverageLabel} + Disciplinas)`}
         color="#22c55e"
         yAxisDomain={[0, 10]}
         yAxisLabel="Nota"
         showValues={true}
+        municipalReferenceLine={
+          data.averageScoreData.length >= 2
+            ? {
+                y: data.averageScoreData[0].value,
+                anchorName: data.scopeAverageLabel,
+              }
+            : undefined
+        }
       />
     </CardContent>
   </Card>
@@ -206,11 +227,19 @@ const ProficiencyChart = ({ data }: { data: ChartData }) => (
       <BarChartComponent
         data={data.averageProficiencyData}
         title="Média de Proficiência"
-        subtitle="Média de Proficiência (Geral + Disciplinas)"
+        subtitle={`Média de Proficiência (${data.scopeAverageLabel} + Disciplinas)`}
         color="#15803d"
         yAxisDomain={[0, data.proficiencyMax]}
         yAxisLabel="Proficiência"
         showValues={true}
+        municipalReferenceLine={
+          data.averageProficiencyData.length >= 2
+            ? {
+                y: data.averageProficiencyData[0].value,
+                anchorName: data.scopeAverageLabel,
+              }
+            : undefined
+        }
       />
     </CardContent>
   </Card>

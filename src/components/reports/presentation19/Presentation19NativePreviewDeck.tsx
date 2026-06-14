@@ -79,6 +79,7 @@ import {
   PRESENTATION19_GRADES_NO_TURMA_NOTICE,
   resolvePresentation19BarTopLabel,
 } from "@/utils/reports/presentation19/presentation19Labels";
+import { resolveMunicipalReferenceXRatios } from "@/utils/reports/presentation19/municipalReferenceLine";
 
 type Props = {
   deckData: Presentation19DeckData;
@@ -581,20 +582,36 @@ function BarChartPreview({ chart, height = P19_CHART_REF_H_PX }: { chart: Export
             </div>
           ))}
         </div>
-        {chart.referenceLineY != null && Number.isFinite(Number(chart.referenceLineY)) && (
-          <div
-            aria-hidden
-            style={{
-              position: "absolute",
-              left: AXIS_LAB_W + 6,
-              right: AXIS_LAB_W + 6,
-              bottom: `${ratioOf(Number(chart.referenceLineY)) * 100}%`,
-              borderTop: "2px dashed #64748B",
-              zIndex: 4,
-              pointerEvents: "none",
-            }}
-          />
-        )}
+        {chart.referenceLineY != null && Number.isFinite(Number(chart.referenceLineY)) && (() => {
+          const ratios = resolveMunicipalReferenceXRatios(chart);
+          const q = ratioOf(Number(chart.referenceLineY));
+          if (!ratios) return null;
+          const widthPct = (ratios.endRatio - ratios.startRatio) * 100;
+          const reservePx = P19_CHART_V_BAR_VALUE_LABEL_RESERVE_PX;
+          return (
+            <div
+              aria-hidden
+              style={{
+                position: "absolute",
+                left: AXIS_LAB_W + 6,
+                right: AXIS_LAB_W + 6,
+                /* Topo da barra = q·(H−reserva) a partir da base → calc(q·100% − q·reserva px) */
+                bottom: `calc(${q * 100}% - ${q * reservePx}px)`,
+                height: 0,
+                zIndex: 4,
+                pointerEvents: "none",
+              }}
+            >
+              <div
+                style={{
+                  marginLeft: `${ratios.startRatio * 100}%`,
+                  width: `${widthPct}%`,
+                  borderTop: "2px dashed #64748B",
+                }}
+              />
+            </div>
+          );
+        })()}
       </div>
       <div
         style={{
