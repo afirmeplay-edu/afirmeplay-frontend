@@ -17,6 +17,22 @@ import { normalizeProficiencyLevelLabel, type ReportProficiencyLabel } from "@/u
 import { loadLogoAssetForLandscapePdf, urlToPngAsset } from "@/utils/pdfCityBranding";
 import { ResultsPeriodMonthYearPicker } from "@/components/filters";
 import { normalizeResultsPeriodYm } from "@/utils/resultsPeriod";
+import {
+  computePdfBulkTableVerticalLayout,
+  computePdfSummaryTableBodyFontPt,
+  computePdfProficiencyCompactTypography,
+  drawPdfAnswerMarkCell,
+  drawPdfQuestionHeaderCell,
+  formatPdfSkillCodeForHeader,
+  parsePdfAnswerMarkCell,
+  PDF_ANSWER_CELL,
+  pdfTextColorForBg,
+  pdfVerticalCenterBaselinesMm,
+} from "@/utils/reports/pdfBulkAnswerCell";
+import {
+  extractQuestoesNumeros,
+  resolveGlobalQuestionNumber,
+} from "@/utils/reports/resolveGlobalQuestionNumber";
 
 // Types from the original component
 type StudentResult = {
@@ -150,9 +166,9 @@ function alunoRowId(aluno: { id?: string; aluno_id?: string }): string {
 function getProficiencyLevelRgb(level: ReportProficiencyLabel): [number, number, number] {
   switch (level) {
     case "Avançado":
-      return [22, 163, 74];
+      return [21, 128, 61];
     case "Adequado":
-      return [34, 197, 94];
+      return [74, 222, 128];
     case "Básico":
       return [250, 204, 21];
     case "Abaixo do Básico":
@@ -186,40 +202,6 @@ const PDF_BULK_HEAD_CELL_PAD: { vertical: number; horizontal: number } = {
   horizontal: 0.095 * PDF_BULK_DENSITY,
 };
 
-const PDF_BULK_Q_ICON_TARGET_MM = scalePdfTable(0.88);
-const PDF_BULK_Q_ICON_MIN_MM = scalePdfTable(0.52);
-const PDF_BULK_Q_ICON_CELL_PAD_MM = scalePdfTable(0.09);
-
-function pdfBulkQuestionMarkIconHalfExtentMm(cellWidth: number, cellHeight: number): number {
-  const innerW = cellWidth - PDF_BULK_Q_ICON_CELL_PAD_MM;
-  const innerH = cellHeight - PDF_BULK_Q_ICON_CELL_PAD_MM;
-  if (innerW <= 0.2 || innerH <= 0.2) return PDF_BULK_Q_ICON_MIN_MM;
-  const maxHalf = Math.min(innerW, innerH) / 2.18;
-  return Math.max(PDF_BULK_Q_ICON_MIN_MM, Math.min(PDF_BULK_Q_ICON_TARGET_MM, maxHalf));
-}
-
-/** Nomes na coluna Aluno: ~100% da fonte dinâmica (antes 0.86 — muito pequeno). */
-const PDF_BULK_NAME_COL_FONT_MUL = 1.0;
-const PDF_BULK_NAME_COL_PAD_V_MUL = 0.55;
-
-function pdfBulkBodyRowHeightToMatchNameMm(fontSizePt: number, padVerticalMm: number): number {
-  const lineMm = fontSizePt * 0.3528 * 1.02;
-  return Math.max(scalePdfTable(1.5), lineMm + padVerticalMm * 2);
-}
-
-function pdfSkillResponsiveFontSize(questionsCount: number, dynamicFontSize: number): number {
-  const q = Math.max(1, questionsCount);
-  if (q <= 10) return Math.max(scalePdfTable(7.2), dynamicFontSize * 1.9);
-  if (q <= 15) return Math.max(scalePdfTable(6.1), dynamicFontSize * 1.6);
-  if (q <= 22) return Math.max(scalePdfTable(5.1), dynamicFontSize * 1.35);
-
-  const infoFactor = Math.min(1.45, 24 / Math.max(1, questionsCount));
-  return Math.max(
-    scalePdfTable(3.6),
-    Math.min(scalePdfTable(8.8), dynamicFontSize * (0.98 + infoFactor * 0.22))
-  );
-}
-
 type DrawProficiencyNivelPdfOpts = {
   compact?: boolean;
   chipMaxHeightMm?: number;
@@ -250,36 +232,28 @@ function drawProficiencyNivelInPdfCell(
 
   d.setFillColor(r, g, b);
   d.rect(cell.x, fillY, cell.width, fillH, "F");
-  d.setTextColor(255, 255, 255);
+  const [tr, tg, tb] = pdfTextColorForBg(r, g, b);
+  d.setTextColor(tr, tg, tb);
   d.setFont("helvetica", "bold");
 
   let fs: number;
   let pad: number;
-  let lineH: number;
-  const chipMode = chipMax != null && chipMax > 0;
 
   if (compact) {
-    fs = Math.max(scalePdfTable(1.15), Math.min(scalePdfTable(2.05), fontSize));
-    if (chipMode) {
-      fs = Math.min(fs, Math.max(scalePdfTable(1.1), fillH * 0.38));
-    } else {
-      fs = Math.min(fs, Math.max(scalePdfTable(1.05), fillH * 0.48));
-    }
-    pad = chipMode ? scalePdfTable(0.22) : scalePdfTable(0.28);
-    lineH = Math.max(fs * (chipMode ? 0.2 : 0.24), chipMode ? scalePdfTable(1.05) : scalePdfTable(1.02));
+    const typo = computePdfProficiencyCompactTypography(cell, label);
+    fs = typo.fs;
+    pad = typo.pad;
   } else {
     fs = Math.max(scalePdfTable(5), label.length > 24 && fontSize > scalePdfTable(6) ? fontSize - scalePdfTable(1.25) : fontSize);
     pad = scalePdfTable(2);
-    lineH = Math.max(fs * 0.42, scalePdfTable(2.8));
   }
 
   d.setFontSize(fs);
-  const maxW = Math.max(compact ? scalePdfTable(2.2) : scalePdfTable(4), cell.width - pad * 2);
+  const maxW = Math.max(compact ? 1.5 : scalePdfTable(4), cell.width - pad * 2);
   const lines = d.splitTextToSize(label, maxW);
-  const totalH = lines.length * lineH;
-  const startY = fillY + (fillH - totalH) / 2 + lineH * (compact ? 0.14 : 0.25);
+  const baselines = pdfVerticalCenterBaselinesMm(fillY, fillH, fs, lines.length);
   lines.forEach((line, i) => {
-    d.text(line, cell.x + cell.width / 2, startY + i * lineH, { align: "center" });
+    d.text(line, cell.x + cell.width / 2, baselines[i], { align: "center" });
   });
   d.setDrawColor(200, 200, 200);
   d.setLineWidth(0.05);
@@ -417,6 +391,7 @@ const mapUnifiedStudents = (tabela: TabelaDetalhadaPorDisciplina): StudentResult
 
   tabela?.disciplinas?.forEach((disciplina) => {
     const numQuestoesDisc = disciplina.questoes?.length ?? 0;
+    const questoesNumeros = extractQuestoesNumeros(disciplina.questoes);
 
     disciplina.alunos?.forEach((aluno) => {
       const rowId = alunoRowId(aluno);
@@ -462,7 +437,12 @@ const mapUnifiedStudents = (tabela: TabelaDetalhadaPorDisciplina): StudentResult
       aluno.respostas_por_questao?.forEach((resp) => {
         const numeroQuestao = Number(resp.questao);
         if (Number.isNaN(numeroQuestao) || numeroQuestao <= 0) return;
-        const globalNumero = questionOffset + numeroQuestao;
+        const globalNumero = resolveGlobalQuestionNumber(
+          numeroQuestao,
+          questionOffset,
+          numQuestoesDisc,
+          questoesNumeros
+        );
         const key = `q${globalNumero}`;
 
         if (!resp.respondeu) {
@@ -2890,7 +2870,7 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
           const headerRow3 = ["% Turma"];
           chunk.forEach(q => {
             // Apenas o número (sem prefixo "Q")
-            headerRow1.push(`${q.numero}`);
+            headerRow1.push(`Q\n${q.numero}`);
             // Usar generateHabilidadeCode com regex melhorado (extrai código BNCC do texto de habilidade)
             const code = generateHabilidadeCode(q, skillsMapping);
             headerRow2.push(code);
@@ -2932,11 +2912,30 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
           const dynamicFontSize = scaleDetailTableExtra(PDF_BULK_LANDSCAPE_FONT(numCols));
           const bulkPadH = scaleDetailTableExtra(PDF_BULK_LANDSCAPE_CELL_PAD_H(numCols));
           const bulkPadV = scaleDetailTableExtra(PDF_BULK_LANDSCAPE_CELL_PAD_V(numCols));
-          const nameColFont = Math.max(scalePdfTable(0.88), dynamicFontSize * PDF_BULK_NAME_COL_FONT_MUL);
-          // Fonte mínima de 6pt para que getStringUnitWidth meça algo legível
-          const nameBodyFont = Math.max(6, nameColFont);
-          const namePadV = bulkPadV * PDF_BULK_NAME_COL_PAD_V_MUL;
-          const bodyRowHeightMm = pdfBulkBodyRowHeightToMatchNameMm(nameBodyFont, namePadV);
+          const numQuestoesThisChunk = chunk.length;
+          const summaryNameFontPt = computePdfSummaryTableBodyFontPt(scalePdfTable, scaleCompactTable);
+          const {
+            bodyRowHeightMm,
+            skillRowHMm: SKILL_ROW_H,
+            pctRowHMm: PCT_ROW_H,
+            qHeaderRowHMm: Q_ROW_H,
+            nameBodyFontPt: nameBodyFont,
+            namePadVerticalMm: namePadV,
+            skillCodeFontSize,
+          } = computePdfBulkTableVerticalLayout({
+            pageHeightMm: landscapeHeight,
+            startYMm: startY,
+            studentCount: bodyRows.length,
+            questionCount: numQuestoesThisChunk,
+            dynamicFontSize,
+            bulkPadV,
+            rowMinMm: scalePdfTable(2.5),
+            nameBodyFontPt: summaryNameFontPt,
+            footerReserveMm: 10,
+            extraBottomReserveMm: 5,
+            scaleDetailTableExtra,
+            scalePdfTable,
+          });
 
           // Largura da coluna de nomes baseada no maior nome real
           doc.setFontSize(nameBodyFont);
@@ -2968,12 +2967,6 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
               overflow: 'ellipsize',
             };
           }
-
-          const numQuestoesThisChunk = chunk.length;
-          const skillCodeFontSize = pdfSkillResponsiveFontSize(numQuestoesThisChunk, dynamicFontSize);
-          // Altura da linha de habilidade — máx 12 chars por código
-          const SKILL_ROW_H = scaleDetailTableExtra(scalePdfTable(26));
-          const PCT_ROW_H = scaleDetailTableExtra(scalePdfTable(5.5));
 
           autoTable(doc, {
             startY: startY,
@@ -3018,10 +3011,14 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
               if (data.section === 'head') {
                 data.cell.styles.cellPadding = PDF_BULK_HEAD_CELL_PAD;
                 if (data.row.index === 0) {
+                  data.cell.styles.minCellHeight = Q_ROW_H;
                   // Número da questão: fonte legível mínima de 6pt
                   data.cell.styles.fontSize = Math.max(scalePdfTable(6), dynamicFontSize);
                   data.cell.styles.fontStyle = 'bold';
                   data.cell.styles.cellPadding = { vertical: scalePdfTable(0.8), horizontal: scalePdfTable(0.5) };
+                  if (data.column.index > 0 && data.column.index <= numQuestoesThisChunk) {
+                    data.cell.text = [''];
+                  }
                 } else if (data.row.index === 1) {
                   data.cell.styles.minCellHeight = SKILL_ROW_H;
                   data.cell.styles.cellPadding = scalePdfTable(0.5);
@@ -3054,88 +3051,67 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
               const val = Array.isArray(cell.text) ? cell.text[0] : cell.text;
 
               if (section === 'body' && column.index > 0 && column.index <= numQuestoesThisChunk) {
-                const valStr = String(val);
-                if (valStr === '✓' || valStr === '\u2713' || valStr === '✗' || valStr === '\u2717') {
-                  const centerX = cell.x + cell.width / 2;
-                  const centerY = cell.y + cell.height / 2;
-                  const fillColor = row.index % 2 === 0 ? [255, 255, 255] : [252, 252, 252];
-                  d.setFillColor(fillColor[0], fillColor[1], fillColor[2]);
-                  d.rect(cell.x, cell.y, cell.width, cell.height, 'F');
-                  const iconSize = pdfBulkQuestionMarkIconHalfExtentMm(cell.width, cell.height);
-                  const isCorrect = (valStr as string) === '✓' || (valStr as string) === '\u2713';
-                  if (isCorrect) {
-                    d.setDrawColor(22, 163, 74);
-                    d.setLineWidth(Math.max(0.18, Math.min(0.38, iconSize * 0.13)));
-                    d.line(centerX - iconSize, centerY, centerX - iconSize / 2, centerY + iconSize);
-                    d.line(centerX - iconSize / 2, centerY + iconSize, centerX + iconSize, centerY - iconSize);
-                  } else {
-                    d.setDrawColor(239, 68, 68);
-                    d.setLineWidth(Math.max(0.18, Math.min(0.38, iconSize * 0.13)));
-                    d.line(centerX - iconSize, centerY - iconSize, centerX + iconSize, centerY + iconSize);
-                    d.line(centerX + iconSize, centerY - iconSize, centerX - iconSize, centerY + iconSize);
-                  }
-                  d.setDrawColor(0, 0, 0);
-                  d.setLineWidth(0.25);
-                  d.rect(cell.x, cell.y, cell.width, cell.height);
+                const markKind = parsePdfAnswerMarkCell(val);
+                if (markKind) {
+                  drawPdfAnswerMarkCell(d, cell, markKind);
                 }
               }
-              // Habilidade (row 1): desenhar texto vertical nas colunas de questão — centralizado
+              if (section === 'head' && row.index === 0 && column.index > 0 && column.index <= numQuestoesThisChunk) {
+                const qLabel = headerRow1[column.index] || '';
+                drawPdfQuestionHeaderCell(
+                  d,
+                  cell,
+                  qLabel,
+                  Math.max(scalePdfTable(6), dynamicFontSize)
+                );
+              }
               if (section === 'head' && row.index === 1 && column.index > 0 && column.index <= numQuestoesThisChunk) {
-                const skillCode = headerRow2[column.index] || '';
-                  if (skillCode) {
-                  d.setFillColor(219, 234, 254);
+                const skillCode = formatPdfSkillCodeForHeader(headerRow2[column.index] || '');
+                if (skillCode) {
+                  d.setFillColor(...PDF_ANSWER_CELL.skillHeaderBg);
                   d.rect(cell.x, cell.y, cell.width, cell.height, 'F');
-                    d.setFontSize(skillCodeFontSize);
+                  d.setFontSize(skillCodeFontSize);
                   d.setFont('helvetica', 'bold');
-                  d.setTextColor(0, 0, 0);
+                  d.setTextColor(30, 58, 95);
                   const cx = cell.x + cell.width / 2;
-                    const textWidthMm = d.getStringUnitWidth(skillCode) * skillCodeFontSize / d.internal.scaleFactor;
+                  const textWidthMm = d.getStringUnitWidth(skillCode) * skillCodeFontSize / d.internal.scaleFactor;
                   const cy = cell.y + (cell.height + textWidthMm) / 2;
                   d.text(skillCode, cx, cy, { angle: 90 });
-                  d.setDrawColor(0, 0, 0);
-                  d.setLineWidth(0.4);
+                  d.setDrawColor(...PDF_ANSWER_CELL.border);
+                  d.setLineWidth(0.2);
                   d.rect(cell.x, cell.y, cell.width, cell.height);
                 }
               }
-              // % Turma (row 2): desenhar texto vertical nas colunas de questão — fonte reduzida
               if (section === 'head' && row.index === 2 && column.index > 0 && column.index <= numQuestoesThisChunk) {
                 const pctText = headerRow3[column.index] || '';
                 const pct = parseInt(pctText.replace(/[^0-9]/g, ''));
                 const isGood = !isNaN(pct) && pct >= 60;
-                const fillRgb = isGood ? [220, 252, 231] : [254, 226, 226];
-                const textRgb = isGood ? [22, 163, 74] : [239, 68, 68];
+                const fillRgb = isGood ? PDF_ANSWER_CELL.correctBg : PDF_ANSWER_CELL.incorrectBg;
+                const textRgb = isGood ? PDF_ANSWER_CELL.correctFg : PDF_ANSWER_CELL.incorrectFg;
                 d.setFillColor(fillRgb[0], fillRgb[1], fillRgb[2]);
                 d.rect(cell.x, cell.y, cell.width, cell.height, 'F');
                 if (pctText) {
-                    d.setFontSize(scaleDetailTableExtra(scalePdfTable(4.5)));
+                  d.setFontSize(scaleDetailTableExtra(scalePdfTable(5)));
                   d.setFont('helvetica', 'bold');
                   d.setTextColor(textRgb[0], textRgb[1], textRgb[2]);
                   const cx = cell.x + cell.width / 2;
                   const cy = cell.y + cell.height - 1;
                   d.text(pctText, cx, cy, { angle: 90 });
                 }
-                d.setDrawColor(0, 0, 0);
-                d.setLineWidth(0.25);
+                d.setDrawColor(...PDF_ANSWER_CELL.border);
+                d.setLineWidth(0.2);
                 d.rect(cell.x, cell.y, cell.width, cell.height);
               }
-              // Nível: fundo colorido + texto preto dimensionado para caber na célula
               if (isLastChunk && section === 'body' && column.index === chunk.length + 4) {
                 const cellRawNivel = Array.isArray(cell.text) ? cell.text[0] : cell.text;
                 const raw = String(cellRawNivel ?? '').trim();
-                const nivelLabel = normalizeProficiencyLevelLabel(raw || '');
-                const [nr, ng, nb] = getProficiencyLevelRgb(nivelLabel);
-                d.setFillColor(nr, ng, nb);
-                d.rect(cell.x, cell.y, cell.width, cell.height, 'F');
-                if (nivelLabel) {
-                  const fs = Math.max(scalePdfTable(3.5), Math.min(scalePdfTable(5), cell.height / 0.3528 * 0.65));
-                  d.setFontSize(fs);
-                  d.setFont('helvetica', 'bold');
-                  d.setTextColor(0, 0, 0);
-                  d.text(nivelLabel, cell.x + cell.width / 2, cell.y + cell.height * 0.72, { align: 'center', maxWidth: cell.width - 1 });
-                }
-                d.setDrawColor(0, 0, 0);
-                d.setLineWidth(0.25);
-                d.rect(cell.x, cell.y, cell.width, cell.height);
+                drawProficiencyNivelInPdfCell(
+                  d,
+                  cell,
+                  raw,
+                  Math.max(scalePdfTable(4), Math.min(scalePdfTable(5.5), cell.height / 0.3528 * 0.65)),
+                  { compact: true }
+                );
               }
             },
           });
@@ -3295,7 +3271,7 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
             const headerRow3 = ['% Turma'];
             chunk.forEach(q => {
               // Apenas o número (sem prefixo "Q")
-              headerRow1.push(`${q.numero}`);
+              headerRow1.push(`Q\n${q.numero}`);
               // Usar generateHabilidadeCode com regex melhorado (extrai código BNCC do texto de habilidade)
               const codeDisc = generateHabilidadeCode(
                 { codigo_habilidade: q.codigo_habilidade, habilidade: q.habilidade, numero: q.numero },
@@ -3350,11 +3326,30 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
             const dynamicFontSize = scaleDetailTableExtra(PDF_BULK_LANDSCAPE_FONT(numColsDisc));
             const bulkPadHDisc = scaleDetailTableExtra(PDF_BULK_LANDSCAPE_CELL_PAD_H(numColsDisc));
             const bulkPadVDisc = scaleDetailTableExtra(PDF_BULK_LANDSCAPE_CELL_PAD_V(numColsDisc));
-            const nameColFontDisc = Math.max(scalePdfTable(0.88), dynamicFontSize * PDF_BULK_NAME_COL_FONT_MUL);
-            // Fonte mínima de 6pt para que getStringUnitWidth meça algo legível
-            const nameBodyFontDisc = Math.max(6, nameColFontDisc);
-            const namePadVDisc = bulkPadVDisc * PDF_BULK_NAME_COL_PAD_V_MUL;
-            const bodyRowHeightMmDisc = pdfBulkBodyRowHeightToMatchNameMm(nameBodyFontDisc, namePadVDisc);
+            const numQuestoesThisChunk = chunk.length;
+            const summaryNameFontPt = computePdfSummaryTableBodyFontPt(scalePdfTable, scaleCompactTable);
+            const {
+              bodyRowHeightMm: bodyRowHeightMmDisc,
+              skillRowHMm: SKILL_ROW_H_DISC,
+              pctRowHMm: PCT_ROW_H_DISC,
+              qHeaderRowHMm: Q_ROW_H_DISC,
+              nameBodyFontPt: nameBodyFontDisc,
+              namePadVerticalMm: namePadVDisc,
+              skillCodeFontSize,
+            } = computePdfBulkTableVerticalLayout({
+              pageHeightMm: landscapeHeight,
+              startYMm: y,
+              studentCount: bodyRows.length,
+              questionCount: numQuestoesThisChunk,
+              dynamicFontSize,
+              bulkPadV: bulkPadVDisc,
+              rowMinMm: scalePdfTable(2.5),
+              nameBodyFontPt: summaryNameFontPt,
+              footerReserveMm: 10,
+              extraBottomReserveMm: 0,
+              scaleDetailTableExtra,
+              scalePdfTable,
+            });
 
             // Largura da coluna de nomes baseada no maior nome real
             doc.setFontSize(nameBodyFontDisc);
@@ -3385,12 +3380,6 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
                 overflow: 'ellipsize',
               };
             }
-            const numQuestoesThisChunk = chunk.length;
-            const skillCodeFontSize = pdfSkillResponsiveFontSize(numQuestoesThisChunk, dynamicFontSize);
-            // Altura da linha de habilidade — máx 12 chars por código
-            const SKILL_ROW_H_DISC = scaleDetailTableExtra(scalePdfTable(26));
-            const PCT_ROW_H_DISC = scaleDetailTableExtra(scalePdfTable(5.5));
-
             autoTable(doc, {
               startY: y,
               head: [headerRow1, headerRow2, headerRow3],
@@ -3434,10 +3423,14 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
                 if (data.section === 'head') {
                   data.cell.styles.cellPadding = PDF_BULK_HEAD_CELL_PAD;
                   if (data.row.index === 0) {
+                    data.cell.styles.minCellHeight = Q_ROW_H_DISC;
                     // Número da questão: fonte legível mínima de 6pt
                     data.cell.styles.fontSize = Math.max(scalePdfTable(6), dynamicFontSize);
                     data.cell.styles.fontStyle = 'bold';
                     data.cell.styles.cellPadding = { vertical: scalePdfTable(0.8), horizontal: scalePdfTable(0.5) };
+                    if (data.column.index > 0 && data.column.index <= numQuestoesThisChunk) {
+                      data.cell.text = [''];
+                    }
                   } else if (data.row.index === 1) {
                     data.cell.styles.minCellHeight = SKILL_ROW_H_DISC;
                     data.cell.styles.cellPadding = scalePdfTable(0.5);
@@ -3466,88 +3459,68 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
               didDrawCell: (data: CellHookData) => {
                 const { doc: d, cell, column, section, row } = data;
                 const val = Array.isArray(cell.text) ? cell.text[0] : cell.text;
+
                 if (section === 'body' && column.index > 0 && column.index <= numQuestoesThisChunk) {
-                  const valStr = String(val);
-                  if (valStr === '✓' || valStr === '\u2713' || valStr === '✗' || valStr === '\u2717') {
-                    const centerX = cell.x + cell.width / 2;
-                    const centerY = cell.y + cell.height / 2;
-                    const fillColor = row.index % 2 === 0 ? [255, 255, 255] : [252, 252, 252];
-                    d.setFillColor(fillColor[0], fillColor[1], fillColor[2]);
-                    d.rect(cell.x, cell.y, cell.width, cell.height, 'F');
-                    const iconSize = pdfBulkQuestionMarkIconHalfExtentMm(cell.width, cell.height);
-                    const isCorrect = (valStr as string) === '✓' || (valStr as string) === '\u2713';
-                    if (isCorrect) {
-                      d.setDrawColor(22, 163, 74);
-                      d.setLineWidth(Math.max(0.18, Math.min(0.38, iconSize * 0.13)));
-                      d.line(centerX - iconSize, centerY, centerX - iconSize / 2, centerY + iconSize);
-                      d.line(centerX - iconSize / 2, centerY + iconSize, centerX + iconSize, centerY - iconSize);
-                    } else {
-                      d.setDrawColor(239, 68, 68);
-                      d.setLineWidth(Math.max(0.18, Math.min(0.38, iconSize * 0.13)));
-                      d.line(centerX - iconSize, centerY - iconSize, centerX + iconSize, centerY + iconSize);
-                      d.line(centerX + iconSize, centerY - iconSize, centerX - iconSize, centerY + iconSize);
-                    }
-                    d.setDrawColor(0, 0, 0);
-                    d.setLineWidth(0.25);
-                    d.rect(cell.x, cell.y, cell.width, cell.height);
+                  const markKind = parsePdfAnswerMarkCell(val);
+                  if (markKind) {
+                    drawPdfAnswerMarkCell(d, cell, markKind);
                   }
                 }
-                // Nível: fundo colorido + texto preto dimensionado para caber na célula
                 if (isLastChunk && section === 'body' && column.index === chunk.length + 4) {
                   const cellRawNivelDisc = Array.isArray(cell.text) ? cell.text[0] : cell.text;
                   const raw = String(cellRawNivelDisc ?? '').trim();
-                  const nivelLabel = normalizeProficiencyLevelLabel(raw || '');
-                  const [nr, ng, nb] = getProficiencyLevelRgb(nivelLabel);
-                  d.setFillColor(nr, ng, nb);
-                  d.rect(cell.x, cell.y, cell.width, cell.height, 'F');
-                  if (nivelLabel) {
-                    const fs = Math.max(scalePdfTable(3.5), Math.min(scalePdfTable(5), cell.height / 0.3528 * 0.65));
-                    d.setFontSize(fs);
-                    d.setFont('helvetica', 'bold');
-                    d.setTextColor(0, 0, 0);
-                    d.text(nivelLabel, cell.x + cell.width / 2, cell.y + cell.height * 0.72, { align: 'center', maxWidth: cell.width - 1 });
-                  }
-                  d.setDrawColor(0, 0, 0);
-                  d.setLineWidth(0.25);
-                  d.rect(cell.x, cell.y, cell.width, cell.height);
+                  drawProficiencyNivelInPdfCell(
+                    d,
+                    cell,
+                    raw,
+                    Math.max(scalePdfTable(4), Math.min(scalePdfTable(5.5), cell.height / 0.3528 * 0.65)),
+                    { compact: true }
+                  );
                 }
-                // Habilidade (row 1): desenhar texto vertical nas colunas de questão — centralizado
+                if (section === 'head' && row.index === 0 && column.index > 0 && column.index <= numQuestoesThisChunk) {
+                  const qLabel = headerRow1[column.index] || '';
+                  drawPdfQuestionHeaderCell(
+                    d,
+                    cell,
+                    qLabel,
+                    Math.max(scalePdfTable(6), dynamicFontSize)
+                  );
+                }
                 if (section === 'head' && row.index === 1 && column.index > 0 && column.index <= numQuestoesThisChunk) {
-                  const skillCode = headerRow2[column.index] || '';
+                  const skillCode = formatPdfSkillCodeForHeader(headerRow2[column.index] || '');
                   if (skillCode) {
-                    d.setFillColor(219, 234, 254);
+                    d.setFillColor(...PDF_ANSWER_CELL.skillHeaderBg);
                     d.rect(cell.x, cell.y, cell.width, cell.height, 'F');
                     d.setFontSize(skillCodeFontSize);
                     d.setFont('helvetica', 'bold');
-                    d.setTextColor(0, 0, 0);
+                    d.setTextColor(30, 58, 95);
                     const cx = cell.x + cell.width / 2;
                     const textWidthMm = d.getStringUnitWidth(skillCode) * skillCodeFontSize / d.internal.scaleFactor;
                     const cy = cell.y + (cell.height + textWidthMm) / 2;
                     d.text(skillCode, cx, cy, { angle: 90 });
-                    d.setDrawColor(0, 0, 0);
-                    d.setLineWidth(0.4);
+                    d.setDrawColor(...PDF_ANSWER_CELL.border);
+                    d.setLineWidth(0.2);
                     d.rect(cell.x, cell.y, cell.width, cell.height);
                   }
                 }
-                // % Turma (row 2): desenhar texto vertical nas colunas de questão — fonte reduzida
                 if (section === 'head' && row.index === 2 && column.index > 0 && column.index <= numQuestoesThisChunk) {
                   const pctText = headerRow3[column.index] || '';
                   const pct = parseInt(pctText.replace(/[^0-9]/g, ''));
                   const isGood = !isNaN(pct) && pct >= 60;
-                  const fillRgb = isGood ? [220, 252, 231] : [254, 226, 226];
-                  const textRgb = isGood ? [22, 163, 74] : [239, 68, 68];
+                  const fillRgb = isGood ? PDF_ANSWER_CELL.correctBg : PDF_ANSWER_CELL.incorrectBg;
+                  const textRgb = isGood ? PDF_ANSWER_CELL.correctFg : PDF_ANSWER_CELL.incorrectFg;
                   d.setFillColor(fillRgb[0], fillRgb[1], fillRgb[2]);
                   d.rect(cell.x, cell.y, cell.width, cell.height, 'F');
                   if (pctText) {
-                    d.setFontSize(scaleDetailTableExtra(scalePdfTable(4.5)));
+                    d.setFontSize(scaleDetailTableExtra(scalePdfTable(5)));
                     d.setFont('helvetica', 'bold');
                     d.setTextColor(textRgb[0], textRgb[1], textRgb[2]);
                     const cx = cell.x + cell.width / 2;
                     const cy = cell.y + cell.height - 1;
                     d.text(pctText, cx, cy, { angle: 90 });
                   }
-                  d.setDrawColor(0, 0, 0);
-                  d.setLineWidth(0.25);
+                  d.setDrawColor(...PDF_ANSWER_CELL.border);
+                  d.setLineWidth(0.2);
                   d.rect(cell.x, cell.y, cell.width, cell.height);
                 }
               },

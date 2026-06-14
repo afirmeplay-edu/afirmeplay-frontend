@@ -1,5 +1,5 @@
 /** Rótulo padrão da média municipal em gráficos da Apresentação 19. */
-export const PRESENTATION19_MUNICIPAL_AVG_LABEL = "MÉDIA MUNICIPAL";
+export const PRESENTATION19_MUNICIPAL_AVG_LABEL = "Municipal";
 
 export function isPresentation19MunicipalAvgLabel(label: string): boolean {
   const n = String(label ?? "")
@@ -7,7 +7,7 @@ export function isPresentation19MunicipalAvgLabel(label: string): boolean {
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toUpperCase();
-  return n === "MEDIA MUNICIPAL" || n === PRESENTATION19_MUNICIPAL_AVG_LABEL;
+  return n === "MUNICIPAL" || n === "MEDIA MUNICIPAL" || n === "MÉDIA MUNICIPAL";
 }
 
 /** Cor da célula de presença média na tabela (≥ 80% verde; &lt; 80% amarelo). */

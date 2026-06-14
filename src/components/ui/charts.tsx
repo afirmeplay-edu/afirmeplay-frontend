@@ -1,6 +1,9 @@
 "use client"
 
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, PieChart, Pie, Cell, Tooltip, Legend, LabelList, Sector } from "recharts"
+import { useMemo } from "react"
+import { MunicipalReferenceLineSegment } from "@/components/charts/MunicipalReferenceLineSegment"
+import { resolveMunicipalReferenceSegmentFromBarData } from "@/utils/reports/presentation19/municipalReferenceLine"
 
 interface BarChartProps {
     data: Array<{
@@ -13,6 +16,11 @@ interface BarChartProps {
     yAxisDomain?: [number, number]
     yAxisLabel?: string
     showValues?: boolean // Nova prop para controlar exibição dos valores
+    /** Linha de referência municipal (topo da barra → demais categorias). */
+    municipalReferenceLine?: {
+        y: number
+        anchorName: string
+    }
 }
 
 interface PieChartProps {
@@ -71,8 +79,21 @@ export function BarChartComponent({
     color = "#22c55e",
     yAxisDomain = [0, 10],
     yAxisLabel = "Valor",
-    showValues = true // Valor padrão true
+    showValues = true, // Valor padrão true
+    municipalReferenceLine,
 }: BarChartProps) {
+    const municipalSegment = useMemo(
+        () =>
+            municipalReferenceLine
+                ? resolveMunicipalReferenceSegmentFromBarData(
+                      data,
+                      municipalReferenceLine.anchorName,
+                      municipalReferenceLine.y
+                  )
+                : null,
+        [data, municipalReferenceLine]
+    );
+
     // Detectar modo escuro para ajustar cores
     const isDarkMode =
         (typeof document !== "undefined" &&
@@ -171,6 +192,11 @@ export function BarChartComponent({
                         }}
                     >
                         {showValues && <LabelList content={renderCustomBarLabel} />}
+                        <MunicipalReferenceLineSegment
+                            segment={municipalSegment}
+                            dataKey="value"
+                            categoryKey="name"
+                        />
                     </Bar>
                 </BarChart>
                 </ResponsiveContainer>

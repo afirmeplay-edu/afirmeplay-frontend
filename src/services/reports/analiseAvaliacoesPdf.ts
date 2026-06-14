@@ -1415,34 +1415,19 @@ function buildProficienciaConsolidada(prof: Proficiencia | undefined, opts?: { p
     if (muni !== undefined && muni !== null && String(muni) !== "") return Number(muni) || 0;
     return Number(porDisc[d]?.media_geral ?? 0) || 0;
   });
-  const footerMean =
+  const footerMunicipal =
     footerDisc.length > 0 ? footerDisc.reduce((a, b) => a + b, 0) / footerDisc.length : 0;
-  const footerMunicipal = footerMean;
 
-  const n = rowData.length;
-  const body: PdfCell[][] = [];
-  for (let i = 0; i < n; i++) {
-    const { lab, vals, rowMean } = rowData[i];
-    const row: PdfCell[] = [
-      lab,
-      ...vals.map((v) => (v == null ? "—" : fmtNumPtBr(v))),
-      rowMean == null ? "—" : fmtNumPtBr(rowMean),
-    ];
-    if (i === 0) {
-      row.push({
-        content: fmtNumPtBr(footerMunicipal),
-        rowSpan: n,
-        styles: { valign: "middle", halign: "center", fontStyle: "bold" },
-      });
-    }
-    body.push(row);
-  }
+  const body: PdfCell[][] = rowData.map(({ lab, vals, rowMean }) => [
+    lab,
+    ...vals.map((v) => (v == null ? "—" : fmtNumPtBr(v))),
+    rowMean == null ? "—" : fmtNumPtBr(rowMean),
+  ]);
 
   const foot: PdfCell[][] = [
     [
       "MUNICIPAL GERAL",
       ...footerDisc.map((v) => fmtNumPtBr(v)),
-      fmtNumPtBr(footerMean),
       fmtNumPtBr(footerMunicipal),
     ],
   ];
@@ -1453,11 +1438,6 @@ function buildProficienciaConsolidada(prof: Proficiencia | undefined, opts?: { p
       value: footerDisc[discKeys.indexOf(d)] ?? 0,
       color: CONSOL_BAR_COLORS[i % CONSOL_BAR_COLORS.length],
     })),
-    {
-      label: "Média",
-      value: footerMean,
-      color: CONSOL_BAR_COLORS[discKeys.length % CONSOL_BAR_COLORS.length],
-    },
     {
       label: "Média Municipal",
       value: footerMunicipal,
@@ -1544,34 +1524,19 @@ function buildNotasConsolidada(ng: NotaGeral | undefined, opts?: { preferTurma?:
     if (muni !== undefined && muni !== null && String(muni) !== "") return Number(muni) || 0;
     return Number(porDisc[d]?.media_geral ?? 0) || 0;
   });
-  const footerMean =
+  const footerMunicipal =
     footerDisc.length > 0 ? footerDisc.reduce((a, b) => a + b, 0) / footerDisc.length : 0;
-  const footerMunicipal = footerMean;
 
-  const n = rowData.length;
-  const body: PdfCell[][] = [];
-  for (let i = 0; i < n; i++) {
-    const { lab, vals, rowMean } = rowData[i];
-    const row: PdfCell[] = [
-      lab,
-      ...vals.map((v) => (v == null ? "—" : fmtNumPtBr(v))),
-      rowMean == null ? "—" : fmtNumPtBr(rowMean),
-    ];
-    if (i === 0) {
-      row.push({
-        content: fmtNumPtBr(footerMunicipal),
-        rowSpan: n,
-        styles: { valign: "middle", halign: "center", fontStyle: "bold" },
-      });
-    }
-    body.push(row);
-  }
+  const body: PdfCell[][] = rowData.map(({ lab, vals, rowMean }) => [
+    lab,
+    ...vals.map((v) => (v == null ? "—" : fmtNumPtBr(v))),
+    rowMean == null ? "—" : fmtNumPtBr(rowMean),
+  ]);
 
   const foot: PdfCell[][] = [
     [
       "MUNICIPAL GERAL",
       ...footerDisc.map((v) => fmtNumPtBr(v)),
-      fmtNumPtBr(footerMean),
       fmtNumPtBr(footerMunicipal),
     ],
   ];
@@ -1582,11 +1547,6 @@ function buildNotasConsolidada(ng: NotaGeral | undefined, opts?: { preferTurma?:
       value: footerDisc[discKeys.indexOf(d)] ?? 0,
       color: CONSOL_BAR_COLORS[i % CONSOL_BAR_COLORS.length],
     })),
-    {
-      label: "Média",
-      value: footerMean,
-      color: CONSOL_BAR_COLORS[discKeys.length % CONSOL_BAR_COLORS.length],
-    },
     {
       label: "Média Municipal",
       value: footerMunicipal,
@@ -2073,7 +2033,6 @@ export async function generateRelatorioOrganizadoPdf(data: RelatorioCompleto): P
     const headProf = [
       profCons.firstColHeader,
       ...profCons.discKeys.map((k) => k.toUpperCase()),
-      "MÉDIA",
       "MÉDIA MUNICIPAL",
     ];
     autoTable(doc, {
@@ -2165,7 +2124,6 @@ export async function generateRelatorioOrganizadoPdf(data: RelatorioCompleto): P
     const headNota = [
       notaCons.firstColHeader,
       ...notaCons.discKeys.map((k) => k.toUpperCase()),
-      "MÉDIA",
       "MÉDIA MUNICIPAL",
     ];
     autoTable(doc, {

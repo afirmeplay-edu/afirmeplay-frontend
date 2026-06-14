@@ -1,5 +1,8 @@
 import React, { useMemo } from "react";
-import { mediaMunicipalRelatorioGeral } from "@/utils/reports/presentation19/presentation19MunicipalMedia";
+import {
+  mediaMunicipalRelatorioConsolidada,
+  mediaMunicipalRelatorioPorDisciplinaResolved,
+} from "@/utils/reports/presentation19/presentation19MunicipalMedia";
 import {
   BarChart,
   Bar,
@@ -41,6 +44,13 @@ import {
   P19_CHART_V_BAR_TOP_PAD_PX,
   P19_CHART_V_BAR_VALUE_LABEL_RESERVE_PX,
 } from "@/utils/reports/presentation19/presentation19Layout";
+import { PRESENTATION19_MUNICIPAL_AVG_LABEL } from "@/utils/reports/presentation19/presentation19Labels";
+import {
+  attachMunicipalReferenceLineToChart,
+  resolveMunicipalReferenceSegment,
+} from "@/utils/reports/presentation19/municipalReferenceLine";
+import { MunicipalReferenceLineSegment } from "@/components/charts/MunicipalReferenceLineSegment";
+import type { ExportChart } from "@/types/presentation19-export-spec";
 
 function hexToRgba(hex: string, alpha: number): string {
   const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(String(hex ?? "").trim());
@@ -183,6 +193,20 @@ function SimpleTable({
   );
 }
 
+function municipalSegmentForChart(
+  rows: Array<Record<string, string | number>>,
+  categoryKey: string,
+  valueKey: string
+) {
+  const chart: ExportChart = attachMunicipalReferenceLineToChart({
+    type: "bar",
+    categoryKey,
+    valueKeys: [{ key: valueKey, label: valueKey, color: "#64748b" }],
+    data: rows,
+  });
+  return resolveMunicipalReferenceSegment(chart);
+}
+
 export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation19DeckData }) {
   const fixedLevelColors = useMemo(
     () => ({
@@ -253,11 +277,36 @@ export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation1
     const maxMath = getProficiencyTableInfo(deckData.serie, "Matemática").maxProficiency;
     const maxOutras = getProficiencyTableInfo(deckData.serie, "Português").maxProficiency;
     const axisMax = Math.max(maxMath, maxOutras);
-    return deckData.proficienciaGeralPorTurma.map((r) => ({
+    const rows = deckData.proficienciaGeralPorTurma.map((r) => ({
       label: r.label,
       proficiencia: clampToRange(r.proficiencia, 0, axisMax),
     }));
-  }, [deckData.proficienciaGeralPorTurma, deckData.serie]);
+    const mun = mediaMunicipalRelatorioConsolidada(
+      deckData.proficienciaMediaMunicipalPorDisciplinaRelatorio ?? undefined,
+      deckData.proficienciaDisciplinasRelatorioKeys
+    );
+    if (
+      mun != null &&
+      Number.isFinite(mun) &&
+      !rows.some((r) => r.label === PRESENTATION19_MUNICIPAL_AVG_LABEL)
+    ) {
+      rows.push({
+        label: PRESENTATION19_MUNICIPAL_AVG_LABEL,
+        proficiencia: clampToRange(mun, 0, axisMax),
+      });
+    }
+    return rows;
+  }, [
+    deckData.proficienciaGeralPorTurma,
+    deckData.serie,
+    deckData.proficienciaMediaMunicipalPorDisciplinaRelatorio,
+    deckData.proficienciaDisciplinasRelatorioKeys,
+  ]);
+
+  const profGeneralMunicipalSegment = useMemo(
+    () => municipalSegmentForChart(profGeneralData, "label", "proficiencia"),
+    [profGeneralData]
+  );
 
   const profByDiscSeparate = useMemo(() => {
     return deckData.proficienciaPorDisciplinaPorTurma
@@ -293,8 +342,9 @@ export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation1
 
   const gradesChartData = useMemo(() => {
     const rows: Array<{ escopo: string; nota: number; fill: string }> = [];
-    const notaMunicipalOficialGeral = mediaMunicipalRelatorioGeral(
-      deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined
+    const notaMunicipalOficialGeral = mediaMunicipalRelatorioConsolidada(
+      deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined,
+      deckData.notaDisciplinasRelatorioKeys
     );
     if (multiSchool) {
       const sortedSchools = [...deckData.niveisPorSerie].sort((a, b) =>
@@ -311,7 +361,7 @@ export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation1
       });
       const notaBarraMunicipal = notaMunicipalOficialGeral;
       if (notaBarraMunicipal != null && Number.isFinite(notaBarraMunicipal)) {
-        rows.push({ escopo: "MÉDIA MUNICIPAL", nota: notaBarraMunicipal, fill: deckData.primaryColor });
+        rows.push({ escopo: PRESENTATION19_MUNICIPAL_AVG_LABEL, nota: notaBarraMunicipal, fill: deckData.primaryColor });
       }
     } else {
       if (deckData.mediaNotaGeral != null && Number.isFinite(deckData.mediaNotaGeral)) {
@@ -327,6 +377,9 @@ export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation1
           fill: disciplinePalette[(idx + deckData.notasPorDisciplina.length) % disciplinePalette.length],
         });
       });
+      if (notaMunicipalOficialGeral != null && Number.isFinite(notaMunicipalOficialGeral)) {
+        rows.push({ escopo: PRESENTATION19_MUNICIPAL_AVG_LABEL, nota: notaMunicipalOficialGeral, fill: deckData.primaryColor });
+      }
     }
     if (rows.length === 0) rows.push({ escopo: "Sem dados", nota: 0, fill: "#94a3b8" });
     return rows;
@@ -334,6 +387,7 @@ export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation1
     multiSchool,
     deckData.mediaNotaGeral,
     deckData.notaMediaMunicipalPorDisciplinaRelatorio,
+    deckData.notaDisciplinasRelatorioKeys,
     deckData.niveisPorSerie,
     deckData.notasPorCategoria,
     deckData.notasPorDisciplina,
@@ -345,6 +399,11 @@ export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation1
     const raw = Math.max(10, ...gradesChartData.map((r) => Number(r.nota || 0)));
     return Math.ceil(raw / 5) * 5;
   }, [gradesChartData]);
+
+  const gradesMunicipalSegment = useMemo(
+    () => municipalSegmentForChart(gradesChartData, "escopo", "nota"),
+    [gradesChartData]
+  );
 
   const levelGuide = deckData.levelGuide ?? [
     { label: "AVANÇADO", description: "", color: fixedLevelColors.avancado },
@@ -807,6 +866,11 @@ export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation1
                     formatter={(v: number) => Number(v).toFixed(1)}
                     style={{ fontSize: 11, fill: "#0f172a", fontWeight: 700 }}
                   />
+                  <MunicipalReferenceLineSegment
+                    segment={profGeneralMunicipalSegment}
+                    dataKey="proficiencia"
+                    categoryKey="label"
+                  />
                 </Bar>
               </BarChart>
             </div>
@@ -874,6 +938,15 @@ export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation1
                             formatter={(v: number) => (Number(v) > 0 ? Number(v).toFixed(1) : "")}
                             style={{ fontSize: 10, fill: "#0f172a", fontWeight: 600 }}
                           />
+                          <MunicipalReferenceLineSegment
+                            segment={municipalSegmentForChart(
+                              disc.data.map((d) => ({ turma: d.turma, proficiencia: d.proficiencia })),
+                              "turma",
+                              "proficiencia"
+                            )}
+                            dataKey="proficiencia"
+                            categoryKey="turma"
+                          />
                         </Bar>
                       </BarChart>
                       <div className="rounded-lg border border-zinc-200 bg-white px-2 py-2">
@@ -923,10 +996,14 @@ export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation1
                 columns={["Escopo", "Média da nota"]}
                 rows={(() => {
                   const out: Array<Array<string | number>> = [];
-                  const medLabel = multiSchool ? "MÉDIA MUNICIPAL" : "Média geral";
-                  const notaMunGeral = multiSchool
-                    ? mediaMunicipalRelatorioGeral(deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined)
-                    : deckData.mediaNotaGeral;
+                  const municipalNota = mediaMunicipalRelatorioConsolidada(
+                    deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined,
+                    deckData.notaDisciplinasRelatorioKeys
+                  );
+                  const medLabel =
+                    multiSchool || municipalNota != null ? PRESENTATION19_MUNICIPAL_AVG_LABEL : "Média geral";
+                  const notaMunGeral =
+                    multiSchool || municipalNota != null ? municipalNota : deckData.mediaNotaGeral;
                   if (notaMunGeral != null && Number.isFinite(notaMunGeral)) {
                     out.push([medLabel, notaMunGeral.toFixed(1).replace(".", ",")]);
                   }
@@ -975,6 +1052,11 @@ export function Presentation19SlidesDeck({ deckData }: { deckData: Presentation1
                     offset={2}
                     formatter={(v: number) => Number(v).toFixed(1).replace(".", ",")}
                     style={{ fontSize: 11, fill: "#0f172a", fontWeight: 700 }}
+                  />
+                  <MunicipalReferenceLineSegment
+                    segment={gradesMunicipalSegment}
+                    dataKey="nota"
+                    categoryKey="escopo"
                   />
                 </Bar>
               </BarChart>

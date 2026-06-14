@@ -100,6 +100,7 @@ import {
   PRESENTATION19_GRADES_NO_TURMA_NOTICE,
   resolvePresentation19BarTopLabel,
 } from "@/utils/reports/presentation19/presentation19Labels";
+import { resolveMunicipalReferenceXRatios } from "@/utils/reports/presentation19/municipalReferenceLine";
 
 type RenderPdfArgs = {
   spec: Presentation19ExportSpec;
@@ -448,7 +449,14 @@ function drawBarChart(doc: jsPDF, chart: ExportChart, area: { x: number; y: numb
     if (typeof doc.setLineDashPattern === "function") {
       doc.setLineDashPattern([3, 2], 0);
     }
-    doc.line(barsStartX + 4, refY, barsStartX + barsW - 4, refY);
+    const ratios = resolveMunicipalReferenceXRatios(chart);
+    const lineX1 = ratios
+      ? barsStartX + 4 + ratios.startRatio * (barsW - 8)
+      : barsStartX + 4;
+    const lineX2 = ratios
+      ? barsStartX + 4 + ratios.endRatio * (barsW - 8)
+      : barsStartX + barsW - 4;
+    doc.line(lineX1, refY, lineX2, refY);
     if (typeof doc.setLineDashPattern === "function") {
       doc.setLineDashPattern([], 0);
     }
