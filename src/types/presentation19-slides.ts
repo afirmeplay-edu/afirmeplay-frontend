@@ -119,6 +119,9 @@ export type Presentation19DeckData = {
    */
   proficienciaMediaMunicipalPorDisciplinaRelatorio: Record<string, number> | null;
   notaMediaMunicipalPorDisciplinaRelatorio: Record<string, number> | null;
+  /** Chaves de `proficiencia.por_disciplina` / `nota_geral.por_disciplina` (excl. GERAL) para lookup municipal. */
+  proficienciaDisciplinasRelatorioKeys: string[];
+  notaDisciplinasRelatorioKeys: string[];
 
   /** Legado: mantido vazio (slides de alunos removidos do deck). */
   alunosDetalhados: AlunoPresentationRow[];

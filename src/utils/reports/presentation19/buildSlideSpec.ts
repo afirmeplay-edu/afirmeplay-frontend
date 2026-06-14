@@ -12,9 +12,10 @@ import {
   presentation19ProficiencyDisciplineChartTitle,
 } from "@/utils/reports/presentation19/presentation19Labels";
 import {
-  mediaMunicipalRelatorioGeral,
-  mediaMunicipalRelatorioPorDisciplina,
+  mediaMunicipalRelatorioConsolidada,
+  mediaMunicipalRelatorioPorDisciplinaResolved,
 } from "@/utils/reports/presentation19/presentation19MunicipalMedia";
+import { attachMunicipalReferenceLineToChart } from "@/utils/reports/presentation19/municipalReferenceLine";
 
 const MAX_CATEGORY_ROWS_PER_SLIDE = 14;
 /** Proficiência por disciplina: 1 gráfico por slide (largura total, uma disciplina por “linha”). */
@@ -274,8 +275,9 @@ function buildGradesChartMunicipalCompare(deckData: Presentation19DeckData): Exp
       color: disciplinePalette[idx % disciplinePalette.length],
     });
   });
-  const notaMunicipalOficial = mediaMunicipalRelatorioGeral(
-    deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined
+  const notaMunicipalOficial = mediaMunicipalRelatorioConsolidada(
+    deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined,
+    deckData.notaDisciplinasRelatorioKeys
   );
   let munNotaRounded: number | null = null;
   if (notaMunicipalOficial != null && Number.isFinite(notaMunicipalOficial)) {
@@ -287,10 +289,7 @@ function buildGradesChartMunicipalCompare(deckData: Presentation19DeckData): Exp
     });
   }
   const chart = buildGradesChartRowsYMax(rows, deckData.primaryColor);
-  if (munNotaRounded != null) {
-    return { ...chart, referenceLineY: munNotaRounded };
-  }
-  return chart;
+  return attachMunicipalReferenceLineToChart(chart);
 }
 
 function buildGradesChart(deckData: Presentation19DeckData): ExportChart {
@@ -318,7 +317,18 @@ function buildGradesChart(deckData: Presentation19DeckData): ExportChart {
       });
     });
   }
-  return buildGradesChartRowsYMax(rows, deckData.primaryColor);
+  const mun = resolveMunicipalNotaGeral(deckData);
+  let munRounded: number | null = null;
+  if (mun != null && Number.isFinite(mun) && !rows.some((r) => r.escopo === PRESENTATION19_MUNICIPAL_AVG_LABEL)) {
+    munRounded = Number(clampToRange(mun, 0, 1000).toFixed(1));
+    rows.push({
+      escopo: PRESENTATION19_MUNICIPAL_AVG_LABEL,
+      nota: munRounded,
+      color: deckData.primaryColor,
+    });
+  }
+  const chart = buildGradesChartRowsYMax(rows, deckData.primaryColor);
+  return attachMunicipalReferenceLineToChart(chart);
 }
 
 function buildGeneralProficiencyChart(deckData: Presentation19DeckData, rows = deckData.proficienciaGeralPorTurma): ExportChart {
@@ -326,24 +336,41 @@ function buildGeneralProficiencyChart(deckData: Presentation19DeckData, rows = d
   const maxOutras = getProficiencyTableInfo(deckData.serie, "Português").maxProficiency;
   const yMax = Math.max(maxMath, maxOutras);
 
-  return {
+  const mun = resolveMunicipalProficiencyGeral(deckData);
+  const baseRows = rows.map((r) => ({
+    label: r.label,
+    proficiencia: Number(clampToRange(r.proficiencia, 0, yMax).toFixed(1)),
+  }));
+  const hasMunicipalBar = baseRows.some((r) => r.label === PRESENTATION19_MUNICIPAL_AVG_LABEL);
+  const dataRows =
+    mun != null && Number.isFinite(mun) && !hasMunicipalBar
+      ? [
+          ...baseRows,
+          {
+            label: PRESENTATION19_MUNICIPAL_AVG_LABEL,
+            proficiencia: Number(clampToRange(mun, 0, yMax).toFixed(1)),
+          },
+        ]
+      : baseRows;
+
+  return attachMunicipalReferenceLineToChart({
     type: "bar",
     categoryKey: "label",
     valueKeys: [{ key: "proficiencia", label: "Proficiência", color: deckData.primaryColor }],
-    data: rows.map((r) => ({
-      label: r.label,
-      proficiencia: Number(clampToRange(r.proficiencia, 0, yMax).toFixed(1)),
-    })),
+    data: dataRows,
     yAxis: {
       min: 0,
       max: yMax,
       ticks: buildLinearTicks(0, yMax, 4),
     },
-  };
+  });
 }
 
 function resolveMunicipalProficiencyGeral(deckData: Presentation19DeckData): number | null {
-  return mediaMunicipalRelatorioGeral(deckData.proficienciaMediaMunicipalPorDisciplinaRelatorio ?? undefined);
+  return mediaMunicipalRelatorioConsolidada(
+    deckData.proficienciaMediaMunicipalPorDisciplinaRelatorio ?? undefined,
+    deckData.proficienciaDisciplinasRelatorioKeys
+  );
 }
 
 /** Todas as escolas + barra «Média municipal» no mesmo gráfico. */
@@ -366,7 +393,7 @@ function buildGeneralProficiencyChartMultiSchool(deckData: Presentation19DeckDat
       ? [...schoolRows, { label: PRESENTATION19_MUNICIPAL_AVG_LABEL, proficiencia: mun }]
       : schoolRows;
 
-  return {
+  return attachMunicipalReferenceLineToChart({
     type: "bar",
     categoryKey: "label",
     valueKeys: [{ key: "proficiencia", label: "Proficiência", color: deckData.primaryColor }],
@@ -379,7 +406,7 @@ function buildGeneralProficiencyChartMultiSchool(deckData: Presentation19DeckDat
       max: yMax,
       ticks: buildLinearTicks(0, yMax, 4),
     },
-  };
+  });
 }
 
 function normEscolaKey(s: string): string {
@@ -395,9 +422,24 @@ function buildDefaultProficiencyByDisciplineCharts(deckData: Presentation19DeckD
     .map((disciplina) => {
       const paletteIdx = getSubjectPaletteIndex(disciplina.disciplina, disciplina.disciplina);
       const yMax = getProficiencyTableInfo(deckData.serie, disciplina.disciplina).maxProficiency;
+      const turmaData = disciplina.valuesByTurma.map((v) => ({
+        turma: v.turma,
+        proficiencia: Number(clampToRange(v.proficiencia, 0, yMax).toFixed(1)),
+      }));
+      const mun = municipalProficiencyForDiscipline(deckData, disciplina.disciplina);
+      const data =
+        mun != null && Number.isFinite(mun) && !turmaData.some((t) => t.turma === PRESENTATION19_MUNICIPAL_AVG_LABEL)
+          ? [
+              ...turmaData,
+              {
+                turma: PRESENTATION19_MUNICIPAL_AVG_LABEL,
+                proficiencia: Number(clampToRange(mun, 0, yMax).toFixed(1)),
+              },
+            ]
+          : turmaData;
       return {
         title: presentation19ProficiencyDisciplineChartTitle(disciplina.disciplina),
-        chart: {
+        chart: attachMunicipalReferenceLineToChart({
           type: "bar" as const,
           categoryKey: "turma",
           valueKeys: [
@@ -407,24 +449,22 @@ function buildDefaultProficiencyByDisciplineCharts(deckData: Presentation19DeckD
               color: disciplinePalette[paletteIdx % disciplinePalette.length],
             },
           ],
-          data: disciplina.valuesByTurma.map((v) => ({
-            turma: v.turma,
-            proficiencia: Number(clampToRange(v.proficiencia, 0, yMax).toFixed(1)),
-          })),
+          data,
           yAxis: {
             min: 0,
             max: yMax,
             ticks: buildLinearTicks(0, yMax, 4),
           },
-        },
+        }),
       };
     });
 }
 
 function municipalProficiencyForDiscipline(deckData: Presentation19DeckData, disciplinaNome: string): number | null {
-  return mediaMunicipalRelatorioPorDisciplina(
+  return mediaMunicipalRelatorioPorDisciplinaResolved(
     deckData.proficienciaMediaMunicipalPorDisciplinaRelatorio ?? undefined,
-    disciplinaNome
+    disciplinaNome,
+    deckData.proficienciaDisciplinasRelatorioKeys
   );
 }
 
@@ -462,7 +502,7 @@ function buildProficiencyByDisciplineChartsMunicipalCompare(
         : schoolData;
     return {
       title: presentation19ProficiencyDisciplineChartTitle(disciplina.disciplina),
-      chart: {
+      chart: attachMunicipalReferenceLineToChart({
         type: "bar" as const,
         categoryKey: "escola",
         valueKeys: [
@@ -478,7 +518,7 @@ function buildProficiencyByDisciplineChartsMunicipalCompare(
           max: yMax,
           ticks: buildLinearTicks(0, yMax, 4),
         },
-      },
+      }),
     };
   })
     .filter((entry) => entry.chart.data.length > 0);
@@ -492,10 +532,28 @@ function gradesYMaxFromValues(values: number[]): number {
 function buildDefaultGradesByDisciplineCharts(deckData: Presentation19DeckData): Array<{ title: string; chart: ExportChart }> {
   return filterPresentation19RealDisciplineRows(deckData.notasPorDisciplinaPorTurma).map((disciplina) => {
     const paletteIdx = getSubjectPaletteIndex(disciplina.disciplina, disciplina.disciplina);
-    const yMax = gradesYMaxFromValues(disciplina.valuesByTurma.map((v) => v.mediaNota));
+    const mun = municipalNotaForDiscipline(deckData, disciplina.disciplina);
+    const yMax = gradesYMaxFromValues([
+      ...disciplina.valuesByTurma.map((v) => v.mediaNota),
+      ...(mun != null && Number.isFinite(mun) ? [mun] : []),
+    ]);
+    const turmaData = disciplina.valuesByTurma.map((v) => ({
+      turma: v.turma,
+      nota: Number(clampToRange(v.mediaNota, 0, yMax).toFixed(1)),
+    }));
+    const data =
+      mun != null && Number.isFinite(mun) && !turmaData.some((t) => t.turma === PRESENTATION19_MUNICIPAL_AVG_LABEL)
+        ? [
+            ...turmaData,
+            {
+              turma: PRESENTATION19_MUNICIPAL_AVG_LABEL,
+              nota: Number(clampToRange(mun, 0, yMax).toFixed(1)),
+            },
+          ]
+        : turmaData;
     return {
       title: presentation19GradesDisciplineChartTitle(disciplina.disciplina),
-      chart: {
+      chart: attachMunicipalReferenceLineToChart({
         type: "bar" as const,
         categoryKey: "turma",
         valueKeys: [
@@ -505,25 +563,30 @@ function buildDefaultGradesByDisciplineCharts(deckData: Presentation19DeckData):
             color: disciplinePalette[paletteIdx % disciplinePalette.length],
           },
         ],
-        data: disciplina.valuesByTurma.map((v) => ({
-          turma: v.turma,
-          nota: Number(clampToRange(v.mediaNota, 0, yMax).toFixed(1)),
-        })),
+        data,
         yAxis: {
           min: 0,
           max: yMax,
           ticks: buildLinearTicks(0, yMax, 4),
           scaleLabel: "nota",
         },
-      },
+      }),
     };
   });
 }
 
 function municipalNotaForDiscipline(deckData: Presentation19DeckData, disciplinaNome: string): number | null {
-  return mediaMunicipalRelatorioPorDisciplina(
+  return mediaMunicipalRelatorioPorDisciplinaResolved(
     deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined,
-    disciplinaNome
+    disciplinaNome,
+    deckData.notaDisciplinasRelatorioKeys
+  );
+}
+
+function resolveMunicipalNotaGeral(deckData: Presentation19DeckData): number | null {
+  return mediaMunicipalRelatorioConsolidada(
+    deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined,
+    deckData.notaDisciplinasRelatorioKeys
   );
 }
 
@@ -564,7 +627,7 @@ function buildGradesByDisciplineChartsMunicipalCompare(
           }));
     return {
       title: presentation19GradesDisciplineChartTitle(disciplina.disciplina),
-      chart: {
+      chart: attachMunicipalReferenceLineToChart({
         type: "bar" as const,
         categoryKey: "escola",
         valueKeys: [
@@ -581,7 +644,7 @@ function buildGradesByDisciplineChartsMunicipalCompare(
           ticks: buildLinearTicks(0, yMax, 4),
           scaleLabel: "nota",
         },
-      },
+      }),
     };
   })
     .filter((entry) => entry.chart.data.length > 0);
@@ -589,11 +652,11 @@ function buildGradesByDisciplineChartsMunicipalCompare(
 
 function buildGradesTableRows(deckData: Presentation19DeckData): Array<Array<string | number>> {
   const escolaMulti = isMunicipalMultiSchool(deckData);
+  const hasMunicipalNota = resolveMunicipalNotaGeral(deckData) != null;
   const out: Array<Array<string | number>> = [];
-  const medLabel = escolaMulti ? PRESENTATION19_MUNICIPAL_AVG_LABEL : "Média geral";
-  const notaMedResumo = escolaMulti
-    ? mediaMunicipalRelatorioGeral(deckData.notaMediaMunicipalPorDisciplinaRelatorio ?? undefined)
-    : deckData.mediaNotaGeral;
+  const medLabel = escolaMulti || hasMunicipalNota ? PRESENTATION19_MUNICIPAL_AVG_LABEL : "Média geral";
+  const notaMedResumo =
+    escolaMulti || hasMunicipalNota ? resolveMunicipalNotaGeral(deckData) : deckData.mediaNotaGeral;
   if (notaMedResumo != null && Number.isFinite(notaMedResumo)) {
     out.push([medLabel, Number(notaMedResumo).toFixed(1).replace(".", ",")]);
   }

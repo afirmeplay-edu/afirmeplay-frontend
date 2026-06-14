@@ -105,6 +105,7 @@ import {
   PRESENTATION19_GRADES_NO_TURMA_NOTICE,
   resolvePresentation19BarTopLabel,
 } from "@/utils/reports/presentation19/presentation19Labels";
+import { resolveMunicipalReferenceXRatios } from "@/utils/reports/presentation19/municipalReferenceLine";
 
 type RenderPptxArgs = {
   spec: Presentation19ExportSpec;
@@ -403,10 +404,13 @@ function drawPdfAlignedBarChart(slide: PptxGenJS.Slide, chart: ExportChart, box:
   if (chart.referenceLineY != null && Number.isFinite(chart.referenceLineY)) {
     const refVal = Number(chart.referenceLineY);
     const refY = baselineY - ((Math.max(0, refVal - axisMin) / (maxValue - axisMin)) * chartAreaH);
+    const ratios = resolveMunicipalReferenceXRatios(chart);
+    const lineX1 = ratios ? barsStartX + ratios.startRatio * barsW : barsStartX;
+    const lineX2 = ratios ? barsStartX + ratios.endRatio * barsW : barsStartX + barsW;
     slide.addShape(pptx.ShapeType.line, {
-      x: barsStartX,
+      x: lineX1,
       y: refY,
-      w: barsW,
+      w: Math.max(0.01, lineX2 - lineX1),
       h: 0,
       line: { color: "64748B", width: 1.25, dashType: "dash" },
     });

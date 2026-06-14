@@ -17,6 +17,10 @@ import {
 import { mapAnswerSheetResultadosAgregadosToNovaResposta, type AnswerSheetResultadosAgregadosRaw } from "@/utils/answer-sheet/mapAnswerSheetResultadosAgregadosToNovaResposta";
 import { getUserHierarchyContext, getRestrictionMessage, validateReportAccess, UserHierarchyContext, cityIdQueryParamForAdmin } from "@/utils/userHierarchy";
 import { api } from "@/lib/api";
+import {
+  hasMediaMunicipalRelatorioData,
+  mergeRelatorioMediaMunicipalIfMissing,
+} from "@/utils/reports/presentation19/presentation19MunicipalMedia";
 import buildDeckDataForPresentation19Slides from "@/utils/reports/presentation19/buildDeckData";
 import { buildSlideSpec } from "@/utils/reports/presentation19/buildSlideSpec";
 import type { Presentation19DeckData, Presentation19Mode } from "@/types/presentation19-slides";
@@ -440,10 +444,34 @@ export default function RelatorioApresentacao19Slides() {
 
     try {
       lastDeckLoadErrorRef.current = null;
-      const [relatorioCompleto, novaRespostas] = await Promise.all([
+      const [relatorioCompletoRaw, novaRespostas] = await Promise.all([
         EvaluationResultsApiService.getRelatorioCompleto(evaluationId, relatorioParams),
         fetchNovaResposta(),
       ]);
+
+      let relatorioCompleto = relatorioCompletoRaw;
+
+      const needsMunicipalMerge =
+        selectedSchool !== "all" &&
+        (!hasMediaMunicipalRelatorioData(
+          relatorioCompleto?.proficiencia?.media_municipal_por_disciplina as Record<string, number> | undefined
+        ) ||
+          !hasMediaMunicipalRelatorioData(
+            relatorioCompleto?.nota_geral?.media_municipal_por_disciplina as Record<string, number> | undefined
+          ));
+
+      if (needsMunicipalMerge && selectedMunicipality !== "all") {
+        try {
+          const municipalRelatorio = await EvaluationResultsApiService.getRelatorioCompleto(evaluationId, {
+            cityId: selectedMunicipality,
+            ...(adminCityIdQuery ? { adminCityIdQuery } : {}),
+            ...(reportEntityType ? { reportEntityType } : {}),
+          });
+          relatorioCompleto = mergeRelatorioMediaMunicipalIfMissing(relatorioCompleto, municipalRelatorio);
+        } catch {
+          // Mantém relatório da escola; gráficos municipais só aparecem se o backend enviar o campo.
+        }
+      }
 
       if (!relatorioCompleto) {
         toast({

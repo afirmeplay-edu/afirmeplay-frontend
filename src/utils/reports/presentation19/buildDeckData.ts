@@ -22,6 +22,13 @@ import {
   filterPresentation19RealDisciplineRows,
   hasPresentation19RealDisciplineBreakdown,
 } from "@/utils/reports/presentation19/presentation19Labels";
+import {
+  buildMediaMunicipalPorDisciplinaFromNovaEstatisticas,
+  disciplineKeysFromNovaPorDisciplina,
+  mergeDisciplineKeyLists,
+  mergeMediaMunicipalPorDisciplinaMaps,
+  relatorioRealDisciplineKeys,
+} from "@/utils/reports/presentation19/presentation19MunicipalMedia";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -2508,6 +2515,35 @@ export function buildDeckDataForPresentation19Slides(args: BuildDeckDataArgs): P
   profDiscFinal = filterPresentation19RealDisciplineRows(profDiscFinal);
   notasPorDisciplinaPorTurmaFinal = filterPresentation19RealDisciplineRows(notasPorDisciplinaPorTurmaFinal);
 
+  const novaEg = novaRespostaAgregados?.estatisticas_gerais;
+  const novaPorDisciplinaKeys = disciplineKeysFromNovaPorDisciplina(
+    novaEg?.por_disciplina ?? novaRespostaAgregados?.resultados_por_disciplina
+  );
+  const proficienciaMediaMunicipalPorDisciplinaRelatorio = mergeMediaMunicipalPorDisciplinaMaps(
+    cloneMediaMunicipalPorDisciplinaMap(
+      relatorioDetalhado?.proficiencia?.media_municipal_por_disciplina as Record<string, number> | undefined
+    ),
+    buildMediaMunicipalPorDisciplinaFromNovaEstatisticas(novaEg, "proficiencia")
+  );
+  const notaMediaMunicipalPorDisciplinaRelatorio = mergeMediaMunicipalPorDisciplinaMaps(
+    cloneMediaMunicipalPorDisciplinaMap(
+      relatorioDetalhado?.nota_geral?.media_municipal_por_disciplina as Record<string, number> | undefined
+    ),
+    buildMediaMunicipalPorDisciplinaFromNovaEstatisticas(novaEg, "nota")
+  );
+  const proficienciaDisciplinasRelatorioKeys = mergeDisciplineKeyLists(
+    relatorioRealDisciplineKeys(
+      relatorioDetalhado?.proficiencia?.por_disciplina as Record<string, unknown> | undefined
+    ),
+    novaPorDisciplinaKeys
+  );
+  const notaDisciplinasRelatorioKeys = mergeDisciplineKeyLists(
+    relatorioRealDisciplineKeys(
+      relatorioDetalhado?.nota_geral?.por_disciplina as Record<string, unknown> | undefined
+    ),
+    novaPorDisciplinaKeys
+  );
+
   return {
     mode,
     comparisonAxis,
@@ -2537,12 +2573,11 @@ export function buildDeckDataForPresentation19Slides(args: BuildDeckDataArgs): P
     notasPorDisciplina: notasDiscFinal,
     notasPorCategoria: notasCatFinal,
 
-    proficienciaMediaMunicipalPorDisciplinaRelatorio: cloneMediaMunicipalPorDisciplinaMap(
-      relatorioDetalhado?.proficiencia?.media_municipal_por_disciplina as Record<string, number> | undefined
-    ),
-    notaMediaMunicipalPorDisciplinaRelatorio: cloneMediaMunicipalPorDisciplinaMap(
-      relatorioDetalhado?.nota_geral?.media_municipal_por_disciplina as Record<string, number> | undefined
-    ),
+    proficienciaMediaMunicipalPorDisciplinaRelatorio,
+    notaMediaMunicipalPorDisciplinaRelatorio,
+
+    proficienciaDisciplinasRelatorioKeys,
+    notaDisciplinasRelatorioKeys,
 
     alunosDetalhados,
 
