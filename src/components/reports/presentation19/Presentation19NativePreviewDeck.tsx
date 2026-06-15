@@ -19,6 +19,7 @@ import {
   presentationTitleProficiencyByDiscipline,
   presentationTitleProficiencyGeneralChart,
   presentationTitleTableGrades,
+  presentationTitleTableProficiency,
   presentationTitleTableLevels,
   presentationTitleTablePresence,
   presentationQuestionsTurmaCoverLine,
@@ -177,6 +178,7 @@ function Title({ text, primaryColor, subtitle }: { text: string; primaryColor: s
 function tableCellTextAlign(slideKind: Presentation19SlideSpec["kind"], colIdx: number): "left" | "center" | "right" {
   if (slideKind === "presence-table") return colIdx === 0 ? "left" : "center";
   if (slideKind === "grades-table") return colIdx === 0 ? "left" : "center";
+  if (slideKind === "proficiency-general-table") return colIdx === 0 ? "left" : "center";
   if (slideKind === "levels-table") return colIdx === 0 ? "left" : "center";
   if (slideKind === "questions-table") {
     if (colIdx === 0 || colIdx === 3) return "center";
@@ -916,6 +918,7 @@ const NativeSlideFrame = memo(function NativeSlideFrame({
               )}
               {(slide.kind === "presence-table" ||
                 slide.kind === "levels-table" ||
+                slide.kind === "proficiency-general-table" ||
                 slide.kind === "grades-table" ||
                 slide.kind === "questions-table") && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -927,7 +930,9 @@ const NativeSlideFrame = memo(function NativeSlideFrame({
                           ? presentationTitleTablePresence(deckData.comparisonAxis)
                           : slide.kind === "levels-table"
                             ? niveisAprendizagemTituloPorEixo(deckData.comparisonAxis)
-                            : slide.kind === "grades-table"
+                            : slide.kind === "proficiency-general-table"
+                              ? presentationTitleTableProficiency(deckData.comparisonAxis)
+                              : slide.kind === "grades-table"
                               ? presentationTitleTableGrades(deckData.comparisonAxis)
                               : slide.questionsSubsection?.kind === "geral"
                                 ? "TABELA DE QUESTÕES — GERAL"

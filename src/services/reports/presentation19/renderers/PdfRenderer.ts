@@ -18,6 +18,7 @@ import {
   presentationTitleProficiencyByDiscipline,
   presentationTitleProficiencyGeneralChart,
   presentationTitleTableGrades,
+  presentationTitleTableProficiency,
   presentationTitleTablePresence,
   niveisAprendizagemTituloPorEixo,
   P19_LEVELS_TABLE_LEVEL_HEADER_BG_HEX,
@@ -1055,6 +1056,30 @@ function drawSlide(doc: jsPDF, slide: Presentation19SlideSpec, spec: Presentatio
         deckData.primaryColor
       );
       break;
+    case "proficiency-general-table": {
+      const titleText = presentationTitleTableProficiency(deckData.comparisonAxis);
+      const titleMaxW = content.w - P19_TITLE_TEXT_OFFSET_X_PX;
+      const yAfter = drawWrappedSlideTitle(doc, titleText, deckData.primaryColor, P19_SLIDE_TITLE_FIRST_BASELINE_Y_PX, titleMaxW);
+      const tableStartY = yAfter + P19_TITLE_TO_BODY_GAP_PX;
+      autoTable(doc, {
+        startY: tableStartY,
+        margin: { left: content.x, right: content.x },
+        head: [slide.table.columns],
+        body: slide.table.rows,
+        styles: {
+          fontSize: P19_TABLE_CELL_FONT_PX,
+          lineColor: [226, 232, 240],
+          lineWidth: 1,
+          cellPadding: P19_TABLE_CELL_PADDING_PX,
+          fillColor: [252, 252, 253],
+          textColor: [15, 23, 42],
+        },
+        headStyles: { fillColor: [226, 232, 240], textColor: [51, 65, 85], fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [241, 245, 249] },
+        columnStyles: Object.fromEntries(slide.table.columns.map((_, i) => [i, { halign: i === 0 ? "left" : "center" }])),
+      });
+      break;
+    }
     case "proficiency-general-chart": {
       const yb = drawWrappedSlideTitle(
         doc,

@@ -138,6 +138,10 @@ export function presentationTitleTableGrades(axis: PresentationComparisonAxis): 
   return `TABELA DE NOTAS — ${presentationScopeSuffixUpper(axis)}`;
 }
 
+export function presentationTitleTableProficiency(axis: PresentationComparisonAxis): string {
+  return `TABELA DE PROFICIÊNCIA — ${presentationScopeSuffixUpper(axis)}`;
+}
+
 export function presentationTitleChartGrades(axis: PresentationComparisonAxis): string {
   return `GRÁFICO DE NOTAS — ${presentationScopeSuffixUpper(axis)}`;
 }

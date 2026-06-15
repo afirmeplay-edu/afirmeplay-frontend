@@ -2068,6 +2068,39 @@ export class EvaluationResultsApiService {
     }
   }
 
+  /** Filtra avaliações/gabaritos retornados por `opcoes-filtros` conforme o tipo de relatório. */
+  private static filterEvaluationsFromOptions(
+    avaliacoes: Array<{ id: string; titulo: string; disciplina?: string; disciplinas?: string[]; type?: unknown; tipo?: unknown; title?: unknown }>,
+    reportEntityType?: ReportEntityTypeQuery
+  ): Array<{ id: string; titulo: string; disciplina?: string; disciplinas?: string[] }> {
+    if (reportEntityType === REPORT_ENTITY_TYPE_ANSWER_SHEET) {
+      return avaliacoes;
+    }
+
+    return avaliacoes.filter((evaluation) => {
+      const raw = (evaluation.type ?? evaluation.tipo ?? '').toString().trim();
+      const type = raw.toUpperCase();
+      const title = String(evaluation.titulo ?? evaluation.title ?? '').toUpperCase();
+      const titleNormalized = title
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+      if (type === 'OLIMPIADAS' || type === 'OLIMPIADA' || type.includes('OLIMPI')) return false;
+      if (type === 'COMPETICAO' || type === 'COMPETIÇÃO' || type.includes('COMPET')) return false;
+      if (title.includes('OLIMPI') || title.includes('OLÍMPIC')) return false;
+      if (
+        titleNormalized.includes('GABARITO') ||
+        titleNormalized.includes('CARTAO') ||
+        titleNormalized.includes('CARTAO RESPOSTA')
+      ) {
+        return false;
+      }
+      if (type !== '') {
+        return type === 'AVALIACAO' || type === 'SIMULADO';
+      }
+      return true;
+    });
+  }
+
   // ✅ REFATORADO: Buscar avaliações usando rota unificada
   static async getFilterEvaluations(filters: {
     estado: string;
@@ -2095,43 +2128,7 @@ export class EvaluationResultsApiService {
         ...(filters.serie_filtro && filters.serie_filtro !== 'all' ? { serie_filtro: filters.serie_filtro } : {}),
         ...(filters.nome?.trim() ? { nome: filters.nome.trim() } : {}),
       });
-      const avaliacoes = response.avaliacoes || [];
-      // Para cartões resposta, manter a lista como veio do backend (gabaritos).
-      if (filters.report_entity_type === REPORT_ENTITY_TYPE_ANSWER_SHEET) {
-        return avaliacoes;
-      }
-
-      // Para aba "Avaliações", aceitar itens sem `type` quando o backend não preencher
-      // esse campo, mas manter bloqueios por padrão de título/tipo indesejado.
-      return avaliacoes.filter((evaluation: { type?: unknown; tipo?: unknown; titulo?: unknown; title?: unknown }) => {
-        const raw = (evaluation.type ?? evaluation.tipo ?? '').toString().trim();
-        const type = raw.toUpperCase();
-        const title = String(evaluation.titulo ?? evaluation.title ?? '').toUpperCase();
-        const titleNormalized = title
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '');
-        // Excluir olimpíadas e competições (relatórios e filtros: apenas avaliações/simulados)
-        if (type === 'OLIMPIADAS' || type === 'OLIMPIADA' || type.includes('OLIMPI')) return false;
-        if (type === 'COMPETICAO' || type === 'COMPETIÇÃO' || type.includes('COMPET')) return false;
-        // Excluir também pelo título quando o backend não envia type (ex.: "OLIMPIADA DE MATEMÁTICA", "SIMULADO OLÍMPICO")
-        if (title.includes('OLIMPI') || title.includes('OLÍMPIC')) return false;
-        // Proteção extra: não listar cartões resposta/gabaritos na aba de avaliações.
-        if (
-          titleNormalized.includes('GABARITO') ||
-          titleNormalized.includes('CARTAO') ||
-          titleNormalized.includes('CARTAO RESPOSTA')
-        ) {
-          return false;
-        }
-        // Quando tipo vier explícito, permitir apenas avaliação/simulado.
-        if (type !== '') {
-          return type === 'AVALIACAO' || type === 'SIMULADO';
-        }
-
-        // Sem `type`: assumir avaliação válida (compatibilidade com payload legado),
-        // desde que não tenha caído nos bloqueios por título acima.
-        return true;
-      });
+      return this.filterEvaluationsFromOptions(response.avaliacoes || [], filters.report_entity_type);
     } catch (error) {
       console.error('Erro ao buscar avaliações para filtros:', error);
       return [];
@@ -2151,7 +2148,6 @@ export class EvaluationResultsApiService {
     evaluations: Array<{ id: string; titulo: string; disciplina?: string; disciplinas?: string[] }>;
     seriesDisponiveis: Array<{ id: string; nome: string }>;
   }> {
-    const evaluations = await this.getFilterEvaluations(filters);
     try {
       const response = await this.getFilterOptions({
         estado: filters.estado,
@@ -2160,13 +2156,15 @@ export class EvaluationResultsApiService {
         ...(filters.report_entity_type ? { report_entity_type: filters.report_entity_type } : {}),
         ...(filters.city_id ? { city_id: filters.city_id } : {}),
         ...(filters.periodo?.trim() ? { periodo: filters.periodo } : {}),
+        ...(filters.serie_filtro && filters.serie_filtro !== 'all' ? { serie_filtro: filters.serie_filtro } : {}),
+        ...(filters.nome?.trim() ? { nome: filters.nome.trim() } : {}),
       });
       return {
-        evaluations,
+        evaluations: this.filterEvaluationsFromOptions(response.avaliacoes || [], filters.report_entity_type),
         seriesDisponiveis: response.series_disponiveis ?? [],
       };
     } catch {
-      return { evaluations, seriesDisponiveis: [] };
+      return { evaluations: [], seriesDisponiveis: [] };
     }
   }
 
