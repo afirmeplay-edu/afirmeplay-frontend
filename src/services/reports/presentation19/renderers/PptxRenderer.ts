@@ -18,6 +18,7 @@ import {
   presentationTitleProficiencyByDiscipline,
   presentationTitleProficiencyGeneralChart,
   presentationTitleTableGrades,
+  presentationTitleTableProficiency,
   presentationTitleTablePresence,
   niveisAprendizagemTituloPorEixo,
   P19_LEVELS_TABLE_LEVEL_HEADER_BG_HEX,
@@ -1057,6 +1058,10 @@ function renderSlide(slide: PptxGenJS.Slide, slideSpec: Presentation19SlideSpec,
         presentationSectionProficiencyTagline(deckData.comparisonAxis),
         deckData.primaryColor
       );
+      break;
+    case "proficiency-general-table":
+      drawTitle(slide, presentationTitleTableProficiency(deckData.comparisonAxis), deckData.primaryColor, pptx);
+      drawTable(slide, slideSpec.table.columns, slideSpec.table.rows, undefined, [0.52, 0.48]);
       break;
     case "proficiency-general-chart": {
       const profSub = [slideSpec.escolaNome, P19_CHART_SUBTITLE_PROFICIENCY].filter(Boolean).join(" • ");

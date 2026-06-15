@@ -47,6 +47,7 @@ export type Presentation19SlideSpec =
   | { index: number; kind: "levels-chart"; chart: ExportChart; escolaNome?: string }
   | { index: number; kind: "levels-table"; table: ExportTable; escolaNome?: string }
   | { index: number; kind: "section-proficiency" }
+  | { index: number; kind: "proficiency-general-table"; table: ExportTable }
   | { index: number; kind: "proficiency-general-chart"; chart: ExportChart; escolaNome?: string }
   | {
       index: number;
