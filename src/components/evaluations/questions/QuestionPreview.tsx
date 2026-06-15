@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Question } from "../types";
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { api, BASE_URL } from "@/lib/api";
-import { resolveQuestionImageSrc, getQuestionHtmlForDisplay } from "@/utils/questionImages";
+import { getQuestionHtmlForDisplay } from "@/utils/questionImages";
 import { QuestionOptionContent } from "./QuestionOptionContent";
 import { cleanLegacyText, isLikelyPlainText } from "@/utils/textFormatter";
 import { QuestionRenderer } from "./QuestionRenderer";
@@ -346,7 +346,10 @@ const QuestionPreview: React.FC<QuestionPreviewProps> = ({ question: initialQues
                     <div className="resolution-content rounded-xl border border-border bg-muted/30 dark:bg-muted/10 p-5 sm:p-6 md:p-7">
                         <SimpleHtmlRenderer
                             className={questionProseClass}
-                            content={resolveQuestionImageSrc(question.formattedSolution || question.solution || '', BASE_URL)}
+                            content={getQuestionHtmlForDisplay(
+                                question.formattedSolution || question.solution || '',
+                                BASE_URL
+                            )}
                         />
                     </div>
                 </div>

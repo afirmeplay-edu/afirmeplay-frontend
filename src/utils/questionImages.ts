@@ -1,4 +1,5 @@
 import { cleanLegacyText } from './textFormatter';
+import { renderMathInHtml } from './renderMath';
 
 /**
  * Resolve URLs relativas de imagens de questões no HTML.
@@ -33,7 +34,8 @@ export function normalizeQuestionHtmlForDisplay(html: string): string {
  */
 export function getQuestionHtmlForDisplay(html: string, apiBase: string): string {
   const cleaned = cleanLegacyText(html || '');
-  return normalizeQuestionHtmlForDisplay(resolveQuestionImageSrc(cleaned, apiBase));
+  const withImages = normalizeQuestionHtmlForDisplay(resolveQuestionImageSrc(cleaned, apiBase));
+  return renderMathInHtml(withImages);
 }
 
 /**

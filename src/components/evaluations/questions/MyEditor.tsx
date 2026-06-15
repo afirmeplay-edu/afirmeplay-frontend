@@ -17,8 +17,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { 
   Heading1, Heading2, Heading3, List, ListOrdered, Code, Type, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Image as ImageIcon, Bold, Italic, Underline as UnderlineIcon, Strikethrough, Eraser, Replace,
-  Upload, Move, RotateCcw, Settings, Save, X, Expand, Shrink, MousePointer
+  Upload, Move, RotateCcw, Settings, Save, X, Expand, Shrink, MousePointer, Sigma
 } from "lucide-react";
+import { LatexInsertDialog } from './LatexInsertDialog';
 import { normalizePdfLineBreaks } from "@/utils/normalizePdfLineBreaks";
 import { ResizableImage } from 'tiptap-extension-resizable-image';
 import 'tiptap-extension-resizable-image/styles.css';
@@ -63,6 +64,7 @@ const MyEditor = ({ value, onChange }: MyEditorProps) => {
   });
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
+  const [latexOpen, setLatexOpen] = useState(false);
 
   const editor = useEditor({
     extensions: [
@@ -412,6 +414,24 @@ const MyEditor = ({ value, onChange }: MyEditorProps) => {
                   type="button"
                   variant="ghost"
                   size="sm"
+                  onClick={() => setLatexOpen(true)}
+                  className="h-9 w-9 p-0 hover:bg-gray-100 dark:hover:bg-muted"
+                  aria-label="Inserir expressão LaTeX"
+                >
+                  <Sigma className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Inserir expressão matemática (LaTeX)</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={() => editor.chain().focus().unsetAllMarks().run()}
                   className="h-9 w-9 p-0 hover:bg-gray-100 dark:hover:bg-muted"
                 >
@@ -730,6 +750,12 @@ const MyEditor = ({ value, onChange }: MyEditorProps) => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <LatexInsertDialog
+        open={latexOpen}
+        onOpenChange={setLatexOpen}
+        onInsert={(wrappedLatex) => editor.chain().focus().insertContent(wrappedLatex).run()}
+      />
     </div>
   );
 };

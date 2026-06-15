@@ -16,7 +16,7 @@ import { ArrowLeft, Book, Check, List as ListIcon, Minus, Plus, Save, Eye, Headi
 import { useNavigate } from "react-router-dom";
 import { Question, Subject } from "../types";
 import { api, BASE_URL } from "@/lib/api";
-import { resolveQuestionImageSrc } from "@/utils/questionImages";
+import { getQuestionHtmlForDisplay } from "@/utils/questionImages";
 import { useToast } from "@/hooks/use-toast";
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -239,7 +239,7 @@ const QuestionPreview: React.FC<{ data: QuestionFormValues }> = ({ data }) => {
             {data.solution && (
                 <div className="space-y-2">
                     <h4 className="font-medium">Resolução:</h4>
-                    <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: resolveQuestionImageSrc(data.solution, BASE_URL) }} />
+                    <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: getQuestionHtmlForDisplay(data.solution, BASE_URL) }} />
                 </div>
             )}
         </div>
