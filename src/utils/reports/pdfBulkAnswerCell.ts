@@ -220,8 +220,10 @@ export const PDF_BULK_TABLE_LAYOUT = {
   pctHeaderRowBaseMm: 5.5,
   qHeaderRowBaseMm: 5.5,
   /** Teto de altura por linha de aluno quando preenchendo a página. */
-  bodyRowFillMaxMm: 14,
-  skillRowFillMaxMm: 38,
+  bodyRowFillMaxMm: 9,
+  skillRowFillMaxMm: 24,
+  /** Acima deste número de alunos, expande linhas para preencher a página landscape. */
+  pageFillMinStudents: 16,
 } as const;
 
 export type PdfBulkTableVerticalLayoutInput = {
@@ -297,8 +299,10 @@ export function computePdfBulkTableVerticalLayout(
 
   const n = input.studentCount;
   const minTableHeight = compactQ + compactSkill + compactPct + n * compactBodyRow;
+  const allowPageFill =
+    n >= PDF_BULK_TABLE_LAYOUT.pageFillMinStudents && minTableHeight <= tableBudget;
 
-  if (n > 0 && minTableHeight <= tableBudget) {
+  if (n > 0 && allowPageFill) {
     pageFilled = true;
     const extra = tableBudget - minTableHeight;
 

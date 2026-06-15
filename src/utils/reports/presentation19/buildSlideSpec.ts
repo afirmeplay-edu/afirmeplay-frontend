@@ -263,14 +263,12 @@ function buildGradesChartRowsYMax(
 /** Municipal multi-escola: todas as escolas + «Média municipal» no mesmo gráfico (como proficiência geral). */
 function buildGradesChartMunicipalCompare(deckData: Presentation19DeckData): ExportChart {
   const rows: Array<Record<string, string | number>> = [];
-  const sortedSchools = [...deckData.niveisPorSerie].sort((a, b) =>
+  const sortedSchools = [...deckData.notasPorCategoria].sort((a, b) =>
     a.label.localeCompare(b.label, "pt-BR", { sensitivity: "base" })
   );
-  sortedSchools.forEach((row, idx) => {
-    const cat = deckData.notasPorCategoria.find((c) => c.label === row.label);
-    if (!cat) return;
+  sortedSchools.forEach((cat, idx) => {
     rows.push({
-      escopo: row.label,
+      escopo: cat.label,
       nota: Number(clampToRange(cat.mediaNota, 0, 1000).toFixed(1)),
       color: disciplinePalette[idx % disciplinePalette.length],
     });
@@ -379,12 +377,9 @@ function buildGeneralProficiencyChartMultiSchool(deckData: Presentation19DeckDat
   const maxOutras = getProficiencyTableInfo(deckData.serie, "Português").maxProficiency;
   const yMax = Math.max(maxMath, maxOutras);
 
-  const schoolRows = deckData.niveisPorSerie
-    .map((n) => {
-      const p = deckData.proficienciaGeralPorTurma.find((r) => r.label === n.label);
-      return p ? { label: p.label, proficiencia: p.proficiencia } : null;
-    })
-    .filter((x): x is { label: string; proficiencia: number } => x != null)
+  const schoolRows = [...deckData.proficienciaGeralPorTurma]
+    .filter((r) => r.label !== PRESENTATION19_MUNICIPAL_AVG_LABEL)
+    .map((r) => ({ label: r.label, proficiencia: r.proficiencia }))
     .sort((a, b) => a.label.localeCompare(b.label, "pt-BR", { sensitivity: "base" }));
 
   const mun = resolveMunicipalProficiencyGeral(deckData);
@@ -648,6 +643,28 @@ function buildGradesByDisciplineChartsMunicipalCompare(
     };
   })
     .filter((entry) => entry.chart.data.length > 0);
+}
+
+function buildProficiencyGeneralTableRows(deckData: Presentation19DeckData): Array<Array<string | number>> {
+  const escolaMulti = isMunicipalMultiSchool(deckData);
+  const hasMunicipalProf = resolveMunicipalProficiencyGeral(deckData) != null;
+  const out: Array<Array<string | number>> = [];
+  const medLabel = escolaMulti || hasMunicipalProf ? PRESENTATION19_MUNICIPAL_AVG_LABEL : "Média geral";
+  const profMedResumo =
+    escolaMulti || hasMunicipalProf
+      ? resolveMunicipalProficiencyGeral(deckData)
+      : deckData.proficienciaGeralPorTurma.length === 1
+        ? deckData.proficienciaGeralPorTurma[0]?.proficiencia
+        : null;
+  if (profMedResumo != null && Number.isFinite(profMedResumo)) {
+    out.push([medLabel, Number(profMedResumo).toFixed(1).replace(".", ",")]);
+  }
+  for (const r of deckData.proficienciaGeralPorTurma) {
+    if (r.label === PRESENTATION19_MUNICIPAL_AVG_LABEL) continue;
+    out.push([r.label, Number(r.proficiencia).toFixed(1).replace(".", ",")]);
+  }
+  if (out.length === 0) out.push(["—", "Sem dados de proficiência"]);
+  return out;
 }
 
 function buildGradesTableRows(deckData: Presentation19DeckData): Array<Array<string | number>> {
@@ -919,6 +936,13 @@ export function buildSlideSpec(deckData: Presentation19DeckData): Presentation19
   }
 
   push({ kind: "section-proficiency" });
+  push({
+    kind: "proficiency-general-table",
+    table: {
+      columns: ["Escopo", "Proficiência"],
+      rows: buildProficiencyGeneralTableRows(deckData),
+    },
+  });
   for (const s of profGeralChartSlides) {
     if (s.kind === "proficiency-general-chart") push(s);
   }

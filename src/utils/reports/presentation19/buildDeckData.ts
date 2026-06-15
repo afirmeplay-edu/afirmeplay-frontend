@@ -136,6 +136,7 @@ function applyAnswerSheetCanonicalProficiencyGeral(
   const geralNova = buildProficiencyGeneralByTurmaFromNova(nova);
 
   if (comparisonAxis === "escola") {
+    if (current.length > 0) return current;
     if (byEscola.length > 0) return byEscola;
     if (geralNova.length > 0) return geralNova;
     return current;
@@ -1347,18 +1348,29 @@ function groupNiveisPorTurmaDireto(
 }
 
 function buildProficiencyGeneralPorEscola(relatorio: Partial<RelatorioCompleto> | null): ProficiencyGeneralByTurmaRow[] {
+  const mapPorEscola = (
+    porEscola: Array<{ escola?: string; proficiencia?: number; media?: number }> | undefined
+  ): ProficiencyGeneralByTurmaRow[] =>
+    (porEscola ?? [])
+      .map((r) => ({
+        label: String(r.escola ?? "").trim(),
+        proficiencia: clampToNumber(r.proficiencia ?? r.media, 0),
+      }))
+      .filter((r) => r.label.length > 0)
+      .sort((a, b) => a.label.localeCompare(b.label, "pt-BR", { sensitivity: "base" }));
+
   const prof = relatorio?.proficiencia?.por_disciplina;
-  if (!prof) return [];
-  const geralKey = findGeralKey(prof) ?? "GERAL";
-  const geral = (prof as AnyRecord)[geralKey] as { por_escola?: Array<{ escola?: string; proficiencia?: number; media?: number }> };
-  const porEscola = geral?.por_escola ?? [];
-  return porEscola
-    .map((r) => ({
-      label: String(r.escola ?? "").trim(),
-      proficiencia: clampToNumber(r.proficiencia ?? r.media, 0),
-    }))
-    .filter((r) => r.label.length > 0)
-    .sort((a, b) => a.label.localeCompare(b.label, "pt-BR", { sensitivity: "base" }));
+  if (prof) {
+    const geralKey = findGeralKey(prof) ?? "GERAL";
+    const geral = (prof as AnyRecord)[geralKey] as { por_escola?: Array<{ escola?: string; proficiencia?: number; media?: number }> };
+    const fromDisc = mapPorEscola(geral?.por_escola);
+    if (fromDisc.length > 0) return fromDisc;
+  }
+
+  const geralTop = (relatorio?.proficiencia as AnyRecord | undefined)?.geral as
+    | { por_escola?: Array<{ escola?: string; proficiencia?: number; media?: number }> }
+    | undefined;
+  return mapPorEscola(geralTop?.por_escola);
 }
 
 function buildProficiencyGeneralPorSerieFromRelatorio(relatorio: Partial<RelatorioCompleto> | null): ProficiencyGeneralByTurmaRow[] {
@@ -1718,10 +1730,10 @@ function resolveProficiencyPorDisciplinaPorTurma(
   const filter = filterPresentation19RealDisciplineRows;
 
   if (axis === "escola") {
-    const fromNova = filter(proficiencyByDisciplinePorEscolaFromNovaAvaliacoes(nova));
-    if (hasPresentation19RealDisciplineBreakdown(fromNova)) return fromNova;
     const fromRel = filter(buildProficiencyByDisciplinePorCategoria(relatorio, "escola"));
     if (fromRel.length > 0) return fromRel;
+    const fromNova = filter(proficiencyByDisciplinePorEscolaFromNovaAvaliacoes(nova));
+    if (hasPresentation19RealDisciplineBreakdown(fromNova)) return fromNova;
     return filter(buildProficiencyByDisciplineByTurma(relatorio));
   }
 
@@ -1753,10 +1765,10 @@ function resolveNotasPorDisciplinaPorTurma(
   const filter = filterPresentation19RealDisciplineRows;
 
   if (axis === "escola") {
-    const fromNova = filter(notasByDisciplinePorEscolaFromNovaAvaliacoes(nova));
-    if (hasPresentation19RealDisciplineBreakdown(fromNova)) return fromNova;
     const fromRel = filter(buildNotasByDisciplinePorCategoria(relatorio, "escola"));
     if (fromRel.length > 0) return fromRel;
+    const fromNova = filter(notasByDisciplinePorEscolaFromNovaAvaliacoes(nova));
+    if (hasPresentation19RealDisciplineBreakdown(fromNova)) return fromNova;
     return filter(buildNotasByDisciplineByTurma(relatorio));
   }
 
@@ -1809,10 +1821,11 @@ function buildMetricsForAxis(
       niveis = groupNiveisFromRelatorio(relatorio, series.length ? series : ["GERAL"]);
     }
 
-    let profGeral = proficiencyGeralPorEscolaFromNovaAvaliacoes(nova);
+    let profGeral = buildProficiencyGeneralPorEscola(relatorio);
+    if (profGeral.length === 0) profGeral = proficiencyGeralPorEscolaFromNovaAvaliacoes(nova);
     if (profGeral.length === 0) {
       const fromNova = buildProficiencyGeneralByTurmaFromNova(nova);
-      profGeral = fromNova.length > 0 ? fromNova : buildProficiencyGeneralPorEscola(relatorio);
+      if (fromNova.length > 0) profGeral = fromNova;
     }
     if (profGeral.length === 0) {
       profGeral = buildProficiencyGeneralPorSerieFromRelatorio(relatorio);
@@ -1821,8 +1834,8 @@ function buildMetricsForAxis(
 
     const profDisc = resolveProficiencyPorDisciplinaPorTurma(relatorio, nova, "escola");
 
-    let notasCat = notasPorCategoriaEscolaFromNovaAvaliacoes(nova);
-    if (notasCat.length === 0) notasCat = buildNotasPorCategoriaFromRelatorio(relatorio, "escola");
+    let notasCat = buildNotasPorCategoriaFromRelatorio(relatorio, "escola");
+    if (notasCat.length === 0) notasCat = notasPorCategoriaEscolaFromNovaAvaliacoes(nova);
 
     const notasDisc = resolveNotasPorDisciplinaPorTurma(relatorio, nova, "escola");
 
