@@ -79,7 +79,8 @@ export function buildGeralAlunosFromDisciplinasAndRanking(
   const ids = new Set<string>();
   for (const disc of disciplinas) {
     for (const a of disc.alunos ?? []) {
-      if (a.id) ids.add(a.id);
+      const rowId = String(a.id ?? (a as { aluno_id?: string }).aluno_id ?? '').trim();
+      if (rowId) ids.add(rowId);
     }
   }
 
@@ -100,7 +101,9 @@ export function buildGeralAlunosFromDisciplinasAndRanking(
     let pctCount = 0;
 
     for (const disc of disciplinas) {
-      const a = disc.alunos?.find((x) => x.id === id);
+      const a = disc.alunos?.find(
+        (x) => String(x.id ?? (x as { aluno_id?: string }).aluno_id ?? '').trim() === id
+      );
       if (!a) continue;
       if (!nome) nome = (a.nome ?? '').trim();
       escola = a.escola ?? escola;

@@ -33,6 +33,7 @@ import {
   extractQuestoesNumeros,
   resolveGlobalQuestionNumber,
 } from "@/utils/reports/resolveGlobalQuestionNumber";
+import { enrichTabelaDetalhadaGeralFromRanking } from "@/utils/evaluation/enrichTabelaDetalhadaGeralFromRanking";
 import { formatApplicationDateForPdf } from "@/utils/reports/formatApplicationDateForPdf";
 import {
   computePdfBulkTableVerticalLayout,
@@ -551,15 +552,6 @@ const mapUnifiedStudents = (tabela: TabelaDetalhadaPorDisciplina): StudentResult
         // Marcar como concluida se participou
         if ((hasAnsweredAny || summarySemQuestoes) && student.status !== "concluida") {
           student.status = "concluida";
-        }
-        if (!student.classificacao || student.classificacao === "Abaixo do Básico") {
-          student.classificacao = classifFromRow(aluno);
-        }
-        if (!student.nota) {
-          student.nota = Number(aluno.nota ?? 0);
-        }
-        if (!student.proficiencia) {
-          student.proficiencia = Number(aluno.proficiencia ?? 0);
         }
       } else {
         // Aluno está em geral.alunos - verificar se participou mesmo que status_geral não indique
@@ -1102,6 +1094,11 @@ export default function AcertoNiveis({
               } as TabelaDetalhadaPorDisciplina)
             : null;
 
+        tabelaDetalhadaNext = enrichTabelaDetalhadaGeralFromRanking(
+          tabelaDetalhadaNext,
+          res.data?.ranking as unknown[] | undefined
+        );
+
         tabelaDetalhadaNext = enrichTabelaDetalhadaAnswerSheetSkills(
           tabelaDetalhadaNext,
           answerSheetSkillsRef.current,
@@ -1287,6 +1284,11 @@ export default function AcertoNiveis({
                   : undefined
               }
               : null;
+
+          tabelaDetalhada = enrichTabelaDetalhadaGeralFromRanking(
+            tabelaDetalhada,
+            unifiedResponse?.ranking as unknown[] | undefined
+          );
 
           tabelaDetalhada = enrichTabelaDetalhadaAnswerSheetSkills(
             tabelaDetalhada,
@@ -2219,6 +2221,11 @@ export default function AcertoNiveis({
                   : undefined,
               } as TabelaDetalhadaPorDisciplina)
             : null;
+
+        pdfTabela = enrichTabelaDetalhadaGeralFromRanking(
+          pdfTabela,
+          res.data?.ranking as unknown[] | undefined
+        );
 
         pdfTabela = enrichTabelaDetalhadaAnswerSheetSkills(
           pdfTabela,

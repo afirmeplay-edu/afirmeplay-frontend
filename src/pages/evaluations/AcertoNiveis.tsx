@@ -34,6 +34,7 @@ import {
   extractQuestoesNumeros,
   resolveGlobalQuestionNumber,
 } from "@/utils/reports/resolveGlobalQuestionNumber";
+import { enrichTabelaDetalhadaGeralFromRanking } from "@/utils/evaluation/enrichTabelaDetalhadaGeralFromRanking";
 
 // Types from the original component
 type StudentResult = {
@@ -348,10 +349,12 @@ const mapUnifiedStudents = (tabela: TabelaDetalhadaPorDisciplina): StudentResult
     nivel_proficiencia_geral?: string;
     classificacao?: string;
   }): StudentResult["classificacao"] =>
-    (aluno.nivel_proficiencia_geral ||
-      aluno.nivel_proficiencia ||
-      aluno.classificacao ||
-      "Abaixo do Básico") as StudentResult["classificacao"];
+    normalizeProficiencyLevelLabel(
+      aluno.nivel_proficiencia_geral ||
+        aluno.nivel_proficiencia ||
+        aluno.classificacao ||
+        ""
+    );
 
   tabela?.geral?.alunos?.forEach((aluno) => {
     const rowId = alunoRowId(aluno);
@@ -467,18 +470,8 @@ const mapUnifiedStudents = (tabela: TabelaDetalhadaPorDisciplina): StudentResult
         student.erros += totalErros;
         student.questoes_respondidas += totalRespondidas || totalQuestoesDisciplina;
 
-        // Marcar como concluida se participou
         if ((hasAnsweredAny || summarySemQuestoes) && student.status !== "concluida") {
           student.status = "concluida";
-        }
-        if (!student.classificacao || student.classificacao === "Abaixo do Básico") {
-          student.classificacao = classifFromRow(aluno);
-        }
-        if (!student.nota) {
-          student.nota = Number(aluno.nota ?? 0);
-        }
-        if (!student.proficiencia) {
-          student.proficiencia = Number(aluno.proficiencia ?? 0);
         }
       } else {
         // Aluno está em geral.alunos - verificar se participou mesmo que status_geral não indique
@@ -741,6 +734,11 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
                   : undefined
               }
               : null;
+
+          tabelaDetalhada = enrichTabelaDetalhadaGeralFromRanking(
+            tabelaDetalhada,
+            unifiedResponse?.ranking as unknown[] | undefined
+          );
 
           tabelaDetalhada = enrichTabelaDetalhadaAnswerSheetSkills(
             tabelaDetalhada,
@@ -3418,7 +3416,9 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
             turma: aluno.turma || '',
             nota: Number(aluno.nota_geral ?? 0),
             proficiencia: Number(aluno.proficiencia_geral ?? 0),
-            classificacao: (aluno.nivel_proficiencia_geral || aluno.classificacao || 'Abaixo do Básico') as StudentResult['classificacao'],
+            classificacao: normalizeProficiencyLevelLabel(
+              aluno.nivel_proficiencia_geral || aluno.classificacao || ""
+            ),
             acertos: totalAcertos,
             erros: totalErros,
             questoes_respondidas: totalRespondidas || totalQuestoes,
@@ -3449,7 +3449,9 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
               turma: aluno.turma || '',
               nota: Number(aluno.nota ?? 0),
               proficiencia: Number(aluno.proficiencia ?? 0),
-              classificacao: (aluno.nivel_proficiencia || aluno.classificacao || 'Abaixo do Básico') as StudentResult['classificacao'],
+              classificacao: normalizeProficiencyLevelLabel(
+                aluno.nivel_proficiencia || aluno.classificacao || ""
+              ),
               acertos: totalAcertos,
               erros: totalErros,
               questoes_respondidas: totalRespondidas,
