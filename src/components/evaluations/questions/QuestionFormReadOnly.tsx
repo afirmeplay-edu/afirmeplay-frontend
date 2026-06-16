@@ -16,24 +16,26 @@ import { ArrowLeft, Book, Check, List as ListIcon, Minus, Plus, Save, Eye, Headi
 import { useNavigate } from "react-router-dom";
 import { Question, Subject } from "../types";
 import { api, BASE_URL } from "@/lib/api";
-import { getQuestionHtmlForDisplay } from "@/utils/questionImages";
+import { getQuestionHtmlForDisplay, toRelativeQuestionImageSrc } from "@/utils/questionImages";
 import { useToast } from "@/hooks/use-toast";
-import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Superscript from '@tiptap/extension-superscript';
-import Placeholder from '@tiptap/extension-placeholder';
-import Underline from '@tiptap/extension-underline';
-import TextAlign from '@tiptap/extension-text-align';
 import './QuestionForm.css';
 import MyEditor from './MyEditor';
 import './MyEditor.css';
 import { Option } from "@/components/ui/multi-select";
 import { useAuth } from "@/context/authContext";
 import SkillsSelector from "./SkillsSelector";
-import { AlternativeInputWithMathButtons } from "./AlternativeInputWithMathButtons";
+import { QuestionOptionInput } from "./QuestionOptionInput";
+import { QuestionOptionContent } from "./QuestionOptionContent";
+import {
+    mapOptionToApiPayload,
+    optionHasContent,
+    getActiveQuestionOptions,
+} from "@/utils/questionOptionImages";
+
+const emptyOption = () => ({ text: "", isCorrect: false, image: null as null });
 
 // Form schema
-const questionSchema = z.object({
+const baseSchema = z.object({
     title: z.string().min(1, "O conteúdo é obrigatório"),
     text: z.string().min(1, "O enunciado é obrigatório"),
     subjectId: z.string().min(1, "A disciplina é obrigatória"),
@@ -43,23 +45,56 @@ const questionSchema = z.object({
     solution: z.string().optional(),
     options: z.array(
         z.object({
-            text: z.string().min(1, "O texto da opção é obrigatório"),
+            text: z.string(),
             isCorrect: z.boolean(),
+            image: z
+                .object({
+                    kind: z.enum(['new', 'existing']),
+                    dataUrl: z.string().optional(),
+                    id: z.string().optional(),
+                    imageUrl: z.string().optional(),
+                    width: z.number().optional(),
+                    height: z.number().optional(),
+                })
+                .optional()
+                .nullable(),
         })
     ).optional(),
     secondStatement: z.string().optional(),
     skills: z.array(z.string()).min(1, "Selecione pelo menos uma habilidade"),
     topics: z.string().optional(),
     questionType: z.enum(['multipleChoice', 'dissertativa']),
-}).refine((data) => {
-    // Se for múltipla escolha, as opções são obrigatórias
+});
+
+const questionSchema = baseSchema.superRefine((data, ctx) => {
     if (data.questionType === 'multipleChoice') {
-        return data.options && data.options.length >= 3 && data.options.some(opt => opt.isCorrect);
+        const activeOptions = getActiveQuestionOptions(data.options);
+
+        if (activeOptions.length < 2) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Adicione pelo menos duas alternativas.',
+                path: ['options'],
+            });
+        } else {
+            activeOptions.forEach((opt, idx) => {
+                if (!optionHasContent(opt)) {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        message: 'Preencha o texto, uma expressão ou uma imagem na alternativa.',
+                        path: ['options', idx, 'text'],
+                    });
+                }
+            });
+            if (!activeOptions.some((opt) => opt.isCorrect)) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: 'Marque uma alternativa como correta.',
+                    path: ['options'],
+                });
+            }
+        }
     }
-    return true;
-}, {
-    message: "Para questões de múltipla escolha, é necessário pelo menos 3 alternativas e uma correta",
-    path: ["options"]
 });
 
 type QuestionFormValues = z.infer<typeof questionSchema>;
@@ -142,44 +177,6 @@ const QuestionPreview: React.FC<{ data: QuestionFormValues }> = ({ data }) => {
           )
         : [];
 
-    // Initialize read-only Tiptap editor for the preview statement
-    const statementEditor = useEditor({
-        extensions: [
-            StarterKit,
-            Superscript,
-            Underline,
-            TextAlign.configure({
-                types: ['heading', 'paragraph', 'image'],
-                alignments: ['left', 'center', 'right'],
-                defaultAlignment: 'left',
-            }),
-            Placeholder.configure({
-                placeholder: '' // No placeholder in preview
-            }),
-        ],
-        content: data.text,
-        editable: false, // Make the preview editor read-only
-    });
-
-    // Initialize read-only Tiptap editor for the preview second statement
-    const secondStatementEditor = useEditor({
-        extensions: [
-            StarterKit,
-            Superscript,
-            Underline,
-            TextAlign.configure({
-                types: ['heading', 'paragraph', 'image'],
-                alignments: ['left', 'center', 'right'],
-                defaultAlignment: 'left',
-            }),
-            Placeholder.configure({
-                placeholder: '' // No placeholder in preview
-            }),
-        ],
-        content: data.secondStatement || '',
-        editable: false, // Make the preview editor read-only
-    });
-
     return (
         <div className="space-y-6 p-4">
             <div className="space-y-2">
@@ -199,38 +196,44 @@ const QuestionPreview: React.FC<{ data: QuestionFormValues }> = ({ data }) => {
             </div>
 
             <div className="space-y-4">
-                {/* Render statement using Tiptap EditorContent */}
-                <div>
-                    <h4 className="font-medium mb-2">Enunciado:</h4>
-                    {statementEditor && (
-                        <div className="prose max-w-none">
-                            <EditorContent editor={statementEditor} />
-                        </div>
-                    )}
-                </div>
-                {data.secondStatement && (
+                {data.text && (
+                    <div>
+                        <h4 className="font-medium mb-2">Enunciado:</h4>
+                        <div
+                            className="prose max-w-none question-enunciado-html"
+                            dangerouslySetInnerHTML={{
+                                __html: getQuestionHtmlForDisplay(data.text, BASE_URL),
+                            }}
+                        />
+                    </div>
+                )}
+                {data.secondStatement?.trim() && (
                     <div>
                         <h4 className="font-medium mb-2">Segundo Enunciado:</h4>
-                        {/* Render second statement using Tiptap EditorContent */}
-                        {secondStatementEditor && (
-                            <div className="prose max-w-none">
-                                <EditorContent editor={secondStatementEditor} />
-                            </div>
-                        )}
+                        <div
+                            className="prose max-w-none question-enunciado-html"
+                            dangerouslySetInnerHTML={{
+                                __html: getQuestionHtmlForDisplay(data.secondStatement, BASE_URL),
+                            }}
+                        />
                     </div>
                 )}
             </div>
 
-            {data.options.length > 0 && (
+            {(data.options?.length ?? 0) > 0 && (
                 <div className="space-y-3">
                     <h4 className="font-medium">Alternativas:</h4>
-                    {data.options.map((option, index) => (
-                        <div key={index} className="flex items-center space-x-2">
-                            <div className={`w-6 h-6 rounded-full border flex items-center justify-center ${option.isCorrect ? 'bg-primary text-primary-foreground' : 'bg-background'
+                    {data.options!.map((option, index) => (
+                        <div key={index} className="flex items-start gap-2">
+                            <div className={`w-6 h-6 shrink-0 rounded-full border flex items-center justify-center text-xs ${option.isCorrect ? 'bg-primary text-primary-foreground' : 'bg-background'
                                 }`}>
                                 {String.fromCharCode(65 + index)}
                             </div>
-                            <span>{option.text}</span>
+                            <QuestionOptionContent
+                                text={option.text}
+                                image={option.image}
+                                apiBase={BASE_URL}
+                            />
                         </div>
                     ))}
                 </div>
@@ -276,9 +279,10 @@ const QuestionFormReadOnly = ({
             value: "",
             solution: "",
             options: [
-                { text: "", isCorrect: false },
-                { text: "", isCorrect: false },
-                { text: "", isCorrect: false },
+                emptyOption(),
+                emptyOption(),
+                emptyOption(),
+                emptyOption(),
             ],
             secondStatement: "",
             skills: [], // Array vazio ao invés de string vazia
@@ -316,22 +320,16 @@ const QuestionFormReadOnly = ({
             form.setValue('options', []);
             form.clearErrors('options');
         } else {
-            // Adicionar opções padrão apenas se não existirem opções com texto
             const currentOptions = form.getValues("options");
-            const hasOptionsWithText = currentOptions && currentOptions.some(opt => opt.text && opt.text.trim() !== '');
-            
-            console.log('🔍 QuestionFormReadOnly - Verificando opções existentes:', currentOptions);
-            console.log('🔍 QuestionFormReadOnly - Tem opções com texto?', hasOptionsWithText);
-            
-            if (!hasOptionsWithText) {
-                console.log('🔍 QuestionFormReadOnly - Adicionando opções padrão para questão de múltipla escolha');
+            const hasOptionsWithContent = currentOptions?.some((opt) => optionHasContent(opt));
+
+            if (!hasOptionsWithContent) {
                 form.setValue('options', [
-                    { text: "", isCorrect: false },
-                    { text: "", isCorrect: false },
-                    { text: "", isCorrect: false },
+                    emptyOption(),
+                    emptyOption(),
+                    emptyOption(),
+                    emptyOption(),
                 ]);
-            } else {
-                console.log('🔍 QuestionFormReadOnly - Mantendo opções existentes:', currentOptions);
             }
         }
         
@@ -343,7 +341,7 @@ const QuestionFormReadOnly = ({
         if (fields.length < 5) {
             console.log('🔍 QuestionFormReadOnly - Adicionando nova alternativa');
             console.log('🔍 QuestionFormReadOnly - Estado do form antes de adicionar:', form.getValues());
-            append({ text: "", isCorrect: false });
+            append(emptyOption());
             console.log('🔍 QuestionFormReadOnly - Opções após adicionar:', form.getValues("options"));
             console.log('🔍 QuestionFormReadOnly - Estado completo do form após adicionar:', form.getValues());
         }
@@ -457,17 +455,14 @@ const QuestionFormReadOnly = ({
             }
 
             // Monta as opções com id baseado na letra (apenas para múltipla escolha)
-            const options = data.questionType === 'multipleChoice' ? (data.options || []).map((opt, index) => ({
-                id: String.fromCharCode(65 + index), // "A", "B", "C", "D"...
-                text: opt.text,
-                isCorrect: opt.isCorrect,
-            })) : [];
+            const formattedTextForApi = toRelativeQuestionImageSrc(data.text, BASE_URL);
+            const formattedSolutionForApi = toRelativeQuestionImageSrc(data.solution || "", BASE_URL);
+            const secondStatementForApi = toRelativeQuestionImageSrc(data.secondStatement || '', BASE_URL);
 
-            console.log('🔍 QuestionFormReadOnly - Opções montadas:', options);
-            console.log('🔍 QuestionFormReadOnly - Verificando formato das opções:');
-            options.forEach((opt, index) => {
-                console.log(`  Opção ${index}:`, opt);
-            });
+            const options =
+                data.questionType === 'multipleChoice' && data.options
+                    ? data.options.map((opt, index) => mapOptionToApiPayload(opt, index))
+                    : [];
 
             // skills como array
             const skills = data.skills || [];
@@ -484,22 +479,18 @@ const QuestionFormReadOnly = ({
             const payload = {
                 title: data.title,
                 text: htmlToText(data.text),
-                formattedText: data.text,
+                formattedText: formattedTextForApi,
                 type: data.questionType,
                 subjectId: data.subjectId,
-                educationStageId: evaluationData.course, // ID do curso
-                grade: data.grade, // UUID da série (string)
+                educationStageId: evaluationData.course,
+                grade: data.grade,
                 difficulty: data.difficulty,
                 value: Number(data.value),
-                solution, // Letra da alternativa correta (A, B, C, D...)
-                formattedSolution: data.solution || '', // Texto HTML da resolução
-                options: data.questionType === 'multipleChoice' ? (data.options || []).map((opt, index) => ({
-                    id: String.fromCharCode(65 + index), // A, B, C, D, etc.
-                    text: opt.text,
-                    isCorrect: opt.isCorrect
-                })) : [],
-                skills: data.skills, // Array de strings (IDs)
-                secondStatement: data.secondStatement || '',
+                solution,
+                formattedSolution: formattedSolutionForApi,
+                options,
+                skills: data.skills,
+                secondStatement: secondStatementForApi,
                 lastModifiedBy: user?.id || '',
                 createdBy: user?.id || '',
             };
@@ -882,22 +873,27 @@ const QuestionFormReadOnly = ({
                                     )}
                                 </div>
 
+                                <p className="text-sm text-muted-foreground mb-4">
+                                    Clique no círculo à esquerda de uma alternativa para marcá-la como{" "}
+                                    <span className="font-medium text-green-700 dark:text-green-400">correta</span>.
+                                </p>
+
                                 <div className="space-y-4">
                                     {fields.map((field, index) => (
                                         <div key={field.id} className="flex items-center gap-4 p-4 bg-card rounded-lg border border-border shadow-sm">
                                             <button
                                                 type="button"
                                                 onClick={() => handleRadioChange(index)}
-                                                className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${form.watch("options")[index].isCorrect
+                                                className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all shrink-0 ${form.watch("options")?.[index]?.isCorrect
                                                     ? 'bg-green-500 dark:bg-green-600 border-green-500 dark:border-green-600 text-white shadow-lg'
                                                     : 'bg-card dark:bg-card border-border hover:border-border/80'
                                                     }`}
                                                 aria-label={`Marcar alternativa ${String.fromCharCode(65 + index)} como correta`}
                                             >
-                                                {form.watch("options")[index].isCorrect ? <Check className="w-4 h-4" /> : null}
+                                                {form.watch("options")?.[index]?.isCorrect ? <Check className="w-4 h-4" /> : null}
                                             </button>
 
-                                            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center font-semibold text-muted-foreground">
+                                            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center font-semibold text-muted-foreground shrink-0">
                                                 {String.fromCharCode(65 + index)}
                                             </div>
 
@@ -907,11 +903,17 @@ const QuestionFormReadOnly = ({
                                                 render={({ field }) => (
                                                     <FormItem className="flex-1 min-w-0">
                                                         <FormControl>
-                                                            <AlternativeInputWithMathButtons
+                                                            <QuestionOptionInput
                                                                 value={field.value}
                                                                 onChange={field.onChange}
                                                                 onBlur={field.onBlur}
                                                                 ref={field.ref}
+                                                                image={form.watch(`options.${index}.image`)}
+                                                                onImageChange={(image) =>
+                                                                    form.setValue(`options.${index}.image`, image, {
+                                                                        shouldDirty: true,
+                                                                    })
+                                                                }
                                                                 placeholder={`Digite a alternativa ${String.fromCharCode(65 + index)}`}
                                                                 className="h-11 text-base"
                                                             />
@@ -921,7 +923,7 @@ const QuestionFormReadOnly = ({
                                                 )}
                                             />
 
-                                            {fields.length > 3 && (
+                                            {fields.length > 2 && (
                                                 <Button
                                                     type="button"
                                                     variant="ghost"

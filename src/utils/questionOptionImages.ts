@@ -151,3 +151,40 @@ export function getActiveQuestionOptions<T extends { text?: string; image?: Ques
   );
   return lastWithContent >= 0 ? options.slice(0, lastWithContent + 1) : options;
 }
+
+/** Mapeia opções de uma Question (store/avaliação) para o payload da API. */
+export function mapEvaluationQuestionOptions(
+  options: Array<{
+    id?: string;
+    text: string;
+    isCorrect: boolean;
+    image?: QuestionOptionImageApi | string;
+  }> | undefined
+): QuestionOptionApi[] {
+  if (!options?.length) return [];
+  return options.map((opt, index) => {
+    const payload: QuestionOptionApi = {
+      id: opt.id ?? String.fromCharCode(65 + index),
+      text: opt.text ?? '',
+      isCorrect: Boolean(opt.isCorrect),
+    };
+    if (opt.image) {
+      if (typeof opt.image === 'string') {
+        payload.image = { data: opt.image };
+      } else if (opt.image.data) {
+        payload.image = {
+          data: opt.image.data,
+          width: opt.image.width,
+          height: opt.image.height,
+        };
+      } else if (opt.image.id) {
+        payload.image = {
+          id: opt.image.id,
+          width: opt.image.width,
+          height: opt.image.height,
+        };
+      }
+    }
+    return payload;
+  });
+}

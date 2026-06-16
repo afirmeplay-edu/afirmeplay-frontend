@@ -22,6 +22,7 @@ import { useAuth } from "@/context/authContext";
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from "../results/constants";
 import { scrollToFirstError, getFieldLabel } from "@/utils/formValidation";
 import { useEvaluationsManager } from "@/hooks/use-cache";
+import { mapEvaluationQuestionOptions } from "@/utils/questionOptionImages";
 
 interface CreateEvaluationStep2Props {
   data: {
@@ -320,11 +321,7 @@ export const CreateEvaluationStep2 = ({
              command: question.title,
              subtitle: question.title,
              secondStatement: question.secondStatement || '',
-             options: question.options?.map((opt, optIndex) => ({
-               id: String.fromCharCode(65 + optIndex),
-               text: opt.text,
-               isCorrect: opt.isCorrect
-             })) || [],
+             options: mapEvaluationQuestionOptions(question.options),
              skills: question.skills || "", // String única (ID da habilidade)
              grade: question.grade?.id || data.grade,
              difficulty: question.difficulty,

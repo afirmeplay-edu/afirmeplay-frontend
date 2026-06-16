@@ -23,6 +23,7 @@ import { useEvaluationActions, useQuestions, useQuestionActions } from '@/stores
 import { useEvaluationsManager } from '@/hooks/use-cache';
 import { useNavigate } from 'react-router-dom';
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../results/constants';
+import { mapEvaluationQuestionOptions } from '@/utils/questionOptionImages';
 
 interface CreateEvaluationModalProps {
   isOpen: boolean;
@@ -1014,11 +1015,7 @@ export function CreateEvaluationModal({
             command: question.title || '',
             subtitle: question.title || '',
             secondStatement: question.secondStatement || '',
-            options: question.options?.map((opt, optIndex) => ({
-              id: String.fromCharCode(65 + optIndex),
-              text: opt.text || '',
-              isCorrect: opt.isCorrect || false
-            })) || [],
+            options: mapEvaluationQuestionOptions(question.options),
             skills: question.skills || "",
             grade: question.grade?.id || grade,
             difficulty: question.difficulty || '',
