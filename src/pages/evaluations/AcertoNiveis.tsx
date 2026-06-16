@@ -551,7 +551,6 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
   const [allStudents, setAllStudents] = useState<StudentResult[]>([]);
   const [allTabelaDetalhada, setAllTabelaDetalhada] = useState<TabelaDetalhadaPorDisciplina>(null);
   const [detailedReport, setDetailedReport] = useState<DetailedReport | null>(null);
-  const [skillsMapping, setSkillsMapping] = useState<Record<string, string>>({});
   const fallbackAnswersCache = React.useRef<Map<string, Map<number, boolean>>>(new Map());
   /** Habilidades da rota `/skills/evaluation/...` para sintetizar colunas em cartão-resposta. */
   const answerSheetSkillsRef = React.useRef<AnswerSheetSkillRow[]>([]);
@@ -634,31 +633,13 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
     return t.disciplinas.reduce((acc, d) => acc + (d.questoes?.length ?? 0), 0);
   }, [allTabelaDetalhada, tabelaDetalhada]);
 
-  // Utilitários para tratar habilidades
-  const normalizeUUID = (value?: string) => (value || '').replace(/[{}]/g, '').trim().toLowerCase();
-  /** UUID em `codigo_habilidade` não é habilidade — era aceito pelo padrão [A-Z]{2,}\\d+… e quebrava o PDF. */
-  const looksLikeUUID = (value?: string) => {
-    if (!value) return false;
-    const v = value.trim();
-    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)) return true;
-    if (/^[0-9a-f]{32}$/i.test(v)) return true;
+  const isPlaceholderCodigoHabilidade = (value?: string) => {
+    const raw = (value || '').trim();
+    if (!raw) return true;
+    if (/^n\/a$/i.test(raw)) return true;
+    if (raw === '—' || raw === '-' || raw === '?') return true;
     return false;
   };
-
-  const looksLikeRealSkillCode = (value?: string) => {
-    if (!value) return false;
-    if (looksLikeUUID(value)) return false;
-    const v = value.trim().toUpperCase();
-    // BNCC EFxxXXnn (ex.: EF02MA14, EF12LP01)
-    if (/^EF\d+[A-Z]{2,}\d+[A-Z0-9]*$/.test(v)) return true;
-    // Formatos frequentes do dashboard: EF15_D13, D9, D13, LP5A2.1, 5N2.6, SA1.4
-    if (/^EF\d+_[A-Z0-9]+$/.test(v)) return true;
-    if (/^[A-Z]\d+[A-Z0-9._-]*$/.test(v)) return true;
-    if (/^[A-Z]{2,}\d+[A-Z0-9._-]*$/.test(v)) return true;
-    // Exemplos aceitos: LP9L1.2, 9N1.2, CN9L1.3, GE9L1.4, 9L1.1, 9S1.2, 9M1.1, 9 L 1.1, 9 N 1.2
-    return /^(LP\d+L\d+\.\d+|\d+N\d\.\d+|[A-Z]{2}\d+L\d+\.\d+|\d+[LMSN]\d+\.\d+|\d+\s+[LMSN]\s+\d+\.\d+)$/.test(v);
-  };
-
 
   const getStateFilterValue = React.useCallback(() => {
     if (!selectedState) return undefined;
@@ -1297,9 +1278,6 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
 
       // Processar informações da avaliação primeiro
       const evaluationData = info as unknown as Record<string, unknown>;
-      const skillsUnknown = evaluationData["skills"] ?? evaluationData["habilidades"];
-      const skills = Array.isArray(skillsUnknown) ? skillsUnknown : [];
-
       // ✅ OTIMIZAÇÃO: Carregar escolas em paralelo com fetchEvaluationData
       const [fetchDataResult, escolasFromApi] = await Promise.all([
         fetchEvaluationData(evaluationId),
@@ -1386,19 +1364,6 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
         serieExtraida = extractSerie(evaluationData);
       }
 
-      // Criar mapeamento robusto de skills (UUID normalizado -> código real)
-      const newSkillsMapping: Record<string, string> = {};
-      if (skills && Array.isArray(skills)) {
-        skills.forEach((skill: { id?: string; code?: string }) => {
-          const idNorm = skill?.id ? normalizeUUID(skill.id) : '';
-          const code = (skill?.code || '').trim();
-          if (idNorm && code) newSkillsMapping[idNorm] = code;
-          // Também mapear o próprio code normalizado para si mesmo (cobre casos onde o código chega como UUID)
-          if (code) newSkillsMapping[normalizeUUID(code)] = code;
-        });
-      }
-      setSkillsMapping(newSkillsMapping);
-
       // Tentar extrair série das escolas se não estiver na avaliação
       const escolasAtuais =
         schools.length > 0
@@ -1463,29 +1428,12 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
     }
   };
 
-  const generateHabilidadeCode = (
-    questao: {
-      codigo_habilidade?: string;
-      habilidade?: string;
-      numero?: number;
-    },
-    mapping: Record<string, string>
-  ): string => {
-    let raw = (questao.codigo_habilidade || '').trim();
-    if (/^n\/a$/i.test(raw) || raw === '—' || raw === '-') raw = '';
-    // 1) Se já parece um código real, retornar
-    if (looksLikeRealSkillCode(raw)) return raw.toUpperCase();
-
-    // 2) Tentar via mapeamento por UUID normalizado
-    const idNorm = normalizeUUID(raw);
-    if (idNorm && mapping[idNorm]) return mapping[idNorm].toUpperCase();
-
-    // 3) Tentar extrair do texto da habilidade com regex (inclui BNCC e formatos internos)
-    const fromText = (questao.habilidade || '').toUpperCase();
-    const match = fromText.match(/(EF\d+[A-Z]{2,}\d+[A-Z0-9]*|EF\d+_[A-Z0-9]+|[A-Z]\d+[A-Z0-9._-]*|[A-Z]{2,}\d+[A-Z0-9._-]*|LP\d+L\d+\.\d+|\d+N\d\.\d+|[A-Z]{2}\d+L\d+\.\d+|\d+[LMSN]\d+\.\d+|\d+\s+[LMSN]\s+\d+\.\d+)/);
-    if (match && match[1]) return match[1].toUpperCase();
-
-    // 4) Fallback neutro (sem inferir disciplina)
+  const generateHabilidadeCode = (questao: {
+    codigo_habilidade?: string;
+    numero?: number;
+  }): string => {
+    const raw = (questao.codigo_habilidade || '').trim();
+    if (!isPlaceholderCodigoHabilidade(raw)) return raw.toUpperCase();
     const numero = questao.numero || 1;
     return `Q${numero}`;
   };
@@ -2301,7 +2249,7 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
         });
         if (discQByQuestionId.size > 0) {
           questoesParaUsar = questoesParaUsar.map((q) => {
-            if (looksLikeRealSkillCode(q.codigo_habilidade)) return q;
+            if (!isPlaceholderCodigoHabilidade(q.codigo_habilidade)) return q;
             const discQ = discQByQuestionId.get(q.id);
             if (discQ)
               return {
@@ -2693,8 +2641,7 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
           chunk.forEach(q => {
             // Apenas o número (sem prefixo "Q")
             headerRow1.push(`Q\n${q.numero}`);
-            // Usar generateHabilidadeCode com regex melhorado (extrai código BNCC do texto de habilidade)
-            const code = generateHabilidadeCode(q, skillsMapping);
+            const code = generateHabilidadeCode(q);
             headerRow2.push(code);
             let correct = 0;
             completedStudentsLocal.forEach(s => { if (getAnswer(s, q.numero)) correct++; });
@@ -3103,11 +3050,10 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
             chunk.forEach(q => {
               // Apenas o número (sem prefixo "Q")
               headerRow1.push(`Q\n${q.numero}`);
-              // Usar generateHabilidadeCode com regex melhorado (extrai código BNCC do texto de habilidade)
-              const codeDisc = generateHabilidadeCode(
-                { codigo_habilidade: q.codigo_habilidade, habilidade: q.habilidade, numero: q.numero },
-                skillsMapping
-              );
+              const codeDisc = generateHabilidadeCode({
+                codigo_habilidade: q.codigo_habilidade,
+                numero: q.numero,
+              });
               headerRow2.push(codeDisc);
               let correct = 0;
               alunosParticipantes.forEach(s => {
