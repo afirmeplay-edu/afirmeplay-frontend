@@ -2,7 +2,10 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Pencil, Trash2, ArrowLeft, Eye, Users, BookOpen, FileText, Calendar, User, MapPin, School, Play } from "lucide-react";
+import { Pencil, Trash2, ArrowLeft, Eye, Users, BookOpen, FileText, Calendar, User, MapPin, School, Play, Download, Loader2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { generateEvaluationExamPdf } from "@/services/reports/evaluationExamPdf";
 import { api } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -84,6 +87,8 @@ export default function ViewEvaluation({
     status: 'realizado' | 'pendente';
   }>>([]);
   const [loadingApplicationStudents, setLoadingApplicationStudents] = useState(false);
+  const [includeGabarito, setIncludeGabarito] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   
   // Estados para mapeamento de habilidades
   const [skillsMapping, setSkillsMapping] = useState<Record<string, string>>({});
@@ -495,6 +500,45 @@ export default function ViewEvaluation({
     setShowStartEvaluationModal(true);
   };
 
+  const handleDownloadPdf = async () => {
+    if (!evaluation || isGeneratingPdf || (evaluation.questions?.length ?? 0) === 0) return;
+
+    setIsGeneratingPdf(true);
+    try {
+      const grouped = groupQuestionsBySubject();
+      const subjects = Object.values(grouped).map(({ subject, questions }) => ({
+        subject,
+        questions,
+      }));
+      const cityId = evaluation.municipalities?.[0]?.id ?? null;
+
+      await generateEvaluationExamPdf({
+        title: evaluation.title,
+        gradeName: evaluation.grade?.name,
+        courseName: evaluation.course?.name,
+        subjects,
+        includeGabarito,
+        cityId,
+      });
+
+      toast({
+        title: "PDF gerado",
+        description: includeGabarito
+          ? "O download da prova com gabarito foi iniciado."
+          : "O download da prova foi iniciado.",
+      });
+    } catch (error) {
+      console.error("Erro ao gerar PDF da prova:", error);
+      toast({
+        title: "Erro ao gerar PDF",
+        description: "Não foi possível gerar o PDF da prova. Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
   const handleConfirmStartEvaluation = async (startDateTime: string, endDateTime: string, classIds: string[]) => {
     if (!evaluation) return;
 
@@ -853,7 +897,32 @@ export default function ViewEvaluation({
             </p>
           </div>
           
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col items-stretch sm:items-end gap-2">
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+              <Switch
+                id="include-gabarito-pdf"
+                checked={includeGabarito}
+                onCheckedChange={setIncludeGabarito}
+                disabled={isGeneratingPdf || totalQuestions === 0}
+              />
+              <Label htmlFor="include-gabarito-pdf" className="text-sm cursor-pointer whitespace-nowrap">
+                Incluir gabarito
+              </Label>
+            </div>
+            <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleDownloadPdf()}
+              disabled={isGeneratingPdf || totalQuestions === 0}
+            >
+              {isGeneratingPdf ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              {isGeneratingPdf ? "Gerando PDF..." : "Baixar PDF"}
+            </Button>
             <Button 
               variant="default" 
               size="sm" 
@@ -880,6 +949,7 @@ export default function ViewEvaluation({
               <Trash2 className="h-4 w-4 mr-2" />
               {isDeleting ? "Excluindo..." : "Excluir"}
             </Button>
+            </div>
           </div>
         </div>
       </div>
