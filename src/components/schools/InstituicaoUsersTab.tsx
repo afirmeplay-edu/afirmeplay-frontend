@@ -280,14 +280,17 @@ export function InstituicaoUsersTab({
     }
     setIsSubmittingAddTecAdmin(true);
     try {
-      await api.post("/users", {
+      const payload: Record<string, string | null> = {
         name: addTecAdminForm.name.trim(),
         email: addTecAdminForm.email.trim(),
         password: addTecAdminForm.password,
         role: "tecadm",
-        city_id: effectiveId,
-        ...(addTecAdminForm.registration.trim() ? { registration: addTecAdminForm.registration.trim() } : {}),
-      });
+        registration: addTecAdminForm.registration.trim() || null,
+      };
+      if (authUser?.role === "admin") {
+        payload.city_id = effectiveId;
+      }
+      await api.post("/managers", payload);
       toast({ title: "Sucesso", description: "Técnico administrativo criado com sucesso." });
       setAddTecAdminOpen(false);
       setAddTecAdminForm({ name: "", email: "", password: "", registration: "" });
