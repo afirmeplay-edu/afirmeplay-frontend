@@ -172,6 +172,8 @@ type RelatorioConsolidadoReportSectionsProps = {
   report: RelatorioConsolidado;
   /** Nome da escola quando o recorte não é municipal. */
   escolaNome?: string;
+  /** Título customizado da avaliação para aparecer na apresentação. */
+  tituloAvaliacao: string;
   onDownloadPdf: () => void;
   generatingPdf: boolean;
 };
@@ -179,6 +181,7 @@ type RelatorioConsolidadoReportSectionsProps = {
 export function RelatorioConsolidadoReportSections({
   report,
   escolaNome,
+  tituloAvaliacao,
   onDownloadPdf,
   generatingPdf,
 }: RelatorioConsolidadoReportSectionsProps) {
@@ -223,7 +226,7 @@ export function RelatorioConsolidadoReportSections({
 
       <section className="space-y-4">
         <RelatorioSectionTitle title="1. Apresentação" />
-        <TextRuns runs={buildApresentacaoParagraph1Runs()} />
+        <TextRuns runs={buildApresentacaoParagraph1Runs(tituloAvaliacao)} />
         <TextRuns runs={buildApresentacaoParagraph2Runs(apresentacao)} />
         <div className="rounded-lg border border-violet-200 bg-violet-50 dark:bg-violet-950/30 dark:border-violet-800 p-4 space-y-2">
           <h4 className="text-sm font-bold text-primary">1.1. Objetivo do Relatório</h4>
@@ -362,8 +365,23 @@ export function RelatorioConsolidadoReportSections({
               ) : (
                 <p className="text-sm text-muted-foreground">Sem matriz de acertos.</p>
               )}
-              {bloco?.habilidades && bloco.habilidades.length > 0 ? (
-                <AcertosHabilidadeCards habilidades={bloco.habilidades} />
+              {bloco?.por_serie && bloco.por_serie.length > 0 ? (
+                <div className="space-y-6">
+                  {bloco.por_serie.map((serieBloco) => (
+                    <div key={`hab-serie-${serieBloco.serie_id}`} className="space-y-3">
+                      <h4 className="text-sm font-bold text-primary">
+                        {serieBloco.serie_nome} — Acertos por Habilidade
+                      </h4>
+                      {serieBloco.habilidades.length > 0 ? (
+                        <AcertosHabilidadeCards habilidades={serieBloco.habilidades} />
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          Nenhuma habilidade para esta série.
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
               ) : (
                 !bloco?.matriz && (
                   <p className="text-sm text-muted-foreground">Nenhuma habilidade consolidada.</p>

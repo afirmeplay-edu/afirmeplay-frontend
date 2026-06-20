@@ -4,7 +4,6 @@ import type {
   OpcoesFiltrosDigital,
   RelatorioConsolidado,
 } from '@/types/relatorio-consolidado';
-import { RELATORIO_CONSOLIDADO_MAX_ITENS } from '@/types/relatorio-consolidado';
 
 export type RelatorioConsolidadoFlow = 'digital' | 'cartao';
 
@@ -12,6 +11,7 @@ export type OpcoesFiltrosParams = {
   estado?: string;
   municipio?: string;
   escola?: string;
+  periodo?: string;
 };
 
 export type RelatorioConsolidadoParams = {
@@ -38,6 +38,7 @@ function buildQuery(params: OpcoesFiltrosParams): string {
   if (params.estado && params.estado !== 'all') q.set('estado', params.estado);
   if (params.municipio && params.municipio !== 'all') q.set('municipio', params.municipio);
   if (params.escola) q.set('escola', params.escola);
+  if (params.periodo) q.set('periodo', params.periodo);
   const s = q.toString();
   return s ? `?${s}` : '';
 }
@@ -94,9 +95,6 @@ export class RelatorioConsolidadoApiService {
           ? 'Selecione ao menos um cartão resposta.'
           : 'Selecione ao menos uma avaliação.'
       );
-    }
-    if (ids.length > RELATORIO_CONSOLIDADO_MAX_ITENS) {
-      throw new Error(`Máximo de ${RELATORIO_CONSOLIDADO_MAX_ITENS} itens por relatório.`);
     }
 
     const q = new URLSearchParams();

@@ -1,5 +1,3 @@
-export const RELATORIO_CONSOLIDADO_MAX_ITENS = 20;
-
 export type RelatorioConsolidadoEntityType = 'avaliacao' | 'cartao_resposta';
 
 export type OpcoesFiltroEntidade = {
@@ -111,16 +109,22 @@ export type HabilidadeConsolidada = {
   itens_origem: string[];
 };
 
+export type BlocoHabilidadesSerie = {
+  serie_id: string;
+  serie_nome: string;
+  habilidades: HabilidadeConsolidada[];
+};
+
 export type SecaoAcertosHabilidade = {
   GERAL: {
     matriz: MatrizEscolaSerie;
-    habilidades: HabilidadeConsolidada[];
+    por_serie: BlocoHabilidadesSerie[];
   };
   por_disciplina: Record<
     string,
     {
       matriz: MatrizEscolaSerie;
-      habilidades: HabilidadeConsolidada[];
+      por_serie: BlocoHabilidadesSerie[];
     }
   >;
 };

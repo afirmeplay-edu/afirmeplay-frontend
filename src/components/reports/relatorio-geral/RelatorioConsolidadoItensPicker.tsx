@@ -7,7 +7,6 @@ import {
   RelatorioConsolidadoItensModal,
   type RelatorioConsolidadoItemOption,
 } from './RelatorioConsolidadoItensModal';
-import { RELATORIO_CONSOLIDADO_MAX_ITENS } from '@/types/relatorio-consolidado';
 
 type RelatorioConsolidadoItensPickerProps = {
   label?: string;
@@ -98,7 +97,7 @@ export function RelatorioConsolidadoItensPicker({
         <div className="flex items-center gap-1 ml-2 shrink-0">
           {selected.length > 0 && (
             <Badge variant="secondary" className="text-xs tabular-nums">
-              {selected.length}/{RELATORIO_CONSOLIDADO_MAX_ITENS}
+              {selected.length}
             </Badge>
           )}
           {loading ? (

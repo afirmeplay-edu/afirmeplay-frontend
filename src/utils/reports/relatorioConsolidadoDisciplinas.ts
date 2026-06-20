@@ -36,7 +36,7 @@ export function getMatrizDistribuicao(
 export function getAcertosHabilidadeBloco(
   secao: SecaoAcertosHabilidade | undefined,
   disc: string
-): { matriz: MatrizEscolaSerie; habilidades: SecaoAcertosHabilidade['GERAL']['habilidades'] } | null {
+): { matriz: MatrizEscolaSerie; por_serie: SecaoAcertosHabilidade['GERAL']['por_serie'] } | null {
   if (!secao) return null;
   if (disc === 'GERAL') return secao.GERAL ?? null;
   return secao.por_disciplina[disc] ?? null;

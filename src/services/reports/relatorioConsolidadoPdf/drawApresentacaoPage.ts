@@ -22,6 +22,8 @@ export type ApresentacaoPageParams = {
   year?: number;
   /** REDE ou nome da escola (mesmo valor da capa). */
   scopeLabel?: string;
+  /** Título customizado da avaliação fornecido pelo usuário. */
+  tituloAvaliacao: string;
 };
 
 const OBJETIVO_TEXTO =
@@ -190,7 +192,7 @@ export function drawRelatorioConsolidadoApresentacaoPage(
       params.scopeLabel && params.scopeLabel !== 'REDE' ? params.scopeLabel : undefined,
   });
 
-  y = drawPdfTextRuns(doc, buildApresentacaoParagraph1Runs(), marginL, y, contentW, 10);
+  y = drawPdfTextRuns(doc, buildApresentacaoParagraph1Runs(params.tituloAvaliacao), marginL, y, contentW, 10);
   y += 3;
   y = drawPdfTextRuns(doc, buildApresentacaoParagraph2Runs(dynamic), marginL, y, contentW, 10);
   y += 6;

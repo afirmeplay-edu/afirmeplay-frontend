@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { RelatorioConsolidadoItensPicker } from '@/components/reports/relatorio-geral/RelatorioConsolidadoItensPicker';
 import type { RelatorioConsolidadoItemOption } from '@/components/reports/relatorio-geral/RelatorioConsolidadoItensModal';
 import { RelatorioConsolidadoReportSections } from '@/components/reports/relatorio-geral/RelatorioConsolidadoReportSections';
@@ -34,7 +35,7 @@ import {
   type RelatorioConsolidadoFlow,
 } from '@/services/reports/relatorioConsolidadoApi';
 import { generateRelatorioConsolidadoPdf } from '@/services/reports/relatorioConsolidadoPdf';
-import { RELATORIO_CONSOLIDADO_MAX_ITENS, type RelatorioConsolidado } from '@/types/relatorio-consolidado';
+import type { RelatorioConsolidado } from '@/types/relatorio-consolidado';
 import { matrizHasLinhas } from '@/utils/reports/relatorioConsolidadoDisciplinas';
 
 type FilterOption = { id: string; nome: string };
@@ -67,7 +68,10 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
   const [selectedEstado, setSelectedEstado] = useState('all');
   const [selectedMunicipio, setSelectedMunicipio] = useState('all');
   const [selectedEscola, setSelectedEscola] = useState('all');
+  const [selectedPeriodo, setSelectedPeriodo] = useState('');
   const [selectedItens, setSelectedItens] = useState<string[]>([]);
+  const [tituloAvaliacao, setTituloAvaliacao] = useState('');
+  const [periodoLabel, setPeriodoLabel] = useState<string | null>(null);
 
   const [loadingEstados, setLoadingEstados] = useState(false);
   const [loadingMunicipios, setLoadingMunicipios] = useState(false);
@@ -82,8 +86,8 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
     selectedEstado !== 'all' &&
     selectedMunicipio !== 'all' &&
     selectedItens.length > 0 &&
-    selectedItens.length <= RELATORIO_CONSOLIDADO_MAX_ITENS &&
-    (!roleRequiresSpecificSchool || selectedEscola !== 'all');
+    (!roleRequiresSpecificSchool || selectedEscola !== 'all') &&
+    tituloAvaliacao.trim().length > 0;
 
   useEffect(() => {
     if (user && !['admin', 'professor', 'diretor', 'coordenador', 'tecadm'].includes(user.role)) {
@@ -208,6 +212,7 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
   useEffect(() => {
     if (selectedEstado === 'all' || selectedMunicipio === 'all') {
       setItensOpcoes([]);
+      setPeriodoLabel(null);
       return;
     }
     let cancelled = false;
@@ -216,9 +221,15 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
       estado: selectedEstado,
       municipio: selectedMunicipio,
       escola: selectedEscola,
+      periodo: selectedPeriodo || undefined,
     })
       .then((data) => {
         if (cancelled) return;
+        
+        setPeriodoLabel(
+          (data as { periodo_label?: string }).periodo_label ?? null
+        );
+
         const raw = isCartao
           ? (data as { gabaritos?: Array<{ id: string; titulo: string; disciplinas?: string[] }> }).gabaritos
           : (data as { avaliacoes?: Array<{ id: string; titulo: string; disciplinas?: string[]; disciplina?: string }> })
@@ -246,12 +257,14 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
     return () => {
       cancelled = true;
     };
-  }, [flow, isCartao, selectedEstado, selectedMunicipio, selectedEscola]);
+  }, [flow, isCartao, selectedEstado, selectedMunicipio, selectedEscola, selectedPeriodo]);
 
   const handleEstadoChange = useCallback((value: string) => {
     setSelectedEstado(value);
     setSelectedMunicipio('all');
     setSelectedEscola('all');
+    setSelectedPeriodo('');
+    setPeriodoLabel(null);
     setSelectedItens([]);
     setReport(null);
   }, []);
@@ -259,6 +272,8 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
   const handleMunicipioChange = useCallback((value: string) => {
     setSelectedMunicipio(value);
     setSelectedEscola('all');
+    setSelectedPeriodo('');
+    setPeriodoLabel(null);
     setSelectedItens([]);
     setReport(null);
   }, []);
@@ -269,23 +284,17 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
     setReport(null);
   }, []);
 
-  const handleItensChange = useCallback(
-    (ids: string[]) => {
-      if (ids.length > RELATORIO_CONSOLIDADO_MAX_ITENS) {
-        toast({
-          title: 'Limite atingido',
-          description: `Máximo de ${RELATORIO_CONSOLIDADO_MAX_ITENS} itens. Os primeiros ${RELATORIO_CONSOLIDADO_MAX_ITENS} foram mantidos.`,
-          variant: 'destructive',
-        });
-        setSelectedItens(ids.slice(0, RELATORIO_CONSOLIDADO_MAX_ITENS));
-        setReport(null);
-        return;
-      }
-      setSelectedItens(ids);
-      setReport(null);
-    },
-    [toast]
-  );
+  const handlePeriodoChange = useCallback((value: string) => {
+    setSelectedPeriodo(value);
+    setSelectedItens([]);
+    setPeriodoLabel(null);
+    setReport(null);
+  }, []);
+
+  const handleItensChange = useCallback((ids: string[]) => {
+    setSelectedItens(ids);
+    setReport(null);
+  }, []);
 
   const handleGenerate = async () => {
     if (!canGenerate) return;
@@ -360,6 +369,7 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
         report,
         cityId: selectedMunicipio,
         scopeLabel: pdfScopeLabel,
+        tituloAvaliacao,
       });
       toast({
         title: 'PDF gerado',
@@ -386,8 +396,7 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
             Relatório Geral
           </h1>
           <p className="text-muted-foreground text-sm sm:text-base max-w-3xl">
-            Consolide até {RELATORIO_CONSOLIDADO_MAX_ITENS} {instrumentLabel.toLowerCase()} do município em
-            um único relatório.
+            Consolide {instrumentLabel.toLowerCase()} do município em um único relatório.
           </p>
           {user?.role && (
             <p className="text-sm text-blue-600 dark:text-blue-400">{getRestrictionMessage(user.role)}</p>
@@ -402,8 +411,7 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
             Filtros
           </CardTitle>
           <CardDescription>
-            Selecione estado, município e escola. Em seguida, escolha de 1 a{' '}
-            {RELATORIO_CONSOLIDADO_MAX_ITENS} {instrumentLabel.toLowerCase()} e clique em Gerar relatório.
+            Selecione estado, município e escola. Em seguida, escolha os {instrumentLabel.toLowerCase()} desejados e clique em Gerar relatório.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -468,6 +476,27 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
             </div>
 
             <div className="space-y-2">
+              <label className="text-sm font-medium">
+                Período (opcional)
+              </label>
+              <Input
+                type="month"
+                value={selectedPeriodo}
+                onChange={(e) => handlePeriodoChange(e.target.value)}
+                disabled={selectedMunicipio === 'all' || loadingItens}
+                placeholder="Selecione mês/ano"
+                className="h-10"
+              />
+              {periodoLabel && (
+                <p className="text-xs text-muted-foreground">
+                  {periodoLabel}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
+            <div className="space-y-2">
               <RelatorioConsolidadoItensPicker
                 label={instrumentLabel}
                 items={itensOpcoes}
@@ -488,7 +517,29 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
                     : 'Nenhuma avaliação encontrada para os filtros.'
                 }
               />
+              {periodoLabel && selectedPeriodo && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Mostrando apenas {instrumentLabel.toLowerCase()} do período: {periodoLabel}
+                </p>
+              )}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              Título da Avaliação <span className="text-destructive">*</span>
+            </label>
+            <Input
+              type="text"
+              placeholder="Ex: Avaliação Diagnóstica do 1º Bimestre de 2026"
+              value={tituloAvaliacao}
+              onChange={(e) => setTituloAvaliacao(e.target.value)}
+              disabled={generating}
+              className="max-w-2xl"
+            />
+            <p className="text-xs text-muted-foreground">
+              Este texto aparecerá na apresentação do relatório: "referente a {tituloAvaliacao || '[título]'}".
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 pt-2">
@@ -513,11 +564,21 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
             )}
           </div>
 
-          {!canGenerate && selectedMunicipio !== 'all' && selectedItens.length === 0 && (
-            <p className="text-sm text-muted-foreground flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              Selecione ao menos um {instrumentSingular} para gerar o relatório.
-            </p>
+          {!canGenerate && selectedMunicipio !== 'all' && (
+            <div className="space-y-1.5">
+              {selectedItens.length === 0 && (
+                <p className="text-sm text-muted-foreground flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  Selecione ao menos um {instrumentSingular} para gerar o relatório.
+                </p>
+              )}
+              {tituloAvaliacao.trim().length === 0 && selectedItens.length > 0 && (
+                <p className="text-sm text-muted-foreground flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  Preencha o título da avaliação para gerar o relatório.
+                </p>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -537,6 +598,7 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
             <RelatorioConsolidadoReportSections
               report={report}
               escolaNome={selectedEscola === 'all' ? undefined : escolaLabel}
+              tituloAvaliacao={tituloAvaliacao}
               onDownloadPdf={handleDownloadPdf}
               generatingPdf={generatingPdf}
             />

@@ -110,12 +110,12 @@ export function buildApresentacaoDynamicData(
   };
 }
 
-export function buildApresentacaoParagraph1Runs() {
+export function buildApresentacaoParagraph1Runs(tituloAvaliacao: string) {
   return [
     {
-      text: 'A Secretaria Municipal de Educação apresenta o Relatório de Avaliação Diagnóstica referente às ',
+      text: 'A Secretaria Municipal de Educação apresenta o Relatório de Avaliação Diagnóstica referente a ',
     },
-    { text: 'avaliações selecionadas', bold: true },
+    { text: tituloAvaliacao, bold: true },
     {
       text: ', esse relatório é um importante instrumento de acompanhamento do desenvolvimento educacional dos estudantes da rede.',
     },

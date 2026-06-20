@@ -11,7 +11,6 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Search, Check, FileText, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { RELATORIO_CONSOLIDADO_MAX_ITENS } from '@/types/relatorio-consolidado';
 
 export type RelatorioConsolidadoItemOption = {
   id: string;
@@ -28,7 +27,6 @@ type RelatorioConsolidadoItensModalProps = {
   onChange: (ids: string[]) => void;
   loading?: boolean;
   emptyMessage?: string;
-  maxItems?: number;
   entityLabel?: string;
 };
 
@@ -93,7 +91,6 @@ export function RelatorioConsolidadoItensModal({
   onChange,
   loading = false,
   emptyMessage = 'Nenhum item encontrado.',
-  maxItems = RELATORIO_CONSOLIDADO_MAX_ITENS,
   entityLabel = 'itens',
 }: RelatorioConsolidadoItensModalProps) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -122,7 +119,6 @@ export function RelatorioConsolidadoItensModal({
   const toggleItem = (id: string) => {
     setDraft((prev) => {
       if (prev.includes(id)) return prev.filter((x) => x !== id);
-      if (prev.length >= maxItems) return prev;
       return [...prev, id];
     });
   };
@@ -132,7 +128,6 @@ export function RelatorioConsolidadoItensModal({
     setDraft((prev) => {
       const merged = [...prev];
       for (const id of visibleIds) {
-        if (merged.length >= maxItems) break;
         if (!merged.includes(id)) merged.push(id);
       }
       return merged;
@@ -143,8 +138,6 @@ export function RelatorioConsolidadoItensModal({
     onChange(draft);
     onOpenChange(false);
   };
-
-  const atLimit = draft.length >= maxItems;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -160,7 +153,7 @@ export function RelatorioConsolidadoItensModal({
               )}
             </div>
             <p className="text-sm text-muted-foreground pt-1">
-              Selecione de 1 a {maxItems} {entityLabel}. {draft.length}/{maxItems} selecionado(s).
+              Selecione os {entityLabel} desejados. {draft.length} selecionado(s).
             </p>
           </DialogHeader>
 
@@ -178,7 +171,7 @@ export function RelatorioConsolidadoItensModal({
               type="button"
               variant="outline"
               className="h-11 shrink-0 border-primary/20"
-              disabled={loading || filteredItems.length === 0 || atLimit}
+              disabled={loading || filteredItems.length === 0}
               onClick={handleSelectAllVisible}
             >
               Selecionar visíveis
@@ -211,14 +204,13 @@ export function RelatorioConsolidadoItensModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {filteredItems.map((item) => {
                 const isSelected = draft.includes(item.id);
-                const disabled = !isSelected && atLimit;
                 return (
                   <ItemCard
                     key={item.id}
                     titulo={item.titulo}
                     disciplinas={item.disciplinas}
                     isSelected={isSelected}
-                    disabled={disabled}
+                    disabled={false}
                     onClick={() => toggleItem(item.id)}
                   />
                 );
@@ -228,16 +220,9 @@ export function RelatorioConsolidadoItensModal({
         </div>
 
         <DialogFooter className="shrink-0 border-t border-border bg-background px-6 py-3">
-          {atLimit && (
-            <span className="mr-auto text-xs text-amber-600 dark:text-amber-400">
-              Limite de {maxItems} itens atingido.
-            </span>
-          )}
-          {!atLimit && (
-            <span className="mr-auto text-sm text-muted-foreground">
-              {draft.length} selecionado(s)
-            </span>
-          )}
+          <span className="mr-auto text-sm text-muted-foreground">
+            {draft.length} selecionado(s)
+          </span>
           <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>

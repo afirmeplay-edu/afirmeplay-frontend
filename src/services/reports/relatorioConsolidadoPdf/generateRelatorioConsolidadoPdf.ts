@@ -23,6 +23,8 @@ export type GenerateRelatorioConsolidadoPdfOptions = {
   cityId: string;
   /** REDE ou nome da escola (já resolvido na UI). */
   scopeLabel: string;
+  /** Título customizado da avaliação fornecido pelo usuário. */
+  tituloAvaliacao: string;
   /** Nome da prefeitura/instituição; se omitido, tenta buscar no `/city/:id`. */
   institutionName?: string;
   year?: number;
@@ -96,6 +98,7 @@ export async function generateRelatorioConsolidadoPdf(
     institutionName,
     year: opts.year,
     scopeLabel: opts.scopeLabel,
+    tituloAvaliacao: opts.tituloAvaliacao,
   });
 
   await drawRelatorioConsolidadoFrequenciaPages(pdf, {

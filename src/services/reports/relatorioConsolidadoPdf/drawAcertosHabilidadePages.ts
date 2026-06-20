@@ -475,7 +475,7 @@ async function drawAcertosHabilidadeDisciplinaPage(
     disciplina
   );
   const matriz = bloco?.matriz;
-  const habilidades = bloco?.habilidades ?? [];
+  const porSerie = bloco?.por_serie ?? [];
   const seriesColunas = params.report.series_colunas ?? [];
   const footerLabel = getMediasRedeFooterLabel(params.report);
 
@@ -528,11 +528,28 @@ async function drawAcertosHabilidadeDisciplinaPage(
     y += 6;
   }
 
-  if (habilidades.length > 0) {
-    y = ensurePageSpace(ctx, y, 24);
-    const { dentroDaMeta, abaixoDaMeta } = splitHabilidadesPorMeta(habilidades);
-    y = drawHabilidadeMetaCards(ctx, 'dentro', dentroDaMeta, y, contentW);
-    y = drawHabilidadeMetaCards(ctx, 'abaixo', abaixoDaMeta, y, contentW);
+  if (porSerie.length > 0) {
+    for (const serieBloco of porSerie) {
+      y = ensurePageSpace(ctx, y, 18);
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(...RELATORIO_CONSOLIDADO_PDF_COLORS.primary);
+      doc.text(`${serieBloco.serie_nome} - Acertos por Habilidade`, marginL, y);
+      y += 8;
+
+      if (serieBloco.habilidades.length > 0) {
+        const { dentroDaMeta, abaixoDaMeta } = splitHabilidadesPorMeta(serieBloco.habilidades);
+        y = drawHabilidadeMetaCards(ctx, 'dentro', dentroDaMeta, y, contentW);
+        y = drawHabilidadeMetaCards(ctx, 'abaixo', abaixoDaMeta, y, contentW);
+      } else {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(...RELATORIO_CONSOLIDADO_PDF_COLORS.textGray);
+        doc.text('Nenhuma habilidade para esta serie.', marginL, y + 2);
+        y += 10;
+      }
+    }
   } else if (!matriz?.linhas.length) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
