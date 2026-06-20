@@ -168,6 +168,13 @@ export type RelatorioConsolidadoResumoApresentacao = {
   percentual_participacao?: number;
 };
 
+/** Metadado de UI quando escola ≠ all: linhas = escola; medias_da_rede = benchmark municipal. */
+export type RelatorioConsolidadoComparativo = {
+  ativo: boolean;
+  referencia_rede: string;
+  escola_id: string;
+};
+
 export type RelatorioConsolidado = {
   tipo_entidade: RelatorioConsolidadoEntityType;
   filtros: FiltrosDigital | FiltrosCartao;
@@ -175,6 +182,8 @@ export type RelatorioConsolidado = {
   disciplinas_disponiveis: string[];
   series_colunas: SerieColuna[];
   series_aplicadas: SerieAplicada[];
+  /** Presente quando escola ≠ all: medias_da_rede = média municipal (não recalcular no frontend). */
+  comparativo?: RelatorioConsolidadoComparativo;
   /** Faixa de séries/anos da avaliação (subtítulo da seção 2). */
   faixa_avaliacao?: RelatorioConsolidadoFaixaAvaliacao;
   /** Totais para o texto da apresentação (quando enviados pelo backend). */

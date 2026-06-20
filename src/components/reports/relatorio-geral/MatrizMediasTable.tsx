@@ -28,6 +28,7 @@ type MatrizMediasTableProps = {
   metricKind: MediasPdfMetricKind;
   disciplina: string;
   faixaTitulo: string;
+  footerLabel?: string;
   className?: string;
 };
 
@@ -37,6 +38,7 @@ export function MatrizMediasTable({
   metricKind,
   disciplina,
   faixaTitulo,
+  footerLabel = 'MÉDIAS DA REDE',
   className,
 }: MatrizMediasTableProps) {
   const colCount = seriesColunas.length;
@@ -82,12 +84,12 @@ export function MatrizMediasTable({
           ) : (
             matriz.linhas.map((linha, idx) => (
               <TableRow key={linha.escola_id}>
-                <TableCell className="text-center font-bold tabular-nums text-primary">{idx + 1}</TableCell>
-                <TableCell className="font-bold uppercase text-sm">{linha.escola_nome}</TableCell>
+                <TableCell className="text-center font-bold tabular-nums text-primary text-base">{idx + 1}</TableCell>
+                <TableCell className="font-bold uppercase text-base">{linha.escola_nome}</TableCell>
                 {linha.valores_por_serie.map((valor, j) => (
                   <TableCell
                     key={`${linha.escola_id}-${j}`}
-                    className="text-center tabular-nums font-bold text-sm"
+                    className="text-center tabular-nums font-bold text-base"
                     style={getMediasSerieCellStyle(
                       valor,
                       linha.niveis_por_serie?.[j] ?? null,
@@ -98,7 +100,7 @@ export function MatrizMediasTable({
                   </TableCell>
                 ))}
                 <TableCell
-                  className="text-center tabular-nums font-bold text-sm"
+                  className="text-center tabular-nums font-bold text-base"
                   style={getMediasMediaColumnCellStyle()}
                 >
                   {formatCell(linha.taxa_geral_escola)}
@@ -110,11 +112,11 @@ export function MatrizMediasTable({
         <TableFooter>
           <TableRow className="font-semibold">
             <TableCell />
-            <TableCell className="font-bold text-primary">MÉDIAS DA REDE</TableCell>
+            <TableCell className="font-bold text-primary">{footerLabel}</TableCell>
             {matriz.medias_da_rede.por_serie.map((valor, j) => (
               <TableCell
                 key={`rede-${j}`}
-                className="text-center tabular-nums font-bold text-sm"
+                className="text-center tabular-nums font-bold text-base"
                 style={getMediasSerieCellStyle(
                   valor,
                   matriz.medias_da_rede.niveis_por_serie?.[j] ?? null,
@@ -125,7 +127,7 @@ export function MatrizMediasTable({
               </TableCell>
             ))}
             <TableCell
-              className="text-center tabular-nums font-bold text-sm"
+              className="text-center tabular-nums font-bold text-base"
               style={getMediasFooterMediaCellStyle()}
             >
               {formatCell(matriz.medias_da_rede.taxa_geral)}

@@ -266,7 +266,7 @@ export function drawRelatorioConsolidadoFooters(doc: jsPDF, skipFirstPage = true
     doc.setLineWidth(0.25);
     doc.line(margin, footerY - 4, pageW - margin, footerY - 4);
 
-    doc.text('Sistema de Ensino e Avaliação InnovPlay', margin, footerY);
+    doc.text('Sistema de Ensino e Avaliação AfirmePlay', margin, footerY);
     doc.text(`Página ${i}`, pageW / 2, footerY, { align: 'center' });
     doc.text(`Gerado em: ${generatedAt}`, pageW - margin, footerY, { align: 'right' });
   }

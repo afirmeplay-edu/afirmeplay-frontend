@@ -2,14 +2,20 @@ import type { RelatorioConsolidado } from '@/types/relatorio-consolidado';
 import { sortDisciplinasDisponiveis } from '@/utils/reports/relatorioConsolidadoDisciplinas';
 import { formatPdfInteger, formatPdfPercent } from './pdfShared';
 
+export type ApresentacaoScopeOptions = {
+  /** Nome da escola quando o recorte não é municipal (todas as escolas). */
+  escolaNome?: string;
+};
+
 export type ApresentacaoDynamicData = {
-  /** Nomes das avaliações/cartões selecionados (texto da “etapa”). */
-  etapaText: string;
   disciplinasText: string;
   totalParticipantes?: number;
   totalMatriculados?: number;
   percentualParticipacao?: number;
   hasParticipacaoResumo: boolean;
+  /** `true` quando o relatório abrange todas as escolas do município. */
+  isEscopoRede: boolean;
+  escolaNome?: string;
 };
 
 function joinPtList(items: string[]): string {
@@ -20,14 +26,52 @@ function joinPtList(items: string[]): string {
   return `${list.slice(0, -1).join(', ')} e ${list[list.length - 1]}`;
 }
 
+function isEscopoRedeFiltro(escola: string | undefined): boolean {
+  const v = (escola ?? '').trim().toLowerCase();
+  return !v || v === 'all' || v === 'todas' || v === 'rede';
+}
+
+function inferEscolaNomeFromReport(report: RelatorioConsolidado): string | undefined {
+  const linhas = report.consolidado_frequencia?.GERAL?.linhas ?? [];
+  if (linhas.length === 1) return linhas[0].escola_nome;
+  const block = report.series_aplicadas?.[0];
+  return block?.escola_nome;
+}
+
+function resolveEscopoParticipacao(
+  report: RelatorioConsolidado,
+  scope?: ApresentacaoScopeOptions
+): { isEscopoRede: boolean; escolaNome?: string } {
+  if (isEscopoRedeFiltro(report.filtros.escola)) {
+    return { isEscopoRede: true };
+  }
+
+  const escolaNome =
+    scope?.escolaNome?.trim() ||
+    inferEscolaNomeFromReport(report) ||
+    report.filtros.escola?.trim() ||
+    undefined;
+
+  return { isEscopoRede: false, escolaNome };
+}
+
 function readResumoParticipacao(report: RelatorioConsolidado): {
   totalMatriculados?: number;
   totalParticipantes?: number;
   percentualParticipacao?: number;
 } {
   const block = report.resumo_apresentacao;
+  const comparativoAtivo = report.comparativo?.ativo === true;
+  const linhaEscola = report.consolidado_frequencia?.GERAL?.linhas?.[0];
+
+  const percentualEscola =
+    comparativoAtivo && typeof linhaEscola?.taxa_geral_escola === 'number'
+      ? linhaEscola.taxa_geral_escola
+      : undefined;
+
   const percentual =
     block?.percentual_participacao ??
+    percentualEscola ??
     report.consolidado_frequencia?.GERAL?.medias_da_rede?.taxa_geral;
 
   return {
@@ -38,11 +82,13 @@ function readResumoParticipacao(report: RelatorioConsolidado): {
   };
 }
 
-export function buildApresentacaoDynamicData(report: RelatorioConsolidado): ApresentacaoDynamicData {
-  const etapaText = joinPtList(report.itens_selecionados.map((item) => item.titulo));
-
-  const disciplinas = sortDisciplinasDisponiveis(report.disciplinas_disponiveis ?? [])
-    .filter((d) => d !== 'GERAL');
+export function buildApresentacaoDynamicData(
+  report: RelatorioConsolidado,
+  scope?: ApresentacaoScopeOptions
+): ApresentacaoDynamicData {
+  const disciplinas = sortDisciplinasDisponiveis(report.disciplinas_disponiveis ?? []).filter(
+    (d) => d !== 'GERAL'
+  );
   const disciplinasText = joinPtList(disciplinas);
 
   const resumo = readResumoParticipacao(report);
@@ -51,23 +97,39 @@ export function buildApresentacaoDynamicData(report: RelatorioConsolidado): Apre
     resumo.totalMatriculados != null &&
     resumo.percentualParticipacao != null;
 
+  const escopo = resolveEscopoParticipacao(report, scope);
+
   return {
-    etapaText,
     disciplinasText,
     totalParticipantes: resumo.totalParticipantes,
     totalMatriculados: resumo.totalMatriculados,
     percentualParticipacao: resumo.percentualParticipacao,
     hasParticipacaoResumo,
+    isEscopoRede: escopo.isEscopoRede,
+    escolaNome: escopo.escolaNome,
   };
 }
 
-export function buildApresentacaoParagraph1Runs(etapaText: string) {
+export function buildApresentacaoParagraph1Runs() {
   return [
-    { text: 'A Secretaria Municipal de Educação apresenta o Relatório de Avaliação Diagnóstica da referente a ' },
-    { text: etapaText || '—', bold: true },
+    {
+      text: 'A Secretaria Municipal de Educação apresenta o Relatório de Avaliação Diagnóstica referente às ',
+    },
+    { text: 'avaliações selecionadas', bold: true },
     {
       text: ', esse relatório é um importante instrumento de acompanhamento do desenvolvimento educacional dos estudantes da rede.',
     },
+  ];
+}
+
+function buildParticipacaoResumoPrefixRuns(data: ApresentacaoDynamicData) {
+  if (data.isEscopoRede) {
+    return [{ text: 'A participação da rede corresponde a ' }];
+  }
+  return [
+    { text: 'A participação da escola ' },
+    { text: data.escolaNome || '—', bold: true },
+    { text: ' corresponde a ' },
   ];
 }
 
@@ -80,7 +142,9 @@ export function buildApresentacaoParagraph2Runs(data: ApresentacaoDynamicData) {
       { text: formatPdfInteger(data.totalMatriculados!), bold: true },
       { text: ' matriculados, o que corresponde a ' },
       { text: formatPdfPercent(data.percentualParticipacao!), bold: true },
-      { text: ' de participação. Este relatório consolida os resultados obtidos, oferecendo uma visão detalhada do desempenho em ' },
+      {
+        text: ' de participação. Este relatório consolida os resultados obtidos, oferecendo uma visão detalhada do desempenho em ',
+      },
       { text: data.disciplinasText || '—', bold: true },
       {
         text: ', além de identificar as potencialidades e as necessidades de intervenção pedagógica.',
@@ -100,7 +164,7 @@ export function buildApresentacaoParagraph2Runs(data: ApresentacaoDynamicData) {
 
   if (data.percentualParticipacao != null) {
     return [
-      { text: 'A participação da rede corresponde a ' },
+      ...buildParticipacaoResumoPrefixRuns(data),
       { text: formatPdfPercent(data.percentualParticipacao), bold: true },
       { text: '. ' },
       ...runs,

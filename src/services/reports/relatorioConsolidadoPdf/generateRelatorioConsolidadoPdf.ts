@@ -14,6 +14,8 @@ import {
   drawRelatorioConsolidadoMediasNotaPages,
   drawRelatorioConsolidadoMediasProficienciaPages,
 } from './drawMediasConsolidadoPages';
+import { drawRelatorioConsolidadoAcertosHabilidadePages } from './drawAcertosHabilidadePages';
+import { drawRelatorioConsolidadoDistribuicaoPages } from './drawDistribuicaoProficienciaPages';
 import { drawRelatorioConsolidadoFooters } from './pdfShared';
 
 export type GenerateRelatorioConsolidadoPdfOptions = {
@@ -93,6 +95,7 @@ export async function generateRelatorioConsolidadoPdf(
     logo,
     institutionName,
     year: opts.year,
+    scopeLabel: opts.scopeLabel,
   });
 
   await drawRelatorioConsolidadoFrequenciaPages(pdf, {
@@ -116,6 +119,20 @@ export async function generateRelatorioConsolidadoPdf(
   });
 
   await drawRelatorioConsolidadoMediasProficienciaPages(pdf, {
+    report: opts.report,
+    logo,
+    institutionName,
+    year: opts.year,
+  });
+
+  await drawRelatorioConsolidadoAcertosHabilidadePages(pdf, {
+    report: opts.report,
+    logo,
+    institutionName,
+    year: opts.year,
+  });
+
+  await drawRelatorioConsolidadoDistribuicaoPages(pdf, {
     report: opts.report,
     logo,
     institutionName,

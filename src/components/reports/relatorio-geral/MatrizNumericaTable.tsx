@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/table';
 import type { MatrizEscolaSerie, SerieColuna } from '@/types/relatorio-consolidado';
 import { formatDecimal1PtBr, formatPercent1PtBr } from '@/utils/numberFormat';
+import { getAcertosMetaCellStyle } from '@/utils/reports/relatorioConsolidadoWebStyles';
 import { cn } from '@/lib/utils';
 
 export type MatrizCellFormat = 'percent' | 'decimal';
@@ -23,6 +24,9 @@ type MatrizNumericaTableProps = {
   matriz: MatrizEscolaSerie;
   cellFormat?: MatrizCellFormat;
   totalColumnLabel?: string;
+  footerLabel?: string;
+  /** Colore células numéricas: verde >= 60%, vermelho < 60%. */
+  colorizeByMeta?: boolean;
   className?: string;
 };
 
@@ -31,6 +35,8 @@ export function MatrizNumericaTable({
   matriz,
   cellFormat = 'percent',
   totalColumnLabel = 'TX. GERAL',
+  footerLabel = 'MÉDIAS DA REDE',
+  colorizeByMeta = false,
   className,
 }: MatrizNumericaTableProps) {
   const colCount = seriesColunas.length;
@@ -39,19 +45,24 @@ export function MatrizNumericaTable({
     return <p className="text-sm text-muted-foreground">Nenhum dado disponível.</p>;
   }
 
+  const dataCellClass = 'text-center tabular-nums font-bold text-base';
+
   return (
     <div className={cn('overflow-x-auto rounded-md border', className)}>
       <Table>
         <TableHeader>
-          <TableRow>
-            <TableHead className="w-10 text-center">#</TableHead>
-            <TableHead className="min-w-[160px]">Escolas</TableHead>
+          <TableRow className="bg-primary hover:bg-primary">
+            <TableHead className="w-10 text-center text-primary-foreground">#</TableHead>
+            <TableHead className="min-w-[160px] text-primary-foreground">ESCOLAS</TableHead>
             {seriesColunas.map((col) => (
-              <TableHead key={col.serie_id} className="text-right whitespace-nowrap">
-                {col.serie_nome}
+              <TableHead
+                key={col.serie_id}
+                className="text-center whitespace-nowrap text-primary-foreground font-bold"
+              >
+                {col.serie_nome.toLocaleUpperCase('pt-BR')}
               </TableHead>
             ))}
-            <TableHead className="text-right font-semibold whitespace-nowrap">
+            <TableHead className="text-center font-bold whitespace-nowrap text-primary-foreground">
               {totalColumnLabel}
             </TableHead>
           </TableRow>
@@ -69,14 +80,23 @@ export function MatrizNumericaTable({
           ) : (
             matriz.linhas.map((linha, idx) => (
               <TableRow key={linha.escola_id}>
-                <TableCell className="text-center text-muted-foreground tabular-nums">{idx + 1}</TableCell>
-                <TableCell className="font-medium">{linha.escola_nome}</TableCell>
+                <TableCell className="text-center font-bold tabular-nums text-primary text-base">
+                  {idx + 1}
+                </TableCell>
+                <TableCell className="font-bold uppercase text-base">{linha.escola_nome}</TableCell>
                 {linha.valores_por_serie.map((valor, j) => (
-                  <TableCell key={`${linha.escola_id}-${j}`} className="text-right tabular-nums">
+                  <TableCell
+                    key={`${linha.escola_id}-${j}`}
+                    className={dataCellClass}
+                    style={colorizeByMeta ? getAcertosMetaCellStyle(valor) : undefined}
+                  >
                     {formatCell(valor, cellFormat)}
                   </TableCell>
                 ))}
-                <TableCell className="text-right tabular-nums font-medium">
+                <TableCell
+                  className={dataCellClass}
+                  style={colorizeByMeta ? getAcertosMetaCellStyle(linha.taxa_geral_escola) : undefined}
+                >
                   {formatCell(linha.taxa_geral_escola, cellFormat)}
                 </TableCell>
               </TableRow>
@@ -84,15 +104,22 @@ export function MatrizNumericaTable({
           )}
         </TableBody>
         <TableFooter>
-          <TableRow className="bg-muted/50 font-semibold">
+          <TableRow className="font-semibold">
             <TableCell />
-            <TableCell>MÉDIAS DA REDE</TableCell>
+            <TableCell className="font-bold text-primary">{footerLabel}</TableCell>
             {matriz.medias_da_rede.por_serie.map((valor, j) => (
-              <TableCell key={`rede-${j}`} className="text-right tabular-nums">
+              <TableCell
+                key={`rede-${j}`}
+                className={dataCellClass}
+                style={colorizeByMeta ? getAcertosMetaCellStyle(valor) : undefined}
+              >
                 {formatCell(valor, cellFormat)}
               </TableCell>
             ))}
-            <TableCell className="text-right tabular-nums">
+            <TableCell
+              className={dataCellClass}
+              style={colorizeByMeta ? getAcertosMetaCellStyle(matriz.medias_da_rede.taxa_geral) : undefined}
+            >
               {formatCell(matriz.medias_da_rede.taxa_geral, cellFormat)}
             </TableCell>
           </TableRow>

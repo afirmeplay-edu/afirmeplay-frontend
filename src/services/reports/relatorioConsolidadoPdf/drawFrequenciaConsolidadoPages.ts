@@ -3,7 +3,12 @@ import type { CellHookData, UserOptions } from 'jspdf-autotable';
 import type { PdfImageAsset } from '@/utils/pdfCityBranding';
 import type { MatrizEscolaSerie, RelatorioConsolidado, SerieColuna } from '@/types/relatorio-consolidado';
 import { getMatrizNumerica } from '@/utils/reports/relatorioConsolidadoDisciplinas';
+import { getMediasRedeFooterLabel } from '@/utils/reports/relatorioConsolidadoComparativo';
 import { RELATORIO_CONSOLIDADO_PDF_COLORS } from './drawCoverPage';
+import {
+  relatorioSecaoTitle,
+  RELATORIO_SECAO_FREQUENCIA,
+} from '@/utils/reports/relatorioConsolidadoSectionTitles';
 import { buildFaixaSeriesSubtitle } from './buildFaixaSeriesSubtitle';
 import {
   FREQUENCIA_PDF_CELL_COLORS,
@@ -85,7 +90,7 @@ function applyFrequenciaCellStyle(
     hookData.cell.styles.textColor = [255, 255, 255];
     hookData.cell.styles.fontStyle = 'bold';
     hookData.cell.styles.halign = col === 1 ? 'left' : 'center';
-    hookData.cell.styles.fontSize = col === 1 ? 7 : 6.8;
+    hookData.cell.styles.fontSize = col === 1 ? 8 : 7.5;
     return;
   }
 
@@ -94,17 +99,18 @@ function applyFrequenciaCellStyle(
     const linha = matriz.linhas[rowIdx];
     if (!linha) return;
 
+    hookData.cell.styles.halign = col === 1 ? 'left' : 'center';
+
     if (col === 0) {
       hookData.cell.styles.textColor = FREQUENCIA_PDF_CELL_COLORS.index;
       hookData.cell.styles.fontStyle = 'bold';
-      hookData.cell.styles.halign = 'center';
       return;
     }
 
     if (col === 1) {
       hookData.cell.styles.fontStyle = 'bold';
       hookData.cell.styles.textColor = textDark;
-      hookData.cell.styles.fontSize = 6.6;
+      hookData.cell.styles.fontSize = 7.8;
       hookData.cell.styles.cellPadding = { top: 2, right: 2, bottom: 2, left: 2 };
       return;
     }
@@ -130,6 +136,7 @@ function applyFrequenciaCellStyle(
 
   if (hookData.section === 'foot') {
     const taxaCol = 2 + seriesCount;
+    hookData.cell.styles.halign = col === 1 ? 'left' : 'center';
 
     if (col === 1) {
       hookData.cell.styles.textColor = FREQUENCIA_PDF_CELL_COLORS.footerLabel;
@@ -178,7 +185,8 @@ function drawIntroParagraph(doc: jsPDF, marginL: number, contentW: number, y: nu
 
 function buildTableData(
   seriesColunas: SerieColuna[],
-  matriz: MatrizEscolaSerie
+  matriz: MatrizEscolaSerie,
+  footerLabel: string
 ): {
   head: string[][];
   body: string[][];
@@ -202,7 +210,7 @@ function buildTableData(
 
   const footRow = [
     '',
-    'MÉDIAS DA REDE',
+    footerLabel,
     ...matriz.medias_da_rede.por_serie.map((v) => formatPercentCell(v)),
     formatPercentCell(matriz.medias_da_rede.taxa_geral),
   ];
@@ -228,7 +236,8 @@ async function drawFrequenciaTable(
   const marginL = PDF_MARGIN_X;
   const marginR = PDF_MARGIN_X;
   const tableWidth = pageW - marginL - marginR;
-  const { head, body, foot, seriesCount } = buildTableData(seriesColunas, matriz);
+  const footerLabel = getMediasRedeFooterLabel(params.report);
+  const { head, body, foot, seriesCount } = buildTableData(seriesColunas, matriz, footerLabel);
 
   const headerParams = {
     logo: params.logo,
@@ -254,22 +263,24 @@ async function drawFrequenciaTable(
       fillColor: RELATORIO_CONSOLIDADO_PDF_COLORS.primary,
       textColor: [255, 255, 255],
       fontStyle: 'bold',
-      fontSize: 7,
+      fontSize: 8,
       halign: 'center',
       valign: 'middle',
       lineColor: RELATORIO_CONSOLIDADO_PDF_COLORS.lineMuted,
       lineWidth: 0.15,
     },
     bodyStyles: {
-      fontSize: 7.2,
+      fontSize: 8.2,
+      halign: 'center',
       valign: 'middle',
       lineColor: RELATORIO_CONSOLIDADO_PDF_COLORS.lineMuted,
       lineWidth: 0.12,
       textColor: RELATORIO_CONSOLIDADO_PDF_COLORS.textDark,
-      cellPadding: { top: 2.2, right: 1.5, bottom: 2.2, left: 1.5 },
+      cellPadding: { top: 2.4, right: 1.5, bottom: 2.4, left: 1.5 },
     },
     footStyles: {
-      fontSize: 7.2,
+      fontSize: 8.2,
+      halign: 'center',
       valign: 'middle',
       lineColor: RELATORIO_CONSOLIDADO_PDF_COLORS.lineMuted,
       lineWidth: 0.15,
@@ -318,7 +329,12 @@ export async function drawRelatorioConsolidadoFrequenciaPages(
     year: params.year,
   });
 
-  y = drawRelatorioConsolidadoSectionTitle(doc, '2. Consolidado de Frequência', y, marginL);
+  y = drawRelatorioConsolidadoSectionTitle(
+    doc,
+    relatorioSecaoTitle(2, RELATORIO_SECAO_FREQUENCIA),
+    y,
+    marginL
+  );
   y += 2;
   y = drawSubsectionTitle(doc, `2.1. ${faixa.titulo}`, y, marginL);
   y = drawIntroParagraph(doc, marginL, contentW, y);

@@ -24,10 +24,16 @@ function formatCell(value: number | null | undefined): string {
 type MatrizFrequenciaTableProps = {
   seriesColunas: SerieColuna[];
   matriz: MatrizEscolaSerie;
+  footerLabel?: string;
   className?: string;
 };
 
-export function MatrizFrequenciaTable({ seriesColunas, matriz, className }: MatrizFrequenciaTableProps) {
+export function MatrizFrequenciaTable({
+  seriesColunas,
+  matriz,
+  footerLabel = 'MÉDIAS DA REDE',
+  className,
+}: MatrizFrequenciaTableProps) {
   const colCount = seriesColunas.length;
 
   if (!matriz.linhas.length && colCount === 0) {
@@ -64,19 +70,19 @@ export function MatrizFrequenciaTable({ seriesColunas, matriz, className }: Matr
           ) : (
             matriz.linhas.map((linha, idx) => (
               <TableRow key={linha.escola_id}>
-                <TableCell className="text-center font-bold tabular-nums text-primary">{idx + 1}</TableCell>
-                <TableCell className="font-bold uppercase text-sm">{linha.escola_nome}</TableCell>
+                <TableCell className="text-center font-bold tabular-nums text-primary text-base">{idx + 1}</TableCell>
+                <TableCell className="font-bold uppercase text-base">{linha.escola_nome}</TableCell>
                 {linha.valores_por_serie.map((valor, j) => (
                   <TableCell
                     key={`${linha.escola_id}-${j}`}
-                    className="text-center tabular-nums font-bold text-sm"
+                    className="text-center tabular-nums font-bold text-base"
                     style={getFrequenciaSerieCellStyle(valor)}
                   >
                     {formatCell(valor)}
                   </TableCell>
                 ))}
                 <TableCell
-                  className="text-center tabular-nums font-bold text-sm"
+                  className="text-center tabular-nums font-bold text-base"
                   style={getFrequenciaTaxaGeralCellStyle()}
                 >
                   {formatCell(linha.taxa_geral_escola)}
@@ -88,18 +94,18 @@ export function MatrizFrequenciaTable({ seriesColunas, matriz, className }: Matr
         <TableFooter>
           <TableRow className="font-semibold">
             <TableCell />
-            <TableCell className="font-bold text-primary">MÉDIAS DA REDE</TableCell>
+            <TableCell className="font-bold text-primary">{footerLabel}</TableCell>
             {matriz.medias_da_rede.por_serie.map((valor, j) => (
               <TableCell
                 key={`rede-${j}`}
-                className="text-center tabular-nums font-bold text-sm"
+                className="text-center tabular-nums font-bold text-base"
                 style={getFrequenciaSerieCellStyle(valor)}
               >
                 {formatCell(valor)}
               </TableCell>
             ))}
             <TableCell
-              className="text-center tabular-nums font-bold text-sm"
+              className="text-center tabular-nums font-bold text-base"
               style={getFrequenciaFooterTaxaGeralCellStyle()}
             >
               {formatCell(matriz.medias_da_rede.taxa_geral)}

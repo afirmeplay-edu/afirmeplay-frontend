@@ -8,22 +8,35 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { MatrizDistribuicaoTable } from '@/components/reports/relatorio-geral/MatrizDistribuicaoTable';
+import { DistribuicaoProficienciaTables } from '@/components/reports/relatorio-geral/DistribuicaoProficienciaTables';
 import { MatrizFrequenciaTable } from '@/components/reports/relatorio-geral/MatrizFrequenciaTable';
 import { MatrizMediasTable } from '@/components/reports/relatorio-geral/MatrizMediasTable';
 import { MatrizNumericaTable } from '@/components/reports/relatorio-geral/MatrizNumericaTable';
+import { AcertosHabilidadeCards } from '@/components/reports/relatorio-geral/AcertosHabilidadeCards';
 import {
   RelatorioSectionTitle,
   RelatorioSubsectionTitle,
   RelatorioTableBand,
 } from '@/components/reports/relatorio-geral/RelatorioSectionTitle';
 import type { RelatorioConsolidado } from '@/types/relatorio-consolidado';
-import { formatPercent1PtBr } from '@/utils/numberFormat';
 import {
   getAcertosHabilidadeBloco,
   getMatrizDistribuicao,
   getMatrizNumerica,
 } from '@/utils/reports/relatorioConsolidadoDisciplinas';
+import {
+  getComparativoUiHint,
+  getMediasRedeFooterLabel,
+} from '@/utils/reports/relatorioConsolidadoComparativo';
+import { isDistribuicaoComparativo } from '@/utils/reports/relatorioConsolidadoDistribuicao';
+import {
+  relatorioSecaoTitle,
+  RELATORIO_SECAO_ACERTOS_HABILIDADE,
+  RELATORIO_SECAO_DISTRIBUICAO,
+  RELATORIO_SECAO_FREQUENCIA,
+  RELATORIO_SECAO_MEDIA_NOTA,
+  RELATORIO_SECAO_MEDIA_PROFICIENCIA,
+} from '@/utils/reports/relatorioConsolidadoSectionTitles';
 import { pdfRgbToCellStyle } from '@/utils/reports/relatorioConsolidadoWebStyles';
 import {
   buildApresentacaoDynamicData,
@@ -157,20 +170,25 @@ function LegendTable({
 
 type RelatorioConsolidadoReportSectionsProps = {
   report: RelatorioConsolidado;
+  /** Nome da escola quando o recorte não é municipal. */
+  escolaNome?: string;
   onDownloadPdf: () => void;
   generatingPdf: boolean;
 };
 
 export function RelatorioConsolidadoReportSections({
   report,
+  escolaNome,
   onDownloadPdf,
   generatingPdf,
 }: RelatorioConsolidadoReportSectionsProps) {
   const seriesColunas = report.series_colunas ?? [];
   const disciplinas = getMediasPdfDisciplinas(report);
   const faixa = buildFaixaSeriesSubtitle(report);
-  const apresentacao = buildApresentacaoDynamicData(report);
+  const apresentacao = buildApresentacaoDynamicData(report, { escolaNome });
   const freqMatriz = getMatrizNumerica(report.consolidado_frequencia, 'GERAL');
+  const footerRedeLabel = getMediasRedeFooterLabel(report);
+  const comparativoHint = getComparativoUiHint(report);
 
   const proficienciaLegendRows = LEGENDA_PROFICIENCIA_ROWS.map((row) => ({
     label: row.label,
@@ -197,9 +215,15 @@ export function RelatorioConsolidadoReportSections({
         </Button>
       </div>
 
+      {comparativoHint && (
+        <p className="text-sm text-muted-foreground rounded-md border border-violet-200 bg-violet-50 dark:bg-violet-950/30 dark:border-violet-800 px-3 py-2">
+          {comparativoHint}
+        </p>
+      )}
+
       <section className="space-y-4">
         <RelatorioSectionTitle title="1. Apresentação" />
-        <TextRuns runs={buildApresentacaoParagraph1Runs(apresentacao.etapaText)} />
+        <TextRuns runs={buildApresentacaoParagraph1Runs()} />
         <TextRuns runs={buildApresentacaoParagraph2Runs(apresentacao)} />
         <div className="rounded-lg border border-violet-200 bg-violet-50 dark:bg-violet-950/30 dark:border-violet-800 p-4 space-y-2">
           <h4 className="text-sm font-bold text-primary">1.1. Objetivo do Relatório</h4>
@@ -214,11 +238,15 @@ export function RelatorioConsolidadoReportSections({
       </section>
 
       <section className="space-y-4">
-        <RelatorioSectionTitle title="2. Consolidado de Frequência" />
+        <RelatorioSectionTitle title={relatorioSecaoTitle(2, RELATORIO_SECAO_FREQUENCIA)} />
         <RelatorioSubsectionTitle label={`2.1. ${faixa.titulo}`} />
         <p className="text-sm text-muted-foreground leading-relaxed">{INTRO_FREQUENCIA}</p>
         {freqMatriz ? (
-          <MatrizFrequenciaTable seriesColunas={seriesColunas} matriz={freqMatriz} />
+          <MatrizFrequenciaTable
+            seriesColunas={seriesColunas}
+            matriz={freqMatriz}
+            footerLabel={footerRedeLabel}
+          />
         ) : (
           <p className="text-sm text-muted-foreground">Nenhum dado de frequência disponível.</p>
         )}
@@ -242,7 +270,7 @@ export function RelatorioConsolidadoReportSections({
             <div key={`nota-${disc}`} className="space-y-3">
               {idx === 0 && (
                 <>
-                  <RelatorioSectionTitle title="4. Consolidado de Médias (Nota)" />
+                  <RelatorioSectionTitle title={relatorioSecaoTitle(4, RELATORIO_SECAO_MEDIA_NOTA)} />
                   <TextRuns runs={buildMediasIntroRuns(report)} />
                 </>
               )}
@@ -255,6 +283,7 @@ export function RelatorioConsolidadoReportSections({
                   metricKind="nota"
                   disciplina={disc}
                   faixaTitulo={faixa.titulo}
+                  footerLabel={footerRedeLabel}
                 />
               ) : (
                 <p className="text-sm text-muted-foreground">Sem dados de nota para esta disciplina.</p>
@@ -274,7 +303,7 @@ export function RelatorioConsolidadoReportSections({
             <div key={`prof-${disc}`} className="space-y-3">
               {idx === 0 && (
                 <>
-                  <RelatorioSectionTitle title="5. Consolidado de Médias (Proficiência)" />
+                  <RelatorioSectionTitle title={relatorioSecaoTitle(5, RELATORIO_SECAO_MEDIA_PROFICIENCIA)} />
                   <TextRuns runs={buildMediasIntroRuns(report)} />
                 </>
               )}
@@ -287,6 +316,7 @@ export function RelatorioConsolidadoReportSections({
                   metricKind="proficiencia"
                   disciplina={disc}
                   faixaTitulo={faixa.titulo}
+                  footerLabel={footerRedeLabel}
                 />
               ) : (
                 <p className="text-sm text-muted-foreground">
@@ -306,51 +336,38 @@ export function RelatorioConsolidadoReportSections({
           );
           return (
             <div key={`hab-${disc}`} className="space-y-3">
-              {idx === 0 && <RelatorioSectionTitle title="6. Acertos por Habilidade" />}
+              {idx === 0 && (
+                <RelatorioSectionTitle title={relatorioSecaoTitle(6, RELATORIO_SECAO_ACERTOS_HABILIDADE)} />
+              )}
               <RelatorioSubsectionTitle
-                label={`6.${idx + 1}. ${disc === 'GERAL' ? 'GERAL' : disc}`}
+                label={buildMediasSubsectionLabel(report, 6, idx + 1, disc)}
               />
+              {comparativoHint && (
+                <p className="text-xs text-muted-foreground">
+                  Matriz: escola selecionada. Lista de habilidades: agregação municipal.
+                </p>
+              )}
               {bloco?.matriz ? (
-                <MatrizNumericaTable
-                  seriesColunas={seriesColunas}
-                  matriz={bloco.matriz}
-                  cellFormat="percent"
-                  totalColumnLabel="TX. GERAL"
-                />
+                <>
+                  <RelatorioTableBand label={buildMediasTableBandLabel(disc, 'Acertos por Escola')} />
+                  <MatrizNumericaTable
+                    seriesColunas={seriesColunas}
+                    matriz={bloco.matriz}
+                    cellFormat="percent"
+                    totalColumnLabel="TX. GERAL"
+                    footerLabel={footerRedeLabel}
+                    colorizeByMeta
+                  />
+                </>
               ) : (
                 <p className="text-sm text-muted-foreground">Sem matriz de acertos.</p>
               )}
               {bloco?.habilidades && bloco.habilidades.length > 0 ? (
-                <div className="overflow-x-auto rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-primary hover:bg-primary">
-                        <TableHead className="text-primary-foreground">Código</TableHead>
-                        <TableHead className="text-primary-foreground">Descrição</TableHead>
-                        <TableHead className="text-primary-foreground">Disciplina</TableHead>
-                        <TableHead className="text-right text-primary-foreground">Acertos</TableHead>
-                        <TableHead className="text-right text-primary-foreground">Total</TableHead>
-                        <TableHead className="text-right text-primary-foreground">%</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {bloco.habilidades.map((h) => (
-                        <TableRow key={`${h.codigo}-${h.disciplina}-${h.descricao}`}>
-                          <TableCell className="font-mono text-xs">{h.codigo}</TableCell>
-                          <TableCell className="max-w-[240px]">{h.descricao}</TableCell>
-                          <TableCell>{h.disciplina}</TableCell>
-                          <TableCell className="text-right tabular-nums">{h.acertos}</TableCell>
-                          <TableCell className="text-right tabular-nums">{h.total}</TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {formatPercent1PtBr(h.percentual)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                <AcertosHabilidadeCards habilidades={bloco.habilidades} />
               ) : (
-                <p className="text-sm text-muted-foreground">Nenhuma habilidade consolidada.</p>
+                !bloco?.matriz && (
+                  <p className="text-sm text-muted-foreground">Nenhuma habilidade consolidada.</p>
+                )
               )}
             </div>
           );
@@ -363,16 +380,20 @@ export function RelatorioConsolidadoReportSections({
           return (
             <div key={`dist-${disc}`} className="space-y-3">
               {idx === 0 && (
-                <RelatorioSectionTitle title="7. Distribuição dos Níveis de Proficiência" />
+                <RelatorioSectionTitle title={relatorioSecaoTitle(7, RELATORIO_SECAO_DISTRIBUICAO)} />
               )}
               <RelatorioSubsectionTitle
-                label={`7.${idx + 1}. ${disc === 'GERAL' ? 'GERAL' : disc}`}
+                label={buildMediasSubsectionLabel(report, 7, idx + 1, disc)}
               />
               {distMatriz ? (
-                <MatrizDistribuicaoTable
+                <DistribuicaoProficienciaTables
                   seriesColunas={seriesColunas}
                   matriz={distMatriz}
+                  comparativo={isDistribuicaoComparativo(report)}
+                  footerRedeLabel={footerRedeLabel}
+                  quantitativoSubtitle={`${7}.${idx + 1}.1. Quantitativo de Alunos por Nível`}
                   showRedeNivel={disc === 'GERAL'}
+                  redeNivel={distMatriz.medias_da_rede.media_da_rede_nivel}
                 />
               ) : (
                 <p className="text-sm text-muted-foreground">Sem distribuição para esta disciplina.</p>

@@ -3,6 +3,7 @@ import type { CellHookData, UserOptions } from 'jspdf-autotable';
 import type { PdfImageAsset } from '@/utils/pdfCityBranding';
 import type { MatrizEscolaSerie, RelatorioConsolidado, SecaoMatrizNumerica, SerieColuna } from '@/types/relatorio-consolidado';
 import { getMatrizNumerica } from '@/utils/reports/relatorioConsolidadoDisciplinas';
+import { getMediasRedeFooterLabel } from '@/utils/reports/relatorioConsolidadoComparativo';
 import { RELATORIO_CONSOLIDADO_PDF_COLORS } from './drawCoverPage';
 import {
   buildMediasIntroRuns,
@@ -11,6 +12,11 @@ import {
   getMediasPdfDisciplinas,
 } from './buildMediasIntroData';
 import { buildFaixaSeriesSubtitle } from './buildFaixaSeriesSubtitle';
+import {
+  relatorioSecaoTitle,
+  RELATORIO_SECAO_MEDIA_NOTA,
+  RELATORIO_SECAO_MEDIA_PROFICIENCIA,
+} from '@/utils/reports/relatorioConsolidadoSectionTitles';
 import {
   resolveMediasValorCellStyle,
   type MediasPdfMetricKind,
@@ -106,7 +112,7 @@ function applyMediasCellStyle(
     hookData.cell.styles.textColor = [255, 255, 255];
     hookData.cell.styles.fontStyle = 'bold';
     hookData.cell.styles.halign = col === 1 ? 'left' : 'center';
-    hookData.cell.styles.fontSize = col === 1 ? 7 : 6.8;
+    hookData.cell.styles.fontSize = col === 1 ? 8 : 7.5;
     return;
   }
 
@@ -115,17 +121,18 @@ function applyMediasCellStyle(
     const linha = matriz.linhas[rowIdx];
     if (!linha) return;
 
+    hookData.cell.styles.halign = col === 1 ? 'left' : 'center';
+
     if (col === 0) {
       hookData.cell.styles.textColor = primary;
       hookData.cell.styles.fontStyle = 'bold';
-      hookData.cell.styles.halign = 'center';
       return;
     }
 
     if (col === 1) {
       hookData.cell.styles.fontStyle = 'bold';
       hookData.cell.styles.textColor = textDark;
-      hookData.cell.styles.fontSize = 6.6;
+      hookData.cell.styles.fontSize = 7.8;
       return;
     }
 
@@ -157,6 +164,7 @@ function applyMediasCellStyle(
 
   if (hookData.section === 'foot') {
     const mediaCol = 2 + seriesCount;
+    hookData.cell.styles.halign = col === 1 ? 'left' : 'center';
 
     if (col === 1) {
       hookData.cell.styles.textColor = primary;
@@ -217,7 +225,8 @@ function drawTableBand(doc: jsPDF, marginL: number, contentW: number, y: number,
 
 function buildTableData(
   seriesColunas: SerieColuna[],
-  matriz: MatrizEscolaSerie
+  matriz: MatrizEscolaSerie,
+  footerLabel: string
 ): {
   head: string[][];
   body: string[][];
@@ -241,7 +250,7 @@ function buildTableData(
 
   const footRow = [
     '',
-    'MÉDIAS DA REDE',
+    footerLabel,
     ...matriz.medias_da_rede.por_serie.map((v) => formatPdfDecimal(v)),
     formatPdfDecimal(matriz.medias_da_rede.taxa_geral),
   ];
@@ -264,7 +273,8 @@ async function drawMediasTable(
   const marginL = PDF_MARGIN_X;
   const marginR = PDF_MARGIN_X;
   const tableWidth = pageW - marginL - marginR;
-  const { head, body, foot, seriesCount } = buildTableData(seriesColunas, matriz);
+  const footerLabel = getMediasRedeFooterLabel(params.report);
+  const { head, body, foot, seriesCount } = buildTableData(seriesColunas, matriz, footerLabel);
   const faixaTitulo = buildFaixaSeriesSubtitle(params.report).titulo;
   const styleContext: MediasTableStyleContext = {
     metricKind: config.metricKind,
@@ -297,22 +307,24 @@ async function drawMediasTable(
       fillColor: RELATORIO_CONSOLIDADO_PDF_COLORS.primary,
       textColor: [255, 255, 255],
       fontStyle: 'bold',
-      fontSize: 7,
+      fontSize: 8,
       halign: 'center',
       valign: 'middle',
       lineColor: RELATORIO_CONSOLIDADO_PDF_COLORS.lineMuted,
       lineWidth: 0.15,
     },
     bodyStyles: {
-      fontSize: 7.2,
+      fontSize: 8.2,
+      halign: 'center',
       valign: 'middle',
       lineColor: RELATORIO_CONSOLIDADO_PDF_COLORS.lineMuted,
       lineWidth: 0.12,
       textColor: RELATORIO_CONSOLIDADO_PDF_COLORS.textDark,
-      cellPadding: { top: 2.2, right: 1.5, bottom: 2.2, left: 1.5 },
+      cellPadding: { top: 2.4, right: 1.5, bottom: 2.4, left: 1.5 },
     },
     footStyles: {
-      fontSize: 7.2,
+      fontSize: 8.2,
+      halign: 'center',
       valign: 'middle',
       lineColor: RELATORIO_CONSOLIDADO_PDF_COLORS.lineMuted,
       lineWidth: 0.15,
@@ -424,7 +436,7 @@ export async function drawRelatorioConsolidadoMediasNotaPages(
 ): Promise<void> {
   await drawRelatorioConsolidadoMediasSectionPages(doc, params, {
     sectionNumber: 4,
-    sectionTitle: '4. Consolidado de Médias (Nota)',
+    sectionTitle: relatorioSecaoTitle(4, RELATORIO_SECAO_MEDIA_NOTA),
     tableBandSuffix: 'Médias por Escola',
     metricKind: 'nota',
     getSecao: (report) => report.consideracoes_gerais.consolidado_medias_nota,
@@ -437,7 +449,7 @@ export async function drawRelatorioConsolidadoMediasProficienciaPages(
 ): Promise<void> {
   await drawRelatorioConsolidadoMediasSectionPages(doc, params, {
     sectionNumber: 5,
-    sectionTitle: '5. Consolidado de Médias (Proficiência)',
+    sectionTitle: relatorioSecaoTitle(5, RELATORIO_SECAO_MEDIA_PROFICIENCIA),
     tableBandSuffix: 'Proficiência por Escola',
     metricKind: 'proficiencia',
     getSecao: (report) => report.consideracoes_gerais.consolidado_medias_proficiencia,

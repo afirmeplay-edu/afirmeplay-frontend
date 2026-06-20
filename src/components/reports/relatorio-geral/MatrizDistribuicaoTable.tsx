@@ -67,6 +67,8 @@ type MatrizDistribuicaoTableProps = {
   seriesColunas: SerieColuna[];
   matriz: MatrizDistribuicao;
   showRedeNivel?: boolean;
+  footerLabel?: string;
+  redeNivelLabel?: string;
   className?: string;
 };
 
@@ -74,6 +76,8 @@ export function MatrizDistribuicaoTable({
   seriesColunas,
   matriz,
   showRedeNivel = false,
+  footerLabel = 'MÉDIAS DA REDE',
+  redeNivelLabel = 'Nível da rede',
   className,
 }: MatrizDistribuicaoTableProps) {
   const colCount = seriesColunas.length;
@@ -83,7 +87,7 @@ export function MatrizDistribuicaoTable({
     <div className={cn('space-y-3', className)}>
       {showRedeNivel && redeNivel && (
         <p className="text-sm flex items-center gap-2">
-          <span className="text-muted-foreground">Nível da rede:</span>
+          <span className="text-muted-foreground">{redeNivelLabel}:</span>
           <span className={getReportProficiencyTagClass(normalizeProficiencyLevelLabel(redeNivel))}>
             {normalizeProficiencyLevelLabel(redeNivel)}
           </span>
@@ -131,7 +135,7 @@ export function MatrizDistribuicaoTable({
           <TableFooter>
             <TableRow className="bg-muted/50">
               <TableCell />
-              <TableCell className="font-semibold align-top">MÉDIAS DA REDE</TableCell>
+              <TableCell className="font-semibold align-top">{footerLabel}</TableCell>
               {matriz.medias_da_rede.por_serie.map((celula, j) => (
                 <TableCell key={`rede-dist-${j}`} className="align-top">
                   <CelulaDistribuicaoView celula={celula} />

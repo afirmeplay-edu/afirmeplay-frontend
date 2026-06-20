@@ -19,11 +19,11 @@ export const PROFICIENCIA_PDF_CELL_COLORS: Record<ProficienciaFaixaKey, Proficie
   },
   basico: {
     fill: [251, 191, 36],
-    text: [255, 255, 255],
+    text: [17, 24, 39],
   },
   adequado: {
     fill: [163, 230, 53],
-    text: [255, 255, 255],
+    text: [17, 24, 39],
   },
   avancado: {
     fill: [4, 120, 87],

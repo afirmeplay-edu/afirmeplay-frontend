@@ -16,6 +16,7 @@ export {
   buildApresentacaoParagraph1Runs,
   buildApresentacaoParagraph2Runs,
   type ApresentacaoDynamicData,
+  type ApresentacaoScopeOptions,
 } from './buildApresentacaoData';
 export { drawRelatorioConsolidadoFrequenciaPages } from './drawFrequenciaConsolidadoPages';
 export { buildFaixaSeriesSubtitle, type FaixaSeriesSubtitle } from './buildFaixaSeriesSubtitle';
@@ -53,6 +54,14 @@ export {
   type ProficienciaFaixaKey,
   type ProficienciaPdfCellStyle,
 } from './proficienciaPdfCellStyles';
+export {
+  drawRelatorioConsolidadoAcertosHabilidadePages,
+  type AcertosHabilidadePagesParams,
+} from './drawAcertosHabilidadePages';
+export {
+  drawRelatorioConsolidadoDistribuicaoPages,
+  type DistribuicaoProficienciaPagesParams,
+} from './drawDistribuicaoProficienciaPages';
 export {
   drawRelatorioConsolidadoFooters,
   drawRelatorioConsolidadoInternalHeader,

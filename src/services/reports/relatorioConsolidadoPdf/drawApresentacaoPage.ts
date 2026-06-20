@@ -20,6 +20,8 @@ export type ApresentacaoPageParams = {
   logo: PdfImageAsset | null;
   institutionName?: string;
   year?: number;
+  /** REDE ou nome da escola (mesmo valor da capa). */
+  scopeLabel?: string;
 };
 
 const OBJETIVO_TEXTO =
@@ -183,9 +185,12 @@ export function drawRelatorioConsolidadoApresentacaoPage(
   y = drawRelatorioConsolidadoSectionTitle(doc, '1. Apresentação', y, marginL);
   y += 2;
 
-  const dynamic = buildApresentacaoDynamicData(params.report);
+  const dynamic = buildApresentacaoDynamicData(params.report, {
+    escolaNome:
+      params.scopeLabel && params.scopeLabel !== 'REDE' ? params.scopeLabel : undefined,
+  });
 
-  y = drawPdfTextRuns(doc, buildApresentacaoParagraph1Runs(dynamic.etapaText), marginL, y, contentW, 10);
+  y = drawPdfTextRuns(doc, buildApresentacaoParagraph1Runs(), marginL, y, contentW, 10);
   y += 3;
   y = drawPdfTextRuns(doc, buildApresentacaoParagraph2Runs(dynamic), marginL, y, contentW, 10);
   y += 6;

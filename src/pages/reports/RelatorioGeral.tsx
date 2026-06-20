@@ -536,6 +536,7 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
           <CardContent className="pt-6">
             <RelatorioConsolidadoReportSections
               report={report}
+              escolaNome={selectedEscola === 'all' ? undefined : escolaLabel}
               onDownloadPdf={handleDownloadPdf}
               generatingPdf={generatingPdf}
             />

@@ -1,5 +1,12 @@
 import type { RelatorioConsolidado } from '@/types/relatorio-consolidado';
 import { sortDisciplinasDisponiveis } from '@/utils/reports/relatorioConsolidadoDisciplinas';
+import {
+  RELATORIO_SECAO_ACERTOS_HABILIDADE,
+  RELATORIO_SECAO_DISTRIBUICAO,
+  RELATORIO_SECAO_FREQUENCIA,
+  RELATORIO_SECAO_MEDIA_NOTA,
+  RELATORIO_SECAO_MEDIA_PROFICIENCIA,
+} from '@/utils/reports/relatorioConsolidadoSectionTitles';
 
 export type SumarioSection = {
   number: number;
@@ -27,7 +34,7 @@ export function buildSumarioSections(report: RelatorioConsolidado): SumarioSecti
     },
     {
       number: 2,
-      title: 'Consolidado de Frequência',
+      title: RELATORIO_SECAO_FREQUENCIA,
       subsections: porDisciplina,
     },
     {
@@ -37,22 +44,22 @@ export function buildSumarioSections(report: RelatorioConsolidado): SumarioSecti
     },
     {
       number: 4,
-      title: 'Consolidado de Médias (Nota)',
+      title: RELATORIO_SECAO_MEDIA_NOTA,
       subsections: porDisciplina,
     },
     {
       number: 5,
-      title: 'Consolidado de Médias (Proficiência)',
+      title: RELATORIO_SECAO_MEDIA_PROFICIENCIA,
       subsections: porDisciplina,
     },
     {
       number: 6,
-      title: 'Acertos por Habilidade',
+      title: RELATORIO_SECAO_ACERTOS_HABILIDADE,
       subsections: porDisciplina,
     },
     {
       number: 7,
-      title: 'Distribuição dos Níveis de Proficiência',
+      title: RELATORIO_SECAO_DISTRIBUICAO,
       subsections: porDisciplina,
     },
   ];
