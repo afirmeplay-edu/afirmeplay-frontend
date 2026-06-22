@@ -210,9 +210,11 @@ function applyPivotBodyStyle(
 
   if (col === 0) {
     if (isRedeRow) {
+      // Primeira coluna das linhas de rede: mostra label apenas na primeira linha
       hookData.cell.styles.fillColor = FOOTER_LABEL_FILL;
       hookData.cell.styles.textColor = FOOTER_LABEL_TEXT;
     } else if (faixa) {
+      // Primeira coluna das linhas primárias: cor do nível
       const style = getProficienciaFaixaStyle(faixa);
       hookData.cell.styles.fillColor = style.fill;
       hookData.cell.styles.textColor = style.text;
@@ -221,10 +223,13 @@ function applyPivotBodyStyle(
   }
 
   if (isRedeRow) {
-    if (col === totalCol && faixaIdx === PROFICIENCIA_FAIXA_ORDER.length - 1) {
+    // Linhas de média municipal: usar cores roxas claras, EXCETO coluna MÉDIA
+    if (col === totalCol) {
+      // Coluna MÉDIA sempre com cor especial de footerMedia
       hookData.cell.styles.fillColor = MEDIAS_PDF_COLUMN_COLORS.footerMedia.fill;
       hookData.cell.styles.textColor = MEDIAS_PDF_COLUMN_COLORS.footerMedia.text;
     } else {
+      // Demais colunas: cor roxa clara padrão
       hookData.cell.styles.fillColor = FOOTER_LABEL_FILL;
       hookData.cell.styles.textColor = FOOTER_LABEL_TEXT;
     }

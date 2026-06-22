@@ -9,7 +9,10 @@ export function splitHabilidadesPorMeta(habilidades: HabilidadeConsolidada[]): {
   abaixoDaMeta: HabilidadeConsolidada[];
 } {
   const sorted = [...habilidades].sort(
-    (a, b) => b.percentual - a.percentual || a.codigo.localeCompare(b.codigo, 'pt-BR')
+    (a, b) => 
+      b.percentual - a.percentual || 
+      a.ordem_original - b.ordem_original ||
+      a.codigo.localeCompare(b.codigo, 'pt-BR')
   );
 
   return {
@@ -24,10 +27,14 @@ export function formatHabilidadePercentDisplay(percentual: number): string {
 }
 
 export function buildHabilidadeLinhaTexto(h: HabilidadeConsolidada): string {
+  const questao = `Questão ${h.numero_questao}`;
   const codigo = h.codigo.trim();
   const descricao = h.descricao.trim();
-  if (codigo && descricao) return `${codigo} - ${descricao}`;
-  return codigo || descricao;
+  
+  if (codigo && descricao) return `${questao}: ${codigo} - ${descricao}`;
+  if (codigo) return `${questao}: ${codigo}`;
+  if (descricao) return `${questao}: ${descricao}`;
+  return questao;
 }
 
 export function getHabilidadeMetaCardTitle(variant: HabilidadeMetaVariant): string {

@@ -100,6 +100,8 @@ export type SecaoMatrizNumerica = {
 };
 
 export type HabilidadeConsolidada = {
+  numero_questao: number;
+  ordem_original: number;
   codigo: string;
   descricao: string;
   disciplina: string;

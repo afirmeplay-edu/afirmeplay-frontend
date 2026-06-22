@@ -148,17 +148,17 @@ function LegendTable({
         <Table>
           <TableHeader>
             <TableRow className="bg-primary hover:bg-primary">
-              <TableHead className="text-primary-foreground w-40">{col1}</TableHead>
-              <TableHead className="text-primary-foreground">{col2}</TableHead>
+              <TableHead className="text-primary-foreground w-40 text-center">{col1}</TableHead>
+              <TableHead className="text-primary-foreground text-center">{col2}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.map((row) => (
               <TableRow key={row.label}>
-                <TableCell>
+                <TableCell className="text-center">
                   <LegendBadge label={row.label} fill={row.fill} text={row.text} />
                 </TableCell>
-                <TableCell className="text-sm text-muted-foreground">{row.description}</TableCell>
+                <TableCell className="text-sm text-muted-foreground text-center">{row.description}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -365,7 +365,7 @@ export function RelatorioConsolidadoReportSections({
               ) : (
                 <p className="text-sm text-muted-foreground">Sem matriz de acertos.</p>
               )}
-              {bloco?.por_serie && bloco.por_serie.length > 0 ? (
+              {bloco?.por_serie && bloco.por_serie.length > 0 && disc !== 'GERAL' ? (
                 <div className="space-y-6">
                   {bloco.por_serie.map((serieBloco) => (
                     <div key={`hab-serie-${serieBloco.serie_id}`} className="space-y-3">
@@ -383,7 +383,7 @@ export function RelatorioConsolidadoReportSections({
                   ))}
                 </div>
               ) : (
-                !bloco?.matriz && (
+                !bloco?.matriz && disc !== 'GERAL' && (
                   <p className="text-sm text-muted-foreground">Nenhuma habilidade consolidada.</p>
                 )
               )}

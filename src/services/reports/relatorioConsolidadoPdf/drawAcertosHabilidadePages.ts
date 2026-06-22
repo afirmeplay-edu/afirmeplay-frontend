@@ -29,7 +29,7 @@ import { HABILIDADES_PDF_CARD_STYLES, resolveAcertosMetaPdfCellStyle } from './h
 import {
   drawRelatorioConsolidadoInternalHeader,
   drawRelatorioConsolidadoSectionTitle,
-  formatPdfDecimal,
+  formatPdfPercent,
   formatPdfUpper,
   paintPdfWhitePage,
   PDF_MARGIN_X,
@@ -45,6 +45,10 @@ export type AcertosHabilidadePagesParams = {
 const PDF_TABLE_TOP_MARGIN = 58;
 const PDF_TABLE_BOTTOM_MARGIN = 22;
 const PDF_PAGE_BOTTOM = 275;
+const PDF_SAFE_BOTTOM = 268; // Margem de segurança para evitar ultrapassar o rodapé
+const CHART_INNER_PAD = 10;
+const CHART_TOP_PAD = 15;
+const CHART_VALUE_LABEL_RESERVE = 15;
 
 type PageLayoutContext = {
   doc: jsPDF;
@@ -130,15 +134,15 @@ function buildTableData(
   const body = matriz.linhas.map((linha, idx) => [
     String(idx + 1),
     formatPdfUpper(linha.escola_nome),
-    ...linha.valores_por_serie.map((v) => formatPdfDecimal(v)),
-    formatPdfDecimal(linha.taxa_geral_escola),
+    ...linha.valores_por_serie.map((v) => v != null ? formatPdfPercent(v) : '-'),
+    linha.taxa_geral_escola != null ? formatPdfPercent(linha.taxa_geral_escola) : '-',
   ]);
 
   const footRow = [
     '',
     footerLabel,
-    ...matriz.medias_da_rede.por_serie.map((v) => formatPdfDecimal(v)),
-    formatPdfDecimal(matriz.medias_da_rede.taxa_geral),
+    ...matriz.medias_da_rede.por_serie.map((v) => v != null ? formatPdfPercent(v) : '-'),
+    matriz.medias_da_rede.taxa_geral != null ? formatPdfPercent(matriz.medias_da_rede.taxa_geral) : '-',
   ];
 
   return { head: [headRow], body, foot: [footRow], seriesCount };
@@ -300,17 +304,20 @@ async function drawAcertosMatrizTable(
   return finalY ?? startY + 20;
 }
 
-function ensurePageSpace(ctx: PageLayoutContext, y: number, needed: number): number {
-  if (y + needed <= PDF_PAGE_BOTTOM) return y;
+function ensurePageSpace(ctx: PageLayoutContext, y: number, needed: number, isContinuation: boolean = false): number {
+  // Usa o limite seguro para evitar ultrapassar o rodapé
+  if (y + needed <= PDF_SAFE_BOTTOM) return y;
 
   ctx.doc.addPage();
   paintPdfWhitePage(ctx.doc);
+  // Menos espaço após o header para continuações (2mm ao invés de 4mm)
+  const spacingAfterHeader = isContinuation ? 2 : 4;
   return (
     drawRelatorioConsolidadoInternalHeader(ctx.doc, {
       logo: ctx.logo,
       institutionName: ctx.institutionName,
       year: ctx.year,
-    }) + 4
+    }) + spacingAfterHeader
   );
 }
 
@@ -329,18 +336,24 @@ function drawCardSegment(
   habilidades: HabilidadeConsolidada[],
   x: number,
   y: number,
-  width: number
+  width: number,
+  showHeader: boolean = true,
+  isContinuation: boolean = false
 ): number {
   const styles = HABILIDADES_PDF_CARD_STYLES[variant];
   const padX = 5;
   const padY = 4;
   const pctColW = 14;
   const textW = width - padX * 2 - pctColW - 2;
-  const headerH = 9;
+  const headerH = showHeader ? 9 : 0;
   const headerText = getHabilidadeMetaCardTitle(variant);
 
   const rowsH = habilidades.reduce((acc, h) => acc + measureRowHeight(doc, h, textW), 0);
-  const cardH = padY + headerH + 2 + rowsH + padY;
+  
+  // Ajusta padding: continuação tem menos padding no topo
+  const topPad = isContinuation ? 2 : padY;
+  const headerBlockH = showHeader ? (topPad + headerH + 2) : topPad;
+  const cardH = headerBlockH + rowsH + padY;
 
   doc.setFillColor(...styles.fill);
   if (typeof doc.roundedRect === 'function') {
@@ -352,12 +365,19 @@ function drawCardSegment(
   doc.setFillColor(...styles.border);
   doc.rect(x, y, 2.5, cardH, 'F');
 
-  let cursorY = y + padY + 5;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(...styles.text);
-  doc.text(headerText, x + padX + 1, cursorY);
-  cursorY += headerH;
+  let cursorY = y + topPad;
+  
+  // Desenha header apenas se showHeader = true
+  if (showHeader) {
+    cursorY += 5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...styles.text);
+    doc.text(headerText, x + padX + 1, cursorY);
+    cursorY += headerH + 2;
+  } else {
+    cursorY += 2; // Mínimo padding para continuação
+  }
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.2);
@@ -388,21 +408,27 @@ function drawCardSegment(
     cursorY += rowH;
   }
 
-  return y + cardH + 6;
+  // Retorna sem espaço extra se for continuação
+  return y + cardH + (isContinuation ? 0 : 6);
 }
 
 function estimateCardHeight(
   doc: jsPDF,
   habilidades: HabilidadeConsolidada[],
-  width: number
+  width: number,
+  showHeader: boolean = true,
+  isContinuation: boolean = false
 ): number {
   const padX = 5;
   const padY = 4;
   const pctColW = 14;
   const textW = width - padX * 2 - pctColW - 2;
-  const headerH = 9;
+  const headerH = showHeader ? 9 : 0;
+  const topPad = isContinuation ? 2 : padY;
+  const headerBlockH = showHeader ? (topPad + headerH + 2) : topPad;
   const rowsH = habilidades.reduce((acc, h) => acc + measureRowHeight(doc, h, textW), 0);
-  return padY + headerH + 2 + rowsH + padY + 6;
+  const bottomSpacing = isContinuation ? 0 : 6;
+  return headerBlockH + rowsH + padY + bottomSpacing;
 }
 
 function takeHabilidadesForPage(
@@ -416,14 +442,17 @@ function takeHabilidadesForPage(
   const pctColW = 14;
   const textW = width - padX * 2 - pctColW - 2;
   const headerBlock = padY + 9 + 2 + padY;
+  const cardPadding = 6; // Espaço extra após o card
 
   const chunk: HabilidadeConsolidada[] = [];
   let used = startY + headerBlock;
 
   for (const h of habilidades) {
     const rowH = measureRowHeight(doc, h, textW);
-    if (chunk.length > 0 && used + rowH > PDF_PAGE_BOTTOM) break;
-    if (chunk.length === 0 && startY + headerBlock + rowH > PDF_PAGE_BOTTOM) {
+    // Verifica se adicionar esta linha ultrapassaria o limite seguro (incluindo padding final)
+    if (chunk.length > 0 && used + rowH + padY + cardPadding > PDF_SAFE_BOTTOM) break;
+    // Se é a primeira linha e já não cabe, adiciona mesmo assim (evita loop infinito)
+    if (chunk.length === 0 && startY + headerBlock + rowH + padY + cardPadding > PDF_SAFE_BOTTOM) {
       chunk.push(h);
       break;
     }
@@ -446,15 +475,172 @@ function drawHabilidadeMetaCards(
   const marginL = PDF_MARGIN_X;
   let y = startY;
   let remaining = [...habilidades];
+  let isFirstSegment = true; // Controla se é o primeiro segmento
 
   while (remaining.length > 0) {
     const segment = takeHabilidadesForPage(ctx.doc, remaining, y, contentW);
-    y = ensurePageSpace(ctx, y, estimateCardHeight(ctx.doc, segment, contentW));
-    y = drawCardSegment(ctx.doc, variant, segment, marginL, y, contentW);
+    const showHeader = isFirstSegment; // Mostra header apenas no primeiro segmento
+    const isContinuation = !isFirstSegment; // É continuação se não for o primeiro
+    const estimatedHeight = estimateCardHeight(ctx.doc, segment, contentW, showHeader, isContinuation);
+    
+    // Verifica se há espaço suficiente, se não, muda de página (com menos espaço se for continuação)
+    y = ensurePageSpace(ctx, y, estimatedHeight, isContinuation);
+    
+    // Desenha o card (com ou sem header, marcando se é continuação)
+    y = drawCardSegment(ctx.doc, variant, segment, marginL, y, contentW, showHeader, isContinuation);
+    
+    // Remove as habilidades já desenhadas
     remaining = remaining.slice(segment.length);
+    
+    // Marca que não é mais o primeiro segmento
+    isFirstSegment = false;
+    
+    // NÃO adiciona espaço entre segmentos - continuidade visual
   }
 
   return y;
+}
+
+function drawHabilidadesBarChart(
+  doc: jsPDF,
+  habilidades: HabilidadeConsolidada[],
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  pageInfo?: string
+): number {
+  const barsStartX = x + CHART_INNER_PAD;
+  const barsW = w - CHART_INNER_PAD * 2;
+  const plotTopInset = CHART_TOP_PAD + CHART_VALUE_LABEL_RESERVE;
+  const colWidth = barsW / Math.max(1, habilidades.length);
+  const innerW = Math.max(6, colWidth - 4);
+
+  const axisMin = 0;
+  const axisMax = 100;
+  const maxValue = 100;
+
+  // Determina se precisa rotacionar labels (quando há muitas questões ou espaço pequeno)
+  const needsRotation = habilidades.length > 8 || colWidth < 12;
+  
+  // Calcula tamanho da fonte dos labels
+  let catFs = Math.min(7.5, Math.max(5.5, 80 / habilidades.length));
+  
+  // Espaço para labels: maior se rotacionado (precisa de mais espaço para os labels inclinados)
+  // Aumentado para garantir que os labels fiquem COMPLETAMENTE abaixo da linha base
+  let bottomPad = needsRotation ? Math.max(50, catFs * 10) : Math.max(26, catFs * 1.2 * 2 + 12);
+  
+  const baselineY = y + h - bottomPad;
+  const chartAreaH = baselineY - (y + plotTopInset);
+  const catLineH = catFs * 1.2;
+
+  // Título do gráfico (se houver paginação)
+  if (pageInfo) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(pageInfo, x + w / 2, y - 3, { align: 'center' });
+  }
+
+  // Desenha barras
+  habilidades.forEach((habilidade, idx) => {
+    const baseX = barsStartX + idx * colWidth + colWidth / 2;
+    const value = habilidade.percentual;
+    const barH = Math.max(2, (Math.max(0, value - axisMin) / (maxValue - axisMin)) * chartAreaH);
+    const barY = baselineY - barH;
+    
+    // Cor baseada no percentual (>= 60% verde, < 60% vermelho)
+    const barColor = value >= 60 ? '#22C55E' : '#EF4444';
+    
+    // Converter hex para RGB
+    const rgb = {
+      r: parseInt(barColor.slice(1, 3), 16),
+      g: parseInt(barColor.slice(3, 5), 16),
+      b: parseInt(barColor.slice(5, 7), 16),
+    };
+    
+    doc.setFillColor(rgb.r, rgb.g, rgb.b);
+    const singleW = Math.max(4, Math.min(16, innerW * 0.85));
+    const singleX = baseX - singleW / 2;
+    
+    // Desenha barra (com altura mínima visível)
+    if (barH > 1) {
+      if (typeof doc.roundedRect === 'function' && barH > 4) {
+        doc.roundedRect(singleX, barY, singleW, barH, 3, 3, 'F');
+      } else {
+        doc.rect(singleX, barY, singleW, barH, 'F');
+      }
+    }
+    
+    // Label do valor acima da barra (SEMPRE mostrar)
+    doc.setTextColor(15, 23, 42);
+    doc.setFont('helvetica', 'bold');
+    // Fonte ajustada: menor quando há muitas habilidades
+    const valueFontSize = Math.min(9, Math.max(5.5, 100 / habilidades.length));
+    doc.setFontSize(valueFontSize);
+    doc.text(`${value.toFixed(1)}%`, baseX, Math.max(y + plotTopInset - 2, barY - 2), { align: 'center' });
+  });
+
+  // Labels embaixo: com ou sem rotação
+  doc.setFontSize(catFs);
+  doc.setTextColor(51, 65, 85);
+  
+  if (needsRotation) {
+    // Labels ROTACIONADOS em 45 graus
+    habilidades.forEach((habilidade, idx) => {
+      const centerX = barsStartX + idx * colWidth + colWidth / 2;
+      // Pequeno offset para a esquerda para evitar sobreposição com a barra
+      const baseX = centerX - 2;
+      // Posição Y BEM ABAIXO da baseline para garantir que labels não invadam as barras
+      // Aumentado de 3 para 8mm abaixo da linha base
+      const labY = baselineY + 8;
+      
+      // Texto combinado: "Q1 - Código"
+      doc.setFont('helvetica', 'bold');
+      const questaoText = `Q${habilidade.numero_questao}`;
+      
+      doc.setFont('helvetica', 'normal');
+      const codigo = habilidade.codigo.length > 12 ? habilidade.codigo.substring(0, 12) : habilidade.codigo;
+      const fullText = codigo ? `${questaoText} - ${codigo}` : questaoText;
+      
+      // Rotaciona 45 graus e desenha
+      doc.saveGraphicsState();
+      doc.setFont('helvetica', 'normal');
+      const angle = 45;
+      
+      // Aplica transformação de rotação com baseline 'top' para começar ABAIXO do ponto
+      doc.text(fullText, baseX, labY, { 
+        angle: angle,
+        align: 'left',
+        baseline: 'top'
+      });
+      
+      doc.restoreGraphicsState();
+    });
+  } else {
+    // Labels HORIZONTAIS (2 linhas)
+    habilidades.forEach((habilidade, idx) => {
+      const baseX = barsStartX + idx * colWidth + colWidth / 2;
+      let labY = baselineY + 5 + catLineH * 0.72;
+      
+      // Linha 1: Número da questão (negrito)
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Q${habilidade.numero_questao}`, baseX, labY, { align: 'center' });
+      
+      // Linha 2: Código da habilidade (normal, truncado se necessário)
+      labY += catLineH;
+      doc.setFont('helvetica', 'normal');
+      const codigo = habilidade.codigo.length > 10 ? habilidade.codigo.substring(0, 10) : habilidade.codigo;
+      doc.text(codigo, baseX, labY, { align: 'center' });
+    });
+  }
+
+  // Linha de base
+  doc.setDrawColor(200, 200, 200);
+  doc.setLineWidth(0.5);
+  doc.line(barsStartX, baselineY, barsStartX + barsW, baselineY);
+
+  return y + h;
 }
 
 function buildHabilidadesSectionTitle(report: RelatorioConsolidado): string {
@@ -529,8 +715,18 @@ async function drawAcertosHabilidadeDisciplinaPage(
   }
 
   if (porSerie.length > 0) {
-    for (const serieBloco of porSerie) {
-      y = ensurePageSpace(ctx, y, 18);
+    for (let i = 0; i < porSerie.length; i++) {
+      const serieBloco = porSerie[i];
+      
+      // SEMPRE começar cada série em uma nova página para evitar quebras
+      doc.addPage();
+      paintPdfWhitePage(doc);
+      y = drawRelatorioConsolidadoInternalHeader(doc, {
+        logo: params.logo,
+        institutionName: params.institutionName,
+        year: params.year,
+      });
+      y += 4;
       
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9.5);
@@ -540,13 +736,48 @@ async function drawAcertosHabilidadeDisciplinaPage(
 
       if (serieBloco.habilidades.length > 0) {
         const { dentroDaMeta, abaixoDaMeta } = splitHabilidadesPorMeta(serieBloco.habilidades);
-        y = drawHabilidadeMetaCards(ctx, 'dentro', dentroDaMeta, y, contentW);
-        y = drawHabilidadeMetaCards(ctx, 'abaixo', abaixoDaMeta, y, contentW);
+        
+        // Desenha cards "dentro da meta" com paginação automática
+        if (dentroDaMeta.length > 0) {
+          y = drawHabilidadeMetaCards(ctx, 'dentro', dentroDaMeta, y, contentW);
+        }
+        
+        // Desenha cards "abaixo da meta" com paginação automática
+        if (abaixoDaMeta.length > 0) {
+          y = drawHabilidadeMetaCards(ctx, 'abaixo', abaixoDaMeta, y, contentW);
+        }
+        
+        // Desenha gráfico de barras com todas as habilidades (ordenadas pela ordem original)
+        const habilidadesParaGrafico = [...serieBloco.habilidades].sort(
+          (a, b) => a.ordem_original - b.ordem_original
+        );
+        
+        if (habilidadesParaGrafico.length > 0) {
+          // PAGINAÇÃO: Divide em chunks de no máximo 12 questões por gráfico
+          const MAX_QUESTOES_POR_GRAFICO = 12;
+          const totalChunks = Math.ceil(habilidadesParaGrafico.length / MAX_QUESTOES_POR_GRAFICO);
+          
+          for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+            const startIdx = chunkIdx * MAX_QUESTOES_POR_GRAFICO;
+            const endIdx = Math.min(startIdx + MAX_QUESTOES_POR_GRAFICO, habilidadesParaGrafico.length);
+            const chunk = habilidadesParaGrafico.slice(startIdx, endIdx);
+            
+            // Gráfico em página própria se necessário, altura generosa
+            const chartH = 140; // Aumentado de 120 para 140mm
+            y = ensurePageSpace(ctx, y, chartH);
+            
+            // Info de paginação (ex: "Gráfico 1/2", "Gráfico 2/2")
+            const pageInfo = totalChunks > 1 ? `Gráfico ${chunkIdx + 1}/${totalChunks}` : undefined;
+            
+            y = drawHabilidadesBarChart(doc, chunk, marginL, y, contentW, chartH, pageInfo);
+            y += 8;
+          }
+        }
       } else {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
         doc.setTextColor(...RELATORIO_CONSOLIDADO_PDF_COLORS.textGray);
-        doc.text('Nenhuma habilidade para esta serie.', marginL, y + 2);
+        doc.text('Nenhuma habilidade para esta série.', marginL, y + 2);
         y += 10;
       }
     }

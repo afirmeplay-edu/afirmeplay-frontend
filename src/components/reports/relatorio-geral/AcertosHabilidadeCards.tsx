@@ -61,7 +61,7 @@ function HabilidadeMetaCard({
       <ul className="divide-y">
         {habilidades.map((h) => (
           <li
-            key={`${h.codigo}-${h.disciplina}-${h.descricao}`}
+            key={`${h.itens_origem[0] || 'unknown'}-${h.numero_questao}-${h.codigo}`}
             className={cn(
               'flex items-start justify-between gap-4 py-2.5 first:pt-0 last:pb-0',
               styles.rowBorder,

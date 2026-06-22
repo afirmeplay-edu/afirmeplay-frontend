@@ -214,8 +214,8 @@ export function drawPdfLegendTable(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   doc.setTextColor(...white);
-  doc.text(headerCol1, marginL + 3, y + 6);
-  doc.text(headerCol2, marginL + col1W + 3, y + 6);
+  doc.text(headerCol1, marginL + col1W / 2, y + 6, { align: 'center' });
+  doc.text(headerCol2, marginL + col1W + col2W / 2, y + 6, { align: 'center' });
   y += headerH;
 
   rows.forEach((row, idx) => {
@@ -227,13 +227,15 @@ export function drawPdfLegendTable(
     doc.rect(marginL, y, contentW, rowH, 'S');
     doc.line(marginL + col1W, y, marginL + col1W, y + rowH);
 
-    drawPdfColoredBadge(doc, marginL + 4, y + 8.2, row.label, row.fill, row.text);
+    const badgeX = marginL + col1W / 2;
+    drawPdfColoredBadge(doc, badgeX - doc.getTextWidth(row.label) / 2 - 4, y + 8.2, row.label, row.fill, row.text);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(...textGray);
-    const descLines = doc.splitTextToSize(row.description, col2W - 8) as string[];
-    doc.text(descLines, marginL + col1W + 4, y + 7.5);
+    const descLines = doc.splitTextToSize(row.description, col2W - 16) as string[];
+    const descX = marginL + col1W + col2W / 2;
+    doc.text(descLines, descX, y + 7.5, { align: 'center' });
 
     y += rowH;
   });

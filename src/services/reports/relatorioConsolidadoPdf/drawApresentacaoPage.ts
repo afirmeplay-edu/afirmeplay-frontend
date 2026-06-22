@@ -140,8 +140,8 @@ function drawLegendaFrequenciaTable(
   doc.rect(marginL, y, contentW, headerH, 'F');
   doc.setFontSize(9);
   doc.setTextColor(...white);
-  doc.text('Classificação', marginL + 3, y + 6);
-  doc.text('Descrição', marginL + col1W + 3, y + 6);
+  doc.text('Classificação', marginL + col1W / 2, y + 6, { align: 'center' });
+  doc.text('Descrição', marginL + col1W + col2W / 2, y + 6, { align: 'center' });
   y += headerH;
 
   LEGENDA_FREQUENCIA.forEach((row, idx) => {
@@ -153,13 +153,15 @@ function drawLegendaFrequenciaTable(
     doc.rect(marginL, y, contentW, rowH, 'S');
     doc.line(marginL + col1W, y, marginL + col1W, y + rowH);
 
-    drawBadge(doc, marginL + 4, y + 8.2, row.label, row.fill, row.text);
+    const badgeX = marginL + col1W / 2;
+    drawBadge(doc, badgeX - doc.getTextWidth(row.label) / 2 - 4, y + 8.2, row.label, row.fill, row.text);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(...textGray);
-    const descLines = doc.splitTextToSize(row.description, col2W - 8) as string[];
-    doc.text(descLines, marginL + col1W + 4, y + 7.5);
+    const descLines = doc.splitTextToSize(row.description, col2W - 16) as string[];
+    const descX = marginL + col1W + col2W / 2;
+    doc.text(descLines, descX, y + 7.5, { align: 'center' });
 
     y += rowH;
   });
