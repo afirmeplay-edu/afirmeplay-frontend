@@ -33,6 +33,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { api } from '@/lib/api';
 import { fetchAuthenticatedDownload } from '@/lib/fetch-authenticated-download';
+import SkillsSelector from '@/components/evaluations/questions/SkillsSelector';
+import { useSkillsStore } from '@/stores/useSkillsStore';
 import {
   formatGenerationScopeSummary,
   generationCanDownload,
@@ -128,7 +130,22 @@ interface GabaritoDetailResponse {
   id: string;
   title?: string;
   num_questions?: number;
+  use_blocks?: boolean;
   correct_answers?: Record<string, Alternative | null> | null;
+  blocks_config?: {
+    blocks: Array<{
+      block_id: number;
+      subject_id: string;
+      subject_name: string;
+      start_question: number;
+      end_question: number;
+      questions_count: number;
+    }>
+  };
+  created_at?: string;
+  question_skills?: Record<string, string[]>;
+  questions_options?: Record<string, string[]>;
+  skill_codes?: Record<string, string>;
 }
 
 interface RecalculateJobStatusResponse {
@@ -228,7 +245,7 @@ export default function AnswerSheetGenerateCards() {
   const recalcPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Abas
-  const [activeTab, setActiveTab] = useState<'generate' | 'generated'>('generate');
+  const [activeTab, setActiveTab] = useState<'generate' | 'generated' | 'edit'>('generate');
 
   // Gabaritos
   const [gabaritos, setGabaritos] = useState<Gabarito[]>([]);
@@ -257,6 +274,50 @@ export default function AnswerSheetGenerateCards() {
   const [recalcSummary, setRecalcSummary] = useState<{ successful_items?: number; failed_items?: number } | null>(null);
   const [recalcItems, setRecalcItems] = useState<RecalculateJobStatusResponse['items']>(null);
   const [recalcMessage, setRecalcMessage] = useState<string>('');
+
+  // Edição estrutural
+  const [structEditOpen, setStructEditOpen] = useState(false);
+  const [structEditLoading, setStructEditLoading] = useState(false);
+  const [structEditSaving, setStructEditSaving] = useState(false);
+  const [structEditGabaritoId, setStructEditGabaritoId] = useState<string | null>(null);
+  const [structEditTitle, setStructEditTitle] = useState<string>('');
+  const [structEditNumQuestions, setStructEditNumQuestions] = useState<number>(0);
+  const [structEditBlocks, setStructEditBlocks] = useState<Array<{
+    block_id: number;
+    subject_id: string;
+    subject_name: string;
+    start_question: number;
+    end_question: number;
+    questions_count: number;
+  }>>([]);
+  const [structEditQuestionSkills, setStructEditQuestionSkills] = useState<Record<string, string[]>>({});
+  const [structEditQuestionsOptions, setStructEditQuestionsOptions] = useState<Record<string, string[]>>({});
+  const [structEditWarning, setStructEditWarning] = useState<string | null>(null);
+  const [showRegeneratePdfsDialog, setShowRegeneratePdfsDialog] = useState(false);
+  const [disciplines, setDisciplines] = useState<{ id: string; name: string }[]>([]);
+  const [isLoadingDisciplines, setIsLoadingDisciplines] = useState(false);
+  
+  // Habilidades
+  const [skillSubjectId, setSkillSubjectId] = useState('');
+  const [skillGradeId, setSkillGradeId] = useState('');
+  const [subjectsForSkills, setSubjectsForSkills] = useState<{ id: string; name: string }[]>([]);
+  const [gradesForSkills, setGradesForSkills] = useState<{ id: string; name: string }[]>([]);
+  const [availableSkills, setAvailableSkills] = useState<{ id: string; code: string; description: string; name: string }[]>([]);
+  const [isLoadingSkills, setIsLoadingSkills] = useState(false);
+  const [editingQuestionSkillsNum, setEditingQuestionSkillsNum] = useState<number | null>(null);
+  const [skillCodeCache, setSkillCodeCache] = useState<Record<string, string>>({});
+  
+  // Alternativas customizadas
+  const [useGlobalAlternatives, setUseGlobalAlternatives] = useState(true);
+  const [globalAlternatives, setGlobalAlternatives] = useState<string[]>(['A', 'B', 'C', 'D']);
+  const [editingQuestionAlternativesNum, setEditingQuestionAlternativesNum] = useState<number | null>(null);
+
+  // Respostas corretas
+  const [structEditCorrectAnswers, setStructEditCorrectAnswers] = useState<Record<string, Alternative | null>>({});
+
+  // Constantes para blocos
+  const MIN_QUESTIONS_PER_BLOCK = 1;
+  const MAX_QUESTIONS_PER_BLOCK = 26;
 
   // Filtros (escopo)
   const [selectedFilters, setSelectedFilters] = useState<SelectedFilters>({});
@@ -485,6 +546,470 @@ export default function AnswerSheetGenerateCards() {
     [noEditPermissionIds, resetEditDialogState, toast]
   );
 
+  const checkCanEditStructure = useCallback(async (gabaritoId: string): Promise<boolean> => {
+    try {
+      const res = await api.get(`/answer-sheets/results?gabarito_id=${gabaritoId}&page=1&per_page=1`);
+      if (res.data && res.data.total > 0) {
+        toast({
+          title: 'Não é possível editar',
+          description: 'Este cartão já possui correções registradas. Para fazer alterações, crie um novo cartão.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+      return true;
+    } catch {
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível verificar permissões de edição.',
+        variant: 'destructive',
+      });
+      return false;
+    }
+  }, [toast]);
+
+  const resetStructEditDialogState = useCallback(() => {
+    setStructEditOpen(false);
+    setStructEditLoading(false);
+    setStructEditSaving(false);
+    setStructEditGabaritoId(null);
+    setStructEditTitle('');
+    setStructEditNumQuestions(0);
+    setStructEditBlocks([]);
+    setStructEditQuestionSkills({});
+    setStructEditQuestionsOptions({});
+    setStructEditCorrectAnswers({});
+    setStructEditWarning(null);
+    setShowRegeneratePdfsDialog(false);
+    setSkillSubjectId('');
+    setSkillGradeId('');
+    setAvailableSkills([]);
+    setEditingQuestionSkillsNum(null);
+    setSkillCodeCache({});
+    setUseGlobalAlternatives(true);
+    setGlobalAlternatives(['A', 'B', 'C', 'D']);
+    setEditingQuestionAlternativesNum(null);
+  }, []);
+
+  const openStructEditDialog = useCallback(async (g: Gabarito) => {
+    const canEdit = await checkCanEditStructure(g.id);
+    if (!canEdit) return;
+
+    setStructEditOpen(true);
+    setStructEditLoading(true);
+    setStructEditGabaritoId(g.id);
+    setStructEditTitle(g.title);
+    setStructEditNumQuestions(g.num_questions ?? 0);
+    setStructEditBlocks([]);
+    setStructEditQuestionSkills({});
+    setStructEditQuestionsOptions({});
+    setStructEditCorrectAnswers({});
+    setStructEditWarning(null);
+
+    try {
+      const res = await api.get<GabaritoDetailResponse>(`/answer-sheets/gabarito/${g.id}`);
+      const data = res.data;
+
+      setStructEditTitle(data.title ?? g.title);
+      setStructEditNumQuestions(data.num_questions ?? 0);
+
+      // Carregar blocos
+      if (data.blocks_config?.blocks) {
+        setStructEditBlocks(data.blocks_config.blocks);
+      }
+
+      // Carregar habilidades por questão e construir cache de códigos
+      if (data.question_skills) {
+        setStructEditQuestionSkills(data.question_skills);
+      }
+
+      // Carregar cache de códigos BNCC
+      if (data.skill_codes) {
+        setSkillCodeCache(data.skill_codes);
+      }
+
+      // Carregar respostas corretas
+      if (data.correct_answers) {
+        setStructEditCorrectAnswers(data.correct_answers);
+      }
+      
+      // Carregar alternativas por questão e detectar se é global ou individual
+      if (data.questions_options && Object.keys(data.questions_options).length > 0) {
+        const allOptions = Object.values(data.questions_options);
+        const firstOption = JSON.stringify([...allOptions[0]].sort());
+        const isGlobal = allOptions.every(opt => 
+          JSON.stringify([...opt].sort()) === firstOption
+        );
+        
+        if (isGlobal && allOptions.length > 0) {
+          // Modo global - todas as questões têm as mesmas alternativas
+          setUseGlobalAlternatives(true);
+          setGlobalAlternatives([...allOptions[0]].sort());
+          setStructEditQuestionsOptions({});
+        } else {
+          // Modo individual - questões têm alternativas diferentes
+          setUseGlobalAlternatives(false);
+          setStructEditQuestionsOptions(data.questions_options);
+        }
+      } else {
+        // Padrão se backend não retornar: A, B, C, D
+        setUseGlobalAlternatives(true);
+        setGlobalAlternatives(['A', 'B', 'C', 'D']);
+        setStructEditQuestionsOptions({});
+      }
+    } catch (err: unknown) {
+      const msg = isAxiosError(err)
+        ? (err.response?.data as { message?: string } | undefined)?.message || 'Não foi possível carregar o gabarito.'
+        : 'Não foi possível carregar o gabarito.';
+      toast({ title: 'Erro', description: msg, variant: 'destructive' });
+      resetStructEditDialogState();
+    } finally {
+      setStructEditLoading(false);
+    }
+  }, [checkCanEditStructure, resetStructEditDialogState, toast]);
+
+  const handleSaveStructure = useCallback(async () => {
+    if (!structEditGabaritoId) return;
+
+    // Validações
+    if (structEditNumQuestions < 1 || structEditNumQuestions > 104) {
+      toast({
+        title: 'Erro de validação',
+        description: 'O número de questões deve estar entre 1 e 104.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (structEditBlocks.length > 4) {
+      toast({
+        title: 'Erro de validação',
+        description: 'Máximo de 4 blocos permitidos.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Validar soma de questões dos blocos
+    if (structEditBlocks.length > 0) {
+      const totalFromBlocks = structEditBlocks.reduce((sum, block) => sum + block.questions_count, 0);
+      if (totalFromBlocks !== structEditNumQuestions) {
+        toast({
+          title: 'Erro de validação',
+          description: `A soma das questões dos blocos (${totalFromBlocks}) não corresponde ao total de questões (${structEditNumQuestions}). Ajuste os blocos antes de salvar.`,
+          variant: 'destructive',
+        });
+        return;
+      }
+      
+      // Validar se todos os blocos têm disciplina
+      const blocksWithoutSubject = structEditBlocks.filter(b => !b.subject_id);
+      if (blocksWithoutSubject.length > 0) {
+        toast({
+          title: 'Erro de validação',
+          description: 'Todos os blocos devem ter uma disciplina selecionada.',
+          variant: 'destructive',
+        });
+        return;
+      }
+    }
+
+    try {
+      setStructEditSaving(true);
+      setStructEditWarning(null);
+
+      const payload: {
+        num_questions?: number;
+        blocks_config?: { blocks: typeof structEditBlocks };
+        question_skills?: Record<string, string[]>;
+        questions_options?: Record<string, string[]>;
+        correct_answers?: Record<string, Alternative | null>;
+      } = {};
+
+      // Adicionar apenas campos modificados
+      if (structEditNumQuestions > 0) {
+        payload.num_questions = structEditNumQuestions;
+      }
+
+      if (structEditBlocks.length > 0) {
+        payload.blocks_config = { blocks: structEditBlocks };
+      }
+
+      if (Object.keys(structEditQuestionSkills).length > 0) {
+        payload.question_skills = structEditQuestionSkills;
+      }
+
+      // Construir questions_options baseado no modo global ou individual
+      if (useGlobalAlternatives) {
+        // Modo global: aplicar as mesmas alternativas a todas as questões
+        const questionsOpts: Record<string, string[]> = {};
+        for (let i = 1; i <= structEditNumQuestions; i++) {
+          questionsOpts[String(i)] = [...globalAlternatives];
+        }
+        payload.questions_options = questionsOpts;
+      } else {
+        // Modo individual: usar as alternativas específicas de cada questão
+        if (Object.keys(structEditQuestionsOptions).length > 0) {
+          payload.questions_options = structEditQuestionsOptions;
+        }
+      }
+
+      // Adicionar respostas corretas
+      if (Object.keys(structEditCorrectAnswers).length > 0) {
+        payload.correct_answers = structEditCorrectAnswers;
+      }
+
+      const res = await api.patch(
+        `/answer-sheets/gabarito/${structEditGabaritoId}/structure`,
+        payload,
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+
+      if (res.status === 200) {
+        const data = res.data;
+        toast({
+          title: 'Sucesso',
+          description: data.message || 'Estrutura atualizada com sucesso.',
+        });
+
+        // Se tem warning, mostrar dialog para regenerar PDFs
+        if (data.warning) {
+          setStructEditWarning(data.warning);
+          setShowRegeneratePdfsDialog(true);
+        } else {
+          await fetchGabaritos();
+          resetStructEditDialogState();
+        }
+      }
+    } catch (err: unknown) {
+      if (isAxiosError(err)) {
+        const status = err.response?.status;
+        const data = err.response?.data as { error?: string; message?: string; reason?: string };
+
+        if (status === 422 && data.reason === 'has_corrections') {
+          toast({
+            title: 'Edição bloqueada',
+            description: data.error || 'Este cartão já possui correções e não pode ser editado.',
+            variant: 'destructive',
+          });
+        } else if (status === 400) {
+          toast({
+            title: 'Erro de validação',
+            description: data.message || data.error || 'Dados inválidos.',
+            variant: 'destructive',
+          });
+        } else {
+          toast({
+            title: 'Erro',
+            description: data.message || data.error || 'Não foi possível salvar a estrutura.',
+            variant: 'destructive',
+          });
+        }
+      } else {
+        toast({
+          title: 'Erro',
+          description: 'Não foi possível salvar a estrutura.',
+          variant: 'destructive',
+        });
+      }
+    } finally {
+      setStructEditSaving(false);
+    }
+  }, [
+    structEditGabaritoId,
+    structEditNumQuestions,
+    structEditBlocks,
+    structEditQuestionSkills,
+    structEditQuestionsOptions,
+    resetStructEditDialogState,
+    fetchGabaritos,
+    toast,
+  ]);
+
+  const handleRegeneratePdfs = useCallback(() => {
+    setShowRegeneratePdfsDialog(false);
+    resetStructEditDialogState();
+    setActiveTab('generate');
+    toast({
+      title: 'Redirecionado',
+      description: 'Use a aba "Gerar cartões" para regenerar os PDFs com as novas alterações.',
+    });
+  }, [resetStructEditDialogState, toast]);
+
+  const getSkillCodesForQuestion = useCallback((questionNum: number): string[] => {
+    const ids = structEditQuestionSkills[String(questionNum)] ?? [];
+    return ids
+      .map((id) => skillCodeCache[id] ?? availableSkills.find((s) => s.id === id)?.code)
+      .filter(Boolean) as string[];
+  }, [structEditQuestionSkills, skillCodeCache, availableSkills]);
+
+  const getAvailableAlternatives = useCallback((q: number): string[] => {
+    if (useGlobalAlternatives) return globalAlternatives;
+    return structEditQuestionsOptions[String(q)] || ['A', 'B', 'C', 'D'];
+  }, [useGlobalAlternatives, globalAlternatives, structEditQuestionsOptions]);
+
+  const handleToggleGlobalAlternative = useCallback((alternative: string, checked: boolean) => {
+    if (checked) {
+      if (globalAlternatives.length >= 4) {
+        toast({ 
+          title: 'Máximo 4 alternativas', 
+          description: 'Selecione no máximo 4 alternativas.',
+          variant: 'destructive' 
+        });
+        return;
+      }
+      setGlobalAlternatives([...globalAlternatives, alternative].sort());
+    } else {
+      if (globalAlternatives.length <= 2) {
+        toast({ 
+          title: 'Mínimo 2 alternativas', 
+          description: 'Cada questão deve ter pelo menos 2 alternativas.',
+          variant: 'destructive' 
+        });
+        return;
+      }
+      setGlobalAlternatives(globalAlternatives.filter((a) => a !== alternative));
+    }
+  }, [globalAlternatives, toast]);
+
+  const handleToggleQuestionAlternative = useCallback((questionNumber: number, alternative: string, checked: boolean) => {
+    const current = structEditQuestionsOptions[String(questionNumber)] || ['A', 'B', 'C', 'D'];
+    if (checked) {
+      if (current.length >= 4) {
+        toast({ 
+          title: 'Máximo 4 alternativas',
+          description: 'Selecione no máximo 4 alternativas.',
+          variant: 'destructive' 
+        });
+        return;
+      }
+      setStructEditQuestionsOptions((prev) => ({ 
+        ...prev, 
+        [String(questionNumber)]: [...current, alternative].sort() 
+      }));
+    } else {
+      if (current.length <= 2) {
+        toast({ 
+          title: 'Mínimo 2 alternativas',
+          description: 'Cada questão deve ter pelo menos 2 alternativas.',
+          variant: 'destructive' 
+        });
+        return;
+      }
+      const next = current.filter((a) => a !== alternative);
+      setStructEditQuestionsOptions((prev) => ({ 
+        ...prev, 
+        [String(questionNumber)]: next 
+      }));
+    }
+  }, [structEditQuestionsOptions, toast]);
+
+  const handleApplyGlobalToAll = useCallback(() => {
+    if (globalAlternatives.length < 2) {
+      toast({ 
+        title: 'Selecione pelo menos 2 alternativas',
+        variant: 'destructive' 
+      });
+      return;
+    }
+    const newOptions: Record<string, string[]> = {};
+    for (let i = 1; i <= structEditNumQuestions; i++) {
+      newOptions[String(i)] = [...globalAlternatives];
+    }
+    setStructEditQuestionsOptions(newOptions);
+    setUseGlobalAlternatives(false);
+    toast({ 
+      title: 'Aplicado', 
+      description: `Alternativas aplicadas às ${structEditNumQuestions} questões.` 
+    });
+  }, [globalAlternatives, structEditNumQuestions, toast]);
+
+  const handleAddStructEditBlock = useCallback(() => {
+    if (structEditBlocks.length >= 4) {
+      toast({ 
+        title: 'Limite atingido', 
+        description: 'Máximo de 4 blocos.', 
+        variant: 'destructive' 
+      });
+      return;
+    }
+    const currentTotal = structEditBlocks.reduce((s, b) => s + b.questions_count, 0);
+    if (currentTotal >= structEditNumQuestions) {
+      toast({ 
+        title: 'Todas as questões distribuídas', 
+        description: 'Todas as questões já estão nos blocos. Aumente o total de questões primeiro.', 
+        variant: 'destructive' 
+      });
+      return;
+    }
+    const startQuestion = currentTotal + 1;
+    const remaining = structEditNumQuestions - currentTotal;
+    const defaultCount = Math.min(MAX_QUESTIONS_PER_BLOCK, Math.max(MIN_QUESTIONS_PER_BLOCK, remaining));
+    const newBlockId = structEditBlocks.length > 0 
+      ? Math.max(...structEditBlocks.map(b => b.block_id)) + 1 
+      : 1;
+    
+    setStructEditBlocks([
+      ...structEditBlocks,
+      {
+        block_id: newBlockId,
+        subject_id: '',
+        subject_name: '',
+        questions_count: defaultCount,
+        start_question: startQuestion,
+        end_question: startQuestion + defaultCount - 1,
+      },
+    ]);
+  }, [structEditBlocks, structEditNumQuestions, MAX_QUESTIONS_PER_BLOCK, MIN_QUESTIONS_PER_BLOCK, toast]);
+
+  const handleRemoveStructEditBlock = useCallback((blockId: number) => {
+    const filtered = structEditBlocks.filter((b) => b.block_id !== blockId);
+    const updated = filtered.map((block, index) => {
+      const prevTotal = filtered.slice(0, index).reduce((s, b) => s + b.questions_count, 0);
+      return {
+        ...block,
+        block_id: index + 1,
+        start_question: prevTotal + 1,
+        end_question: prevTotal + block.questions_count,
+      };
+    });
+    setStructEditBlocks(updated);
+  }, [structEditBlocks]);
+
+  const handleUpdateStructEditBlockQuestions = useCallback((blockId: number, newCount: number) => {
+    const validCount = Math.min(Math.max(MIN_QUESTIONS_PER_BLOCK, newCount), MAX_QUESTIONS_PER_BLOCK);
+    const blockIndex = structEditBlocks.findIndex((b) => b.block_id === blockId);
+    if (blockIndex === -1) return;
+    
+    if (newCount < MIN_QUESTIONS_PER_BLOCK || newCount > MAX_QUESTIONS_PER_BLOCK) {
+      toast({
+        title: 'Limite por bloco',
+        description: `Cada bloco deve ter entre ${MIN_QUESTIONS_PER_BLOCK} e ${MAX_QUESTIONS_PER_BLOCK} questões.`,
+        variant: 'destructive',
+      });
+    }
+    
+    const otherTotal = structEditBlocks.filter((b) => b.block_id !== blockId).reduce((s, b) => s + b.questions_count, 0);
+    if (otherTotal + validCount > structEditNumQuestions) {
+      toast({ 
+        title: 'Excede o total', 
+        description: `A soma dos blocos não pode exceder ${structEditNumQuestions} questões.`, 
+        variant: 'destructive' 
+      });
+      return;
+    }
+    
+    let runningStart = 1;
+    const updated = structEditBlocks.map((block) => {
+      const count = block.block_id === blockId ? validCount : block.questions_count;
+      const start = runningStart;
+      const end = runningStart + count - 1;
+      runningStart += count;
+      return { ...block, questions_count: count, start_question: start, end_question: end };
+    });
+    setStructEditBlocks(updated);
+  }, [structEditBlocks, structEditNumQuestions, MIN_QUESTIONS_PER_BLOCK, MAX_QUESTIONS_PER_BLOCK, toast]);
+
   useEffect(() => {
     fetchGabaritos();
   }, [fetchGabaritos]);
@@ -492,6 +1017,98 @@ export default function AnswerSheetGenerateCards() {
   useEffect(() => {
     if (activeTab === 'generated') fetchGabaritos();
   }, [activeTab, fetchGabaritos]);
+
+  useEffect(() => {
+    const fetchDisciplines = async () => {
+      if (!structEditOpen) return;
+      
+      try {
+        setIsLoadingDisciplines(true);
+        const response = await api.get('/subjects');
+        setDisciplines(Array.isArray(response.data) ? response.data : []);
+      } catch {
+        toast({ 
+          title: 'Erro', 
+          description: 'Não foi possível carregar as disciplinas.', 
+          variant: 'destructive' 
+        });
+        setDisciplines([]);
+      } finally {
+        setIsLoadingDisciplines(false);
+      }
+    };
+    
+    fetchDisciplines();
+  }, [structEditOpen, toast]);
+
+  // Carregar subjects e grades para habilidades
+  useEffect(() => {
+    const fetchSubjects = async () => {
+      if (!structEditOpen) return;
+      try {
+        const response = await api.get<{ id: string; name: string }[]>('/subjects');
+        setSubjectsForSkills(Array.isArray(response.data) ? response.data : []);
+      } catch {
+        setSubjectsForSkills([]);
+      }
+    };
+    fetchSubjects();
+  }, [structEditOpen]);
+
+  useEffect(() => {
+    const fetchGrades = async () => {
+      if (!structEditOpen) return;
+      try {
+        const response = await api.get<{ id: string; name: string }[]>('/grades/');
+        setGradesForSkills(Array.isArray(response.data) ? response.data : []);
+      } catch {
+        setGradesForSkills([]);
+      }
+    };
+    fetchGrades();
+  }, [structEditOpen]);
+
+  // Carregar habilidades quando disciplina e série forem selecionadas
+  useEffect(() => {
+    if (!skillSubjectId || !skillGradeId) {
+      setAvailableSkills([]);
+      return;
+    }
+    const fetchSkills = async () => {
+      try {
+        setIsLoadingSkills(true);
+        const fetchSkillsBySubjectAndGrade = useSkillsStore.getState().fetchSkills;
+        const list = await fetchSkillsBySubjectAndGrade(skillSubjectId, skillGradeId);
+        const next = Array.isArray(list)
+          ? list.map((s) => ({ 
+              id: s.id, 
+              code: s.code, 
+              description: s.description, 
+              name: s.name || `${s.code} - ${s.description}` 
+            }))
+          : [];
+        setAvailableSkills(next);
+        
+        // Atualizar cache de códigos
+        setSkillCodeCache((prev) => {
+          const merged = { ...prev };
+          next.forEach((s) => { merged[s.id] = s.code; });
+          return merged;
+        });
+      } catch (error) {
+        console.error('Erro ao carregar habilidades:', error);
+        setAvailableSkills([]);
+        toast({ 
+          title: 'Aviso', 
+          description: 'Não foi possível carregar as habilidades.', 
+          variant: 'default' 
+        });
+      } finally {
+        setIsLoadingSkills(false);
+      }
+    };
+    fetchSkills();
+  }, [skillSubjectId, skillGradeId]);
 
   const processJobStatusData = useCallback(
     async (d: JobStatusResponse, options?: { silentToast?: boolean }): Promise<'processing' | 'completed' | 'failed'> => {
@@ -1018,10 +1635,11 @@ export default function AnswerSheetGenerateCards() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'generate' | 'generated')} className="space-y-6">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'generate' | 'generated' | 'edit')} className="space-y-6">
+        <TabsList className="grid w-full max-w-2xl grid-cols-3">
           <TabsTrigger value="generate">Gerar cartões</TabsTrigger>
           <TabsTrigger value="generated">Cartões gerados</TabsTrigger>
+          <TabsTrigger value="edit">Editar cartões</TabsTrigger>
         </TabsList>
 
         <TabsContent value="generate" className="space-y-6 mt-0">
@@ -1939,6 +2557,713 @@ export default function AnswerSheetGenerateCards() {
                   )}
                 </Button>
               </div>
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
+
+        <TabsContent value="edit" className="space-y-6 mt-0">
+          <Card className="border-2 shadow-sm">
+            <CardHeader>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                    <Pencil className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <CardTitle>Editar estrutura dos cartões</CardTitle>
+                    <CardDescription>
+                      Edite a estrutura completa do cartão resposta: número de questões, blocos, habilidades e alternativas.
+                    </CardDescription>
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" onClick={fetchGabaritos} disabled={isLoadingGabaritos} className="ml-auto">
+                  {isLoadingGabaritos ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  Atualizar
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {isLoadingGabaritos ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : gabaritos.length === 0 ? (
+                <div className="text-center py-12 rounded-lg border border-dashed bg-muted/30">
+                  <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">Nenhum cartão cadastrado ainda.</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    <Link to="/app/cartao-resposta/cadastrar" className="text-primary underline underline-offset-2">
+                      Cadastre um gabarito
+                    </Link>
+                    {' '}para começar.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="rounded-lg border bg-amber-50 dark:bg-amber-950/20 p-4 text-sm">
+                    <div className="flex gap-2">
+                      <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1">
+                        <p className="font-medium text-amber-900 dark:text-amber-100">Atenção ao editar a estrutura</p>
+                        <ul className="text-amber-800 dark:text-amber-200 space-y-1 text-xs list-disc list-inside">
+                          <li>Cartões com correções registradas <strong>não podem</strong> ser editados</li>
+                          <li>Se os PDFs já foram gerados, será necessário <strong>regenerá-los</strong> após editar</li>
+                          <li>As edições afetam a topologia e coordenadas do cartão</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+
+                  {gabaritos.map((gabarito) => (
+                    <Card key={gabarito.id} className="overflow-hidden">
+                      <CardContent className="p-6">
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                          <div className="space-y-3 flex-1 min-w-0">
+                            <div className="flex flex-wrap items-baseline gap-2">
+                              <h3 className="text-lg font-semibold">{gabarito.title}</h3>
+                              <Badge variant="outline" className="text-xs">
+                                {gabarito.num_questions ?? 0} questões
+                              </Badge>
+                            </div>
+                            
+                            <div className="flex flex-wrap gap-2 text-sm">
+                              {gabarito.generation_status === 'completed' ? (
+                                <Badge variant="default" className="bg-green-600 dark:bg-green-700">
+                                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                                  PDFs gerados
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-400">
+                                  <Clock className="h-3 w-3 mr-1" />
+                                  Sem PDFs
+                                </Badge>
+                              )}
+                              {gabarito.scope_type === 'city' && (gabarito.municipality || gabarito.state) && (
+                                <Badge variant="secondary">
+                                  <MapPin className="h-3 w-3 mr-1" />
+                                  {[gabarito.municipality, gabarito.state].filter(Boolean).join(' - ')}
+                                </Badge>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground">
+                              <div>
+                                <p className="text-xs text-muted-foreground">Criado em</p>
+                                <p className="font-medium text-foreground">
+                                  {new Date(gabarito.created_at).toLocaleDateString('pt-BR', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric',
+                                  })}
+                                </p>
+                              </div>
+                              {gabarito.creator_name && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Criado por</p>
+                                  <p className="font-medium text-foreground">{gabarito.creator_name}</p>
+                                </div>
+                              )}
+                              {(gabarito.generations_count ?? 0) > 0 && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Gerações</p>
+                                  <p className="font-medium text-foreground">
+                                    {gabarito.generations_count} vez(es)
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-2 shrink-0">
+                            <Button
+                              variant="outline"
+                              onClick={() => openStructEditDialog(gabarito)}
+                              disabled={isDeleting || structEditLoading}
+                            >
+                              <Pencil className="h-4 w-4 mr-2" />
+                              Editar estrutura
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Dialog open={structEditOpen} onOpenChange={(v) => (v ? setStructEditOpen(true) : resetStructEditDialogState())}>
+            <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+              <DialogHeader className="shrink-0">
+                <DialogTitle>Editar estrutura do cartão</DialogTitle>
+                <DialogDescription>
+                  {structEditTitle ? (
+                    <>
+                      <span className="font-medium text-foreground">{structEditTitle}</span>
+                    </>
+                  ) : (
+                    'Configure a estrutura completa do cartão resposta.'
+                  )}
+                </DialogDescription>
+              </DialogHeader>
+
+              {structEditLoading ? (
+                <div className="space-y-3 py-8">
+                  <Skeleton className="h-6 w-1/2" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto pr-4 min-h-0">
+                  <div className="space-y-6 pb-4">
+                    {/* Número de questões */}
+                    <div className="space-y-2">
+                      <Label htmlFor="num-questions" className="text-base font-semibold">
+                        Número de questões
+                      </Label>
+                      <p className="text-sm text-muted-foreground">Total de questões no cartão (1-104)</p>
+                      <input
+                        id="num-questions"
+                        type="number"
+                        min="1"
+                        max="104"
+                        value={structEditNumQuestions}
+                        onChange={(e) => setStructEditNumQuestions(Math.max(1, Math.min(104, parseInt(e.target.value) || 0)))}
+                        disabled={structEditSaving}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                    </div>
+
+                    {/* Blocos */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label className="text-base font-semibold">Blocos de questões</Label>
+                          <p className="text-sm text-muted-foreground">Configure até 4 blocos (máx. 26 questões cada)</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleAddStructEditBlock}
+                          disabled={structEditBlocks.length >= 4 || structEditSaving}
+                        >
+                          Adicionar bloco
+                        </Button>
+                      </div>
+
+                      {structEditBlocks.length === 0 ? (
+                        <div className="rounded-lg border border-dashed bg-muted/30 p-8 text-center text-sm text-muted-foreground">
+                          Nenhum bloco configurado. Clique em &quot;Adicionar bloco&quot; para começar.
+                        </div>
+                      ) : (
+                        <>
+                          <div className="space-y-3">
+                            {structEditBlocks.map((block, idx) => (
+                            <Card key={block.block_id} className="p-4">
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <Badge variant="outline">Bloco {block.block_id}</Badge>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleRemoveStructEditBlock(block.block_id)}
+                                    disabled={structEditSaving}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                  <div className="md:col-span-2">
+                                    <Label className="text-xs">Disciplina *</Label>
+                                    <Select
+                                      value={block.subject_id}
+                                      onValueChange={(value) => {
+                                        const updated = [...structEditBlocks];
+                                        const selectedDiscipline = disciplines.find(d => d.id === value);
+                                        updated[idx].subject_id = value;
+                                        updated[idx].subject_name = selectedDiscipline?.name || '';
+                                        setStructEditBlocks(updated);
+                                      }}
+                                      disabled={structEditSaving || isLoadingDisciplines}
+                                    >
+                                      <SelectTrigger className="mt-1">
+                                        <SelectValue placeholder={isLoadingDisciplines ? "Carregando disciplinas..." : "Selecione a disciplina..."} />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {isLoadingDisciplines ? (
+                                          <SelectItem value="__loading__" disabled>
+                                            <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                                            Carregando...
+                                          </SelectItem>
+                                        ) : disciplines.length === 0 ? (
+                                          <SelectItem value="__empty__" disabled>
+                                            Nenhuma disciplina disponível
+                                          </SelectItem>
+                                        ) : (
+                                          disciplines.map((d) => (
+                                            <SelectItem key={d.id} value={d.id}>
+                                              {d.name}
+                                            </SelectItem>
+                                          ))
+                                        )}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </div>
+                                
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <Label className="text-xs">Quantidade de questões neste bloco</Label>
+                                    <span className="text-xs text-muted-foreground">
+                                      (mín: {MIN_QUESTIONS_PER_BLOCK}, máx: {MAX_QUESTIONS_PER_BLOCK})
+                                    </span>
+                                  </div>
+                                  <input
+                                    type="number"
+                                    min={MIN_QUESTIONS_PER_BLOCK}
+                                    max={MAX_QUESTIONS_PER_BLOCK}
+                                    value={block.questions_count}
+                                    onChange={(e) => {
+                                      const raw = parseInt(e.target.value, 10);
+                                      if (Number.isNaN(raw)) return;
+                                      handleUpdateStructEditBlockQuestions(block.block_id, raw);
+                                    }}
+                                    disabled={structEditSaving}
+                                    className="mt-1 flex h-9 w-24 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                  />
+                                  <div className="text-xs text-muted-foreground">
+                                    Questões {block.start_question} até {block.end_question}
+                                  </div>
+                                </div>
+                              </div>
+                            </Card>
+                            ))}
+                          </div>
+
+                          {/* Resumo e validação */}
+                          <div className="flex flex-wrap items-center gap-4 rounded-lg bg-muted/40 px-3 py-2 text-sm">
+                            <span className="font-medium text-foreground">
+                              Total: {structEditBlocks.reduce((s, b) => s + b.questions_count, 0)} / {structEditNumQuestions} questões
+                            </span>
+                            <span className="text-muted-foreground">
+                              · {structEditBlocks.length} / 4 blocos
+                            </span>
+                          </div>
+
+                          {(() => {
+                            const totalFromBlocks = structEditBlocks.reduce((sum, b) => sum + b.questions_count, 0);
+                            const isValid = totalFromBlocks === structEditNumQuestions;
+                            const diff = structEditNumQuestions - totalFromBlocks;
+                            
+                            if (!isValid) {
+                              return (
+                                <div className="rounded-lg border border-amber-500/50 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm">
+                                  <div className="flex items-start gap-2">
+                                    <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                                    <div className="flex-1">
+                                      <p className="font-medium text-amber-900 dark:text-amber-100">
+                                        Ajuste necessário
+                                      </p>
+                                      <p className="text-amber-800 dark:text-amber-200 text-xs mt-1">
+                                        {diff > 0 
+                                          ? `Faltam ${diff} questão(ões) para distribuir nos blocos. Aumente a quantidade de questões em algum bloco ou adicione um novo bloco.`
+                                          : `Há ${Math.abs(diff)} questão(ões) a mais nos blocos. Diminua a quantidade de questões em algum bloco ou remova um bloco.`
+                                        }
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return (
+                              <div className="rounded-lg border border-green-500/50 bg-green-50 dark:bg-green-950/20 p-3 text-sm">
+                                <div className="flex items-center gap-2 text-green-800 dark:text-green-200">
+                                  <CheckCircle2 className="h-4 w-4" />
+                                  <span className="font-medium">Blocos configurados corretamente</span>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </>
+                      )}
+                    </div>
+
+                    {/* Habilidades */}
+                    <Collapsible>
+                      <CollapsibleTrigger className="flex w-full items-center justify-between rounded-lg border p-4 hover:bg-muted/50">
+                        <div>
+                          <p className="text-base font-semibold">Habilidades por questão (opcional)</p>
+                          <p className="text-sm text-muted-foreground">
+                            {Object.keys(structEditQuestionSkills).length > 0 
+                              ? `${Object.keys(structEditQuestionSkills).length} questão(ões) com habilidades`
+                              : 'Nenhuma habilidade configurada'}
+                          </p>
+                        </div>
+                        <ChevronRight className="h-5 w-5 transition-transform ui-open:rotate-90" />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="mt-2 rounded-lg border p-4 bg-muted/20">
+                        <div className="space-y-4">
+                          <p className="text-sm text-muted-foreground">
+                            Selecione disciplina e série para carregar habilidades. Depois clique na questão para associar.
+                          </p>
+                          
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label className="text-xs">Disciplina</Label>
+                              <Select value={skillSubjectId} onValueChange={setSkillSubjectId}>
+                                <SelectTrigger className="h-9">
+                                  <SelectValue placeholder="Selecione" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {subjectsForSkills.map((s) => (
+                                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label className="text-xs">Série</Label>
+                              <Select value={skillGradeId} onValueChange={setSkillGradeId}>
+                                <SelectTrigger className="h-9">
+                                  <SelectValue placeholder="Selecione" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {gradesForSkills.map((g) => (
+                                    <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+
+                          {(availableSkills.length > 0 || Object.keys(skillCodeCache).length > 0) && structEditNumQuestions >= 1 && (
+                            <div className="space-y-2">
+                              <Label className="text-xs">Clique na questão para editar habilidades</Label>
+                              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 max-h-60 overflow-y-auto">
+                                {Array.from({ length: structEditNumQuestions }, (_, i) => i + 1).map((n) => {
+                                  const codes = getSkillCodesForQuestion(n);
+                                  return (
+                                    <Button
+                                      key={n}
+                                      type="button"
+                                      variant={codes.length > 0 ? 'default' : 'outline'}
+                                      size="sm"
+                                      className="h-auto flex-col items-start p-2 text-left"
+                                      onClick={() => setEditingQuestionSkillsNum(n)}
+                                      disabled={structEditSaving}
+                                    >
+                                      <span className="font-medium text-xs">Q{n}</span>
+                                      {codes.length > 0 && (
+                                        <Badge variant="secondary" className="mt-1 h-4 px-1 text-[9px]">
+                                          {codes.length}
+                                        </Badge>
+                                      )}
+                                    </Button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {!skillSubjectId || !skillGradeId ? (
+                            <p className="text-xs text-muted-foreground italic">
+                              Selecione disciplina e série para carregar habilidades.
+                            </p>
+                          ) : isLoadingSkills ? (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              Carregando habilidades...
+                            </div>
+                          ) : null}
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+
+                    {/* Alternativas customizadas */}
+                    <div className="space-y-3">
+                      <div>
+                        <Label className="text-base font-semibold">Alternativas por questão</Label>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Configure quais alternativas (A, B, C, D) estarão disponíveis
+                        </p>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id="use-global-alt"
+                          checked={useGlobalAlternatives}
+                          onCheckedChange={(c) => setUseGlobalAlternatives(c === true)}
+                          disabled={structEditSaving}
+                        />
+                        <Label htmlFor="use-global-alt" className="cursor-pointer">
+                          Usar as mesmas alternativas em todas as questões
+                        </Label>
+                      </div>
+
+                      {useGlobalAlternatives && (
+                        <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
+                          <Label className="text-sm">Alternativas disponíveis (mín. 2, máx. 4)</Label>
+                          <div className="flex flex-wrap gap-4">
+                            {(['A', 'B', 'C', 'D'] as const).map((alt) => (
+                              <div key={alt} className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`global-alt-${alt}`}
+                                  checked={globalAlternatives.includes(alt)}
+                                  onCheckedChange={(c) => handleToggleGlobalAlternative(alt, c === true)}
+                                  disabled={(!globalAlternatives.includes(alt) && globalAlternatives.length >= 4) || structEditSaving}
+                                />
+                                <Label htmlFor={`global-alt-${alt}`} className="text-sm font-medium cursor-pointer">
+                                  {alt}
+                                </Label>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {globalAlternatives.length} alternativa(s): {globalAlternatives.join(', ')}
+                            {globalAlternatives.length < 2 && ' — Selecione pelo menos 2.'}
+                          </p>
+                          {structEditNumQuestions >= 1 && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={handleApplyGlobalToAll}
+                              disabled={globalAlternatives.length < 2 || structEditSaving}
+                            >
+                              Usar estas alternativas e configurar por questão
+                            </Button>
+                          )}
+                        </div>
+                      )}
+
+                      {!useGlobalAlternatives && structEditNumQuestions >= 1 && (
+                        <div className="space-y-3">
+                          <p className="text-xs text-muted-foreground">
+                            Configure 2 a 4 alternativas por questão usando o botão &quot;Configurar&quot;.
+                          </p>
+                          <div className="rounded-lg border bg-muted/20 p-3 max-h-60 overflow-y-auto">
+                            <div className="flex flex-wrap gap-2">
+                              {Array.from({ length: structEditNumQuestions }, (_, i) => i + 1).map((n) => {
+                                const opts = getAvailableAlternatives(n);
+                                return (
+                                  <div key={n} className="flex items-center gap-1 rounded-md border bg-background p-1">
+                                    <span className="w-8 text-center text-xs font-medium text-muted-foreground">Q{n}</span>
+                                    <span className="text-xs text-muted-foreground px-1">{opts.join(',')}</span>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 px-1.5 text-xs"
+                                      onClick={() => setEditingQuestionAlternativesNum(n)}
+                                      disabled={structEditSaving}
+                                    >
+                                      Configurar
+                                    </Button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Respostas corretas */}
+                  {structEditNumQuestions >= 1 && (
+                    <div className="space-y-3 border-t pt-4">
+                      <div>
+                        <Label className="text-base font-semibold">Respostas corretas (gabarito)</Label>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Clique na letra para definir a resposta correta de cada questão
+                        </p>
+                      </div>
+                      
+                      <div className="rounded-lg border bg-muted/20 p-3 max-h-96 overflow-y-auto">
+                        <div className="flex flex-wrap gap-2">
+                          {Array.from({ length: structEditNumQuestions }, (_, i) => i + 1).map((n) => {
+                            const opts = getAvailableAlternatives(n);
+                            const currentAnswer = structEditCorrectAnswers[String(n)];
+                            
+                            return (
+                              <div key={n} className="flex items-center gap-1 rounded-md border bg-background p-1">
+                                <span className="w-8 text-center text-xs font-medium text-muted-foreground">Q{n}</span>
+                                {opts.map((letter) => (
+                                  <button
+                                    key={letter}
+                                    type="button"
+                                    onClick={() => {
+                                      setStructEditCorrectAnswers((prev) => ({
+                                        ...prev,
+                                        [String(n)]: letter,
+                                      }));
+                                    }}
+                                    className={`h-7 w-7 rounded text-xs font-semibold transition ${
+                                      currentAnswer === letter
+                                        ? 'bg-primary text-primary-foreground'
+                                        : 'bg-background hover:bg-muted'
+                                    }`}
+                                    disabled={structEditSaving}
+                                  >
+                                    {letter}
+                                  </button>
+                                ))}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      
+                      <p className="text-xs text-muted-foreground">
+                        {Object.keys(structEditCorrectAnswers).filter((k) => structEditCorrectAnswers[k] !== null).length} de {structEditNumQuestions} questão(ões) com resposta definida
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="shrink-0 flex justify-end gap-2 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={resetStructEditDialogState}
+                  disabled={structEditSaving || structEditLoading}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleSaveStructure}
+                  disabled={!structEditGabaritoId || structEditSaving || structEditLoading}
+                >
+                  {structEditSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Salvando...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                      Salvar estrutura
+                    </>
+                  )}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={showRegeneratePdfsDialog} onOpenChange={setShowRegeneratePdfsDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  Edição realizada com sucesso!
+                </DialogTitle>
+                <DialogDescription>
+                  {structEditWarning || 'A estrutura foi atualizada, mas os PDFs já gerados não refletem as alterações.'}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="rounded-lg border bg-amber-50 dark:bg-amber-950/20 p-4 text-sm text-amber-800 dark:text-amber-200">
+                <p className="font-medium mb-1">É necessário regenerar os cartões</p>
+                <p className="text-xs">
+                  Os PDFs anteriores continuam disponíveis, mas não incluem as mudanças que você acabou de fazer.
+                  Gere novamente os cartões para aplicar as alterações nos documentos impressos.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2 mt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowRegeneratePdfsDialog(false);
+                    resetStructEditDialogState();
+                  }}
+                >
+                  OK, entendi
+                </Button>
+                <Button onClick={handleRegeneratePdfs}>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Gerar PDFs agora
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={editingQuestionSkillsNum !== null} onOpenChange={(open) => !open && setEditingQuestionSkillsNum(null)}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Habilidades - Questão {editingQuestionSkillsNum ?? ''}</DialogTitle>
+                <DialogDescription>
+                  Selecione as habilidades associadas a esta questão. Habilidades de outras disciplinas já escolhidas permanecem selecionadas.
+                </DialogDescription>
+              </DialogHeader>
+              {editingQuestionSkillsNum !== null && (() => {
+                const selectedIds = structEditQuestionSkills[String(editingQuestionSkillsNum)] ?? [];
+                const currentIds = new Set(availableSkills.map((s) => s.id));
+                const cachedSkills = selectedIds
+                  .filter((id) => !currentIds.has(id))
+                  .map((id) => ({
+                    id,
+                    code: skillCodeCache[id] ?? id,
+                    description: '',
+                    name: skillCodeCache[id] ?? id,
+                  }));
+                const skillsForSelector = [...availableSkills, ...cachedSkills];
+                
+                return (
+                  <SkillsSelector
+                    skills={skillsForSelector}
+                    selected={selectedIds}
+                    onChange={(ids) => {
+                      setStructEditQuestionSkills((prev) => ({
+                        ...prev,
+                        [String(editingQuestionSkillsNum)]: ids.length > 0 ? ids : undefined as any,
+                      }));
+                    }}
+                    placeholder="Selecione habilidades"
+                    allGrades={gradesForSkills}
+                    subjectId={skillSubjectId}
+                    subjectName={subjectsForSkills.find((s) => s.id === skillSubjectId)?.name}
+                    gradeId={skillGradeId}
+                    gradeName={gradesForSkills.find((g) => g.id === skillGradeId)?.name}
+                  />
+                );
+              })()}
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={editingQuestionAlternativesNum !== null} onOpenChange={(open) => !open && setEditingQuestionAlternativesNum(null)}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Alternativas — Questão {editingQuestionAlternativesNum ?? ''}</DialogTitle>
+                <DialogDescription>Selecione de 2 a 4 alternativas para esta questão.</DialogDescription>
+              </DialogHeader>
+              {editingQuestionAlternativesNum !== null && (
+                <>
+                  <div className="flex flex-wrap gap-4 py-2">
+                    {(['A', 'B', 'C', 'D'] as const).map((alt) => {
+                      const cur = structEditQuestionsOptions[String(editingQuestionAlternativesNum)] || ['A', 'B', 'C', 'D'];
+                      const isChecked = cur.includes(alt);
+                      return (
+                        <div key={alt} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`q${editingQuestionAlternativesNum}-${alt}`}
+                            checked={isChecked}
+                            onCheckedChange={(c) => handleToggleQuestionAlternative(editingQuestionAlternativesNum, alt, c === true)}
+                            disabled={!isChecked && cur.length >= 4}
+                          />
+                          <Label htmlFor={`q${editingQuestionAlternativesNum}-${alt}`} className="cursor-pointer">
+                            {alt}
+                          </Label>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {(structEditQuestionsOptions[String(editingQuestionAlternativesNum)] || ['A', 'B', 'C', 'D']).length} alternativa(s) selecionada(s)
+                  </p>
+                </>
+              )}
             </DialogContent>
           </Dialog>
         </TabsContent>
