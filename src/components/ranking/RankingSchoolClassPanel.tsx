@@ -47,14 +47,28 @@ export default function RankingSchoolClassPanel({
     [data?.school_class_ranking?.items_by_school]
   );
   const lockedSchoolId = filterSchoolId || "";
-  const initialSchoolId = lockedSchoolId || options[0]?.id || "";
+  const initialSchoolId = lockedSchoolId || "all";
   const [selectedSchoolId, setSelectedSchoolId] = useState(initialSchoolId);
   const [selectedTurma, setSelectedTurma] = useState("all");
 
   const selectedSchoolRows = useMemo(() => {
-    if (!selectedSchoolId) return [];
+    if (!selectedSchoolId || selectedSchoolId === "all") {
+      const allRows: Array<Record<string, unknown> & { school_id?: string; school_name?: string; average_score?: number; position?: number; series_class_name?: string }> = [];
+      Object.entries(itemsBySchool).forEach(([schoolId, rows]) => {
+        const schoolName = options.find(opt => opt.id === schoolId)?.name || schoolId;
+        rows.forEach(row => {
+          allRows.push({
+            ...row,
+            school_id: schoolId,
+            school_name: schoolName,
+          });
+        });
+      });
+      allRows.sort((a, b) => (b.average_score ?? 0) - (a.average_score ?? 0));
+      return allRows.map((row, index) => ({ ...row, position: index + 1 }));
+    }
     return itemsBySchool[selectedSchoolId] || [];
-  }, [itemsBySchool, selectedSchoolId]);
+  }, [itemsBySchool, selectedSchoolId, options]);
 
   const turmaOptions = useMemo(() => {
     const unique = Array.from(
@@ -78,8 +92,8 @@ export default function RankingSchoolClassPanel({
       setSelectedSchoolId(lockedSchoolId);
       return;
     }
-    if (!selectedSchoolId && options[0]?.id) {
-      setSelectedSchoolId(options[0].id);
+    if (!selectedSchoolId && options.length > 0) {
+      setSelectedSchoolId("all");
     }
   }, [selectedSchoolId, options, lockedSchoolId]);
 
@@ -112,7 +126,11 @@ export default function RankingSchoolClassPanel({
   }
 
   const schoolName =
-    filterSchoolName || options.find((option) => option.id === selectedSchoolId)?.name || "Selecione a escola";
+    filterSchoolName || 
+    (selectedSchoolId === "all" ? "Todas as escolas do município" : options.find((option) => option.id === selectedSchoolId)?.name) || 
+    "Selecione a escola";
+  
+  const showSchoolColumn = selectedSchoolId === "all";
 
   return (
     <RankingContentShell isRefreshing={isRefreshing} refreshingMessage="Atualizando ranking por escola/série...">
@@ -127,7 +145,7 @@ export default function RankingSchoolClassPanel({
             <div className="grid gap-3 md:max-w-2xl md:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="ranking-school-select">Escola</Label>
-                <Select value={selectedSchoolId || "none"} onValueChange={(v) => setSelectedSchoolId(v === "none" ? "" : v)}>
+                <Select value={selectedSchoolId || "all"} onValueChange={(v) => setSelectedSchoolId(v)}>
                   <SelectTrigger id="ranking-school-select">
                     <SelectValue placeholder="Selecione a escola" />
                   </SelectTrigger>
@@ -135,11 +153,14 @@ export default function RankingSchoolClassPanel({
                     {options.length === 0 ? (
                       <SelectItem value="none">Sem escolas no recorte</SelectItem>
                     ) : (
-                      options.map((option) => (
-                        <SelectItem key={option.id} value={option.id}>
-                          {option.name}
-                        </SelectItem>
-                      ))
+                      <>
+                        <SelectItem value="all">Todas as escolas</SelectItem>
+                        {options.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.name}
+                          </SelectItem>
+                        ))}
+                      </>
                     )}
                   </SelectContent>
                 </Select>
@@ -193,7 +214,7 @@ export default function RankingSchoolClassPanel({
         <CardContent className="p-4">
           {selectedRows.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Nenhuma turma encontrada para a escola{selectedTurma !== "all" ? " e turma selecionadas" : " selecionada"}.
+              Nenhuma turma encontrada{selectedSchoolId === "all" ? " no município" : " para a escola"}{selectedTurma !== "all" ? " e turma selecionadas" : selectedSchoolId !== "all" ? " selecionada" : ""}.
             </p>
           ) : (
             <div className={RANKING_TABLE_SCROLL_CLASS}>
@@ -202,23 +223,37 @@ export default function RankingSchoolClassPanel({
                   <RankingMetricsTableHead
                     nameHeader="Série / Turma"
                     leadingHeaders={
-                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-primary-foreground">
-                        Professor(a)
-                      </th>
+                      <>
+                        {showSchoolColumn && (
+                          <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-primary-foreground">
+                            Escola
+                          </th>
+                        )}
+                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-primary-foreground">
+                          Professor(a)
+                        </th>
+                      </>
                     }
                   />
                 </thead>
                 <tbody>
                   {selectedRows.map((row) => (
                     <RankingMetricsTableRow
-                      key={`${selectedSchoolId}-${row.position}-${row.series_class_name}`}
-                      rowKey={`${selectedSchoolId}-${row.position}-${row.series_class_name}`}
+                      key={`${row.school_id || selectedSchoolId}-${row.position}-${row.series_class_name}`}
+                      rowKey={`${row.school_id || selectedSchoolId}-${row.position}-${row.series_class_name}`}
                       row={row}
                       nameCell={row.series_class_name}
                       leadingCells={
-                        <td className="px-3 py-2">
-                          <Badge variant="secondary">{row.teacher_name || "N/A"}</Badge>
-                        </td>
+                        <>
+                          {showSchoolColumn && (
+                            <td className="px-3 py-2">
+                              <Badge variant="outline">{row.school_name || "N/A"}</Badge>
+                            </td>
+                          )}
+                          <td className="px-3 py-2">
+                            <Badge variant="secondary">{row.teacher_name || "N/A"}</Badge>
+                          </td>
+                        </>
                       }
                     />
                   ))}
