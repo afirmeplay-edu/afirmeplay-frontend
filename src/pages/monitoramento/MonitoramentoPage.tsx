@@ -74,6 +74,7 @@ import {
   MonitoramentoApiService,
 } from "@/services/monitoramento/monitoramentoApi";
 import { generateMonitoringPdf } from "@/services/reports/monitoramentoPdf";
+import { generateDetalhamentoAlunosPdf } from "@/services/reports/detalhamentoAlunosPdf";
 import {
   MonitoringSkillDetailDialog,
   type MonitoringSkillDetailRequest,
@@ -317,6 +318,7 @@ const MonitoringPage = () => {
   const [skillDetailOpen, setSkillDetailOpen] = useState(false);
   const [skillDetailRequest, setSkillDetailRequest] = useState<MonitoringSkillDetailRequest | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [isGeneratingDetalhamentoPdf, setIsGeneratingDetalhamentoPdf] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, Partial<MonitoringStudentItem>>>({});
   const [schoolPage, setSchoolPage] = useState(1);
   const [studentPage, setStudentPage] = useState(1);
@@ -950,6 +952,38 @@ const MonitoringPage = () => {
       });
     } finally {
       setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleExportDetalhamentoPdf = async () => {
+    if (!studentsRows.length) {
+      toast({
+        title: "Nenhum aluno para exportar",
+        description: "A tabela está vazia ou sem dados.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsGeneratingDetalhamentoPdf(true);
+    try {
+      await generateDetalhamentoAlunosPdf({
+        students: studentsRows,
+        schoolName: activeSchoolName,
+        cityId: filters.municipio || null,
+      });
+      toast({
+        title: "PDF gerado com sucesso",
+        description: "O detalhamento de alunos foi exportado.",
+      });
+    } catch {
+      toast({
+        title: "Erro ao gerar PDF",
+        description: "Não foi possível gerar o detalhamento de alunos.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGeneratingDetalhamentoPdf(false);
     }
   };
 
@@ -2071,19 +2105,35 @@ const MonitoringPage = () => {
                   <p className="text-sm text-muted-foreground">{activeSchoolName}</p>
                 ) : null}
               </div>
-              <Button
-                type="button"
-                size="sm"
-                onClick={saveAllRows}
-                disabled={!canEdit || savingAllRows || saveMutation.isPending || studentsQuery.isLoading}
-              >
-                {savingAllRows ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="mr-2 h-4 w-4" />
-                )}
-                Salvar todas
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportDetalhamentoPdf}
+                  disabled={isGeneratingDetalhamentoPdf || studentsQuery.isLoading || !studentsRows.length}
+                >
+                  {isGeneratingDetalhamentoPdf ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="mr-2 h-4 w-4" />
+                  )}
+                  Exportar PDF
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={saveAllRows}
+                  disabled={!canEdit || savingAllRows || saveMutation.isPending || studentsQuery.isLoading}
+                >
+                  {savingAllRows ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="mr-2 h-4 w-4" />
+                  )}
+                  Salvar todas
+                </Button>
+              </div>
             </div>
             <div className="relative max-w-md">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
