@@ -13,6 +13,7 @@ export type OfflinePackScopeCustom = {
   type: 'custom';
   school_ids?: string[];
   test_ids?: string[];
+  gabarito_ids?: string[];
   class_ids?: string[];
   student_ids?: string[];
 };
@@ -25,6 +26,7 @@ export type OfflinePackScopePayload =
       type: 'custom';
       school_ids: string[];
       test_ids: string[];
+      gabarito_ids: string[];
       class_ids: string[];
       /** Omitir quando o escopo é por turma/escola/prova — não enviar array vazio. */
       student_ids?: string[];
@@ -50,10 +52,16 @@ export interface OfflinePackListResponse {
   total: number;
 }
 
+export interface OfflinePackContentType {
+  include_tests: boolean;
+  include_gabaritos: boolean;
+}
+
 export interface RegisterOfflinePackRequest {
   scope: OfflinePackScopePayload;
   ttl_hours: number;
   max_redemptions: number;
+  content_type: OfflinePackContentType;
 }
 
 export interface OfflinePackQrCodeFields {
@@ -81,6 +89,7 @@ export interface PatchOfflinePackRequest {
   scope?: OfflinePackScopePayload;
   ttl_hours?: number;
   max_redemptions?: number;
+  content_type?: OfflinePackContentType;
 }
 
 function offlinePackConfig(cityIdForAdmin?: string) {
@@ -190,6 +199,7 @@ export function buildScopePayload(
   selections: {
     schoolIds: Set<string>;
     testIds: Set<string>;
+    gabaritoIds: Set<string>;
     classIds: Set<string>;
     studentIds: Set<string>;
   }
@@ -202,6 +212,7 @@ export function buildScopePayload(
     type: 'custom',
     school_ids: [...selections.schoolIds],
     test_ids: [...selections.testIds],
+    gabarito_ids: [...selections.gabaritoIds],
     class_ids: [...selections.classIds],
     ...(studentIds.length > 0 ? { student_ids: studentIds } : {}),
   };

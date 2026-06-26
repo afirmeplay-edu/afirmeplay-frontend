@@ -1,22 +1,27 @@
 import React from 'react';
-import { GraduationCap, Hash, Info, School, Users } from 'lucide-react';
+import { GraduationCap, Hash, Info, School, Users, ClipboardCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import { toggleInSet, type ClassRow, type SchoolRow, type StudentRow, type TestRow } from './offlinePackShared';
+import { toggleInSet, type ClassRow, type SchoolRow, type StudentRow, type TestRow, type GabaritoRow } from './offlinePackShared';
 import type { useOfflinePackForm } from './useOfflinePackForm';
 
 type FormSlice = Pick<
   ReturnType<typeof useOfflinePackForm>,
   | 'scopeMode'
   | 'setScopeMode'
+  | 'includeTests'
+  | 'setIncludeTests'
+  | 'includeGabaritos'
+  | 'setIncludeGabaritos'
   | 'schools'
   | 'grades'
   | 'visibleClasses'
   | 'tests'
+  | 'gabaritos'
   | 'students'
   | 'selectedSchoolIds'
   | 'setSelectedSchoolIds'
@@ -26,14 +31,18 @@ type FormSlice = Pick<
   | 'setSelectedClassIds'
   | 'selectedTestIds'
   | 'setSelectedTestIds'
+  | 'selectedGabaritoIds'
+  | 'setSelectedGabaritoIds'
   | 'selectedStudentIds'
   | 'setSelectedStudentIds'
   | 'loadingSchools'
   | 'loadingClasses'
   | 'loadingTests'
+  | 'loadingGabaritos'
   | 'loadingStudents'
   | 'singleClassIdForStudents'
   | 'customScopeValid'
+  | 'contentTypeValid'
 >;
 
 interface OfflinePackScopeFormProps {
@@ -50,10 +59,15 @@ export function OfflinePackScopeForm({
   const {
     scopeMode,
     setScopeMode,
+    includeTests,
+    setIncludeTests,
+    includeGabaritos,
+    setIncludeGabaritos,
     schools,
     grades,
     visibleClasses,
     tests,
+    gabaritos,
     students,
     selectedSchoolIds,
     setSelectedSchoolIds,
@@ -63,26 +77,89 @@ export function OfflinePackScopeForm({
     setSelectedClassIds,
     selectedTestIds,
     setSelectedTestIds,
+    selectedGabaritoIds,
+    setSelectedGabaritoIds,
     selectedStudentIds,
     setSelectedStudentIds,
     loadingSchools,
     loadingClasses,
     loadingTests,
+    loadingGabaritos,
     loadingStudents,
     singleClassIdForStudents,
     customScopeValid,
+    contentTypeValid,
   } = form;
 
   return (
-    <Card className="border-border/80 shadow-sm">
-      <CardHeader className="pb-4">
-        <CardTitle className="text-lg">Escopo dos dados</CardTitle>
-        <CardDescription>
-          Escolha entre sincronizar todo o município ou apenas escolas, turmas, provas e alunos
-          específicos.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
+    <>
+      <Card className="border-border/80 shadow-sm">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-lg">Tipo de Conteúdo</CardTitle>
+          <CardDescription>
+            Escolha o que deseja incluir no pacote offline. É possível selecionar um ou ambos os tipos.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <label
+            className={cn(
+              'flex items-start gap-3 rounded-xl border p-4 transition-colors',
+              readOnly ? 'cursor-default opacity-80' : 'cursor-pointer hover:bg-muted/40',
+              includeTests ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'border-border'
+            )}
+          >
+            <Checkbox
+              disabled={readOnly}
+              checked={includeTests}
+              onCheckedChange={(c) => !readOnly && setIncludeTests(c === true)}
+              className="mt-0.5"
+            />
+            <div className="flex-1">
+              <div className="font-medium">Avaliações Online</div>
+              <p className="text-muted-foreground mt-1 text-sm leading-snug">
+                Provas completas com questões e enunciados para os alunos responderem diretamente no aplicativo
+              </p>
+            </div>
+          </label>
+
+          <label
+            className={cn(
+              'flex items-start gap-3 rounded-xl border p-4 transition-colors',
+              readOnly ? 'cursor-default opacity-80' : 'cursor-pointer hover:bg-muted/40',
+              includeGabaritos ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'border-border'
+            )}
+          >
+            <Checkbox
+              disabled={readOnly}
+              checked={includeGabaritos}
+              onCheckedChange={(c) => !readOnly && setIncludeGabaritos(c === true)}
+              className="mt-0.5"
+            />
+            <div className="flex-1">
+              <div className="font-medium">Cartões Resposta</div>
+              <p className="text-muted-foreground mt-1 text-sm leading-snug">
+                Gabaritos para o professor marcar manualmente as respostas dos cartões físicos preenchidos pelos alunos
+              </p>
+            </div>
+          </label>
+
+          {showValidation && !contentTypeValid && (
+            <p className="text-destructive text-sm">
+              Selecione ao menos um tipo de conteúdo: Avaliações Online ou Cartões Resposta.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/80 shadow-sm">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-lg">Escopo dos dados</CardTitle>
+          <CardDescription>
+            Escolha entre sincronizar todo o município ou apenas escolas, turmas, provas e alunos
+            específicos.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
         <RadioGroup
           value={scopeMode}
           onValueChange={(v) => {
@@ -134,10 +211,13 @@ export function OfflinePackScopeForm({
 
         {scopeMode === 'custom' && (
           <CustomScopeFields
+            includeTests={includeTests}
+            includeGabaritos={includeGabaritos}
             schools={schools}
             grades={grades}
             visibleClasses={visibleClasses}
             tests={tests}
+            gabaritos={gabaritos}
             students={students}
             selectedSchoolIds={selectedSchoolIds}
             setSelectedSchoolIds={setSelectedSchoolIds}
@@ -147,11 +227,14 @@ export function OfflinePackScopeForm({
             setSelectedClassIds={setSelectedClassIds}
             selectedTestIds={selectedTestIds}
             setSelectedTestIds={setSelectedTestIds}
+            selectedGabaritoIds={selectedGabaritoIds}
+            setSelectedGabaritoIds={setSelectedGabaritoIds}
             selectedStudentIds={selectedStudentIds}
             setSelectedStudentIds={setSelectedStudentIds}
             loadingSchools={loadingSchools}
             loadingClasses={loadingClasses}
             loadingTests={loadingTests}
+            loadingGabaritos={loadingGabaritos}
             loadingStudents={loadingStudents}
             singleClassIdForStudents={singleClassIdForStudents}
             showValidation={showValidation}
@@ -161,14 +244,18 @@ export function OfflinePackScopeForm({
         )}
       </CardContent>
     </Card>
+    </>
   );
 }
 
 function CustomScopeFields(props: {
+  includeTests: boolean;
+  includeGabaritos: boolean;
   schools: SchoolRow[];
   grades: Array<{ id: string; name: string }>;
   visibleClasses: ClassRow[];
   tests: TestRow[];
+  gabaritos: GabaritoRow[];
   students: StudentRow[];
   selectedSchoolIds: Set<string>;
   setSelectedSchoolIds: React.Dispatch<React.SetStateAction<Set<string>>>;
@@ -178,11 +265,14 @@ function CustomScopeFields(props: {
   setSelectedClassIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   selectedTestIds: Set<string>;
   setSelectedTestIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+  selectedGabaritoIds: Set<string>;
+  setSelectedGabaritoIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   selectedStudentIds: Set<string>;
   setSelectedStudentIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   loadingSchools: boolean;
   loadingClasses: boolean;
   loadingTests: boolean;
+  loadingGabaritos: boolean;
   loadingStudents: boolean;
   singleClassIdForStudents: string | null;
   showValidation: boolean;
@@ -190,10 +280,13 @@ function CustomScopeFields(props: {
   readOnly?: boolean;
 }) {
   const {
+    includeTests,
+    includeGabaritos,
     schools,
     grades,
     visibleClasses,
     tests,
+    gabaritos,
     students,
     selectedSchoolIds,
     setSelectedSchoolIds,
@@ -203,11 +296,14 @@ function CustomScopeFields(props: {
     setSelectedClassIds,
     selectedTestIds,
     setSelectedTestIds,
+    selectedGabaritoIds,
+    setSelectedGabaritoIds,
     selectedStudentIds,
     setSelectedStudentIds,
     loadingSchools,
     loadingClasses,
     loadingTests,
+    loadingGabaritos,
     loadingStudents,
     singleClassIdForStudents,
     showValidation,
@@ -366,37 +462,78 @@ function CustomScopeFields(props: {
         </div>
       </section>
 
-      <section className="space-y-3">
-        <div className="flex items-center gap-2 font-medium">
-          <Hash className="h-4 w-4" />
-          Provas / avaliações
-        </div>
-        <ScrollArea className="h-[180px] rounded-lg border">
-          <div className="space-y-0 p-3">
-            {loadingTests ? (
-              <p className="text-muted-foreground text-sm">Carregando provas…</p>
-            ) : tests.length === 0 ? (
-              <p className="text-muted-foreground text-sm">Nenhuma prova listada.</p>
-            ) : (
-              tests.map((t) => (
-                <label
-                  key={t.id}
-                  className="flex cursor-pointer items-start gap-2 rounded-md py-1.5 hover:bg-muted/60"
-                >
-                  <Checkbox
-                    disabled={readOnly}
-                    checked={selectedTestIds.has(String(t.id))}
-                    onCheckedChange={(c) =>
-                      setSelectedTestIds((prev) => toggleInSet(prev, String(t.id), c === true))
-                    }
-                  />
-                  <span className="text-sm leading-snug">{t.titulo}</span>
-                </label>
-              ))
-            )}
+      {includeTests && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 font-medium">
+            <Hash className="h-4 w-4" />
+            Provas / avaliações
           </div>
-        </ScrollArea>
-      </section>
+          <ScrollArea className="h-[180px] rounded-lg border">
+            <div className="space-y-0 p-3">
+              {loadingTests ? (
+                <p className="text-muted-foreground text-sm">Carregando provas…</p>
+              ) : tests.length === 0 ? (
+                <p className="text-muted-foreground text-sm">Nenhuma prova listada.</p>
+              ) : (
+                tests.map((t) => (
+                  <label
+                    key={t.id}
+                    className="flex cursor-pointer items-start gap-2 rounded-md py-1.5 hover:bg-muted/60"
+                  >
+                    <Checkbox
+                      disabled={readOnly}
+                      checked={selectedTestIds.has(String(t.id))}
+                      onCheckedChange={(c) =>
+                        setSelectedTestIds((prev) => toggleInSet(prev, String(t.id), c === true))
+                      }
+                    />
+                    <span className="text-sm leading-snug">{t.titulo}</span>
+                  </label>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        </section>
+      )}
+
+      {includeGabaritos && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 font-medium">
+            <ClipboardCheck className="h-4 w-4" />
+            Gabaritos de cartões
+          </div>
+          <ScrollArea className="h-[180px] rounded-lg border">
+            <div className="space-y-0 p-3">
+              {loadingGabaritos ? (
+                <p className="text-muted-foreground text-sm">Carregando gabaritos…</p>
+              ) : gabaritos.length === 0 ? (
+                <p className="text-muted-foreground text-sm">Nenhum gabarito encontrado.</p>
+              ) : (
+                gabaritos.map((g) => (
+                  <label
+                    key={g.id}
+                    className="flex cursor-pointer items-start gap-2 rounded-md py-1.5 hover:bg-muted/60"
+                  >
+                    <Checkbox
+                      disabled={readOnly}
+                      checked={selectedGabaritoIds.has(String(g.id))}
+                      onCheckedChange={(c) =>
+                        setSelectedGabaritoIds((prev) => toggleInSet(prev, String(g.id), c === true))
+                      }
+                    />
+                    <span className="text-sm leading-snug">
+                      {g.title}
+                      {g.num_questions && (
+                        <span className="text-muted-foreground"> · {g.num_questions} questões</span>
+                      )}
+                    </span>
+                  </label>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        </section>
+      )}
 
       <section className="space-y-3">
         <div className="flex items-center gap-2 font-medium">

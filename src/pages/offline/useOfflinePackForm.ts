@@ -25,6 +25,7 @@ import {
   scopeClassIdsFromPack,
   scopeSchoolIdsFromPack,
   scopeTestIdsFromPack,
+  scopeGabaritoIdsFromPack,
   setsFromScope,
   type CityRow,
   type ClassRow,
@@ -32,6 +33,7 @@ import {
   type StateOption,
   type StudentRow,
   type TestRow,
+  type GabaritoRow,
 } from './offlinePackShared';
 
 export interface UseOfflinePackFormOptions {
@@ -73,6 +75,7 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
   const [grades, setGrades] = useState<Array<{ id: string; name: string }>>([]);
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [tests, setTests] = useState<TestRow[]>([]);
+  const [gabaritos, setGabaritos] = useState<GabaritoRow[]>([]);
   const [students, setStudents] = useState<StudentRow[]>([]);
 
   const [selectedStateId, setSelectedStateId] = useState(OFFLINE_SELECT_NONE);
@@ -82,6 +85,7 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
   const [selectedGradeIds, setSelectedGradeIds] = useState<Set<string>>(new Set());
   const [selectedClassIds, setSelectedClassIds] = useState<Set<string>>(new Set());
   const [selectedTestIds, setSelectedTestIds] = useState<Set<string>>(new Set());
+  const [selectedGabaritoIds, setSelectedGabaritoIds] = useState<Set<string>>(new Set());
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
 
   const [ttlHours, setTtlHours] = useState(initialTtlHours ?? OFFLINE_PACK_TTL_DEFAULT);
@@ -89,11 +93,15 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
     initialMaxRedemptions ?? OFFLINE_PACK_MAX_REDEMPTIONS_DEFAULT
   );
 
+  const [includeTests, setIncludeTests] = useState(true);
+  const [includeGabaritos, setIncludeGabaritos] = useState(false);
+
   const [loadingStates, setLoadingStates] = useState(true);
   const [loadingCities, setLoadingCities] = useState(false);
   const [loadingSchools, setLoadingSchools] = useState(false);
   const [loadingClasses, setLoadingClasses] = useState(false);
   const [loadingTests, setLoadingTests] = useState(false);
+  const [loadingGabaritos, setLoadingGabaritos] = useState(false);
   const [loadingStudents, setLoadingStudents] = useState(false);
 
   const effectiveCityIdForQuery =
@@ -365,6 +373,37 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
   }, [selectedStateId, selectedCityId, adminCityIdQuery]);
 
   useEffect(() => {
+    if (selectedCityId === OFFLINE_SELECT_NONE) {
+      setGabaritos([]);
+      return;
+    }
+    setLoadingGabaritos(true);
+    const req = { meta: { cityId: selectedCityId } };
+    api
+      .get<{ gabaritos?: Array<{ id: string; title: string; num_questions?: number }> }>(
+        '/answer-sheets/gabaritos',
+        req
+      )
+      .then((res) => {
+        const rows = Array.isArray(res.data?.gabaritos) ? res.data.gabaritos : [];
+        const normalized = rows.map((g) => ({
+          id: String(g.id),
+          title: String(g.title),
+          num_questions: g.num_questions,
+        }));
+        setGabaritos(normalized);
+
+        const scopeGabaritoIds = scopeGabaritoIdsFromPack(packScopeRef.current);
+        if (scopeGabaritoIds.length > 0) {
+          const allowed = new Set(normalized.map((g) => g.id));
+          setSelectedGabaritoIds(new Set(scopeGabaritoIds.filter((id) => allowed.has(id))));
+        }
+      })
+      .catch(() => setGabaritos([]))
+      .finally(() => setLoadingGabaritos(false));
+  }, [selectedCityId]);
+
+  useEffect(() => {
     if (!singleClassIdForStudents || selectedCityId === OFFLINE_SELECT_NONE) {
       setStudents([]);
       return;
@@ -410,6 +449,7 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
     setSelectedGradeIds(new Set());
     setSelectedClassIds(new Set());
     setSelectedTestIds(new Set());
+    setSelectedGabaritoIds(new Set());
     setSelectedStudentIds(new Set());
     syncedClassIdsKeyRef.current = null;
     syncedSchoolIdsKeyRef.current = null;
@@ -458,6 +498,7 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
       setScopeMode,
       setSelectedSchoolIds,
       setSelectedTestIds,
+      setSelectedGabaritoIds,
       setSelectedClassIds,
       setSelectedStudentIds,
     });
@@ -468,7 +509,7 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
     const scope = packScopeRef.current;
     if (!scope || scopeInitialSyncDoneRef.current) return;
     if (selectedCityId === OFFLINE_SELECT_NONE) return;
-    if (loadingSchools || loadingClasses || loadingTests) return;
+    if (loadingSchools || loadingClasses || loadingTests || loadingGabaritos) return;
 
     const parsed = setsFromScope(scope);
     if (parsed.scopeMode === 'municipality') {
@@ -479,11 +520,13 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
     if (parsed.schoolIds.size > 0 && schools.length === 0) return;
     if (parsed.classIds.size > 0 && classes.length === 0) return;
     if (parsed.testIds.size > 0 && tests.length === 0) return;
+    if (parsed.gabaritoIds.size > 0 && gabaritos.length === 0) return;
 
     applyScopeToSelectionState(scope, {
       setScopeMode,
       setSelectedSchoolIds,
       setSelectedTestIds,
+      setSelectedGabaritoIds,
       setSelectedClassIds,
       setSelectedStudentIds,
     });
@@ -504,9 +547,11 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
     loadingSchools,
     loadingClasses,
     loadingTests,
+    loadingGabaritos,
     schools.length,
     classes.length,
     tests.length,
+    gabaritos.length,
   ]);
 
   useEffect(() => {
@@ -517,32 +562,46 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
     if (initialMaxRedemptions != null) setMaxRedemptions(initialMaxRedemptions);
   }, [initialMaxRedemptions]);
 
-  const customScopeValid = useMemo(
-    () =>
+  const customScopeValid = useMemo(() => {
+    const hasSelection =
       selectedSchoolIds.size +
         selectedClassIds.size +
         selectedTestIds.size +
+        selectedGabaritoIds.size +
         selectedStudentIds.size >
-      0,
-    [selectedSchoolIds, selectedClassIds, selectedTestIds, selectedStudentIds]
-  );
+      0;
+    
+    // Valida se selecionou ao menos um teste quando includeTests = true
+    if (includeTests && selectedTestIds.size === 0 && selectedSchoolIds.size === 0 && selectedClassIds.size === 0) {
+      return false;
+    }
+    
+    // Valida se selecionou ao menos um gabarito quando includeGabaritos = true
+    if (includeGabaritos && selectedGabaritoIds.size === 0 && selectedSchoolIds.size === 0 && selectedClassIds.size === 0) {
+      return false;
+    }
+    
+    return hasSelection;
+  }, [selectedSchoolIds, selectedClassIds, selectedTestIds, selectedGabaritoIds, selectedStudentIds, includeTests, includeGabaritos]);
 
   const ttlValid = ttlHours >= OFFLINE_PACK_TTL_MIN && ttlHours <= OFFLINE_PACK_TTL_MAX;
   const maxRedemptionsValid =
     maxRedemptions >= Math.max(OFFLINE_PACK_MAX_REDEMPTIONS_MIN, minMaxRedemptions) &&
     maxRedemptions <= OFFLINE_PACK_MAX_REDEMPTIONS_MAX;
 
+  const contentTypeValid = includeTests || includeGabaritos;
   const scopeFormValid = scopeMode === 'municipality' || customScopeValid;
-  const canSubmit = hasCityContext && ttlValid && maxRedemptionsValid && scopeFormValid;
+  const canSubmit = hasCityContext && ttlValid && maxRedemptionsValid && scopeFormValid && contentTypeValid;
 
   const selections = useMemo(
     () => ({
       schoolIds: selectedSchoolIds,
       testIds: selectedTestIds,
+      gabaritoIds: selectedGabaritoIds,
       classIds: selectedClassIds,
       studentIds: selectedStudentIds,
     }),
-    [selectedSchoolIds, selectedTestIds, selectedClassIds, selectedStudentIds]
+    [selectedSchoolIds, selectedTestIds, selectedGabaritoIds, selectedClassIds, selectedStudentIds]
   );
 
   return {
@@ -557,6 +616,7 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
     grades,
     classes,
     tests,
+    gabaritos,
     students,
     visibleClasses,
     singleClassIdForStudents,
@@ -574,21 +634,29 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
     setSelectedClassIds,
     selectedTestIds,
     setSelectedTestIds,
+    selectedGabaritoIds,
+    setSelectedGabaritoIds,
     selectedStudentIds,
     setSelectedStudentIds,
     ttlHours,
     setTtlHours,
     maxRedemptions,
     setMaxRedemptions,
+    includeTests,
+    setIncludeTests,
+    includeGabaritos,
+    setIncludeGabaritos,
     loadingStates,
     loadingCities,
     loadingSchools,
     loadingClasses,
     loadingTests,
+    loadingGabaritos,
     loadingStudents,
     customScopeValid,
     canSubmit,
     scopeFormValid,
+    contentTypeValid,
     ttlValid,
     maxRedemptionsValid,
     selections,

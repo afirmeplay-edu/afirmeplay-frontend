@@ -155,6 +155,10 @@ function OfflinePackEditForm({
         scope: buildScopePayload(form.scopeMode, form.selections),
         ttl_hours: form.ttlHours,
         max_redemptions: form.maxRedemptions,
+        content_type: {
+          include_tests: form.includeTests,
+          include_gabaritos: form.includeGabaritos,
+        },
       };
       const updated = await patchOfflinePack(packId, body, form.cityIdForAdminHeader);
       setPack(updated);

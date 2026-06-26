@@ -61,7 +61,15 @@ export function OfflinePackCreateTab({ form, onCreated }: OfflinePackCreateTabPr
     try {
       const scope = buildScopePayload(scopeMode, selections);
       const data = await registerOfflinePack(
-        { scope, ttl_hours: ttlHours, max_redemptions: maxRedemptions },
+        { 
+          scope, 
+          ttl_hours: ttlHours, 
+          max_redemptions: maxRedemptions,
+          content_type: {
+            include_tests: form.includeTests,
+            include_gabaritos: form.includeGabaritos,
+          },
+        },
         cityIdForAdminHeader
       );
       setResult(data);
