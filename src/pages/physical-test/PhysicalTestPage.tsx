@@ -300,6 +300,7 @@ function GenerationProgressPanel({
   correctionProgress,
   onDownloadAll,
   canDownloadAll,
+  isDownloadingAll,
   onDismiss,
 }: {
   taskStatusData: TaskStatusResponse | null;
@@ -307,6 +308,7 @@ function GenerationProgressPanel({
   correctionProgress: number;
   onDownloadAll: () => void;
   canDownloadAll: boolean;
+  isDownloadingAll: boolean;
   onDismiss?: () => void;
 }) {
   const [errorsOpen, setErrorsOpen] = useState(true);
@@ -1958,6 +1960,7 @@ export default function PhysicalTestPage() {
                   correctionProgress={correctionProgress}
                   onDownloadAll={handleDownloadAll}
                   canDownloadAll={!!id}
+                  isDownloadingAll={isDownloadingAll}
                   onDismiss={() => setTaskStatusData(null)}
                 />
               )}
