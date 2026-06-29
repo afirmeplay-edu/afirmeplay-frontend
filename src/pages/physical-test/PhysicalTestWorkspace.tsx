@@ -58,7 +58,6 @@ import {
   Users,
   Plus,
   Search,
-  Filter,
   RefreshCw,
   CheckCircle,
   XCircle,
@@ -228,6 +227,48 @@ interface TaskStatusResponse {
 const getGenerationStorageKey = (testId: string) =>
   `physical-test-generation:${testId}`;
 
+interface ClassScopeInfo {
+  classId: string;
+  className: string;
+  gradeId: string;
+  gradeName: string;
+  schoolId: string;
+  schoolName: string;
+}
+
+function buildClassScopeMap(testScope: TestScopeResponse | null): Map<string, ClassScopeInfo> {
+  const map = new Map<string, ClassScopeInfo>();
+  if (!testScope?.schools?.length) return map;
+
+  for (const school of testScope.schools) {
+    for (const grade of school.grades || []) {
+      for (const cls of grade.classes || []) {
+        map.set(cls.id, {
+          classId: cls.id,
+          className: cls.name,
+          gradeId: grade.id,
+          gradeName: grade.name,
+          schoolId: school.id,
+          schoolName: school.name,
+        });
+      }
+    }
+  }
+  return map;
+}
+
+function buildClassTestIdToClassIdMap(
+  classTests: PhysicalTestStatus["class_tests"] | undefined
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const ct of classTests || []) {
+    if (ct.id && ct.class_id) {
+      map.set(ct.id, ct.class_id);
+    }
+  }
+  return map;
+}
+
 function classStatusLabel(status: TaskStatusClass["status"]) {
   switch (status) {
     case "pending":
@@ -262,18 +303,10 @@ function GenerationProgressPanel({
   taskStatusData,
   isGenerating,
   correctionProgress,
-  onDownloadAll,
-  canDownloadAll,
-  isDownloadingAll,
-  onDismiss,
 }: {
   taskStatusData: TaskStatusResponse | null;
   isGenerating: boolean;
   correctionProgress: number;
-  onDownloadAll: () => void;
-  canDownloadAll: boolean;
-  isDownloadingAll: boolean;
-  onDismiss?: () => void;
 }) {
   const [errorsOpen, setErrorsOpen] = useState(true);
   const progressPct = taskStatusData?.progress?.percentage ?? correctionProgress;
@@ -281,9 +314,7 @@ function GenerationProgressPanel({
   const classesList = taskStatusData?.classes ?? [];
   const errorsList = taskStatusData?.errors ?? [];
   const status = taskStatusData?.status;
-  const isCompleted = status === "completed";
   const isFailed = status === "failed";
-  const canDownload = !!(summary?.can_download && canDownloadAll);
 
   return (
     <div className="mb-6 rounded-xl border bg-muted/30 p-5 space-y-5">
@@ -412,43 +443,7 @@ function GenerationProgressPanel({
         </Alert>
       )}
 
-      {/* Concluído: mensagem + Baixar ZIP + Fechar */}
-      {isCompleted && (
-        <div className="flex flex-wrap items-center gap-3 pt-2 border-t">
-          <p className="text-sm text-green-600 dark:text-green-400 font-medium flex-1 min-w-0">
-            {taskStatusData?.message ?? "Geração concluída."}
-          </p>
-          <div className="flex items-center gap-2">
-            {canDownload && (
-              <Button
-                onClick={onDownloadAll}
-                size="sm"
-                disabled={isDownloadingAll}
-                className="bg-green-600 hover:bg-green-700 dark:bg-green-600 dark:hover:bg-green-500"
-              >
-                {isDownloadingAll ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Baixando...
-                  </>
-                ) : (
-                  <>
-                    <Download className="h-4 w-4 mr-2" />
-                    Baixar ZIP
-                  </>
-                )}
-              </Button>
-            )}
-            {onDismiss && (
-              <Button variant="ghost" size="sm" onClick={onDismiss}>
-                Fechar
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {isGenerating && !isCompleted && !isFailed && (
+      {isGenerating && !isFailed && (
         <p className="text-xs text-muted-foreground flex items-center gap-1">
           <Loader2 className="h-3 w-3 animate-spin" />
           Não feche esta página.
@@ -467,12 +462,12 @@ export interface PhysicalTestWorkspaceProps {
    * Aba inicial quando a workspace é embutida.
    * Mantém o comportamento atual por padrão ("forms").
    */
-  initialTab?: "forms" | "correction" | "students";
+  initialTab?: "forms" | "correction";
   /**
    * Oculta abas específicas quando embutido para evitar ações fora de contexto.
    * Ex.: no modo "transform", correção não deve ficar disponível.
    */
-  hideTabs?: Partial<Record<"forms" | "correction" | "students", boolean>>;
+  hideTabs?: Partial<Record<"forms" | "correction", boolean>>;
 }
 
 export function PhysicalTestWorkspace({
@@ -541,15 +536,10 @@ export function PhysicalTestWorkspace({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isMarkingAsSent, setIsMarkingAsSent] = useState<string | null>(null);
-
-  // Estados para alunos
-  const [students, setStudents] = useState<any[]>([]);
-  const [isLoadingStudents, setIsLoadingStudents] = useState(false);
-  const [isGeneratingIndividual, setIsGeneratingIndividual] = useState(false);
-  const [studentSearchTerm, setStudentSearchTerm] = useState("");
-  const [selectedClassFilter, setSelectedClassFilter] = useState("all");
-  const [totalStudents, setTotalStudents] = useState(0);
-  const [classes, setClasses] = useState<any[]>([]);
+  const [formsSearchTerm, setFormsSearchTerm] = useState("");
+  const [formsFilterSchoolId, setFormsFilterSchoolId] = useState("all");
+  const [formsFilterGradeId, setFormsFilterGradeId] = useState("all");
+  const [formsFilterClassId, setFormsFilterClassId] = useState("all");
 
   // Listas planas do escopo (para multi-selects), deduplicadas por id
   const scopeSchoolsList = useMemo(() => {
@@ -588,6 +578,98 @@ export function PhysicalTestWorkspace({
     }
     return list;
   }, [testScope]);
+
+  const classTestIdToClassId = useMemo(
+    () => buildClassTestIdToClassIdMap(testStatus?.class_tests),
+    [testStatus?.class_tests]
+  );
+
+  const classScopeMap = useMemo(() => buildClassScopeMap(testScope), [testScope]);
+
+  const formsFilterGradeOptions = useMemo(() => {
+    if (!testScope?.schools?.length) return [];
+    const seen = new Set<string>();
+    const list: { id: string; name: string }[] = [];
+    for (const school of testScope.schools) {
+      if (formsFilterSchoolId !== "all" && school.id !== formsFilterSchoolId) continue;
+      for (const grade of school.grades || []) {
+        if (!seen.has(grade.id)) {
+          seen.add(grade.id);
+          list.push({ id: grade.id, name: grade.name });
+        }
+      }
+    }
+    return list;
+  }, [testScope, formsFilterSchoolId]);
+
+  const formsFilterClassOptions = useMemo(() => {
+    if (!testScope?.schools?.length) return [];
+    const seen = new Set<string>();
+    const list: { id: string; name: string }[] = [];
+    for (const school of testScope.schools) {
+      if (formsFilterSchoolId !== "all" && school.id !== formsFilterSchoolId) continue;
+      for (const grade of school.grades || []) {
+        if (formsFilterGradeId !== "all" && grade.id !== formsFilterGradeId) continue;
+        for (const cls of grade.classes || []) {
+          if (!seen.has(cls.id)) {
+            seen.add(cls.id);
+            list.push({ id: cls.id, name: cls.name });
+          }
+        }
+      }
+    }
+    return list;
+  }, [testScope, formsFilterSchoolId, formsFilterGradeId]);
+
+  const hasFormsFilters =
+    formsSearchTerm.trim() !== "" ||
+    formsFilterSchoolId !== "all" ||
+    formsFilterGradeId !== "all" ||
+    formsFilterClassId !== "all";
+
+  const filteredGeneratedForms = useMemo(() => {
+    const term = formsSearchTerm.trim().toLowerCase();
+    const hasScopeFilter =
+      formsFilterSchoolId !== "all" ||
+      formsFilterGradeId !== "all" ||
+      formsFilterClassId !== "all";
+
+    return generatedForms.filter((form) => {
+      if (term && !(form.student_name ?? "").toLowerCase().includes(term)) {
+        return false;
+      }
+
+      const classId = classTestIdToClassId.get(form.class_test_id);
+      if (!classId) {
+        return !hasScopeFilter;
+      }
+
+      const scope = classScopeMap.get(classId);
+      if (!scope) {
+        return !hasScopeFilter;
+      }
+
+      if (formsFilterSchoolId !== "all" && scope.schoolId !== formsFilterSchoolId) {
+        return false;
+      }
+      if (formsFilterGradeId !== "all" && scope.gradeId !== formsFilterGradeId) {
+        return false;
+      }
+      if (formsFilterClassId !== "all" && scope.classId !== formsFilterClassId) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [
+    generatedForms,
+    formsSearchTerm,
+    formsFilterSchoolId,
+    formsFilterGradeId,
+    formsFilterClassId,
+    classTestIdToClassId,
+    classScopeMap,
+  ]);
 
   const checkPendingGeneration = async () => {
     if (!id) return;
@@ -643,6 +725,14 @@ export function PhysicalTestWorkspace({
     };
   }, []);
 
+  const fetchGeneratedForms = async (targetTestId: string) => {
+    const formsResponse = await api.get(`/physical-tests/test/${targetTestId}/forms`);
+    return (formsResponse.data.forms || []).map((form: any) => ({
+      ...form,
+      answer_sheet_sent_at: form.answer_sheet_sent_at || null,
+    })) as GeneratedForm[];
+  };
+
   const loadTestData = async () => {
     try {
       setIsLoading(true);
@@ -655,13 +745,7 @@ export function PhysicalTestWorkspace({
       setTestStatus(statusResponse.data);
 
       // Carregar formulários gerados
-      const formsResponse = await api.get(`/physical-tests/test/${id}/forms`);
-      console.log("📋 Resposta da API de formulários:", formsResponse.data);
-      // Garantir que o campo answer_sheet_sent_at seja preservado
-      const forms = (formsResponse.data.forms || []).map((form: any) => ({
-        ...form,
-        answer_sheet_sent_at: form.answer_sheet_sent_at || null
-      }));
+      const forms = await fetchGeneratedForms(id);
       setGeneratedForms(forms);
 
       // Carregar escopo da prova (escolas/séries/turmas) para filtro de geração
@@ -774,24 +858,36 @@ export function PhysicalTestWorkspace({
             window.localStorage.removeItem(getGenerationStorageKey(id));
           }
 
-          const result = data.result;
-          const mappedForms = (result?.forms || []).map((form: any) => ({
-            ...form,
-            id: form.form_id || form.id,
-            created_at: form.created_at || new Date().toISOString(),
-            updated_at: form.created_at || new Date().toISOString(),
-            status: "gerado",
-            answer_sheet_sent_at: form.answer_sheet_sent_at || null,
-          }));
-          setGeneratedForms(mappedForms);
+          let formsCount = 0;
+          try {
+            const forms = await fetchGeneratedForms(id);
+            setGeneratedForms(forms);
+            formsCount = forms.length;
+          } catch (formsError) {
+            console.error("Erro ao recarregar formulários após geração:", formsError);
+            const result = data.result;
+            const mappedForms = (result?.forms || []).map((form: any) => ({
+              ...form,
+              id: form.form_id || form.id,
+              created_at: form.created_at || new Date().toISOString(),
+              updated_at: form.created_at || new Date().toISOString(),
+              status: "gerado",
+              answer_sheet_sent_at: form.answer_sheet_sent_at || null,
+            }));
+            setGeneratedForms(mappedForms);
+            formsCount =
+              result?.generated_forms ?? result?.forms?.length ?? mappedForms.length;
+          }
 
-          const total = result?.generated_forms ?? result?.forms?.length ?? mappedForms.length;
-          const totalStudents = result?.total_students ?? data.summary?.total_students;
+          const totalStudents = data.summary?.total_students;
           toast({
             title: "✅ Avaliações geradas com sucesso!",
-            description: data.message || `${total} avaliações foram geradas${totalStudents ? ` para ${totalStudents} alunos` : ""}.`,
+            description:
+              data.message ||
+              `${formsCount} avaliações foram geradas${totalStudents ? ` para ${totalStudents} alunos` : ""}.`,
           });
           setCorrectionProgress(0);
+          setTaskStatusData(null);
         }
 
         // ERRO: parar polling e exibir erro
@@ -813,6 +909,7 @@ export function PhysicalTestWorkspace({
             description: data.error || data.message || "Erro desconhecido ao gerar avaliações",
             variant: "destructive",
           });
+          setTaskStatusData(null);
         }
 
         if (data.status === "retrying") {
@@ -856,6 +953,7 @@ export function PhysicalTestWorkspace({
       if (isGenerating) {
         setIsGenerating(false);
         setCorrectionProgress(0);
+        setTaskStatusData(null);
 
         if (typeof window !== "undefined" && id) {
           window.localStorage.removeItem(getGenerationStorageKey(id));
@@ -1319,69 +1417,6 @@ export function PhysicalTestWorkspace({
     }
   };
 
-  const loadStudents = async () => {
-    if (!id) return;
-
-    try {
-      setIsLoadingStudents(true);
-      const response = await api.get(`/test/${id}/classes`);
-      setStudents(response.data.students || []);
-      setTotalStudents(response.data.total_students || 0);
-      setClasses(response.data.classes || []);
-    } catch (error) {
-      console.error("Erro ao carregar alunos:", error);
-      toast({
-        title: "Erro",
-        description: "Não foi possível carregar os alunos.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoadingStudents(false);
-    }
-  };
-
-  const handleGenerateIndividual = async (studentId: string) => {
-    if (!id) return;
-
-    try {
-      setIsGeneratingIndividual(true);
-      const response = await api.post(`/physical-tests/test/${id}/student/${studentId}/generate`, {}, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      // Mapear form_id para id para compatibilidade
-      const mappedForms = (response.data.forms || []).map((form: any) => ({
-        ...form,
-        id: form.form_id, // Mapear form_id para id
-        created_at: new Date().toISOString(), // Adicionar timestamp se não existir
-        answer_sheet_sent_at: form.answer_sheet_sent_at || null // Preservar campo de envio se existir
-      }));
-      setGeneratedForms(prev => [...prev, ...mappedForms]);
-
-      toast({
-        title: "Avaliação gerada!",
-        description: "Avaliação individual gerada com sucesso.",
-      });
-    } catch (error: any) {
-      console.error("Erro ao gerar formulário individual:", error);
-      toast({
-        title: "Erro",
-        description: error.response?.data?.error || "Erro ao gerar avaliação individual",
-        variant: "destructive",
-      });
-    } finally {
-      setIsGeneratingIndividual(false);
-    }
-  };
-
-  const filteredStudents = students.filter(student => {
-    const matchesSearch = student.name.toLowerCase().includes(studentSearchTerm.toLowerCase());
-    const matchesClass = selectedClassFilter === "all" || student.class_id === selectedClassFilter;
-    return matchesSearch && matchesClass;
-  });
-
   // Função para validar configurações de blocos
   const validateBlockSettings = (): { isValid: boolean; warnings: string[] } => {
     const warnings: string[] = [];
@@ -1583,7 +1618,6 @@ export function PhysicalTestWorkspace({
         <TabsList>
           {!hideTabs.forms && <TabsTrigger value="forms">Avaliações Geradas</TabsTrigger>}
           {!hideTabs.correction && <TabsTrigger value="correction">Correção</TabsTrigger>}
-          {!hideTabs.students && <TabsTrigger value="students">Alunos</TabsTrigger>}
         </TabsList>
 
         {/* Tab: Avaliações Geradas */}
@@ -1928,10 +1962,6 @@ export function PhysicalTestWorkspace({
                   taskStatusData={taskStatusData}
                   isGenerating={isGenerating}
                   correctionProgress={correctionProgress}
-                  onDownloadAll={handleDownloadAll}
-                  canDownloadAll={!!id}
-                  isDownloadingAll={isDownloadingAll}
-                  onDismiss={() => setTaskStatusData(null)}
                 />
               )}
 
@@ -1945,6 +1975,93 @@ export function PhysicalTestWorkspace({
                 </div>
               ) : (
                 <div className="space-y-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+                    <div className="relative flex-1 min-w-[200px] max-w-sm">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                      <Input
+                        type="search"
+                        placeholder="Pesquisar aluno..."
+                        value={formsSearchTerm}
+                        onChange={(e) => setFormsSearchTerm(e.target.value)}
+                        className="pl-9"
+                        aria-label="Pesquisar aluno"
+                      />
+                    </div>
+                    {testScope && scopeSchoolsList.length > 0 && (
+                      <>
+                        <div className="space-y-1.5 w-full sm:w-48">
+                          <Label className="text-xs text-muted-foreground">Escola</Label>
+                          <Select
+                            value={formsFilterSchoolId}
+                            onValueChange={(value) => {
+                              setFormsFilterSchoolId(value);
+                              setFormsFilterGradeId("all");
+                              setFormsFilterClassId("all");
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Todas as escolas" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Todas as escolas</SelectItem>
+                              {scopeSchoolsList.map((school) => (
+                                <SelectItem key={school.id} value={school.id}>
+                                  {school.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5 w-full sm:w-48">
+                          <Label className="text-xs text-muted-foreground">Série/Ano</Label>
+                          <Select
+                            value={formsFilterGradeId}
+                            onValueChange={(value) => {
+                              setFormsFilterGradeId(value);
+                              setFormsFilterClassId("all");
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Todas as séries" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Todas as séries</SelectItem>
+                              {formsFilterGradeOptions.map((grade) => (
+                                <SelectItem key={grade.id} value={grade.id}>
+                                  {grade.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5 w-full sm:w-48">
+                          <Label className="text-xs text-muted-foreground">Turma</Label>
+                          <Select
+                            value={formsFilterClassId}
+                            onValueChange={setFormsFilterClassId}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Todas as turmas" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Todas as turmas</SelectItem>
+                              {formsFilterClassOptions.map((cls) => (
+                                <SelectItem key={cls.id} value={cls.id}>
+                                  {cls.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </>
+                    )}
+                    {hasFormsFilters && (
+                      <p className="text-xs text-muted-foreground lg:pb-2">
+                        {filteredGeneratedForms.length}{" "}
+                        {filteredGeneratedForms.length === 1 ? "resultado" : "resultados"}
+                      </p>
+                    )}
+                  </div>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -1957,7 +2074,16 @@ export function PhysicalTestWorkspace({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {generatedForms.map((form) => (
+                      {filteredGeneratedForms.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                            {hasFormsFilters
+                              ? "Nenhuma avaliação encontrada com os filtros selecionados."
+                              : "Nenhuma avaliação para exibir."}
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        filteredGeneratedForms.map((form) => (
                         <TableRow key={form.id}>
                           <TableCell className="font-medium">
                             {form.student_name}
@@ -2030,7 +2156,8 @@ export function PhysicalTestWorkspace({
                             </DropdownMenu>
                           </TableCell>
                         </TableRow>
-                      ))}
+                        ))
+                      )}
                     </TableBody>
                   </Table>
                 </div>
@@ -2340,99 +2467,6 @@ export function PhysicalTestWorkspace({
           </TabsContent>
         )}
 
-        {/* Tab: Alunos */}
-        <TabsContent value="students" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Alunos da Prova</CardTitle>
-                <Button onClick={loadStudents} variant="outline">
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Carregar Alunos
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {isLoadingStudents ? (
-                <div className="space-y-4">
-                  {[1, 2, 3].map((i) => (
-                    <Skeleton key={i} className="h-16 w-full" />
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {/* Filtros */}
-                  <div className="flex gap-4">
-                    <div className="flex-1">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          placeholder="Buscar aluno..."
-                          value={studentSearchTerm}
-                          onChange={(e) => setStudentSearchTerm(e.target.value)}
-                          className="pl-10"
-                        />
-                      </div>
-                    </div>
-                    <Select value={selectedClassFilter} onValueChange={setSelectedClassFilter}>
-                      <SelectTrigger className="w-48">
-                        <SelectValue placeholder="Filtrar por turma" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todas as turmas</SelectItem>
-                        {classes.map((cls) => (
-                          <SelectItem key={cls.id} value={cls.id}>
-                            {cls.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Lista de Alunos */}
-                  <div className="space-y-2">
-                    {filteredStudents.map((student) => (
-                      <div
-                        key={student.id}
-                        className="flex items-center justify-between p-4 border rounded-lg"
-                      >
-                        <div>
-                          <h4 className="font-medium">{student.name}</h4>
-                          <p className="text-sm text-muted-foreground">
-                            {student.class_name} • {student.email}
-                          </p>
-                        </div>
-                        <Button
-                          onClick={() => handleGenerateIndividual(student.id)}
-                          disabled={isGeneratingIndividual}
-                          size="sm"
-                        >
-                          {isGeneratingIndividual ? (
-                            <RefreshCw className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Plus className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-
-                  {filteredStudents.length === 0 && (
-                    <div className="text-center py-8">
-                      <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <h3 className="text-lg font-semibold mb-2">Nenhum aluno encontrado</h3>
-                      <p className="text-muted-foreground">
-                        {studentSearchTerm || selectedClassFilter !== "all"
-                          ? "Tente ajustar os filtros de busca."
-                          : "Clique em 'Carregar Alunos' para ver a lista de alunos."}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
 
       {/* Dialog de Confirmação de Exclusão */}

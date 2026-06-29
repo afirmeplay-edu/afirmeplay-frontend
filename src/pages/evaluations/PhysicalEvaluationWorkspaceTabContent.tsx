@@ -181,7 +181,6 @@ export function PhysicalEvaluationWorkspaceTabContent({
                 : {
                     // Modo "correction": mostrar somente a aba de correção
                     forms: true,
-                    students: true,
                   }
             }
           />
