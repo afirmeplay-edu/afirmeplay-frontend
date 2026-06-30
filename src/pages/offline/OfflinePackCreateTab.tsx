@@ -68,6 +68,7 @@ export function OfflinePackCreateTab({ form, onCreated }: OfflinePackCreateTabPr
           content_type: {
             include_tests: form.includeTests,
             include_gabaritos: form.includeGabaritos,
+            include_forms: form.includeForms,
           },
         },
         cityIdForAdminHeader

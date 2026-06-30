@@ -1,12 +1,12 @@
 import React from 'react';
-import { GraduationCap, Hash, Info, School, Users, ClipboardCheck } from 'lucide-react';
+import { GraduationCap, Hash, Info, School, Users, ClipboardCheck, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import { toggleInSet, type ClassRow, type SchoolRow, type StudentRow, type TestRow, type GabaritoRow } from './offlinePackShared';
+import { toggleInSet, type ClassRow, type SchoolRow, type StudentRow, type TestRow, type GabaritoRow, type SocioeconomicFormRow } from './offlinePackShared';
 import type { useOfflinePackForm } from './useOfflinePackForm';
 
 type FormSlice = Pick<
@@ -17,11 +17,14 @@ type FormSlice = Pick<
   | 'setIncludeTests'
   | 'includeGabaritos'
   | 'setIncludeGabaritos'
+  | 'includeForms'
+  | 'setIncludeForms'
   | 'schools'
   | 'grades'
   | 'visibleClasses'
   | 'tests'
   | 'gabaritos'
+  | 'socioeconomicForms'
   | 'students'
   | 'selectedSchoolIds'
   | 'setSelectedSchoolIds'
@@ -33,12 +36,15 @@ type FormSlice = Pick<
   | 'setSelectedTestIds'
   | 'selectedGabaritoIds'
   | 'setSelectedGabaritoIds'
+  | 'selectedFormIds'
+  | 'setSelectedFormIds'
   | 'selectedStudentIds'
   | 'setSelectedStudentIds'
   | 'loadingSchools'
   | 'loadingClasses'
   | 'loadingTests'
   | 'loadingGabaritos'
+  | 'loadingForms'
   | 'loadingStudents'
   | 'singleClassIdForStudents'
   | 'customScopeValid'
@@ -63,11 +69,14 @@ export function OfflinePackScopeForm({
     setIncludeTests,
     includeGabaritos,
     setIncludeGabaritos,
+    includeForms,
+    setIncludeForms,
     schools,
     grades,
     visibleClasses,
     tests,
     gabaritos,
+    socioeconomicForms,
     students,
     selectedSchoolIds,
     setSelectedSchoolIds,
@@ -79,12 +88,15 @@ export function OfflinePackScopeForm({
     setSelectedTestIds,
     selectedGabaritoIds,
     setSelectedGabaritoIds,
+    selectedFormIds,
+    setSelectedFormIds,
     selectedStudentIds,
     setSelectedStudentIds,
     loadingSchools,
     loadingClasses,
     loadingTests,
     loadingGabaritos,
+    loadingForms,
     loadingStudents,
     singleClassIdForStudents,
     customScopeValid,
@@ -97,7 +109,7 @@ export function OfflinePackScopeForm({
         <CardHeader className="pb-4">
           <CardTitle className="text-lg">Tipo de Conteúdo</CardTitle>
           <CardDescription>
-            Escolha o que deseja incluir no pacote offline. É possível selecionar um ou ambos os tipos.
+            Escolha o que deseja incluir no pacote offline. É possível selecionar um ou mais tipos.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -143,9 +155,31 @@ export function OfflinePackScopeForm({
             </div>
           </label>
 
+          <label
+            className={cn(
+              'flex items-start gap-3 rounded-xl border p-4 transition-colors',
+              readOnly ? 'cursor-default opacity-80' : 'cursor-pointer hover:bg-muted/40',
+              includeForms ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'border-border'
+            )}
+          >
+            <Checkbox
+              disabled={readOnly}
+              checked={includeForms}
+              onCheckedChange={(c) => !readOnly && setIncludeForms(c === true)}
+              className="mt-0.5"
+            />
+            <div className="flex-1">
+              <div className="font-medium">Formulários socioeconômicos</div>
+              <p className="text-muted-foreground mt-1 text-sm leading-snug">
+                Questionários enviados para alunos, professores ou gestores responderem no aplicativo
+              </p>
+            </div>
+          </label>
+
           {showValidation && !contentTypeValid && (
             <p className="text-destructive text-sm">
-              Selecione ao menos um tipo de conteúdo: Avaliações Online ou Cartões Resposta.
+              Selecione ao menos um tipo de conteúdo: Avaliações Online, Cartões Resposta ou Formulários
+              socioeconômicos.
             </p>
           )}
         </CardContent>
@@ -155,7 +189,7 @@ export function OfflinePackScopeForm({
         <CardHeader className="pb-4">
           <CardTitle className="text-lg">Escopo dos dados</CardTitle>
           <CardDescription>
-            Escolha entre sincronizar todo o município ou apenas escolas, turmas, provas e alunos
+            Escolha entre sincronizar todo o município ou apenas escolas, turmas, provas, formulários e alunos
             específicos.
           </CardDescription>
         </CardHeader>
@@ -213,11 +247,13 @@ export function OfflinePackScopeForm({
           <CustomScopeFields
             includeTests={includeTests}
             includeGabaritos={includeGabaritos}
+            includeForms={includeForms}
             schools={schools}
             grades={grades}
             visibleClasses={visibleClasses}
             tests={tests}
             gabaritos={gabaritos}
+            socioeconomicForms={socioeconomicForms}
             students={students}
             selectedSchoolIds={selectedSchoolIds}
             setSelectedSchoolIds={setSelectedSchoolIds}
@@ -229,12 +265,15 @@ export function OfflinePackScopeForm({
             setSelectedTestIds={setSelectedTestIds}
             selectedGabaritoIds={selectedGabaritoIds}
             setSelectedGabaritoIds={setSelectedGabaritoIds}
+            selectedFormIds={selectedFormIds}
+            setSelectedFormIds={setSelectedFormIds}
             selectedStudentIds={selectedStudentIds}
             setSelectedStudentIds={setSelectedStudentIds}
             loadingSchools={loadingSchools}
             loadingClasses={loadingClasses}
             loadingTests={loadingTests}
             loadingGabaritos={loadingGabaritos}
+            loadingForms={loadingForms}
             loadingStudents={loadingStudents}
             singleClassIdForStudents={singleClassIdForStudents}
             showValidation={showValidation}
@@ -251,11 +290,13 @@ export function OfflinePackScopeForm({
 function CustomScopeFields(props: {
   includeTests: boolean;
   includeGabaritos: boolean;
+  includeForms: boolean;
   schools: SchoolRow[];
   grades: Array<{ id: string; name: string }>;
   visibleClasses: ClassRow[];
   tests: TestRow[];
   gabaritos: GabaritoRow[];
+  socioeconomicForms: SocioeconomicFormRow[];
   students: StudentRow[];
   selectedSchoolIds: Set<string>;
   setSelectedSchoolIds: React.Dispatch<React.SetStateAction<Set<string>>>;
@@ -267,12 +308,15 @@ function CustomScopeFields(props: {
   setSelectedTestIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   selectedGabaritoIds: Set<string>;
   setSelectedGabaritoIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+  selectedFormIds: Set<string>;
+  setSelectedFormIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   selectedStudentIds: Set<string>;
   setSelectedStudentIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   loadingSchools: boolean;
   loadingClasses: boolean;
   loadingTests: boolean;
   loadingGabaritos: boolean;
+  loadingForms: boolean;
   loadingStudents: boolean;
   singleClassIdForStudents: string | null;
   showValidation: boolean;
@@ -282,11 +326,13 @@ function CustomScopeFields(props: {
   const {
     includeTests,
     includeGabaritos,
+    includeForms,
     schools,
     grades,
     visibleClasses,
     tests,
     gabaritos,
+    socioeconomicForms,
     students,
     selectedSchoolIds,
     setSelectedSchoolIds,
@@ -298,12 +344,15 @@ function CustomScopeFields(props: {
     setSelectedTestIds,
     selectedGabaritoIds,
     setSelectedGabaritoIds,
+    selectedFormIds,
+    setSelectedFormIds,
     selectedStudentIds,
     setSelectedStudentIds,
     loadingSchools,
     loadingClasses,
     loadingTests,
     loadingGabaritos,
+    loadingForms,
     loadingStudents,
     singleClassIdForStudents,
     showValidation,
@@ -535,6 +584,51 @@ function CustomScopeFields(props: {
         </section>
       )}
 
+      {includeForms && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 font-medium">
+            <FileText className="h-4 w-4" />
+            Formulários socioeconômicos
+          </div>
+          <p className="text-muted-foreground text-xs">
+            Lista apenas formulários já enviados. Deixe vazio para incluir todos os enviados no escopo.
+          </p>
+          <ScrollArea className="h-[180px] rounded-lg border">
+            <div className="space-y-0 p-3">
+              {loadingForms ? (
+                <p className="text-muted-foreground text-sm">Carregando formulários…</p>
+              ) : socioeconomicForms.length === 0 ? (
+                <p className="text-muted-foreground text-sm">Nenhum formulário enviado encontrado.</p>
+              ) : (
+                socioeconomicForms.map((f) => (
+                  <label
+                    key={f.id}
+                    className="flex cursor-pointer items-start gap-2 rounded-md py-1.5 hover:bg-muted/60"
+                  >
+                    <Checkbox
+                      disabled={readOnly}
+                      checked={selectedFormIds.has(String(f.id))}
+                      onCheckedChange={(c) =>
+                        setSelectedFormIds((prev) => toggleInSet(prev, String(f.id), c === true))
+                      }
+                    />
+                    <span className="text-sm leading-snug">
+                      {f.title}
+                      {f.recipientsCount != null && (
+                        <span className="text-muted-foreground">
+                          {' '}
+                          · {f.recipientsCount} destinatário(s)
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        </section>
+      )}
+
       <section className="space-y-3">
         <div className="flex items-center gap-2 font-medium">
           <Users className="h-4 w-4" />
@@ -571,7 +665,7 @@ function CustomScopeFields(props: {
 
       {showValidation && !customScopeValid && (
         <p className="text-destructive text-sm">
-          Marque ao menos uma escola, turma, prova ou aluno para o escopo personalizado.
+          Marque ao menos uma escola, turma, prova, formulário ou aluno para o escopo personalizado.
         </p>
       )}
     </div>

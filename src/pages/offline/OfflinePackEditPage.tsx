@@ -128,6 +128,7 @@ function OfflinePackEditForm({
 }) {
   const form = useOfflinePackForm({
     initialScope: pack.scope,
+    initialContentType: pack.content_type ?? null,
     initialMaxRedemptions: pack.max_redemptions,
     minMaxRedemptions: pack.redemptions_count,
     initialCityId,
@@ -158,6 +159,7 @@ function OfflinePackEditForm({
         content_type: {
           include_tests: form.includeTests,
           include_gabaritos: form.includeGabaritos,
+          include_forms: form.includeForms,
         },
       };
       const updated = await patchOfflinePack(packId, body, form.cityIdForAdminHeader);

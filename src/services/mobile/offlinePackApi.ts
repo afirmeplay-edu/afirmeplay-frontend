@@ -14,6 +14,7 @@ export type OfflinePackScopeCustom = {
   school_ids?: string[];
   test_ids?: string[];
   gabarito_ids?: string[];
+  form_ids?: string[];
   class_ids?: string[];
   student_ids?: string[];
 };
@@ -27,6 +28,7 @@ export type OfflinePackScopePayload =
       school_ids: string[];
       test_ids: string[];
       gabarito_ids: string[];
+      form_ids: string[];
       class_ids: string[];
       /** Omitir quando o escopo é por turma/escola/prova — não enviar array vazio. */
       student_ids?: string[];
@@ -36,6 +38,7 @@ export interface OfflinePackItem {
   offline_pack_id: string;
   code: string | null;
   scope: OfflinePackScope;
+  content_type?: OfflinePackContentType;
   expires_at: string;
   max_redemptions: number;
   redemptions_count: number;
@@ -55,6 +58,7 @@ export interface OfflinePackListResponse {
 export interface OfflinePackContentType {
   include_tests: boolean;
   include_gabaritos: boolean;
+  include_forms: boolean;
 }
 
 export interface RegisterOfflinePackRequest {
@@ -200,6 +204,7 @@ export function buildScopePayload(
     schoolIds: Set<string>;
     testIds: Set<string>;
     gabaritoIds: Set<string>;
+    formIds: Set<string>;
     classIds: Set<string>;
     studentIds: Set<string>;
   }
@@ -213,6 +218,7 @@ export function buildScopePayload(
     school_ids: [...selections.schoolIds],
     test_ids: [...selections.testIds],
     gabarito_ids: [...selections.gabaritoIds],
+    form_ids: [...selections.formIds],
     class_ids: [...selections.classIds],
     ...(studentIds.length > 0 ? { student_ids: studentIds } : {}),
   };

@@ -49,6 +49,13 @@ export interface GabaritoRow {
   num_questions?: number;
 }
 
+export interface SocioeconomicFormRow {
+  id: string;
+  title: string;
+  formType?: string;
+  recipientsCount?: number;
+}
+
 export function normalizeToClassRows(data: unknown): ClassRow[] {
   return normalizeApiList<ClassRow>(data);
 }
@@ -118,6 +125,7 @@ export function scopeSummary(scope: OfflinePackScope): string {
   if (n(scope.class_ids)) parts.push(`${n(scope.class_ids)} turma(s)`);
   if (n(scope.test_ids)) parts.push(`${n(scope.test_ids)} prova(s)`);
   if (n(scope.gabarito_ids)) parts.push(`${n(scope.gabarito_ids)} gabarito(s)`);
+  if (n(scope.form_ids)) parts.push(`${n(scope.form_ids)} formulário(s)`);
   if (n(scope.student_ids)) parts.push(`${n(scope.student_ids)} aluno(s)`);
   return parts.length ? parts.join(' · ') : 'Personalizado (sem filtros)';
 }
@@ -132,6 +140,7 @@ export function normalizePackScope(scope: OfflinePackScope): OfflinePackScope {
     (Array.isArray(raw.class_ids) && raw.class_ids.length > 0) ||
     (Array.isArray(raw.test_ids) && raw.test_ids.length > 0) ||
     (Array.isArray(raw.gabarito_ids) && raw.gabarito_ids.length > 0) ||
+    (Array.isArray(raw.form_ids) && raw.form_ids.length > 0) ||
     (Array.isArray(raw.student_ids) && raw.student_ids.length > 0);
   if (hasCustomIds) {
     return {
@@ -140,6 +149,7 @@ export function normalizePackScope(scope: OfflinePackScope): OfflinePackScope {
       class_ids: Array.isArray(raw.class_ids) ? raw.class_ids.map(String) : [],
       test_ids: Array.isArray(raw.test_ids) ? raw.test_ids.map(String) : [],
       gabarito_ids: Array.isArray(raw.gabarito_ids) ? raw.gabarito_ids.map(String) : [],
+      form_ids: Array.isArray(raw.form_ids) ? raw.form_ids.map(String) : [],
       student_ids: Array.isArray(raw.student_ids) ? raw.student_ids.map(String) : [],
     };
   }
@@ -151,6 +161,7 @@ export function setsFromScope(scope: OfflinePackScope): {
   schoolIds: Set<string>;
   testIds: Set<string>;
   gabaritoIds: Set<string>;
+  formIds: Set<string>;
   classIds: Set<string>;
   studentIds: Set<string>;
 } {
@@ -161,6 +172,7 @@ export function setsFromScope(scope: OfflinePackScope): {
       schoolIds: new Set(),
       testIds: new Set(),
       gabaritoIds: new Set(),
+      formIds: new Set(),
       classIds: new Set(),
       studentIds: new Set(),
     };
@@ -170,6 +182,7 @@ export function setsFromScope(scope: OfflinePackScope): {
     schoolIds: new Set((normalized.school_ids ?? []).map(String)),
     testIds: new Set((normalized.test_ids ?? []).map(String)),
     gabaritoIds: new Set((normalized.gabarito_ids ?? []).map(String)),
+    formIds: new Set((normalized.form_ids ?? []).map(String)),
     classIds: new Set((normalized.class_ids ?? []).map(String)),
     studentIds: new Set((normalized.student_ids ?? []).map(String)),
   };
@@ -199,6 +212,12 @@ export function scopeGabaritoIdsFromPack(scope: OfflinePackScope | null): string
   return n.type === 'custom' ? (n.gabarito_ids ?? []).map(String) : [];
 }
 
+export function scopeFormIdsFromPack(scope: OfflinePackScope | null): string[] {
+  if (!scope) return [];
+  const n = normalizePackScope(scope);
+  return n.type === 'custom' ? (n.form_ids ?? []).map(String) : [];
+}
+
 export function applyScopeToSelectionState(
   scope: OfflinePackScope,
   setters: {
@@ -206,6 +225,7 @@ export function applyScopeToSelectionState(
     setSelectedSchoolIds: (s: Set<string>) => void;
     setSelectedTestIds: (s: Set<string>) => void;
     setSelectedGabaritoIds: (s: Set<string>) => void;
+    setSelectedFormIds: (s: Set<string>) => void;
     setSelectedClassIds: (s: Set<string>) => void;
     setSelectedStudentIds: (s: Set<string>) => void;
   }
@@ -216,6 +236,7 @@ export function applyScopeToSelectionState(
     setters.setSelectedSchoolIds(new Set(parsed.schoolIds));
     setters.setSelectedTestIds(new Set(parsed.testIds));
     setters.setSelectedGabaritoIds(new Set(parsed.gabaritoIds));
+    setters.setSelectedFormIds(new Set(parsed.formIds));
     setters.setSelectedClassIds(new Set(parsed.classIds));
     setters.setSelectedStudentIds(new Set(parsed.studentIds));
   }
