@@ -26,8 +26,11 @@ import {
   HistoricoCompleto 
 } from '@/types/idebMeta';
 import { 
-  analyzeHistoricalGrowth, 
-  calculateGrowthNeeded
+  analyzeHistoricalGrowth,
+  buildHistoricalDisplaySeries,
+  calculateGrowthNeeded,
+  filterValidIdebHistory,
+  getLatestValidIdebFromHistory,
 } from '@/utils/idebCalculator';
 import {
   getSavedData,
@@ -91,6 +94,12 @@ export default function IdebMetaCalculator() {
   const levelAsApi = selectedLevel as IdebMetaLevel;
   const hasValidContext = selectedMunicipality && selectedMunicipality !== 'all' && selectedState !== 'all';
 
+  const applyProjectedMeta = useCallback((historico: HistoricoCompleto[]) => {
+    if (filterValidIdebHistory(historico).length > 0) {
+      setCustomTarget(analyzeHistoricalGrowth(historico).projectedMeta);
+    }
+  }, []);
+
   const applyPayloadToState = useCallback(
     (payload: { municipalityData: IdebData; customTarget: number; activeEntityId: string | null; targetYear: number }) => {
       const { municipalityData, customTarget, activeEntityId, targetYear: ty } = payload;
@@ -101,11 +110,11 @@ export default function IdebMetaCalculator() {
           ? municipalityData.escolas.find((s) => s.id === activeEntityId)
           : null;
       setActiveEntity(entity ?? municipalityData);
-      if (entity?.historico) setCustomTarget(analyzeHistoricalGrowth(entity.historico).projectedMeta);
+      if (entity?.historico) applyProjectedMeta(entity.historico);
       else if (payload.customTarget != null) setCustomTarget(payload.customTarget);
       if (typeof ty === 'number' && ty >= 2020 && ty <= 2040) setTargetYear(ty);
     },
-    []
+    [applyProjectedMeta]
   );
 
   // Carregar contexto hierárquico para diretor, coordenador e tecadm
@@ -330,8 +339,7 @@ export default function IdebMetaCalculator() {
       };
 
       setMunicipalityData(fullData);
-      const projectedMeta = analyzeHistoricalGrowth(fullData.historico).projectedMeta;
-      setCustomTarget(projectedMeta);
+      applyProjectedMeta(fullData.historico);
 
       // Por perfil: diretor/coordenador veem resultado da escola; admin/tec admin veem municipal
       const hierarchyForSearch = userHierarchyContext ?? (user?.id && user?.role && showSchoolResult ? await getUserHierarchyContext(user.id, user.role) : null);
@@ -350,7 +358,7 @@ export default function IdebMetaCalculator() {
               ? { ...prev, escolas: prev.escolas.map((s) => (s.id === school.id ? escolaComNomeReal : s)) }
               : prev
           );
-          if (school.historico?.length) setCustomTarget(analyzeHistoricalGrowth(school.historico).projectedMeta);
+          if (school.historico?.length) applyProjectedMeta(school.historico);
         } else if (realSchoolName) {
           const escolaDoUsuario: Escola = {
             id: schoolId,
@@ -360,7 +368,7 @@ export default function IdebMetaCalculator() {
             historico: fullData.historico,
           };
           setActiveEntity(escolaDoUsuario);
-          setCustomTarget(projectedMeta);
+          applyProjectedMeta(fullData.historico);
           toast({ title: 'Sua escola', description: `Exibindo resultado para "${realSchoolName}" com dados da rede municipal.`, variant: 'default' });
         } else {
           setActiveEntity(fullData);
@@ -390,7 +398,7 @@ export default function IdebMetaCalculator() {
   const handleEntitySelect = (entity: IdebData | Escola) => {
     setActiveEntity(entity);
     if (entity.historico) {
-      setCustomTarget(analyzeHistoricalGrowth(entity.historico).projectedMeta);
+      applyProjectedMeta(entity.historico);
     }
   };
 
@@ -445,7 +453,7 @@ export default function IdebMetaCalculator() {
     setMunicipalityData(newData);
     if (activeEntity && 'id' in activeEntity && activeEntity.id === idToRemove) {
       setActiveEntity(newData);
-      if (newData.historico) setCustomTarget(analyzeHistoricalGrowth(newData.historico).projectedMeta);
+      if (newData.historico) applyProjectedMeta(newData.historico);
     }
     setSchoolToDeleteId(null);
     if (hasValidContext) {
@@ -516,7 +524,7 @@ export default function IdebMetaCalculator() {
         setMunicipalityData(newMunicipality);
         setActiveEntity({ ...activeEntity, historico: sorted, ideb: latest.ideb });
       }
-      setCustomTarget(analyzeHistoricalGrowth(sorted).projectedMeta);
+      applyProjectedMeta(sorted);
       setIsEditingHistory(false);
       toast({
         title: 'Sucesso',
@@ -537,25 +545,38 @@ export default function IdebMetaCalculator() {
     return analyzeHistoricalGrowth(activeEntity.historico);
   }, [activeEntity]);
 
+  const displaySeries = useMemo(() => {
+    if (!activeEntity?.historico) return null;
+    return buildHistoricalDisplaySeries(activeEntity.historico);
+  }, [activeEntity]);
+
+  const latestValidIdeb = useMemo(() => {
+    if (!activeEntity?.historico) return null;
+    return getLatestValidIdebFromHistory(activeEntity.historico);
+  }, [activeEntity]);
+
+  const canCalculateMeta = Boolean(latestValidIdeb && growthInfo);
+
   const calculationData = useMemo(() => {
-    if (!activeEntity?.historico || !growthInfo) return null;
-    const current = activeEntity.ideb;
-    const hist = [...activeEntity.historico].sort((a, b) => b.ano - a.ano);
-    const prevValue = hist.length > 1 ? hist[1].ideb : current;
+    if (!activeEntity?.historico || !growthInfo || !latestValidIdeb) return null;
+    const validHist = filterValidIdebHistory(activeEntity.historico);
+    if (validHist.length === 0) return null;
+    const current = Number(validHist[validHist.length - 1].ideb);
+    const prevValue = validHist.length > 1 ? Number(validHist[validHist.length - 2].ideb) : current;
     return calculateGrowthNeeded(current, customTarget, current - prevValue);
-  }, [activeEntity, customTarget, growthInfo]);
+  }, [activeEntity, customTarget, growthInfo, latestValidIdeb]);
 
   const filteredEscolas = useMemo(() => {
     return municipalityData?.escolas?.filter(s => s.level === selectedLevel) || [];
   }, [municipalityData, selectedLevel]);
 
   const serieHistoricaChartData = useMemo(() => {
-    if (!growthInfo?.years?.length || !growthInfo?.values?.length) return [];
-    return growthInfo.years.map((ano, i) => ({
+    if (!displaySeries?.years?.length) return [];
+    return displaySeries.years.map((ano, i) => ({
       ano: String(ano),
-      ideb: growthInfo.values[i] ?? 0,
+      ideb: displaySeries.values[i] ?? 0,
     }));
-  }, [growthInfo]);
+  }, [displaySeries]);
 
   const crescimentoBienalChartData = useMemo(() => {
     if (!growthInfo?.years?.length || !growthInfo?.diffs?.length) return [];
@@ -846,7 +867,7 @@ export default function IdebMetaCalculator() {
                         Meta {targetYear}
                       </p>
                       <p className="text-2xl sm:text-4xl font-bold text-primary-foreground tabular-nums break-keep">
-                        {customTarget.toFixed(1)}
+                        {canCalculateMeta ? customTarget.toFixed(1) : '—'}
                       </p>
                     </div>
                   </div>
@@ -854,13 +875,18 @@ export default function IdebMetaCalculator() {
               </Card>
 
               {/* Tabela de Histórico */}
-              {growthInfo && (
+              {displaySeries && displaySeries.years.length > 0 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <TrendingUp className="w-5 h-5" />
                       Histórico de Evolução
                     </CardTitle>
+                    {displaySeries.hasMissingScores && (
+                      <p className="text-sm text-muted-foreground">
+                        Períodos com IDEB 0,0 indicam ausência de nota e não entram no cálculo da meta.
+                      </p>
+                    )}
                   </CardHeader>
                   <CardContent>
                     <div className="w-full min-w-0 overflow-x-auto -mx-2 sm:mx-0 px-2 sm:px-0 [-webkit-overflow-scrolling:touch]">
@@ -868,7 +894,7 @@ export default function IdebMetaCalculator() {
                         <TableHeader>
                           <TableRow>
                             <TableHead className="w-[60px] sm:w-[80px] min-w-[60px]">Ano</TableHead>
-                            {growthInfo.years.slice(0, -1).map(year => (
+                            {displaySeries.years.slice(0, -1).map(year => (
                               <TableHead key={year} className="text-center min-w-[44px] whitespace-nowrap px-1 sm:px-2">
                                 {year}
                               </TableHead>
@@ -884,8 +910,13 @@ export default function IdebMetaCalculator() {
                         <TableBody>
                           <TableRow>
                             <TableCell className="font-semibold whitespace-nowrap">IDEB</TableCell>
-                            {growthInfo.values.slice(0, -1).map((value, idx) => (
-                              <TableCell key={idx} className="text-center font-bold tabular-nums px-1 sm:px-2">
+                            {displaySeries.values.slice(0, -1).map((value, idx) => (
+                              <TableCell
+                                key={idx}
+                                className={`text-center font-bold tabular-nums px-1 sm:px-2 ${
+                                  value <= 0 ? 'text-muted-foreground' : ''
+                                }`}
+                              >
                                 {value.toFixed(1)}
                               </TableCell>
                             ))}
@@ -893,16 +924,20 @@ export default function IdebMetaCalculator() {
                               {activeEntity.ideb.toFixed(1)}
                             </TableCell>
                             <TableCell className="text-center font-bold bg-primary text-primary-foreground tabular-nums px-1 sm:px-2">
-                              {customTarget.toFixed(1)}
+                              {canCalculateMeta ? customTarget.toFixed(1) : '—'}
                             </TableCell>
                           </TableRow>
                           <TableRow>
                             <TableCell className="font-semibold whitespace-nowrap">∆ Bienal</TableCell>
-                            {growthInfo.diffs.map((diff, idx) => (
+                            {displaySeries.diffs.map((diff, idx) => (
                               <TableCell key={idx} className="text-center tabular-nums px-1 sm:px-2">
-                                <span className={`font-semibold whitespace-nowrap ${diff >= 0 ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}>
-                                  {diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1)}
-                                </span>
+                                {diff === null ? (
+                                  <span className="text-muted-foreground">—</span>
+                                ) : (
+                                  <span className={`font-semibold whitespace-nowrap ${diff >= 0 ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}>
+                                    {diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1)}
+                                  </span>
+                                )}
                               </TableCell>
                             ))}
                             <TableCell colSpan={2}></TableCell>
@@ -915,7 +950,7 @@ export default function IdebMetaCalculator() {
               )}
 
               {/* Série histórica - Gráfico de evolução do IDEB (rolagem horizontal para separar os anos) */}
-              {growthInfo && serieHistoricaChartData.length > 0 && (
+              {displaySeries && serieHistoricaChartData.length > 0 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -971,7 +1006,7 @@ export default function IdebMetaCalculator() {
               )}
 
               {/* Crescimento bienal - Gráfico de barras (rolagem horizontal para separar os períodos) */}
-              {growthInfo && crescimentoBienalChartData.length > 0 && (
+              {canCalculateMeta && growthInfo && crescimentoBienalChartData.length > 0 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -1024,7 +1059,7 @@ export default function IdebMetaCalculator() {
               )}
 
               {/* Memorial de Cálculo */}
-              {calculationData && growthInfo && (
+              {canCalculateMeta && calculationData && growthInfo && latestValidIdeb && (
                 <Card className="bg-muted border-border">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-foreground">
@@ -1036,7 +1071,10 @@ export default function IdebMetaCalculator() {
                     <div>
                       <p className="text-muted-foreground mb-4 text-sm sm:text-base break-words">
                         A projeção de meta em <strong className="tabular-nums">{customTarget.toFixed(1)}</strong> baseia-se no IDEB base de{' '}
-                        <span className="tabular-nums">{activeEntity.ideb.toFixed(1)}</span> acrescido do pico de crescimento (+<span className="tabular-nums">{growthInfo.maxDiff.toFixed(1)}</span>).
+                        <span className="tabular-nums">{latestValidIdeb.ideb.toFixed(1)}</span> ({latestValidIdeb.ano}) acrescido do pico de crescimento (+<span className="tabular-nums">{growthInfo.maxDiff.toFixed(1)}</span>).
+                        {displaySeries?.hasMissingScores && (
+                          <> Períodos com nota 0,0 foram ignorados no cálculo.</>
+                        )}
                       </p>
                       <div className="space-y-4">
                         <div className="flex items-center justify-between gap-2 p-3 sm:p-4 bg-background/50 rounded-lg min-w-0 border border-border">

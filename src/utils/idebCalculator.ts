@@ -24,20 +24,80 @@ export interface GrowthAnalysis {
   projectedMeta: number;
 }
 
+export interface HistoricalDisplaySeries {
+  years: number[];
+  values: number[];
+  /** ∆ entre anos consecutivos; null quando algum período não tem nota (ideb <= 0) */
+  diffs: (number | null)[];
+  hasMissingScores: boolean;
+}
+
+/** IDEB 0 indica período sem nota — usado só para demonstração, não entra no cálculo */
+export const isValidIdebScore = (ideb: number | string): boolean => {
+  const n = Number(ideb);
+  return !Number.isNaN(n) && n > 0;
+};
+
+export const filterValidIdebHistory = <T extends { ano: number; ideb: number | string }>(
+  history: T[]
+): T[] => {
+  return [...history]
+    .filter((h) => isValidIdebScore(h.ideb))
+    .sort((a, b) => a.ano - b.ano);
+};
+
+export const getLatestValidIdebFromHistory = (
+  history: Array<{ ano: number; ideb: number | string }>
+): { ano: number; ideb: number } | null => {
+  const valid = filterValidIdebHistory(history);
+  if (valid.length === 0) return null;
+  const latest = valid[valid.length - 1];
+  return { ano: latest.ano, ideb: Number(latest.ideb) };
+};
+
+/** Série completa para exibição (inclui períodos com nota 0) */
+export const buildHistoricalDisplaySeries = (
+  history: Array<{ ano: number; ideb: number | string }>
+): HistoricalDisplaySeries => {
+  if (!Array.isArray(history) || history.length === 0) {
+    return { years: [], values: [], diffs: [], hasMissingScores: false };
+  }
+
+  const sorted = [...history].sort((a, b) => a.ano - b.ano);
+  const years = sorted.map((h) => h.ano);
+  const values = sorted.map((h) => Number(h.ideb) || 0);
+  const diffs: (number | null)[] = [];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prevValid = isValidIdebScore(sorted[i - 1].ideb);
+    const currValid = isValidIdebScore(sorted[i].ideb);
+    if (prevValid && currValid) {
+      diffs.push(Number((values[i] - values[i - 1]).toFixed(1)));
+    } else {
+      diffs.push(null);
+    }
+  }
+
+  return {
+    years,
+    values,
+    diffs,
+    hasMissingScores: sorted.some((h) => !isValidIdebScore(h.ideb)),
+  };
+};
+
 /**
- * Analisa o crescimento histórico e projeta uma meta baseada no maior crescimento
- * @param history - Array de dados históricos com ano e ideb
- * @returns Análise de crescimento com projeção de meta
+ * Analisa o crescimento histórico e projeta uma meta baseada no maior crescimento.
+ * Ignora anos com ideb <= 0 (períodos sem nota).
  */
 export const analyzeHistoricalGrowth = (history: Array<{ ano: number; ideb: number | string }>): GrowthAnalysis => {
-  if (!Array.isArray(history) || history.length === 0) {
+  const sorted = filterValidIdebHistory(history);
+  if (sorted.length === 0) {
     return { years: [], values: [], diffs: [], maxDiff: 0, projectedMeta: 0 };
   }
 
-  // Ordenar por ano para garantir cronologia
-  const sorted = [...history].sort((a, b) => a.ano - b.ano);
-  const years = sorted.map(h => h.ano);
-  const values = sorted.map(h => Number(h.ideb) || 0);
+  const years = sorted.map((h) => h.ano);
+  const values = sorted.map((h) => Number(h.ideb));
   const diffs: number[] = [];
 
   for (let i = 1; i < values.length; i++) {
@@ -54,7 +114,7 @@ export const analyzeHistoricalGrowth = (history: Array<{ ano: number; ideb: numb
     values,
     diffs,
     maxDiff,
-    projectedMeta
+    projectedMeta,
   };
 };
 
