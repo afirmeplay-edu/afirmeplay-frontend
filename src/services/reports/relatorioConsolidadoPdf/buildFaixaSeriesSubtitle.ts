@@ -1,5 +1,12 @@
 import type { RelatorioConsolidado, SerieColuna } from '@/types/relatorio-consolidado';
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string): boolean {
+  return UUID_RE.test(value.trim());
+}
+
 const GRADE_TO_COURSE: Record<string, string> = {
   'Grupo 3': 'Anos Iniciais',
   'Grupo 4': 'Anos Iniciais',
@@ -37,15 +44,30 @@ function buildIntervaloFromColunas(colunas: SerieColuna[]): string | null {
   return `${first} ao ${last}`;
 }
 
+function resolveCursoLabelFromItem(
+  item: RelatorioConsolidado['itens_selecionados'][number]
+): string | null {
+  const cursoNome =
+    'curso_nome' in item && typeof item.curso_nome === 'string' ? item.curso_nome.trim() : '';
+  if (cursoNome) return cursoNome;
+
+  if ('serie' in item && item.serie?.trim()) {
+    const fromSerie = GRADE_TO_COURSE[item.serie.trim()];
+    if (fromSerie) return fromSerie;
+  }
+
+  if ('curso' in item && item.curso?.trim()) {
+    const curso = item.curso.trim();
+    if (!isUuid(curso)) return curso;
+  }
+
+  return null;
+}
+
 function buildFromItensCurso(report: RelatorioConsolidado): string | null {
   const cursos = new Set<string>();
   for (const item of report.itens_selecionados) {
-    const curso =
-      'curso' in item && item.curso?.trim()
-        ? item.curso.trim()
-        : 'serie' in item && item.serie?.trim()
-          ? item.serie.trim()
-          : null;
+    const curso = resolveCursoLabelFromItem(item);
     if (curso) cursos.add(curso);
   }
   if (cursos.size === 1) return [...cursos][0];
@@ -61,7 +83,8 @@ export type FaixaSeriesSubtitle = {
 
 /**
  * Rótulo da faixa de séries em que a avaliação foi aplicada.
- * Preferência: `faixa_avaliacao.titulo` do backend; senão deriva de `series_colunas` / itens.
+ * Preferência: `faixa_avaliacao.titulo` do backend; senão deriva de `series_colunas` /
+ * `itens_selecionados[].curso_nome` (nunca o UUID em `curso`).
  */
 export function buildFaixaSeriesSubtitle(report: RelatorioConsolidado): FaixaSeriesSubtitle {
   const backendTitulo = report.faixa_avaliacao?.titulo?.trim();

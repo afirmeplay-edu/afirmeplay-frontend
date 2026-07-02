@@ -49,7 +49,10 @@ export type ItemSelecionadoDigital = {
   id: string;
   titulo: string;
   disciplinas: string[];
+  /** ID do curso (education stage). */
   curso: string | null;
+  /** Nome legível do curso para exibição. */
+  curso_nome?: string | null;
 };
 
 export type ItemSelecionadoCartao = {
@@ -57,6 +60,8 @@ export type ItemSelecionadoCartao = {
   titulo: string;
   disciplinas: string[];
   serie: string | null;
+  /** Nome legível do curso para exibição. */
+  curso_nome?: string | null;
 };
 
 export type SerieColuna = {
