@@ -11,8 +11,9 @@ import {
   calculateGrowthNeeded,
   filterValidIdebHistory,
   getLatestValidIdebFromHistory,
+  type HistoricalDisplaySeries,
 } from '@/utils/idebCalculator';
-import type { EducationLevel, Escola, HistoricoCompleto, IdebData } from '@/types/idebMeta';
+import type { EducationLevel, Escola, IdebData } from '@/types/idebMeta';
 
 export type IdebMetaChartSnapshot = {
   dataUrl: string;
@@ -42,6 +43,101 @@ export type GenerateIdebMetaPdfOptions = {
   /** Capturas html2canvas dos blocos exibidos na interface web */
   chartSnapshots?: IdebMetaChartSnapshots;
 };
+
+/** Cores explícitas para rótulos SVG (html2canvas não resolve hsl(var(...))) */
+const IDEB_CHART_LABEL_FILL = {
+  dark: '#f1f5f9',
+  light: '#374151',
+} as const;
+
+const IDEB_CHART_AXIS_FILL = {
+  dark: '#a1a1aa',
+  light: '#6b7280',
+} as const;
+
+function isAppDarkMode(): boolean {
+  return (
+    typeof document !== 'undefined' &&
+    (document.documentElement.classList.contains('dark') ||
+      document.body.classList.contains('dark'))
+  );
+}
+
+function applySvgTextFill(el: SVGTextElement, fill: string): void {
+  el.setAttribute('fill', fill);
+  el.style.fill = fill;
+  el.style.opacity = '1';
+  el.removeAttribute('opacity');
+  el.querySelectorAll('tspan').forEach((tspan) => {
+    const tsp = tspan as SVGTextElement;
+    tsp.setAttribute('fill', fill);
+    tsp.style.fill = fill;
+    tsp.style.opacity = '1';
+  });
+}
+
+/** Remove clip-path do SVG — html2canvas omite rótulos dentro de áreas recortadas */
+function removeRechartsClipPathsForPdfCapture(root: HTMLElement): void {
+  root.querySelectorAll<SVGElement>('[clip-path]').forEach((el) => {
+    el.removeAttribute('clip-path');
+    el.style.clipPath = 'none';
+  });
+}
+
+/** Garante rótulos SVG legíveis na captura (html2canvas não resolve fill via CSS variables) */
+function fixRechartsTextForPdfCapture(root: HTMLElement, darkMode: boolean): void {
+  const dataLabelFill = darkMode ? IDEB_CHART_LABEL_FILL.dark : IDEB_CHART_LABEL_FILL.light;
+  const axisFill = darkMode ? IDEB_CHART_AXIS_FILL.dark : IDEB_CHART_AXIS_FILL.light;
+
+  const dataLabelNodes = new Set<SVGTextElement>();
+  const dataLabelSelectors = [
+    '.ideb-chart-data-label',
+    '.recharts-label-list text',
+    'svg .recharts-label-list .recharts-text',
+    'svg g.recharts-label-list text',
+    '.ideb-chart-data-label text',
+  ];
+
+  for (const selector of dataLabelSelectors) {
+    root.querySelectorAll(selector).forEach((node) => {
+      const tag = node.tagName?.toLowerCase();
+      if (tag === 'text') {
+        dataLabelNodes.add(node as SVGTextElement);
+      } else {
+        node.querySelectorAll('text').forEach((textNode) => {
+          dataLabelNodes.add(textNode as SVGTextElement);
+        });
+      }
+    });
+  }
+
+  dataLabelNodes.forEach((el) => applySvgTextFill(el, dataLabelFill));
+
+  root.querySelectorAll('svg .recharts-cartesian-axis-tick text').forEach((node) => {
+    const el = node as SVGTextElement;
+    const currentFill = el.getAttribute('fill') ?? '';
+    if (currentFill.includes('var(') || !currentFill) {
+      applySvgTextFill(el, axisFill);
+    }
+  });
+}
+
+function prepareRechartsChartsForPdfCapture(root: HTMLElement, darkMode: boolean): void {
+  removeRechartsClipPathsForPdfCapture(root);
+  fixRechartsTextForPdfCapture(root, darkMode);
+}
+
+function resolveCaptureBackgroundColor(element: HTMLElement): string | null {
+  let node: HTMLElement | null = element;
+  while (node) {
+    const bg = window.getComputedStyle(node).backgroundColor;
+    if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+      return bg;
+    }
+    node = node.parentElement;
+  }
+  return isAppDarkMode() ? 'hsl(220, 12%, 11%)' : '#ffffff';
+}
 
 /** Captura um bloco da interface (card + gráfico) para embutir no PDF */
 export async function captureIdebMetaChartElement(
@@ -105,15 +201,20 @@ export async function captureIdebMetaChartElement(
     await new Promise<void>((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
     });
+    await new Promise<void>((resolve) => setTimeout(resolve, 150));
 
     const captureW = Math.max(element.scrollWidth, element.clientWidth) + 16;
     const captureH = Math.max(element.scrollHeight, element.clientHeight) + 16;
+    const captureDarkMode = isAppDarkMode();
+    const captureBackground = resolveCaptureBackgroundColor(element);
+
+    fixRechartsTextForPdfCapture(element, captureDarkMode);
 
     const canvas = await html2canvas(element, {
       scale: 2,
       useCORS: true,
       allowTaint: true,
-      backgroundColor: '#ffffff',
+      backgroundColor: captureBackground,
       logging: false,
       width: captureW,
       height: captureH,
@@ -122,10 +223,8 @@ export async function captureIdebMetaChartElement(
       x: -8,
       y: -8,
       onclone: (_clonedDoc, clonedElement) => {
-        const nodes = [
-          clonedElement as HTMLElement,
-          ...Array.from((clonedElement as HTMLElement).querySelectorAll<HTMLElement>('*')),
-        ];
+        const root = clonedElement as HTMLElement;
+        const nodes = [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))];
 
         nodes.forEach((el) => {
           el.style.overflow = 'visible';
@@ -140,6 +239,8 @@ export async function captureIdebMetaChartElement(
             el.style.lineHeight = '1.35';
           }
         });
+
+        prepareRechartsChartsForPdfCapture(root, captureDarkMode);
       },
     });
 
@@ -169,6 +270,18 @@ const C = {
   borderLight: [229, 231, 235] as [number, number, number],
   bgLight: [250, 250, 250] as [number, number, number],
   white: [255, 255, 255] as [number, number, number],
+};
+
+/** Cores do histórico pivot — equivalentes às classes Tailwind da interface web */
+const HIST_COLORS = {
+  headerMuted: [229, 231, 235] as [number, number, number],
+  headerMutedText: [107, 114, 128] as [number, number, number],
+  mutedCell: [245, 245, 245] as [number, number, number],
+  missingCell: [243, 244, 246] as [number, number, number],
+  diffPositiveBg: [220, 252, 231] as [number, number, number],
+  diffPositiveText: [22, 101, 52] as [number, number, number],
+  diffNegativeBg: [254, 226, 226] as [number, number, number],
+  diffNegativeText: [185, 28, 28] as [number, number, number],
 };
 
 function fmtNow(): string {
@@ -320,26 +433,115 @@ async function addCover(
   doc.text('Projeção de metas com base no histórico de crescimento IDEB.', centerX, y, { align: 'center' });
 }
 
-function getHistoricoRows(historico: HistoricoCompleto[]): string[][] {
-  const display = buildHistoricalDisplaySeries(historico);
-  if (display.years.length === 0) return [];
+function buildPivotHistoricoTable(
+  displaySeries: HistoricalDisplaySeries,
+  activeEntityIdeb: number,
+  activeEntityAno: number,
+  customTarget: number,
+  targetYear: number,
+  canCalculateMeta: boolean
+): { head: string[][]; body: string[][]; historicalCount: number } {
+  const historicalYears = displaySeries.years.slice(0, -1);
+  const historicalValues = displaySeries.values.slice(0, -1);
+  const historicalCount = historicalYears.length;
 
-  const sorted = [...historico].sort((a, b) => a.ano - b.ano);
-  return sorted.map((row, idx) => {
-    const diff = idx > 0 ? display.diffs[idx - 1] : null;
-    const diffLabel =
-      diff === null ? '—' : diff > 0 ? `+${formatDecimal1PtBr(diff)}` : formatDecimal1PtBr(diff);
-    const idebLabel =
-      Number(row.ideb) > 0 ? formatDecimal1PtBr(row.ideb) : '0,0 (sem nota)';
-    return [
-      String(row.ano),
-      idebLabel,
-      formatDecimal1PtBr(row.port),
-      formatDecimal1PtBr(row.math),
-      formatDecimal1PtBr(row.fluxo),
-      diffLabel,
-    ];
-  });
+  const head = [
+    [
+      'Ano',
+      ...historicalYears.map(String),
+      String(activeEntityAno),
+      `Meta ${targetYear}`,
+    ],
+  ];
+
+  const idebRow = [
+    'IDEB',
+    ...historicalValues.map((v) => v.toFixed(1)),
+    activeEntityIdeb.toFixed(1),
+    canCalculateMeta ? customTarget.toFixed(1) : '—',
+  ];
+
+  const diffRow = [
+    '∆ Bienal',
+    ...displaySeries.diffs.map((d) =>
+      d === null ? '—' : d > 0 ? `+${d.toFixed(1)}` : d.toFixed(1)
+    ),
+    '',
+    '',
+  ];
+
+  return { head, body: [idebRow, diffRow], historicalCount };
+}
+
+function applyPivotHistoricoCellStyles(
+  hookData: CellHookData,
+  displaySeries: HistoricalDisplaySeries,
+  historicalCount: number
+): void {
+  const { section, row, column, cell } = hookData;
+  const colIdx = column.index;
+
+  if (section === 'head') {
+    cell.styles.fontStyle = 'bold';
+    if (colIdx === 0) {
+      cell.styles.fillColor = C.primary;
+      cell.styles.textColor = 255;
+    } else if (colIdx === historicalCount + 1) {
+      cell.styles.fillColor = HIST_COLORS.headerMuted;
+      cell.styles.textColor = HIST_COLORS.headerMutedText;
+    } else if (colIdx === historicalCount + 2) {
+      cell.styles.fillColor = C.primary;
+      cell.styles.textColor = 255;
+    } else {
+      cell.styles.fillColor = C.primary;
+      cell.styles.textColor = 255;
+    }
+    return;
+  }
+
+  if (section !== 'body') return;
+
+  if (colIdx === 0) {
+    cell.styles.fontStyle = 'bold';
+    cell.styles.textColor = C.textDark;
+    return;
+  }
+
+  if (row.index === 0) {
+    if (colIdx >= 1 && colIdx <= historicalCount) {
+      const value = displaySeries.values[colIdx - 1];
+      cell.styles.fontStyle = 'bold';
+      if (value <= 0) {
+        cell.styles.fillColor = HIST_COLORS.missingCell;
+        cell.styles.textColor = C.textGray;
+        cell.styles.fontStyle = 'italic';
+      }
+    } else if (colIdx === historicalCount + 1) {
+      cell.styles.fillColor = HIST_COLORS.mutedCell;
+      cell.styles.textColor = C.textDark;
+      cell.styles.fontStyle = 'bold';
+    } else if (colIdx === historicalCount + 2) {
+      cell.styles.fillColor = C.primary;
+      cell.styles.textColor = 255;
+      cell.styles.fontStyle = 'bold';
+    }
+    return;
+  }
+
+  if (row.index === 1 && colIdx >= 1 && colIdx <= displaySeries.diffs.length) {
+    const diff = displaySeries.diffs[colIdx - 1];
+    if (diff === null) {
+      cell.styles.textColor = C.textGray;
+    } else if (diff > 0) {
+      cell.styles.fillColor = HIST_COLORS.diffPositiveBg;
+      cell.styles.textColor = HIST_COLORS.diffPositiveText;
+      cell.styles.fontStyle = 'bold';
+    } else if (diff < 0) {
+      cell.styles.fillColor = HIST_COLORS.diffNegativeBg;
+      cell.styles.textColor = HIST_COLORS.diffNegativeText;
+      cell.styles.fontStyle = 'bold';
+    }
+  }
 }
 
 function defaultTableStyles(margin: number, pageW: number): UserOptions {
@@ -363,17 +565,8 @@ function defaultTableStyles(margin: number, pageW: number): UserOptions {
       fontStyle: 'bold',
       fontSize: 8.8,
     },
-    alternateRowStyles: { fillColor: [253, 252, 254] },
+    alternateRowStyles: { fillColor: [255, 255, 255] },
   };
-}
-
-function markMissingScoreRows(hookData: CellHookData): void {
-  if (hookData.section !== 'body' || hookData.column.index !== 1) return;
-  const raw = String(hookData.cell.raw ?? '');
-  if (raw.includes('sem nota')) {
-    hookData.cell.styles.textColor = C.textGray;
-    hookData.cell.styles.fontStyle = 'italic';
-  }
 }
 
 function ensurePageSpace(doc: jsPDF, y: number, needed: number, margin = 16): number {
@@ -499,23 +692,57 @@ export async function generateIdebMetaPdf(opts: GenerateIdebMetaPdfOptions): Pro
   }
 
   y = drawSectionTitle(doc, margin, y, 'Histórico de evolução');
-  const historicoRows = getHistoricoRows(historico);
 
-  autoTable(doc, {
-    ...defaultTableStyles(margin, pageW),
-    head: [['Ano', 'IDEB', 'Português', 'Matemática', 'Fluxo', '∆ Bienal']],
-    body: historicoRows.length > 0 ? historicoRows : [['—', 'Sem histórico registrado', '', '', '', '']],
-    startY: y,
-    columnStyles: {
-      0: { cellWidth: 16, halign: 'center' },
-      1: { cellWidth: 28, halign: 'center' },
-      2: { cellWidth: 24, halign: 'right' },
-      3: { cellWidth: 24, halign: 'right' },
-      4: { cellWidth: 18, halign: 'right' },
-      5: { cellWidth: 22, halign: 'center' },
-    },
-    didParseCell: markMissingScoreRows,
-  });
+  if (displaySeries.years.length > 0) {
+    const activeEntityAno =
+      'ano' in opts.activeEntity ? opts.activeEntity.ano : opts.municipalityData.ano;
+    const pivot = buildPivotHistoricoTable(
+      displaySeries,
+      opts.activeEntity.ideb,
+      activeEntityAno,
+      opts.customTarget,
+      opts.targetYear,
+      canCalculate
+    );
+
+    autoTable(doc, {
+      ...defaultTableStyles(margin, pageW),
+      theme: 'plain',
+      head: pivot.head,
+      body: pivot.body,
+      startY: y,
+      styles: {
+        font: 'helvetica',
+        fontSize: 8,
+        cellPadding: { top: 3.5, bottom: 3.5, left: 2, right: 2 },
+        lineColor: C.borderLight,
+        lineWidth: 0.12,
+        valign: 'middle',
+        halign: 'center',
+        overflow: 'linebreak',
+      },
+      headStyles: {
+        fillColor: C.primary,
+        textColor: 255,
+        fontStyle: 'bold',
+        fontSize: 8,
+        halign: 'center',
+      },
+      columnStyles: {
+        0: { cellWidth: 22, halign: 'left', fontStyle: 'bold' },
+      },
+      didParseCell: (hookData) => {
+        applyPivotHistoricoCellStyles(hookData, displaySeries, pivot.historicalCount);
+      },
+    });
+  } else {
+    autoTable(doc, {
+      ...defaultTableStyles(margin, pageW),
+      head: [['Ano', 'IDEB']],
+      body: [['—', 'Sem histórico registrado']],
+      startY: y,
+    });
+  }
 
   y = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
   y += 12;
@@ -551,29 +778,47 @@ export async function generateIdebMetaPdf(opts: GenerateIdebMetaPdfOptions): Pro
 
   const schools = opts.schools ?? [];
   if (schools.length > 0) {
-    if (y > doc.internal.pageSize.getHeight() - 50) {
-      doc.addPage();
-      y = 16;
-    }
+    doc.addPage();
+    y = 16;
 
-    y = drawSectionTitle(doc, margin, y, 'Unidades escolares do município');
+    const isSchoolReport = opts.entityType === 'school' && schools.length === 1;
+    y = drawSectionTitle(
+      doc,
+      margin,
+      y,
+      isSchoolReport ? 'Unidade escolar' : 'Unidades escolares do município'
+    );
+
     const schoolsBody = schools.map((school) => {
       const schoolLatest = school.historico?.length
         ? [...school.historico].sort((a, b) => b.ano - a.ano)[0]
         : null;
       const idebLabel =
-        school.ideb > 0
-          ? formatDecimal1PtBr(school.ideb)
-          : '0,0 (sem nota)';
+        school.ideb > 0 ? formatDecimal1PtBr(school.ideb) : '0,0 (sem nota)';
       const anoLabel = schoolLatest ? String(schoolLatest.ano) : '—';
       return [school.nome, idebLabel, anoLabel];
     });
 
+    if (isSchoolReport) {
+      schoolsBody.push([
+        'Rede municipal',
+        opts.municipalityData.ideb > 0
+          ? formatDecimal1PtBr(opts.municipalityData.ideb)
+          : '0,0 (sem nota)',
+        String(opts.municipalityData.ano),
+      ]);
+    }
+
+    const totalRowIndex = schoolsBody.length - 1;
+
     autoTable(doc, {
       ...defaultTableStyles(margin, pageW),
+      theme: 'plain',
       head: [['Unidade escolar', 'IDEB', 'Último ano']],
       body: schoolsBody,
       startY: y,
+      rowPageBreak: 'avoid',
+      showHead: 'firstPage',
       columnStyles: {
         0: { cellWidth: 'auto', minCellWidth: 60 },
         1: { cellWidth: 28, halign: 'center' },
@@ -585,6 +830,16 @@ export async function generateIdebMetaPdf(opts: GenerateIdebMetaPdfOptions): Pro
           if (raw.includes('sem nota')) {
             hookData.cell.styles.textColor = C.textGray;
             hookData.cell.styles.fontStyle = 'italic';
+          }
+        }
+        if (isSchoolReport && hookData.section === 'body' && hookData.row.index === totalRowIndex) {
+          hookData.cell.styles.fillColor = HIST_COLORS.mutedCell;
+          hookData.cell.styles.fontStyle = 'bold';
+          if (hookData.column.index === 0) {
+            hookData.cell.styles.textColor = C.textGray;
+            hookData.cell.styles.halign = 'left';
+          } else {
+            hookData.cell.styles.textColor = C.textDark;
           }
         }
       },

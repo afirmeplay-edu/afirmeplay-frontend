@@ -13,7 +13,7 @@ import {
   Edit3, Save, School, Plus, Trash2, Target, TrendingUp, Calendar,
   LineChart as LineChartIcon, BarChart3, Download
 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar, LabelList } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/authContext';
@@ -95,6 +95,13 @@ export default function IdebMetaCalculator() {
   const serieHistoricaExportRef = useRef<HTMLDivElement>(null);
   const crescimentoBienalExportRef = useRef<HTMLDivElement>(null);
   const memorialCalculoExportRef = useRef<HTMLDivElement>(null);
+
+  const chartDataLabelFill =
+    typeof document !== 'undefined' &&
+    (document.documentElement.classList.contains('dark') ||
+      document.body.classList.contains('dark'))
+      ? '#f1f5f9'
+      : '#374151';
 
   const levelAsApi = selectedLevel as IdebMetaLevel;
   const hasValidContext = selectedMunicipality && selectedMunicipality !== 'all' && selectedState !== 'all';
@@ -627,6 +634,9 @@ export default function IdebMetaCalculator() {
         captureIdebMetaChartElement(memorialCalculoExportRef.current),
       ]);
 
+      const schoolsForPdf =
+        'municipio' in activeEntity ? filteredEscolas : [activeEntity as Escola];
+
       await generateIdebMetaPdf({
         cityId: selectedMunicipality !== 'all' ? selectedMunicipality : null,
         municipalityData,
@@ -638,7 +648,7 @@ export default function IdebMetaCalculator() {
         level: selectedLevel,
         stateName,
         municipalityName,
-        schools: filteredEscolas,
+        schools: schoolsForPdf,
         fileNameBase: `metas-ideb-${municipalityName}-${activeEntityDisplayName}`,
         chartSnapshots: {
           serieHistorica: serieHistoricaChart,
@@ -836,7 +846,7 @@ export default function IdebMetaCalculator() {
                         className="flex-1 min-w-0 flex items-center justify-between gap-2 text-left"
                         onClick={() => handleEntitySelect(school)}
                       >
-                        <span className="text-xs font-semibold break-words min-w-0 flex-1">
+                        <span className="text-xs font-semibold truncate min-w-0 flex-1" title={school.nome}>
                           {school.nome}
                         </span>
                         <span className="text-sm font-bold tabular-nums shrink-0">{school.ideb.toFixed(1)}</span>
@@ -879,14 +889,14 @@ export default function IdebMetaCalculator() {
             <div className="space-y-6">
               {/* Card de Resumo */}
               <Card>
-                <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <CardTitle className="flex items-start gap-2 min-w-0 flex-1 text-base sm:text-lg leading-snug">
+                <CardHeader className="flex flex-col gap-3">
+                  <CardTitle className="flex items-start gap-2 min-w-0 text-base sm:text-lg leading-snug">
                     <Target className="w-5 h-5 mt-0.5 shrink-0" />
-                    <span className="min-w-0 break-words">
+                    <span className="line-clamp-2 break-normal" title={activeEntityDisplayName}>
                       {activeEntityDisplayName.toUpperCase()}
                     </span>
                   </CardTitle>
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 w-full">
                     <Badge variant="outline" className="text-[10px] sm:text-xs whitespace-normal break-words items-start h-auto py-1">
                       {'municipio' in activeEntity ? 'CONSOLIDADO MUNICIPAL' : 'UNIDADE ESCOLAR'}
                     </Badge>
@@ -1053,7 +1063,7 @@ export default function IdebMetaCalculator() {
                         className="h-[280px] w-full"
                         style={{ minWidth: Math.max(320, serieHistoricaChartData.length * 56) }}
                       >
-                        <LineChart data={serieHistoricaChartData} margin={{ left: 12, right: 12, top: 8, bottom: 8 }}>
+                        <LineChart data={serieHistoricaChartData} margin={{ left: 12, right: 12, top: 28, bottom: 8 }}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} />
                           <XAxis
                             dataKey="ano"
@@ -1079,7 +1089,23 @@ export default function IdebMetaCalculator() {
                             strokeWidth={2}
                             dot={{ r: 4 }}
                             activeDot={{ r: 6 }}
-                          />
+                            isAnimationActive={false}
+                          >
+                            <LabelList
+                              dataKey="ideb"
+                              position="top"
+                              offset={10}
+                              fill={chartDataLabelFill}
+                              className="ideb-chart-data-label"
+                              fontSize={11}
+                              fontWeight={600}
+                              formatter={(value: number) =>
+                                value != null && Number.isFinite(Number(value))
+                                  ? Number(value).toFixed(1)
+                                  : ''
+                              }
+                            />
+                          </Line>
                         </LineChart>
                       </ChartContainer>
                     </div>
@@ -1111,7 +1137,7 @@ export default function IdebMetaCalculator() {
                         className="h-[280px] w-full"
                         style={{ minWidth: Math.max(320, crescimentoBienalChartData.length * 72) }}
                       >
-                        <BarChart data={crescimentoBienalChartData} margin={{ left: 12, right: 12, top: 8, bottom: 8 }}>
+                        <BarChart data={crescimentoBienalChartData} margin={{ left: 12, right: 12, top: 28, bottom: 8 }}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} />
                           <XAxis
                             dataKey="periodo"
@@ -1134,7 +1160,23 @@ export default function IdebMetaCalculator() {
                             fill="var(--color-crescimento)"
                             radius={[4, 4, 0, 0]}
                             nameKey="∆ Bienal"
-                          />
+                            isAnimationActive={false}
+                          >
+                            <LabelList
+                              dataKey="crescimento"
+                              position="top"
+                              offset={6}
+                              fill={chartDataLabelFill}
+                              className="ideb-chart-data-label"
+                              fontSize={11}
+                              fontWeight={600}
+                              formatter={(value: number) => {
+                                const n = Number(value);
+                                if (!Number.isFinite(n)) return '';
+                                return n > 0 ? `+${n.toFixed(1)}` : n.toFixed(1);
+                              }}
+                            />
+                          </Bar>
                         </BarChart>
                       </ChartContainer>
                     </div>
