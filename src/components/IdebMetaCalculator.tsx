@@ -11,7 +11,7 @@ import {
   Calculator, Search, Loader2, 
   Zap, CheckCircle2, Layout, 
   Edit3, Save, School, Plus, Trash2, Target, TrendingUp, Calendar,
-  LineChart as LineChartIcon, BarChart3
+  LineChart as LineChartIcon, BarChart3, Download
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, BarChart, Bar } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
@@ -40,6 +40,7 @@ import {
   toApiMunicipalityData,
   type IdebMetaLevel,
 } from '@/services/idebMetaApi';
+import { generateIdebMetaPdf, captureIdebMetaChartElement } from '@/services/reports/idebMetaPdf';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import {
   AlertDialog,
@@ -88,8 +89,12 @@ export default function IdebMetaCalculator() {
   const [newSchoolIdeb, setNewSchoolIdeb] = useState('0');
   const [schoolToDeleteId, setSchoolToDeleteId] = useState<string | null>(null);
   const [targetYear, setTargetYear] = useState<number>(2025);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
   const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadedForRef = useRef<string | null>(null);
+  const serieHistoricaExportRef = useRef<HTMLDivElement>(null);
+  const crescimentoBienalExportRef = useRef<HTMLDivElement>(null);
+  const memorialCalculoExportRef = useRef<HTMLDivElement>(null);
 
   const levelAsApi = selectedLevel as IdebMetaLevel;
   const hasValidContext = selectedMunicipality && selectedMunicipality !== 'all' && selectedState !== 'all';
@@ -596,6 +601,68 @@ export default function IdebMetaCalculator() {
 
   const lockFilters = (showSchoolResult || userRole === 'tecadm') && !!userHierarchyContext?.municipality;
 
+  const handleExportPdf = async () => {
+    if (!activeEntity || !municipalityData) {
+      toast({
+        title: 'Sem dados',
+        description: 'Carregue os dados do município antes de exportar o PDF.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setGeneratingPdf(true);
+      const stateName = states.find((s) => s.id === selectedState)?.nome ?? municipalityData.uf;
+      const municipalityName =
+        municipalities.find((m) => m.id === selectedMunicipality)?.nome ?? municipalityData.municipio;
+
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+
+      const [serieHistoricaChart, crescimentoBienalChart, memorialCalculoChart] = await Promise.all([
+        captureIdebMetaChartElement(serieHistoricaExportRef.current),
+        captureIdebMetaChartElement(crescimentoBienalExportRef.current),
+        captureIdebMetaChartElement(memorialCalculoExportRef.current),
+      ]);
+
+      await generateIdebMetaPdf({
+        cityId: selectedMunicipality !== 'all' ? selectedMunicipality : null,
+        municipalityData,
+        activeEntity,
+        activeEntityName: activeEntityDisplayName,
+        entityType: 'municipio' in activeEntity ? 'municipal' : 'school',
+        customTarget,
+        targetYear,
+        level: selectedLevel,
+        stateName,
+        municipalityName,
+        schools: filteredEscolas,
+        fileNameBase: `metas-ideb-${municipalityName}-${activeEntityDisplayName}`,
+        chartSnapshots: {
+          serieHistorica: serieHistoricaChart,
+          crescimentoBienal: crescimentoBienalChart,
+          memorialCalculo: memorialCalculoChart,
+        },
+      });
+
+      toast({
+        title: 'PDF gerado',
+        description: 'O relatório de metas IDEB foi baixado com sucesso.',
+      });
+    } catch (error) {
+      console.error('Erro ao gerar PDF de metas IDEB:', error);
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível gerar o relatório em PDF.',
+        variant: 'destructive',
+      });
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
   return (
     <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-full min-w-0">
       {/* Header */}
@@ -830,6 +897,20 @@ export default function IdebMetaCalculator() {
                       variant="outline"
                       size="sm"
                       className="text-xs sm:text-sm whitespace-nowrap"
+                      onClick={handleExportPdf}
+                      disabled={generatingPdf}
+                    >
+                      {generatingPdf ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Download className="w-4 h-4 mr-2" />
+                      )}
+                      Exportar PDF
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs sm:text-sm whitespace-nowrap"
                       onClick={() => {
                           if (activeEntity?.historico?.length) {
                             setEditingHistory(
@@ -951,7 +1032,8 @@ export default function IdebMetaCalculator() {
 
               {/* Série histórica - Gráfico de evolução do IDEB (rolagem horizontal para separar os anos) */}
               {displaySeries && serieHistoricaChartData.length > 0 && (
-                <Card>
+                <div ref={serieHistoricaExportRef} className="rounded-lg border bg-card text-card-foreground shadow-sm">
+                <Card className="border-0 shadow-none">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <LineChartIcon className="w-5 h-5" />
@@ -1003,11 +1085,13 @@ export default function IdebMetaCalculator() {
                     </div>
                   </CardContent>
                 </Card>
+                </div>
               )}
 
               {/* Crescimento bienal - Gráfico de barras (rolagem horizontal para separar os períodos) */}
               {canCalculateMeta && growthInfo && crescimentoBienalChartData.length > 0 && (
-                <Card>
+                <div ref={crescimentoBienalExportRef} className="rounded-lg border bg-card text-card-foreground shadow-sm">
+                <Card className="border-0 shadow-none">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <BarChart3 className="w-5 h-5" />
@@ -1056,18 +1140,24 @@ export default function IdebMetaCalculator() {
                     </div>
                   </CardContent>
                 </Card>
+                </div>
               )}
 
               {/* Memorial de Cálculo */}
               {canCalculateMeta && calculationData && growthInfo && latestValidIdeb && (
-                <Card className="bg-muted border-border">
+                <div
+                  ref={memorialCalculoExportRef}
+                  data-ideb-pdf-root="memorial-calculo"
+                  className="rounded-lg border bg-muted border-border overflow-visible p-1"
+                >
+                <Card className="bg-muted border-0 shadow-none overflow-visible">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-foreground">
                       <Zap className="w-5 h-5 text-primary" />
                       Memorial de Cálculo
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-6 text-foreground">
+                  <CardContent className="space-y-6 text-foreground overflow-visible">
                     <div>
                       <p className="text-muted-foreground mb-4 text-sm sm:text-base break-words">
                         A projeção de meta em <strong className="tabular-nums">{customTarget.toFixed(1)}</strong> baseia-se no IDEB base de{' '}
@@ -1077,8 +1167,8 @@ export default function IdebMetaCalculator() {
                         )}
                       </p>
                       <div className="space-y-4">
-                        <div className="flex items-center justify-between gap-2 p-3 sm:p-4 bg-background/50 rounded-lg min-w-0 border border-border">
-                          <span className="text-xs sm:text-sm font-semibold text-primary uppercase truncate">Alvo</span>
+                        <div className="flex items-center justify-between gap-2 p-3 sm:p-4 bg-background/50 rounded-lg min-w-0 border border-border overflow-visible">
+                          <span className="text-xs sm:text-sm font-semibold text-primary uppercase leading-normal">Alvo</span>
                           <span className="text-2xl sm:text-3xl font-bold tabular-nums shrink-0">{customTarget.toFixed(1)}</span>
                         </div>
                         <Slider
@@ -1087,25 +1177,25 @@ export default function IdebMetaCalculator() {
                           min={3}
                           max={10}
                           step={0.1}
-                          className="w-full"
+                          className="w-full py-1"
                         />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-                      <div className="p-3 sm:p-4 bg-background/50 rounded-lg min-w-0 overflow-hidden border border-border">
-                        <p className="text-[10px] sm:text-xs font-semibold text-primary uppercase mb-1 sm:mb-2 truncate">Diferença</p>
+                      <div className="p-3 sm:p-4 bg-background/50 rounded-lg min-w-0 border border-border overflow-visible">
+                        <p className="text-[10px] sm:text-xs font-semibold text-primary uppercase mb-1 sm:mb-2 leading-normal">Diferença</p>
                         <p className="text-lg sm:text-2xl font-bold text-foreground tabular-nums break-keep">+{calculationData.difference.toFixed(2)}</p>
                       </div>
-                      <div className="p-3 sm:p-4 bg-background/50 rounded-lg min-w-0 overflow-hidden border border-border">
-                        <p className="text-[10px] sm:text-xs font-semibold text-primary uppercase mb-1 sm:mb-2 truncate">Esforço %</p>
+                      <div className="p-3 sm:p-4 bg-background/50 rounded-lg min-w-0 border border-border overflow-visible">
+                        <p className="text-[10px] sm:text-xs font-semibold text-primary uppercase mb-1 sm:mb-2 leading-normal">Esforço %</p>
                         <p className="text-lg sm:text-2xl font-bold text-foreground tabular-nums break-keep">{calculationData.percent.toFixed(2)}%</p>
                       </div>
-                      <div className="p-3 sm:p-4 bg-background/50 rounded-lg min-w-0 overflow-hidden border border-border">
-                        <p className="text-[10px] sm:text-xs font-semibold text-primary uppercase mb-1 sm:mb-2 truncate">Pico</p>
+                      <div className="p-3 sm:p-4 bg-background/50 rounded-lg min-w-0 border border-border overflow-visible">
+                        <p className="text-[10px] sm:text-xs font-semibold text-primary uppercase mb-1 sm:mb-2 leading-normal">Pico</p>
                         <p className="text-lg sm:text-2xl font-bold text-foreground tabular-nums break-keep">+{growthInfo.maxDiff.toFixed(1)}</p>
                       </div>
-                      <div className="p-3 sm:p-4 bg-primary rounded-lg flex flex-col justify-center min-w-0 overflow-hidden">
-                        <p className="text-[10px] sm:text-xs font-semibold text-primary-foreground/90 uppercase mb-1 sm:mb-2 truncate">Diagnóstico</p>
+                      <div className="p-3 sm:p-4 bg-primary rounded-lg flex flex-col justify-center min-w-0 overflow-visible">
+                        <p className="text-[10px] sm:text-xs font-semibold text-primary-foreground/90 uppercase mb-1 sm:mb-2 leading-normal">Diagnóstico</p>
                         <p className="text-base sm:text-xl font-bold text-primary-foreground flex items-center gap-2 flex-wrap">
                           <span className="whitespace-nowrap">VIÁVEL</span>
                           <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
@@ -1114,6 +1204,7 @@ export default function IdebMetaCalculator() {
                     </div>
                   </CardContent>
                 </Card>
+                </div>
               )}
             </div>
           )}
