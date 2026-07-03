@@ -14,6 +14,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/authContext";
+import { BASE_URL } from "@/lib/api";
+import { QuestionOptionContent } from "@/components/evaluations/questions/QuestionOptionContent";
 import {
   loadCityBrandingPdfAssets,
   paintLetterheadBackground,
@@ -1062,7 +1064,7 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
                           </span>
                           <span className="text-muted-foreground">|</span>
                               <span className="text-muted-foreground">
-                                Proficiência: <span className="font-semibold text-foreground">{stats.proficiencia.toFixed(2)}</span>
+                                Proficiência: <span className="font-semibold text-foreground">{stats.proficiencia.toFixed(1)}</span>
                               </span>
                         </div>
                       );
@@ -1141,11 +1143,18 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
                                     return (
                                       <div
                                         key={alt.id || altIndex}
-                                        className={`flex items-center gap-2 text-xs px-2 py-1.5 rounded border ${bgClass} ${textClass} ${borderClass}`}
+                                        className={`flex items-start gap-2 text-xs px-2 py-1.5 rounded border ${bgClass} ${textClass} ${borderClass}`}
                                       >
-                                        <span className="font-medium w-4">{letter})</span>
-                                        <span className="flex-1 truncate">{alt.text || 'Sem texto'}</span>
-                                        <div className="flex items-center gap-1.5 ml-auto shrink-0">
+                                        <span className="font-medium w-4 shrink-0 pt-0.5">{letter})</span>
+                                        <QuestionOptionContent
+                                          text={alt.text}
+                                          image={alt.image}
+                                          questionId={question.id}
+                                          apiBase={BASE_URL}
+                                          className="flex-1 min-w-0"
+                                          textClassName="text-xs leading-relaxed [&_.katex]:text-inherit"
+                                        />
+                                        <div className="flex items-center gap-1.5 ml-auto shrink-0 pt-0.5">
                                           {isSelected && (
                                             <span className="text-[10px] font-medium text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded border border-blue-200">Sua</span>
                                           )}
