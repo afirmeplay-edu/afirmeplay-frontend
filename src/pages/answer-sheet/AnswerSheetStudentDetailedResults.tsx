@@ -76,10 +76,7 @@ function formatScoreForDisplay(value: unknown, decimals = 1): string {
 }
 
 function formatProficiencyForDisplay(value: unknown): string {
-  if (value === null || value === undefined || value === '') return 'N/A';
-  const n = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(n)) return 'N/A';
-  return String(n);
+  return formatScoreForDisplay(value);
 }
 
 interface AnswerSheetStudentDetailedResultsProps {
@@ -399,7 +396,7 @@ export default function AnswerSheetStudentDetailedResults({ onBack }: AnswerShee
               <span>Nível alcançado</span>
               <span className="font-bold">
                 {geralAluno.proficiencia_geral != null && Number.isFinite(Number(geralAluno.proficiencia_geral))
-                  ? `${geralAluno.proficiencia_geral} pontos`
+                  ? `${formatProficiencyForDisplay(geralAluno.proficiencia_geral)} pontos`
                   : '0 pontos'}
               </span>
             </div>

@@ -77,10 +77,7 @@ function formatScoreForDisplay(value: unknown, decimals = 1): string {
 }
 
 function formatProficiencyForDisplay(value: unknown): string {
-    if (value === null || value === undefined || value === "") return "N/A";
-    const n = typeof value === "number" ? value : Number(value);
-    if (!Number.isFinite(n)) return "N/A";
-    return String(n);
+    return formatScoreForDisplay(value);
 }
 
 // Error Boundary Component
@@ -550,7 +547,7 @@ function StudentDetailedResultsContent({ onBack }: StudentDetailedResultsProps) 
                                     <span>Nível de Proficiência Alcançado</span>
                                     <span className="font-bold">
                                         {proficiencia != null && Number.isFinite(Number(proficiencia))
-                                            ? `${proficiencia} pontos`
+                                            ? `${formatProficiencyForDisplay(proficiencia)} pontos`
                                             : "0 pontos"}
                                     </span>
                                 </div>

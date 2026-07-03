@@ -14,6 +14,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/authContext";
+import { BASE_URL } from "@/lib/api";
+import { QuestionOptionContent } from "@/components/evaluations/questions/QuestionOptionContent";
 import {
   loadCityBrandingPdfAssets,
   paintLetterheadBackground,
@@ -521,20 +523,38 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
     }
 
     setIsExportingPDF(true);
+    let offscreenRoot: HTMLDivElement | null = null;
 
     try {
       const { jsPDF } = await import('jspdf');
       const html2canvas = (await import('html2canvas')).default;
 
+      try {
+        await document.fonts.ready;
+      } catch {
+        // Ignorar falhas de carregamento de fontes e seguir com o PDF.
+      }
+
       // Criar clone offscreen para captura sem alterar a UI
-      const offscreenRoot = document.createElement('div');
+      offscreenRoot = document.createElement('div');
       offscreenRoot.setAttribute('aria-hidden', 'true');
+      offscreenRoot.setAttribute('data-pdf-export-root', 'student-bulletin');
       offscreenRoot.style.position = 'fixed';
       offscreenRoot.style.left = '-10000px';
       offscreenRoot.style.top = '-10000px';
       offscreenRoot.style.zIndex = '-1';
+      offscreenRoot.style.backgroundColor = '#ffffff';
+
+      const referenceWidth = Math.max(
+        cardElement.scrollWidth,
+        Math.ceil(cardElement.getBoundingClientRect().width)
+      );
+      offscreenRoot.style.width = `${referenceWidth}px`;
 
       const clonedCard = cardElement.cloneNode(true) as HTMLElement;
+      clonedCard.setAttribute('data-pdf-export-card', 'student-bulletin');
+      clonedCard.style.width = `${referenceWidth}px`;
+      clonedCard.style.maxWidth = 'none';
       offscreenRoot.appendChild(clonedCard);
       document.body.appendChild(offscreenRoot);
 
@@ -572,13 +592,164 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
         e.style.overflow = 'visible';
       });
 
+      // Força uma paleta clara diretamente no clone para o PDF,
+      // sem depender do tema atual da aplicação durante a captura.
+      offscreenRoot.style.colorScheme = 'light';
+      clonedCard.style.backgroundColor = '#ffffff';
+      clonedCard.style.color = '#111827';
+
+      clonedCard.querySelectorAll<HTMLElement>('.text-foreground').forEach((el) => {
+        el.style.color = '#111827';
+      });
+      clonedCard.querySelectorAll<HTMLElement>('.text-muted-foreground').forEach((el) => {
+        el.style.color = '#6b7280';
+      });
+      clonedCard.querySelectorAll<HTMLElement>('.border-border').forEach((el) => {
+        el.style.borderColor = '#e5e7eb';
+      });
+      clonedCard.querySelectorAll<HTMLElement>('[data-pdf-option-row]').forEach((row) => {
+        row.style.color = '#111827';
+
+        if (row.classList.contains('bg-muted')) {
+          row.style.backgroundColor = '#f3f4f6';
+        }
+        if (row.classList.contains('border-border')) {
+          row.style.borderColor = '#e5e7eb';
+        }
+      });
+      clonedCard.querySelectorAll<HTMLElement>('.question-option-text').forEach((el) => {
+        el.style.color = 'inherit';
+      });
+      clonedCard.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
+        img.loading = 'eager';
+        img.decoding = 'sync';
+      });
+
       const canvasOptions = {
         scale: 2,
         useCORS: true,
         allowTaint: true,
         backgroundColor: '#ffffff',
         logging: false,
-      } as const;
+        removeContainer: true,
+        imageTimeout: 4000,
+      };
+
+      const waitForImages = async (root: HTMLElement, timeoutMs = 2500): Promise<void> => {
+        const images = Array.from(root.querySelectorAll('img'));
+        await Promise.all(
+          images.map((img) => {
+            if (img.complete) return Promise.resolve();
+            return new Promise<void>((resolve) => {
+              let settled = false;
+              const finish = () => {
+                if (settled) return;
+                settled = true;
+                img.removeEventListener('load', finish);
+                img.removeEventListener('error', finish);
+                window.clearTimeout(timerId);
+                resolve();
+              };
+              const timerId = window.setTimeout(finish, timeoutMs);
+              img.addEventListener('load', finish, { once: true });
+              img.addEventListener('error', finish, { once: true });
+            });
+          })
+        );
+      };
+
+      const captureElementCanvas = async (
+        element: HTMLElement,
+        label: string
+      ): Promise<HTMLCanvasElement> => {
+        const width = Math.max(element.scrollWidth, element.offsetWidth, referenceWidth);
+        const height = Math.max(element.scrollHeight, element.offsetHeight);
+
+        return Promise.race([
+          html2canvas(element, {
+            ...canvasOptions,
+            width,
+            height,
+            windowWidth: width,
+            windowHeight: height,
+          }),
+          new Promise<never>((_, reject) => {
+            window.setTimeout(() => {
+              reject(new Error(`Tempo excedido ao capturar ${label}.`));
+            }, 15000);
+          }),
+        ]);
+      };
+
+      const canvasToImage = (
+        canvas: HTMLCanvasElement
+      ): { data: string; format: 'PNG' | 'JPEG' } => {
+        try {
+          return { data: canvas.toDataURL('image/png'), format: 'PNG' };
+        } catch {
+          return { data: canvas.toDataURL('image/jpeg', 0.92), format: 'JPEG' };
+        }
+      };
+
+      const addCanvasPaginated = (
+        canvas: HTMLCanvasElement,
+        startY: number,
+        redrawHeader: () => number
+      ): number => {
+        const mmPerPx = usableWidth / canvas.width;
+        let currentY = startY;
+        let offsetY = 0;
+
+        while (offsetY < canvas.height) {
+          const availableHeightMm = pageHeight - margin - currentY;
+          if (availableHeightMm <= 2) {
+            pdf.addPage();
+            currentY = redrawHeader();
+            continue;
+          }
+
+          const maxChunkHeightPx = Math.max(1, Math.floor(availableHeightMm / mmPerPx));
+          const chunkHeightPx = Math.min(maxChunkHeightPx, canvas.height - offsetY);
+          const chunkCanvas = document.createElement('canvas');
+          chunkCanvas.width = canvas.width;
+          chunkCanvas.height = chunkHeightPx;
+
+          const ctx = chunkCanvas.getContext('2d');
+          if (!ctx) {
+            throw new Error('Não foi possível montar as páginas do PDF.');
+          }
+
+          ctx.drawImage(
+            canvas,
+            0,
+            offsetY,
+            canvas.width,
+            chunkHeightPx,
+            0,
+            0,
+            canvas.width,
+            chunkHeightPx
+          );
+
+          const chunkHeightMm = chunkHeightPx * mmPerPx;
+          const image = canvasToImage(chunkCanvas);
+          pdf.addImage(image.data, image.format, margin, currentY, usableWidth, chunkHeightMm);
+
+          offsetY += chunkHeightPx;
+          currentY += chunkHeightMm + 2;
+          chunkCanvas.width = 0;
+          chunkCanvas.height = 0;
+
+          if (offsetY < canvas.height) {
+            pdf.addPage();
+            currentY = redrawHeader();
+          }
+        }
+
+        canvas.width = 0;
+        canvas.height = 0;
+        return currentY;
+      };
 
       // Seções no clone
       const subjectSections = Array.from(
@@ -590,7 +761,8 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       const usableWidth = pageWidth - margin * 2;
-      const usableHeight = pageHeight - margin * 2;
+
+      await waitForImages(clonedCard);
 
       const resolvedBrandingCityId =
         brandingCityId ?? user?.city_id ?? user?.tenant_id ?? null;
@@ -721,107 +893,26 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
 
       if (subjectSections.length > 0) {
         for (let s = 0; s < subjectSections.length; s += 1) {
-          const sectionElement = subjectSections[s];
-
-          // Preparar header da seção
-          const headerEl = sectionElement.querySelector('[data-section-header]') as HTMLElement | null;
-          let headerImgData: string | null = null;
-          let headerImgHeight = 0;
-          if (headerEl) {
-            const headerCanvas = await html2canvas(headerEl, canvasOptions);
-            headerImgData = headerCanvas.toDataURL('image/png');
-            headerImgHeight = (headerCanvas.height * usableWidth) / headerCanvas.width;
-          }
-
-          const tableHeadEl = sectionElement.querySelector('thead') as HTMLElement | null;
-          let tableHeadImgData: string | null = null;
-          let tableHeadImgHeight = 0;
-          if (tableHeadEl) {
-            const tableHeadCanvas = await html2canvas(tableHeadEl, canvasOptions);
-            tableHeadImgData = tableHeadCanvas.toDataURL('image/png');
-            tableHeadImgHeight = (tableHeadCanvas.height * usableWidth) / tableHeadCanvas.width;
-          }
-
-          // Função para desenhar header (se existir)
-          function drawHeaderIfAny(currentY: number): number {
-            if (!headerImgData) return currentY;
-            pdf.addImage(headerImgData, 'PNG', margin, currentY, usableWidth, headerImgHeight);
-            return currentY + headerImgHeight + 2; // pequeno espaçamento
-          }
-
-          function drawTableHeadIfAny(currentY: number): number {
-            if (!tableHeadImgData) return currentY;
-            pdf.addImage(tableHeadImgData, 'PNG', margin, currentY, usableWidth, tableHeadImgHeight);
-            return currentY + tableHeadImgHeight + 1;
-          }
-
-          let currentY = drawCompactHeader('BOLETIM DO ALUNO');
-          currentY = drawHeaderIfAny(currentY);
-          currentY = drawTableHeadIfAny(currentY);
-
-          // Pegar linhas da tabela
-          const rowNodes = Array.from(
-            sectionElement.querySelectorAll('tbody > tr')
-          ) as HTMLElement[];
-
-          // Se não houver linhas (fallback), renderizar a seção inteira como antes
-          if (rowNodes.length === 0) {
-            const sectionCanvas = await html2canvas(sectionElement, canvasOptions);
-            const sectionImgData = sectionCanvas.toDataURL('image/png');
-            const sectionImgHeight = (sectionCanvas.height * usableWidth) / sectionCanvas.width;
-
-            if (currentY + sectionImgHeight > pageHeight - margin) {
-              pdf.addPage();
-              currentY = drawCompactHeader('BOLETIM DO ALUNO');
-              currentY = drawHeaderIfAny(currentY);
-            }
-
-            pdf.addImage(sectionImgData, 'PNG', margin, currentY, usableWidth, sectionImgHeight);
-            // Após seção, começar nova página para próxima seção
-            if (s < subjectSections.length - 1) {
-              pdf.addPage();
-            }
-            continue;
-          }
-
-          // Paginar linha a linha
-          for (let r = 0; r < rowNodes.length; r += 1) {
-            const rowCanvas = await html2canvas(rowNodes[r], canvasOptions);
-            const rowImgData = rowCanvas.toDataURL('image/png');
-            const rowImgHeight = (rowCanvas.height * usableWidth) / rowCanvas.width;
-
-            if (currentY + rowImgHeight > pageHeight - margin) {
-              pdf.addPage();
-              currentY = drawCompactHeader('BOLETIM DO ALUNO');
-              currentY = drawHeaderIfAny(currentY);
-              currentY = drawTableHeadIfAny(currentY);
-            }
-
-            pdf.addImage(rowImgData, 'PNG', margin, currentY, usableWidth, rowImgHeight);
-            currentY += rowImgHeight + 2;
-          }
-
-          // Após seção, começar nova página para a próxima seção
-          if (s < subjectSections.length - 1) {
+          if (s > 0) {
             pdf.addPage();
           }
+
+          const sectionElement = subjectSections[s];
+          let currentY = drawCompactHeader('BOLETIM DO ALUNO');
+          const sectionCanvas = await captureElementCanvas(
+            sectionElement,
+            `a seção ${s + 1} do boletim`
+          );
+          currentY = addCanvasPaginated(sectionCanvas, currentY, () =>
+            drawCompactHeader('BOLETIM DO ALUNO')
+          );
         }
       } else {
-        const fallbackCanvas = await html2canvas(clonedCard, canvasOptions);
-        const fallbackImgData = fallbackCanvas.toDataURL('image/png');
-        const fallbackImgHeight = (fallbackCanvas.height * usableWidth) / fallbackCanvas.width;
-        let heightLeft = fallbackImgHeight;
-        let position = margin;
-
-        pdf.addImage(fallbackImgData, 'PNG', margin, position, usableWidth, fallbackImgHeight);
-        heightLeft -= usableHeight;
-
-        while (heightLeft > 0) {
-          position = margin - (fallbackImgHeight - heightLeft);
-          pdf.addPage();
-          pdf.addImage(fallbackImgData, 'PNG', margin, position, usableWidth, fallbackImgHeight);
-          heightLeft -= usableHeight;
-        }
+        const currentY = drawCompactHeader('BOLETIM DO ALUNO');
+        const fallbackCanvas = await captureElementCanvas(clonedCard, 'o boletim');
+        addCanvasPaginated(fallbackCanvas, currentY, () =>
+          drawCompactHeader('BOLETIM DO ALUNO')
+        );
       }
 
       const sanitizeFileName = (text: string | null): string => {
@@ -847,8 +938,6 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
         description: `O boletim foi salvo como ${fileName}`,
       });
 
-      // Limpar clone
-      document.body.removeChild(offscreenRoot);
     } catch (error) {
       console.error('Erro ao exportar PDF:', error);
       toast({
@@ -857,6 +946,9 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
         variant: "destructive",
       });
     } finally {
+      if (offscreenRoot?.parentNode) {
+        offscreenRoot.parentNode.removeChild(offscreenRoot);
+      }
       setIsExportingPDF(false);
     }
   };
@@ -1062,7 +1154,7 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
                           </span>
                           <span className="text-muted-foreground">|</span>
                               <span className="text-muted-foreground">
-                                Proficiência: <span className="font-semibold text-foreground">{stats.proficiencia.toFixed(2)}</span>
+                                Proficiência: <span className="font-semibold text-foreground">{stats.proficiencia.toFixed(1)}</span>
                               </span>
                         </div>
                       );
@@ -1141,11 +1233,19 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
                                     return (
                                       <div
                                         key={alt.id || altIndex}
-                                        className={`flex items-center gap-2 text-xs px-2 py-1.5 rounded border ${bgClass} ${textClass} ${borderClass}`}
+                                        data-pdf-option-row
+                                        className={`flex items-start gap-2 text-xs px-2 py-1.5 rounded border ${bgClass} ${textClass} ${borderClass}`}
                                       >
-                                        <span className="font-medium w-4">{letter})</span>
-                                        <span className="flex-1 truncate">{alt.text || 'Sem texto'}</span>
-                                        <div className="flex items-center gap-1.5 ml-auto shrink-0">
+                                        <span className="font-medium w-4 shrink-0 pt-0.5">{letter})</span>
+                                        <QuestionOptionContent
+                                          text={alt.text}
+                                          image={alt.image}
+                                          questionId={question.id}
+                                          apiBase={BASE_URL}
+                                          className="flex-1 min-w-0"
+                                          textClassName="text-xs leading-relaxed [&_.katex]:text-inherit"
+                                        />
+                                        <div className="flex items-center gap-1.5 ml-auto shrink-0 pt-0.5">
                                           {isSelected && (
                                             <span className="text-[10px] font-medium text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded border border-blue-200">Sua</span>
                                           )}
