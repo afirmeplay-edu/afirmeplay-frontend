@@ -9,6 +9,8 @@ import { CheckCircle2, Clock, FileText, Printer, User } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { CertificateViewer } from '@/components/certificates/CertificateViewer';
 import { CertificatesApiService } from '@/services/certificatesApi';
+import { CertificateStatsBadges } from '@/components/certificates/CertificateStatsBadges';
+import { getCertificateStats } from '@/utils/certificateStats';
 import type { ApprovedStudent, Certificate } from '@/types/certificates';
 
 const ALL_FILTER = 'all';
@@ -178,6 +180,17 @@ export function StudentList({
   const showClassFilter = classOptions.length > 1;
   const showFilters = showSchoolFilter || showGradeFilter || showClassFilter;
 
+  const hasActiveFilters =
+    (showSchoolFilter && schoolFilter !== ALL_FILTER) ||
+    gradeFilter !== ALL_FILTER ||
+    classFilter !== ALL_FILTER;
+
+  const totalStats = useMemo(() => getCertificateStats(students), [students]);
+  const filteredStats = useMemo(
+    () => getCertificateStats(filteredStudents),
+    [filteredStudents]
+  );
+
   const getStatusBadge = (status: ApprovedStudent['certificate_status']) => {
     if (status === 'approved') {
       return (
@@ -287,11 +300,25 @@ export function StudentList({
     <>
       <Card>
         <CardHeader className="space-y-4">
-          <CardTitle className="flex items-center gap-2">
-            <User className="h-5 w-5" />
-            Alunos Participantes ({filteredStudents.length}
-            {filteredStudents.length !== students.length ? ` de ${students.length}` : ''})
-          </CardTitle>
+          <div className="space-y-2">
+            <CardTitle className="flex items-center gap-2">
+              <User className="h-5 w-5" />
+              Alunos Participantes ({filteredStudents.length}
+              {filteredStudents.length !== students.length ? ` de ${students.length}` : ''})
+            </CardTitle>
+
+            {students.length > 0 && (
+              <div className="space-y-2">
+                <CertificateStatsBadges stats={filteredStats} compact />
+                {hasActiveFilters && (
+                  <p className="text-xs text-muted-foreground">
+                    {filteredStats.approved} aprovado{filteredStats.approved !== 1 ? 's' : ''} neste
+                    recorte ({totalStats.approved} de {totalStats.total} no total da avaliação)
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
 
           {showFilters && (
             <div className="flex flex-col sm:flex-row flex-wrap gap-3">

@@ -10,6 +10,21 @@ import { CertificatesApiService } from '@/services/certificatesApi';
 import { useAuth } from '@/context/authContext';
 import type { EvaluationWithCertificates } from '@/types/certificates';
 
+function isOlimpiadaEvaluation(evaluation: EvaluationWithCertificates) {
+  return evaluation.type?.toUpperCase() === 'OLIMPIADA';
+}
+
+function evaluationSubjects(evaluation: EvaluationWithCertificates): string[] {
+  if (evaluation.subjects?.length) return evaluation.subjects;
+  if (!evaluation.subject || evaluation.subject === 'Disciplina não informada') return [];
+  return evaluation.subject.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+function matchesSubjectFilter(evaluation: EvaluationWithCertificates, subjectFilter: string) {
+  if (subjectFilter === 'all') return true;
+  return evaluationSubjects(evaluation).includes(subjectFilter);
+}
+
 interface CertificateListProps {
   schoolId?: string;
   municipalityId?: string;
@@ -44,11 +59,9 @@ export function CertificateList({ schoolId, municipalityId, isAdmin = false, onS
       
       setIsLoading(true);
       try {
-        const data = await CertificatesApiService.getEvaluationsBySchool(
-          schoolId, 
-          municipalityId, 
-          isAdmin
-        );
+        const data = await CertificatesApiService.getCertificateEvaluations({
+          municipalityId,
+        });
         setEvaluations(data);
       } catch (error) {
         console.error('Erro ao carregar avaliações:', error);
@@ -58,25 +71,14 @@ export function CertificateList({ schoolId, municipalityId, isAdmin = false, onS
     };
 
     loadEvaluations();
-  }, [schoolId, municipalityId, isAdmin]);
+  }, [schoolId, municipalityId, isAdmin, user?.role]);
 
-  // Separar avaliações e olimpíadas
   const avaliacoes = useMemo(() => {
-    return evaluations.filter(e => {
-      const type = e.type?.toUpperCase() || 'AVALIACAO';
-      const title = e.title?.toUpperCase() || '';
-      const isOlimpiada = type === 'OLIMPIADA' || title.includes('[OLIMPÍADA]') || title.includes('OLIMPÍADA');
-      return !isOlimpiada;
-    });
+    return evaluations.filter((e) => !isOlimpiadaEvaluation(e));
   }, [evaluations]);
 
   const olimpiadas = useMemo(() => {
-    return evaluations.filter(e => {
-      const type = e.type?.toUpperCase() || 'AVALIACAO';
-      const title = e.title?.toUpperCase() || '';
-      const isOlimpiada = type === 'OLIMPIADA' || title.includes('[OLIMPÍADA]') || title.includes('OLIMPÍADA');
-      return isOlimpiada;
-    });
+    return evaluations.filter((e) => isOlimpiadaEvaluation(e));
   }, [evaluations]);
 
   // Contar minhas avaliações/olimpíadas
@@ -90,12 +92,14 @@ export function CertificateList({ schoolId, municipalityId, isAdmin = false, onS
 
   // Extrair disciplinas únicas para filtros
   const subjectsAvaliacao = useMemo(() => {
-    const subjects = new Set(avaliacoes.map(e => e.subject).filter(Boolean));
+    const subjects = new Set<string>();
+    avaliacoes.forEach((e) => evaluationSubjects(e).forEach((s) => subjects.add(s)));
     return Array.from(subjects).sort();
   }, [avaliacoes]);
 
   const subjectsOlimpiada = useMemo(() => {
-    const subjects = new Set(olimpiadas.map(e => e.subject).filter(Boolean));
+    const subjects = new Set<string>();
+    olimpiadas.forEach((e) => evaluationSubjects(e).forEach((s) => subjects.add(s)));
     return Array.from(subjects).sort();
   }, [olimpiadas]);
 
@@ -111,9 +115,9 @@ export function CertificateList({ schoolId, municipalityId, isAdmin = false, onS
     let filtered = avaliacoes.filter(e => {
       const matchSearch = searchAvaliacao === '' || 
         e.title.toLowerCase().includes(searchAvaliacao.toLowerCase()) ||
-        e.subject.toLowerCase().includes(searchAvaliacao.toLowerCase());
+        evaluationSubjects(e).some((s) => s.toLowerCase().includes(searchAvaliacao.toLowerCase()));
       const matchStatus = statusFilterAvaliacao === 'all' || e.certificate_status === statusFilterAvaliacao;
-      const matchSubject = subjectFilterAvaliacao === 'all' || e.subject === subjectFilterAvaliacao;
+      const matchSubject = matchesSubjectFilter(e, subjectFilterAvaliacao);
       const matchOwner = ownerFilterAvaliacao === 'all' || e.created_by?.id === user?.id;
       return matchSearch && matchStatus && matchSubject && matchOwner;
     });
@@ -133,9 +137,9 @@ export function CertificateList({ schoolId, municipalityId, isAdmin = false, onS
     let filtered = olimpiadas.filter(e => {
       const matchSearch = searchOlimpiada === '' || 
         e.title.toLowerCase().includes(searchOlimpiada.toLowerCase()) ||
-        e.subject.toLowerCase().includes(searchOlimpiada.toLowerCase());
+        evaluationSubjects(e).some((s) => s.toLowerCase().includes(searchOlimpiada.toLowerCase()));
       const matchStatus = statusFilterOlimpiada === 'all' || e.certificate_status === statusFilterOlimpiada;
-      const matchSubject = subjectFilterOlimpiada === 'all' || e.subject === subjectFilterOlimpiada;
+      const matchSubject = matchesSubjectFilter(e, subjectFilterOlimpiada);
       const matchOwner = ownerFilterOlimpiada === 'all' || e.created_by?.id === user?.id;
       return matchSearch && matchStatus && matchSubject && matchOwner;
     });
@@ -296,17 +300,26 @@ export function CertificateList({ schoolId, municipalityId, isAdmin = false, onS
         </CardHeader>
         <CardContent className="space-y-2">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <FileText className="h-4 w-4" />
+            <FileText className="h-4 w-4 shrink-0" />
             <span>{evaluation.subject}</span>
           </div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Users className="h-4 w-4" />
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
             <span>
-              {evaluation.total_students_count} alunos participantes
+              {evaluation.approved_certificates_count ?? 0} de {evaluation.total_students_count}{' '}
+              certificados aprovados
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Users className="h-4 w-4 shrink-0" />
+            <span>
+              {evaluation.total_students_count} aluno
+              {evaluation.total_students_count !== 1 ? 's' : ''} elegíve
+              {evaluation.total_students_count !== 1 ? 'is' : 'l'}
             </span>
           </div>
           <div className="text-xs text-muted-foreground mt-2">
-            Aplicada em: {formatDate(evaluation.applied_at)}
+            Criada em: {formatDate(evaluation.applied_at)}
           </div>
         </CardContent>
       </Card>

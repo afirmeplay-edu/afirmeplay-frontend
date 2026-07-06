@@ -4,8 +4,40 @@ import type {
   CertificateTemplate, 
   ApprovedStudent, 
   EvaluationWithCertificates,
-  CertificateApprovalRequest 
+  CertificateApprovalRequest,
+  CertificateEvaluationListItem,
+  CertificateEvaluationsResponse,
 } from '@/types/certificates';
+
+function mapCertificateEvaluationListItem(
+  item: CertificateEvaluationListItem
+): EvaluationWithCertificates {
+  const subjectList = (item.subjects?.length
+    ? item.subjects.map((s) => s.name)
+    : item.subject?.name
+      ? [item.subject.name]
+      : []
+  ).filter(Boolean);
+
+  return {
+    id: item.evaluation_id,
+    title: item.title,
+    subject: subjectList.length > 0 ? subjectList.join(', ') : 'Disciplina não informada',
+    subjects: subjectList,
+    applied_at: item.created_at || '',
+    approved_students_count: item.eligible_students_count,
+    total_students_count: item.eligible_students_count,
+    certificate_status: item.certificate_status,
+    approved_certificates_count: item.approved_certificates_count,
+    pending_certificates_count: item.pending_certificates_count,
+    certificates_count: item.certificates_count,
+    has_template: item.has_template,
+    created_by: item.created_by
+      ? { id: item.created_by.id, name: item.created_by.name }
+      : undefined,
+    type: item.type?.toUpperCase() || 'AVALIACAO',
+  };
+}
 
 export class CertificatesApiService {
   /**
@@ -24,6 +56,56 @@ export class CertificatesApiService {
   }
 
   /**
+   * Lista avaliações com status agregado de certificados.
+   * GET /certificates/evaluations
+   */
+  static async getCertificateEvaluations(options?: {
+    page?: number;
+    per_page?: number;
+    sort?: 'created_at' | 'title';
+    order?: 'asc' | 'desc';
+    municipalityId?: string;
+    fetchAllPages?: boolean;
+  }): Promise<EvaluationWithCertificates[]> {
+    const perPage = Math.min(options?.per_page ?? 100, 100);
+    const sort = options?.sort ?? 'created_at';
+    const order = options?.order ?? 'desc';
+    const fetchAllPages = options?.fetchAllPages ?? true;
+    const requestConfig = options?.municipalityId
+      ? { meta: { cityId: options.municipalityId } }
+      : {};
+
+    const fetchPage = async (page: number) => {
+      const response = await api.get<CertificateEvaluationsResponse>('/certificates/evaluations', {
+        params: { page, per_page: perPage, sort, order },
+        ...requestConfig,
+      });
+      return response.data;
+    };
+
+    try {
+      const first = await fetchPage(options?.page ?? 1);
+      let items = [...(first.data ?? [])];
+
+      if (fetchAllPages && first.pagination?.has_next) {
+        let nextPage = first.pagination.next_num ?? 2;
+        while (nextPage && nextPage <= (first.pagination.pages ?? nextPage)) {
+          const pageData = await fetchPage(nextPage);
+          items = items.concat(pageData.data ?? []);
+          if (!pageData.pagination?.has_next) break;
+          nextPage = pageData.pagination.next_num ?? nextPage + 1;
+        }
+      }
+
+      return items.map(mapCertificateEvaluationListItem);
+    } catch (error) {
+      console.error('Erro ao listar avaliações de certificados:', error);
+      return [];
+    }
+  }
+
+  /**
+   * @deprecated Use getCertificateEvaluations para a tela de certificados.
    * Buscar avaliações da escola do diretor com contagem de alunos aprovados
    * - Admin: GET /test/ (todas as avaliações)
    * - Tecadm: GET /test/ com types=AVALIACAO,SIMULADO (backend retorna escopo do município)

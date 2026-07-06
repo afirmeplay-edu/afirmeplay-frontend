@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/context/authContext';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,10 +7,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ArrowLeft, Award, CheckCircle2, Info } from 'lucide-react';
 import { CertificateList } from '@/components/certificates/CertificateList';
 import { StudentList } from '@/components/certificates/StudentList';
+import { CertificateStatsBadges } from '@/components/certificates/CertificateStatsBadges';
 import { CertificateCustomizer } from '@/components/certificates/CertificateCustomizer';
 import { CertificateTemplateComponent } from '@/components/certificates/CertificateTemplate';
 import { CertificatesApiService } from '@/services/certificatesApi';
 import { getUserHierarchyContext } from '@/utils/userHierarchy';
+import { getCertificateStats, getStudentsAwaitingApproval } from '@/utils/certificateStats';
 import type { CertificateTemplate, ApprovedStudent, EvaluationWithCertificates } from '@/types/certificates';
 
 export default function Certificates() {
@@ -29,6 +31,12 @@ export default function Certificates() {
 
   // Verificar se o usuário é o criador da avaliação
   const isEvaluationCreator = selectedEvaluationData?.created_by?.id === user.id;
+
+  const certificateStats = useMemo(() => getCertificateStats(students), [students]);
+  const studentsAwaitingApproval = useMemo(
+    () => getStudentsAwaitingApproval(students),
+    [students]
+  );
 
   useEffect(() => {
     const loadHierarchy = async () => {
@@ -124,7 +132,7 @@ export default function Certificates() {
   };
 
   const handleApproveCertificates = async () => {
-    if (!selectedEvaluation || !template || students.length === 0) return;
+    if (!selectedEvaluation || !template || studentsAwaitingApproval.length === 0) return;
 
     setIsApproving(true);
     try {
@@ -134,16 +142,18 @@ export default function Certificates() {
         evaluation_id: selectedEvaluation
       });
 
-      // Aprovar certificados (pode aprovar todos ou apenas os selecionados)
-      const studentIds = students.map(s => s.id);
+      // Aprovar certificados ainda não aprovados
+      const studentIds = studentsAwaitingApproval.map((s) => s.id);
+      if (studentIds.length === 0) return;
+
       const result = await CertificatesApiService.approveCertificates(
         selectedEvaluation,
         studentIds
       );
 
       // Mostrar mensagem com detalhes da resposta
-      const message = result.message || 
-        `Certificados processados: ${result.total_processed || students.length} emitidos/atualizados`;
+      const message = result.message ||
+        `Certificados processados: ${result.total_processed || studentIds.length} emitidos/atualizados`;
       
       toast({
         title: 'Sucesso',
@@ -272,6 +282,16 @@ export default function Certificates() {
             <p className="text-muted-foreground text-sm sm:text-base">
               Personalize e aprove certificados para os alunos participantes
             </p>
+            {students.length > 0 && (
+              <div className="space-y-2 pt-1">
+                <p className="text-sm font-medium">
+                  {certificateStats.approved} de {certificateStats.total} certificado
+                  {certificateStats.total !== 1 ? 's' : ''} aprovado
+                  {certificateStats.approved !== 1 ? 's' : ''}
+                </p>
+                <CertificateStatsBadges stats={certificateStats} compact />
+              </div>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap justify-center gap-2 w-full sm:w-auto sm:justify-end">
@@ -281,13 +301,15 @@ export default function Certificates() {
           >
             Personalizar Certificado
           </Button>
-          {template && students.length > 0 && isEvaluationCreator && (
+          {template && studentsAwaitingApproval.length > 0 && isEvaluationCreator && (
             <Button
               onClick={handleApproveCertificates}
               disabled={isApproving}
             >
               <CheckCircle2 className="h-4 w-4 mr-2" />
-              {isApproving ? 'Aprovando...' : `Aprovar ${students.length} Certificado(s)`}
+              {isApproving
+                ? 'Aprovando...'
+                : `Aprovar ${studentsAwaitingApproval.length} Certificado(s)`}
             </Button>
           )}
         </div>
