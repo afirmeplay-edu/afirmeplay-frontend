@@ -1,40 +1,197 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { CheckCircle2, Clock, User } from 'lucide-react';
+import { CheckCircle2, Clock, FileText, Printer, User } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { CertificateViewer } from '@/components/certificates/CertificateViewer';
 import { CertificatesApiService } from '@/services/certificatesApi';
-import type { ApprovedStudent } from '@/types/certificates';
+import { CertificateStatsBadges } from '@/components/certificates/CertificateStatsBadges';
+import { getCertificateStats } from '@/utils/certificateStats';
+import type { ApprovedStudent, Certificate } from '@/types/certificates';
+
+const ALL_FILTER = 'all';
+const NONE_FILTER = '__none__';
+
+interface FilterOption {
+  id: string;
+  name: string;
+}
 
 interface StudentListProps {
   evaluationId: string;
+  brandingCityId?: string | null;
+  refreshKey?: number;
+  lockedSchoolId?: string | null;
   onSelectStudent?: (studentId: string) => void;
 }
 
-export function StudentList({ evaluationId, onSelectStudent }: StudentListProps) {
+function uniqueOptions(
+  items: ApprovedStudent[],
+  getId: (s: ApprovedStudent) => string | null | undefined,
+  getName: (s: ApprovedStudent) => string | null | undefined,
+  noneLabel: string
+): FilterOption[] {
+  const map = new Map<string, string>();
+  let hasNone = false;
+
+  for (const item of items) {
+    const id = getId(item);
+    const name = getName(item);
+    if (id) {
+      map.set(id, name?.trim() || id);
+    } else {
+      hasNone = true;
+    }
+  }
+
+  const options = Array.from(map.entries())
+    .map(([id, label]) => ({ id, name: label }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+  if (hasNone) {
+    options.push({ id: NONE_FILTER, name: noneLabel });
+  }
+
+  return options;
+}
+
+function matchesFilter(value: string | null | undefined, filter: string): boolean {
+  if (filter === ALL_FILTER) return true;
+  if (filter === NONE_FILTER) return !value;
+  return value === filter;
+}
+
+export function StudentList({
+  evaluationId,
+  brandingCityId,
+  refreshKey,
+  lockedSchoolId,
+  onSelectStudent,
+}: StudentListProps) {
+  const { toast } = useToast();
   const [students, setStudents] = useState<ApprovedStudent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedCertificate, setSelectedCertificate] = useState<Certificate | null>(null);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
+  const [loadingCertificateId, setLoadingCertificateId] = useState<string | null>(null);
+  const [schoolFilter, setSchoolFilter] = useState(ALL_FILTER);
+  const [gradeFilter, setGradeFilter] = useState(ALL_FILTER);
+  const [classFilter, setClassFilter] = useState(ALL_FILTER);
 
   useEffect(() => {
     const loadStudents = async () => {
       if (!evaluationId) return;
-      
+
       setIsLoading(true);
       try {
         const data = await CertificatesApiService.getApprovedStudents(evaluationId);
         setStudents(data);
-      } catch (error) {
+      } catch {
+        // silencioso — lista vazia
       } finally {
         setIsLoading(false);
       }
     };
 
     loadStudents();
-  }, [evaluationId]);
+  }, [evaluationId, refreshKey]);
 
-  const getStatusBadge = (status?: string) => {
+  useEffect(() => {
+    if (lockedSchoolId) {
+      setSchoolFilter(lockedSchoolId);
+    } else {
+      setSchoolFilter(ALL_FILTER);
+    }
+    setGradeFilter(ALL_FILTER);
+    setClassFilter(ALL_FILTER);
+  }, [evaluationId, refreshKey, lockedSchoolId]);
+
+  const schoolOptions = useMemo(
+    () =>
+      uniqueOptions(
+        students,
+        (s) => s.school_id,
+        (s) => s.school_name,
+        'Sem escola'
+      ),
+    [students]
+  );
+
+  const studentsForGradeOptions = useMemo(() => {
+    if (schoolFilter === ALL_FILTER) return students;
+    if (schoolFilter === NONE_FILTER) {
+      return students.filter((s) => !s.school_id);
+    }
+    return students.filter((s) => s.school_id === schoolFilter);
+  }, [students, schoolFilter]);
+
+  const gradeOptions = useMemo(
+    () =>
+      uniqueOptions(
+        studentsForGradeOptions,
+        (s) => s.grade_id,
+        (s) => s.grade_name,
+        'Sem série'
+      ),
+    [studentsForGradeOptions]
+  );
+
+  const studentsForClassOptions = useMemo(() => {
+    let list = studentsForGradeOptions;
+    if (gradeFilter === NONE_FILTER) {
+      list = list.filter((s) => !s.grade_id);
+    } else if (gradeFilter !== ALL_FILTER) {
+      list = list.filter((s) => s.grade_id === gradeFilter);
+    }
+    return list;
+  }, [studentsForGradeOptions, gradeFilter]);
+
+  const classOptions = useMemo(
+    () =>
+      uniqueOptions(
+        studentsForClassOptions,
+        (s) => s.class_id,
+        (s) => s.class_name,
+        'Sem turma'
+      ),
+    [studentsForClassOptions]
+  );
+
+  const filteredStudents = useMemo(() => {
+    return students.filter((student) => {
+      const schoolMatch =
+        lockedSchoolId != null
+          ? student.school_id === lockedSchoolId || (!student.school_id && lockedSchoolId === NONE_FILTER)
+          : matchesFilter(student.school_id, schoolFilter);
+
+      const gradeMatch = matchesFilter(student.grade_id, gradeFilter);
+      const classMatch = matchesFilter(student.class_id, classFilter);
+
+      return schoolMatch && gradeMatch && classMatch;
+    });
+  }, [students, schoolFilter, gradeFilter, classFilter, lockedSchoolId]);
+
+  const showSchoolFilter = !lockedSchoolId && schoolOptions.length > 1;
+  const showGradeFilter = gradeOptions.length > 1;
+  const showClassFilter = classOptions.length > 1;
+  const showFilters = showSchoolFilter || showGradeFilter || showClassFilter;
+
+  const hasActiveFilters =
+    (showSchoolFilter && schoolFilter !== ALL_FILTER) ||
+    gradeFilter !== ALL_FILTER ||
+    classFilter !== ALL_FILTER;
+
+  const totalStats = useMemo(() => getCertificateStats(students), [students]);
+  const filteredStats = useMemo(
+    () => getCertificateStats(filteredStudents),
+    [filteredStudents]
+  );
+
+  const getStatusBadge = (status: ApprovedStudent['certificate_status']) => {
     if (status === 'approved') {
       return (
         <Badge variant="default" className="bg-green-500">
@@ -43,13 +200,71 @@ export function StudentList({ evaluationId, onSelectStudent }: StudentListProps)
         </Badge>
       );
     }
+    if (status === 'pending') {
+      return (
+        <Badge variant="secondary">
+          <Clock className="h-3 w-3 mr-1" />
+          Pendente
+        </Badge>
+      );
+    }
     return (
-      <Badge variant="secondary">
-        <Clock className="h-3 w-3 mr-1" />
-        Pendente
+      <Badge variant="outline">
+        <FileText className="h-3 w-3 mr-1" />
+        Não emitido
       </Badge>
     );
   };
+
+  const canViewCertificate = (student: ApprovedStudent) =>
+    student.certificate_status === 'approved' && !!student.certificate_id;
+
+  const handleViewCertificate = async (student: ApprovedStudent) => {
+    if (!student.certificate_id) return;
+
+    setLoadingCertificateId(student.id);
+    try {
+      const certificate = await CertificatesApiService.getCertificate(student.certificate_id);
+
+      if (!certificate) {
+        toast({
+          title: 'Erro',
+          description: 'Certificado não encontrado para este aluno.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setSelectedCertificate(certificate);
+      setIsViewerOpen(true);
+    } catch {
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível carregar o certificado.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingCertificateId(null);
+    }
+  };
+
+  const handleCloseViewer = () => {
+    setIsViewerOpen(false);
+    setSelectedCertificate(null);
+  };
+
+  const handleSchoolChange = (value: string) => {
+    setSchoolFilter(value);
+    setGradeFilter(ALL_FILTER);
+    setClassFilter(ALL_FILTER);
+  };
+
+  const handleGradeChange = (value: string) => {
+    setGradeFilter(value);
+    setClassFilter(ALL_FILTER);
+  };
+
+  const hasViewableCertificates = filteredStudents.some(canViewCertificate);
 
   if (isLoading) {
     return (
@@ -82,54 +297,167 @@ export function StudentList({ evaluationId, onSelectStudent }: StudentListProps)
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <User className="h-5 w-5" />
-          Alunos Participantes ({students.length})
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Nome</TableHead>
-              <TableHead>Turma</TableHead>
-              <TableHead className="text-center">Nota</TableHead>
-              <TableHead className="text-center">Status</TableHead>
-              {onSelectStudent && <TableHead className="text-right">Ações</TableHead>}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {students.map((student) => (
-              <TableRow key={student.id}>
-                <TableCell className="font-medium">{student.name}</TableCell>
-                <TableCell>{student.class_name || 'N/A'}</TableCell>
-                <TableCell className="text-center">
-                  <Badge variant="outline" className="text-base">
-                    {student.grade.toFixed(1)}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-center">
-                  {getStatusBadge(student.certificate_status)}
-                </TableCell>
-                {onSelectStudent && (
-                  <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onSelectStudent(student.id)}
-                    >
-                      Ver Detalhes
-                    </Button>
-                  </TableCell>
+    <>
+      <Card>
+        <CardHeader className="space-y-4">
+          <div className="space-y-2">
+            <CardTitle className="flex items-center gap-2">
+              <User className="h-5 w-5" />
+              Alunos Participantes ({filteredStudents.length}
+              {filteredStudents.length !== students.length ? ` de ${students.length}` : ''})
+            </CardTitle>
+
+            {students.length > 0 && (
+              <div className="space-y-2">
+                <CertificateStatsBadges stats={filteredStats} compact />
+                {hasActiveFilters && (
+                  <p className="text-xs text-muted-foreground">
+                    {filteredStats.approved} aprovado{filteredStats.approved !== 1 ? 's' : ''} neste
+                    recorte ({totalStats.approved} de {totalStats.total} no total da avaliação)
+                  </p>
                 )}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+              </div>
+            )}
+          </div>
+
+          {showFilters && (
+            <div className="flex flex-col sm:flex-row flex-wrap gap-3">
+              {showSchoolFilter && (
+                <Select value={schoolFilter} onValueChange={handleSchoolChange}>
+                  <SelectTrigger className="w-full sm:w-[220px]">
+                    <SelectValue placeholder="Escola" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_FILTER}>Todas as escolas</SelectItem>
+                    {schoolOptions.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {option.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+
+              {showGradeFilter && (
+                <Select value={gradeFilter} onValueChange={handleGradeChange}>
+                  <SelectTrigger className="w-full sm:w-[180px]">
+                    <SelectValue placeholder="Série" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_FILTER}>Todas as séries</SelectItem>
+                    {gradeOptions.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {option.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+
+              {showClassFilter && (
+                <Select
+                  value={classFilter}
+                  onValueChange={setClassFilter}
+                  disabled={gradeOptions.length > 1 && gradeFilter === ALL_FILTER}
+                >
+                  <SelectTrigger className="w-full sm:w-[160px]">
+                    <SelectValue placeholder="Turma" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_FILTER}>Todas as turmas</SelectItem>
+                    {classOptions.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {option.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          )}
+        </CardHeader>
+
+        <CardContent>
+          {filteredStudents.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              Nenhum aluno encontrado com os filtros selecionados.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nome</TableHead>
+                  {showSchoolFilter && <TableHead>Escola</TableHead>}
+                  {showGradeFilter && <TableHead>Série</TableHead>}
+                  <TableHead>Turma</TableHead>
+                  <TableHead className="text-center">Nota</TableHead>
+                  <TableHead className="text-center">Status</TableHead>
+                  {(hasViewableCertificates || onSelectStudent) && (
+                    <TableHead className="text-right">Ações</TableHead>
+                  )}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredStudents.map((student) => (
+                  <TableRow key={student.id}>
+                    <TableCell className="font-medium">{student.name}</TableCell>
+                    {showSchoolFilter && (
+                      <TableCell>{student.school_name || '—'}</TableCell>
+                    )}
+                    {showGradeFilter && (
+                      <TableCell>{student.grade_name || '—'}</TableCell>
+                    )}
+                    <TableCell>{student.class_name || '—'}</TableCell>
+                    <TableCell className="text-center">
+                      <Badge variant="outline" className="text-base">
+                        {student.grade.toFixed(1)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {getStatusBadge(student.certificate_status)}
+                    </TableCell>
+                    {(hasViewableCertificates || onSelectStudent) && (
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          {canViewCertificate(student) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={loadingCertificateId === student.id}
+                              onClick={() => handleViewCertificate(student)}
+                            >
+                              <Printer className="h-4 w-4 mr-1" />
+                              {loadingCertificateId === student.id ? 'Carregando...' : 'Visualizar'}
+                            </Button>
+                          )}
+                          {onSelectStudent && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onSelectStudent(student.id)}
+                            >
+                              Ver Detalhes
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {selectedCertificate && (
+        <CertificateViewer
+          certificate={selectedCertificate}
+          isOpen={isViewerOpen}
+          onClose={handleCloseViewer}
+          brandingCityId={brandingCityId}
+        />
+      )}
+    </>
   );
 }
-

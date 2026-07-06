@@ -50,6 +50,13 @@ interface RankingCardProps {
   isLoading?: boolean;
 }
 
+/** Formata média do ranking (pt-BR, 1 casa decimal) — usado no bloco "Sua posição" e na lista */
+function formatRankingMedia(value: number | string): string {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return "0,0";
+  return n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
 /** Normaliza avatar_config da API (pode vir com "icon") para AvatarConfig (usa "seed") */
 function normalizeAvatarConfig(config: Record<string, unknown> | null | undefined): AvatarConfig | null {
   if (!config || typeof config !== "object") return null;
@@ -193,8 +200,8 @@ const RankingCard: React.FC<RankingCardProps> = ({
                   </div>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <div className="text-lg sm:text-2xl font-bold text-blue-600 dark:text-blue-400 leading-none">{ranking.pontos}</div>
-                  <div className="text-xs text-muted-foreground">pontos</div>
+                  <div className="text-lg sm:text-2xl font-bold text-blue-600 dark:text-blue-400 leading-none">{formatRankingMedia(ranking.pontos)}</div>
+                  <div className="text-xs text-muted-foreground">Média</div>
                 </div>
               </div>
             ) : (
@@ -250,7 +257,7 @@ const RankingCard: React.FC<RankingCardProps> = ({
                     </div>
                     <div className="flex flex-col items-end flex-shrink-0 gap-0.5">
                       <span className={`text-sm font-bold ${c ? c.text : "text-green-600 dark:text-green-400"}`}>
-                        {typeof item.pontos === "number" ? item.pontos.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : item.pontos}
+                        {formatRankingMedia(item.pontos)}
                       </span>
                       <span className="text-[10px] text-muted-foreground">Média</span>
                     </div>

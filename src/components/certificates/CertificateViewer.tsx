@@ -9,9 +9,10 @@ interface CertificateViewerProps {
   certificate: Certificate;
   isOpen: boolean;
   onClose: () => void;
+  brandingCityId?: string | null;
 }
 
-export function CertificateViewer({ certificate, isOpen, onClose }: CertificateViewerProps) {
+export function CertificateViewer({ certificate, isOpen, onClose, brandingCityId }: CertificateViewerProps) {
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
@@ -24,7 +25,7 @@ export function CertificateViewer({ certificate, isOpen, onClose }: CertificateV
           </DialogTitle>
         </DialogHeader>
         <div className="mt-4">
-          <CertificatePDF certificate={certificate} />
+          <CertificatePDF certificate={certificate} brandingCityId={brandingCityId} />
         </div>
       </DialogContent>
     </Dialog>
