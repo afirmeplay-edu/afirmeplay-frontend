@@ -32,24 +32,71 @@ export interface ApprovedStudent {
   id: string;
   name: string;
   grade: number;
-  class_name?: string;
-  certificate_id?: string;
-  certificate_status?: 'pending' | 'approved';
+  class_id?: string | null;
+  class_name?: string | null;
+  school_id?: string | null;
+  school_name?: string | null;
+  grade_id?: string | null;
+  grade_name?: string | null;
+  certificate_id?: string | null;
+  certificate_status?: 'pending' | 'approved' | null;
 }
 
 export interface EvaluationWithCertificates {
   id: string;
   title: string;
   subject: string;
+  subjects?: string[];
   applied_at: string;
   approved_students_count: number;
   total_students_count: number;
   certificate_status: 'none' | 'pending' | 'approved';
+  approved_certificates_count?: number;
+  pending_certificates_count?: number;
+  certificates_count?: number;
+  has_template?: boolean;
   created_by?: {
     id: string;
     name: string;
   };
-  type?: 'AVALIACAO' | 'OLIMPIADA' | string;
+  type?: 'AVALIACAO' | 'OLIMPIADA' | 'SIMULADO' | string;
+}
+
+export interface CertificateEvaluationSubject {
+  id: string;
+  name: string;
+}
+
+export interface CertificateEvaluationListItem {
+  evaluation_id: string;
+  title: string;
+  type?: string | null;
+  subject?: CertificateEvaluationSubject | null;
+  subjects?: CertificateEvaluationSubject[];
+  created_by?: { id: string; name: string } | null;
+  created_at?: string | null;
+  certificate_status: 'none' | 'pending' | 'approved';
+  eligible_students_count: number;
+  approved_certificates_count: number;
+  pending_certificates_count: number;
+  certificates_count: number;
+  has_template: boolean;
+}
+
+export interface CertificateEvaluationsPagination {
+  page: number;
+  per_page: number;
+  total: number;
+  pages: number;
+  has_next: boolean;
+  has_prev: boolean;
+  next_num: number | null;
+  prev_num: number | null;
+}
+
+export interface CertificateEvaluationsResponse {
+  data: CertificateEvaluationListItem[];
+  pagination: CertificateEvaluationsPagination;
 }
 
 export interface CertificateApprovalRequest {
