@@ -32,9 +32,14 @@ export interface ApprovedStudent {
   id: string;
   name: string;
   grade: number;
-  class_name?: string;
-  certificate_id?: string;
-  certificate_status?: 'pending' | 'approved';
+  class_id?: string | null;
+  class_name?: string | null;
+  school_id?: string | null;
+  school_name?: string | null;
+  grade_id?: string | null;
+  grade_name?: string | null;
+  certificate_id?: string | null;
+  certificate_status?: 'pending' | 'approved' | null;
 }
 
 export interface EvaluationWithCertificates {

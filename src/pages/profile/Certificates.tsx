@@ -25,6 +25,7 @@ export default function Certificates() {
   const [isLoadingHierarchy, setIsLoadingHierarchy] = useState(true);
   const [isCustomizing, setIsCustomizing] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [studentListRefreshKey, setStudentListRefreshKey] = useState(0);
 
   // Verificar se o usuário é o criador da avaliação
   const isEvaluationCreator = selectedEvaluationData?.created_by?.id === user.id;
@@ -157,6 +158,7 @@ export default function Certificates() {
       // Recarregar dados para atualizar status
       const updatedStudents = await CertificatesApiService.getApprovedStudents(selectedEvaluation);
       setStudents(updatedStudents);
+      setStudentListRefreshKey((key) => key + 1);
     } catch (error: any) {
       console.error('Erro ao aprovar certificados:', error);
       const errorMessage = error?.message || 'Não foi possível aprovar os certificados.';
@@ -303,7 +305,16 @@ export default function Certificates() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div>
-          <StudentList evaluationId={selectedEvaluation} />
+          <StudentList
+            evaluationId={selectedEvaluation}
+            brandingCityId={municipalityId}
+            refreshKey={studentListRefreshKey}
+            lockedSchoolId={
+              ['diretor', 'coordenador', 'professor'].includes(user.role)
+                ? schoolId
+                : undefined
+            }
+          />
         </div>
         
         {template && (

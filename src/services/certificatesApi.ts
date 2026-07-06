@@ -193,9 +193,14 @@ export class CertificatesApiService {
         id: student.id || student.student_id,
         name: student.name || student.nome || 'Aluno sem nome',
         grade: Number(student.grade || student.nota || student.score || 0),
-        class_name: student.class_name || student.turma || student.class?.name || 'N/A',
-        certificate_id: student.certificate_id,
-        certificate_status: student.certificate_status || 'pending'
+        class_id: student.class_id ?? student.class?.id ?? null,
+        class_name: student.class_name ?? student.turma ?? student.class?.name ?? null,
+        school_id: student.school_id ?? student.school?.id ?? null,
+        school_name: student.school_name ?? student.escola ?? student.school?.name ?? null,
+        grade_id: student.grade_id ?? student.serie_id ?? student.class?.grade?.id ?? null,
+        grade_name: student.grade_name ?? student.serie_name ?? student.serie ?? student.class?.grade?.name ?? null,
+        certificate_id: student.certificate_id ?? null,
+        certificate_status: student.certificate_status ?? null,
       }));
     } catch (error: any) {
       if (error?.response?.status === 404) {
