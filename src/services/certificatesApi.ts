@@ -6,7 +6,8 @@ import type {
   EvaluationWithCertificates,
   CertificateApprovalRequest,
   CertificateEvaluationListItem,
-  CertificateEvaluationsResponse,
+  CertificateBatchFilters,
+  CertificateBatchResponse,
 } from '@/types/certificates';
 
 function mapCertificateEvaluationListItem(
@@ -406,6 +407,25 @@ export class CertificatesApiService {
     } catch (error) {
       return [];
     }
+  }
+
+  /**
+   * Buscar certificados em lote para download (JSON; PDF gerado no frontend)
+   */
+  static async getCertificatesBatch(
+    evaluationId: string,
+    filters: CertificateBatchFilters = {}
+  ): Promise<CertificateBatchResponse> {
+    const params = new URLSearchParams();
+    if (filters.status) params.set('status', filters.status);
+    if (filters.school_id) params.set('school_id', filters.school_id);
+    if (filters.grade_id) params.set('grade_id', filters.grade_id);
+    if (filters.class_id) params.set('class_id', filters.class_id);
+
+    const query = params.toString();
+    const url = `/certificates/batch/${evaluationId}${query ? `?${query}` : ''}`;
+    const response = await api.get(url);
+    return response.data;
   }
 
   /**

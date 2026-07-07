@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { CheckCircle2, Clock, FileText, Printer, User } from 'lucide-react';
+import { CheckCircle2, Clock, Download, FileText, Printer, User } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { CertificateViewer } from '@/components/certificates/CertificateViewer';
+import { CertificateBulkDownloadDialog } from '@/components/certificates/CertificateBulkDownloadDialog';
 import { CertificatesApiService } from '@/services/certificatesApi';
 import { CertificateStatsBadges } from '@/components/certificates/CertificateStatsBadges';
 import { getCertificateStats } from '@/utils/certificateStats';
@@ -23,6 +24,7 @@ interface FilterOption {
 
 interface StudentListProps {
   evaluationId: string;
+  evaluationTitle: string;
   brandingCityId?: string | null;
   refreshKey?: number;
   lockedSchoolId?: string | null;
@@ -67,6 +69,7 @@ function matchesFilter(value: string | null | undefined, filter: string): boolea
 
 export function StudentList({
   evaluationId,
+  evaluationTitle,
   brandingCityId,
   refreshKey,
   lockedSchoolId,
@@ -77,6 +80,7 @@ export function StudentList({
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCertificate, setSelectedCertificate] = useState<Certificate | null>(null);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
+  const [isBulkDialogOpen, setIsBulkDialogOpen] = useState(false);
   const [loadingCertificateId, setLoadingCertificateId] = useState<string | null>(null);
   const [schoolFilter, setSchoolFilter] = useState(ALL_FILTER);
   const [gradeFilter, setGradeFilter] = useState(ALL_FILTER);
@@ -300,23 +304,37 @@ export function StudentList({
     <>
       <Card>
         <CardHeader className="space-y-4">
-          <div className="space-y-2">
-            <CardTitle className="flex items-center gap-2">
-              <User className="h-5 w-5" />
-              Alunos Participantes ({filteredStudents.length}
-              {filteredStudents.length !== students.length ? ` de ${students.length}` : ''})
-            </CardTitle>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-2">
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-5 w-5" />
+                Alunos Participantes ({filteredStudents.length}
+                {filteredStudents.length !== students.length ? ` de ${students.length}` : ''})
+              </CardTitle>
 
-            {students.length > 0 && (
-              <div className="space-y-2">
-                <CertificateStatsBadges stats={filteredStats} compact />
-                {hasActiveFilters && (
-                  <p className="text-xs text-muted-foreground">
-                    {filteredStats.approved} aprovado{filteredStats.approved !== 1 ? 's' : ''} neste
-                    recorte ({totalStats.approved} de {totalStats.total} no total da avaliação)
-                  </p>
-                )}
-              </div>
+              {students.length > 0 && (
+                <div className="space-y-2">
+                  <CertificateStatsBadges stats={filteredStats} compact />
+                  {hasActiveFilters && (
+                    <p className="text-xs text-muted-foreground">
+                      {filteredStats.approved} aprovado{filteredStats.approved !== 1 ? 's' : ''} neste
+                      recorte ({totalStats.approved} de {totalStats.total} no total da avaliação)
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {totalStats.approved > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => setIsBulkDialogOpen(true)}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Baixar em lote
+              </Button>
             )}
           </div>
 
@@ -458,6 +476,25 @@ export function StudentList({
           brandingCityId={brandingCityId}
         />
       )}
+
+      <CertificateBulkDownloadDialog
+        open={isBulkDialogOpen}
+        onOpenChange={setIsBulkDialogOpen}
+        evaluationId={evaluationId}
+        evaluationTitle={evaluationTitle}
+        brandingCityId={brandingCityId}
+        students={students}
+        lockedSchoolId={lockedSchoolId}
+        currentFilters={{
+          school: schoolFilter,
+          grade: gradeFilter,
+          class: classFilter,
+        }}
+        hasActiveFilters={hasActiveFilters}
+        schoolOptions={schoolOptions}
+        gradeOptions={gradeOptions}
+        classOptions={classOptions}
+      />
     </>
   );
 }
