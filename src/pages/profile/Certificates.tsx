@@ -16,6 +16,7 @@ import { StudentList } from '@/components/certificates/StudentList';
 import { CertificateStatsBadges } from '@/components/certificates/CertificateStatsBadges';
 import { CertificateCustomizer } from '@/components/certificates/CertificateCustomizer';
 import { CertificateTemplateComponent } from '@/components/certificates/CertificateTemplate';
+import { CertificateRanking } from '@/components/certificates/CertificateRanking';
 import { CertificatesApiService } from '@/services/certificatesApi';
 import { getUserHierarchyContext } from '@/utils/userHierarchy';
 import { getCertificateStats, getStudentsAwaitingApproval } from '@/utils/certificateStats';
@@ -406,6 +407,13 @@ export default function Certificates() {
           </Card>
         )}
       </div>
+
+      <CertificateRanking
+        students={students}
+        lockedSchoolId={
+          ['diretor', 'coordenador', 'professor'].includes(user.role) ? schoolId : undefined
+        }
+      />
     </div>
   );
 }

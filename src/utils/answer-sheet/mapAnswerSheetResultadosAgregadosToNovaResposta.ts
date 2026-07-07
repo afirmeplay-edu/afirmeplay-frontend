@@ -19,6 +19,13 @@ export interface AnswerSheetResultadosAgregadosRaw {
     alunos_participantes?: number;
     alunos_pendentes?: number;
     alunos_ausentes?: number;
+    alunos_pendentes_detalhe?: Array<{
+      id: string;
+      nome: string;
+      escola?: string;
+      serie?: string;
+      turma?: string;
+    }>;
     percentual_comparecimento?: number;
     nivel_classificacao?: string | null;
     media_nota_geral?: number;
@@ -377,6 +384,7 @@ export function mapAnswerSheetResultadosAgregadosToNovaResposta(
       alunos_participantes: eg.alunos_participantes ?? 0,
       alunos_pendentes: eg.alunos_pendentes ?? 0,
       alunos_ausentes: eg.alunos_ausentes ?? 0,
+      alunos_pendentes_detalhe: eg.alunos_pendentes_detalhe,
       percentual_comparecimento: eg.percentual_comparecimento,
       nivel_classificacao: eg.nivel_classificacao ?? null,
       media_nota_geral: eg.media_nota_geral ?? 0,

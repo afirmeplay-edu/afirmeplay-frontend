@@ -304,15 +304,6 @@ interface ProficiencyDistribution {
     turma?: string;
     proficiencia?: number;
   }>;
-  alunosFaltosos?: Array<{
-    id?: string;
-    aluno_id?: string;
-    nome?: string;
-    escola?: string;
-    serie?: string;
-    turma?: string;
-    proficiencia?: number;
-  }>;
   alunosPorNivel?: Record<
     number,
     Array<{
@@ -1449,24 +1440,6 @@ export default function RelatorioEscolar({
           return true;
         });
 
-        // Faltosos/não participantes: tudo que veio na API e não passou no filtro de participação.
-        const participantesKey = new Set<string>();
-        const alunoKey = (a: { id?: string; aluno_id?: string; nome?: string; turma?: string; serie?: string; escola?: string }) => {
-          const id = alunoRowId(a);
-          if (id) return id;
-          return `${(a.nome ?? "").trim()}|${(a.turma ?? "").trim()}|${(a.serie ?? "").trim()}|${(a.escola ?? "").trim()}`.trim();
-        };
-        for (const a of alunosParticipantes as Array<{ id?: string; aluno_id?: string; nome?: string; turma?: string; serie?: string; escola?: string }>) {
-          const k = alunoKey(a);
-          if (k) participantesKey.add(k);
-        }
-        const alunosFaltosos = (disciplinaData.alunos as Array<{ id?: string; aluno_id?: string; nome?: string; turma?: string; serie?: string; escola?: string; proficiencia?: number }>)
-          .filter((a) => {
-            const k = alunoKey(a);
-            if (!k) return true;
-            return !participantesKey.has(k);
-          });
-
         const alunosPorNivel: Record<number, Array<{ id?: string; aluno_id?: string; nome?: string; escola?: string; serie?: string; turma?: string; proficiencia?: number }>> = {};
         for (let i = 0; i <= maxLevel; i++) alunosPorNivel[i] = [];
 
@@ -1526,7 +1499,6 @@ export default function RelatorioEscolar({
         const color = obterCorDisciplina(nomeDisciplina, index);
 
         const alunosParticipantesExib = alunosParticipantes.map(mergeAlunoNomeFromGeral);
-        const alunosFaltososExib = alunosFaltosos.map(mergeAlunoNomeFromGeral);
 
         return {
           title: `Distribuição percentual dos estudantes por Nível de Proficiência - ${nomeDisciplina}`,
@@ -1538,12 +1510,51 @@ export default function RelatorioEscolar({
           bars,
           disciplinaNome: nomeDisciplina,
           alunosParticipantes: alunosParticipantesExib,
-          alunosFaltosos: alunosFaltososExib,
           alunosPorNivel,
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
   }, [apiData, isAnswerSheetAgregados, isMunicipalView]);
+
+  /** Mesma fonte que `Results.tsx`: contagem e lista oficiais do backend. */
+  const pendingStudentsCount = useMemo(
+    () => apiData?.estatisticas_gerais?.alunos_pendentes ?? 0,
+    [apiData?.estatisticas_gerais?.alunos_pendentes]
+  );
+
+  const pendingStudents = useMemo(() => {
+    const raw = apiData?.estatisticas_gerais?.alunos_pendentes_detalhe;
+    if (Array.isArray(raw) && raw.length > 0) {
+      return raw.map((a, i) => ({
+        id: String(a.id ?? `sem-id-${i}`),
+        aluno_id: String(a.id ?? `sem-id-${i}`),
+        nome: String(a.nome ?? ""),
+        escola: a.escola,
+        serie: a.serie,
+        turma: a.turma,
+      }));
+    }
+    // Cartão-resposta: fallback alinhado a `AnswerSheetResults.tsx` quando o detalhe não vier.
+    if (isAnswerSheetAgregados) {
+      const geral = apiData?.tabela_detalhada?.geral?.alunos ?? [];
+      return geral
+        .filter((a) => (a.status_geral || "").toLowerCase() !== "concluida")
+        .map((a) => ({
+          id: alunoRowId(a),
+          aluno_id: alunoRowId(a),
+          nome: String(a.nome ?? ""),
+          escola: a.escola,
+          serie: a.serie,
+          turma: a.turma,
+        }))
+        .filter((a) => Boolean(a.id));
+    }
+    return [];
+  }, [
+    apiData?.estatisticas_gerais?.alunos_pendentes_detalhe,
+    apiData?.tabela_detalhada?.geral?.alunos,
+    isAnswerSheetAgregados,
+  ]);
 
   const formatAlunoLine = useCallback(
     (aluno: { nome?: string; turma?: string; serie?: string; escola?: string }) => {
@@ -1573,14 +1584,7 @@ export default function RelatorioEscolar({
           id?: string;
           aluno_id?: string;
         }>,
-        faltosos: (distribution.alunosFaltosos ?? []) as Array<{
-          nome?: string;
-          escola?: string;
-          serie?: string;
-          turma?: string;
-          id?: string;
-          aluno_id?: string;
-        }>,
+        faltosos: pendingStudents,
         porNivel: (distribution.alunosPorNivel ?? {}) as Record<
           number,
           Array<{ nome?: string; escola?: string; serie?: string; turma?: string; id?: string; aluno_id?: string }>
@@ -1588,7 +1592,7 @@ export default function RelatorioEscolar({
       });
       setStudentsModalOpen(true);
     },
-    []
+    [pendingStudents]
   );
 
   // Estados dos dados dos filtros (movidos para FilterComponentAnalise)
@@ -5303,22 +5307,27 @@ export default function RelatorioEscolar({
                 <div className="space-y-3">
                   <SectionHeader
                     title="Faltosos"
-                    subtitle="Alunos presentes na base, mas fora do critério de participação"
+                    subtitle="Alunos pendentes no recorte (mesma base de Resultados da avaliação)"
                     right={
                       <Badge variant="destructive" className="font-semibold">
-                        {studentsModalData.faltosos.length}
+                        {pendingStudentsCount}
                       </Badge>
                     }
                   />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {(studentsModalData.faltosos ?? [])
-                      .slice()
-                      .sort((a, b) => String(a.nome ?? "").localeCompare(String(b.nome ?? ""), "pt-BR"))
-                      .map((a, idx) => (
-                        <StudentRow key={`${String(a.id ?? a.aluno_id ?? idx)}-f`} aluno={a} tone="danger" />
-                      ))}
-                  </div>
-                  {(studentsModalData.faltosos ?? []).length === 0 && (
+                  {(studentsModalData.faltosos ?? []).length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {(studentsModalData.faltosos ?? [])
+                        .slice()
+                        .sort((a, b) => String(a.nome ?? "").localeCompare(String(b.nome ?? ""), "pt-BR"))
+                        .map((a, idx) => (
+                          <StudentRow key={`${String(a.id ?? a.aluno_id ?? idx)}-f`} aluno={a} tone="danger" />
+                        ))}
+                    </div>
+                  ) : pendingStudentsCount > 0 ? (
+                    <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+                      O total de pendentes foi informado nas estatísticas, mas a lista detalhada de alunos não veio nesta resposta.
+                    </div>
+                  ) : (
                     <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
                       Nenhum aluno faltoso encontrado.
                     </div>
