@@ -105,3 +105,41 @@ export interface CertificateApprovalRequest {
   template: CertificateTemplate;
 }
 
+export interface CertificateBatchItem {
+  certificate_id: string;
+  student_id: string;
+  student_name: string;
+  grade: number;
+  issued_at: string;
+  certificate_status: 'approved' | 'pending';
+  class_id?: string | null;
+  class_name?: string | null;
+  school_id?: string | null;
+  school_name?: string | null;
+  grade_id?: string | null;
+  grade_name?: string | null;
+}
+
+export interface CertificateBatchResponse {
+  evaluation_id: string;
+  evaluation_title: string;
+  template: CertificateTemplate;
+  certificates: CertificateBatchItem[];
+  meta: {
+    total: number;
+    filters_applied: {
+      status: string;
+      school_id: string | null;
+      grade_id: string | null;
+      class_id: string | null;
+    };
+  };
+}
+
+export interface CertificateBatchFilters {
+  status?: 'approved' | 'pending';
+  school_id?: string;
+  grade_id?: string;
+  class_id?: string;
+}
+

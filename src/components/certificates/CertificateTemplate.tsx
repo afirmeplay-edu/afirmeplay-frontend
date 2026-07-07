@@ -8,6 +8,10 @@ interface CertificateTemplateProps {
   evaluationTitle?: string;
   grade?: number;
   className?: string;
+  resolvedImages?: {
+    logoUrl?: string;
+    signatureUrl?: string;
+  };
 }
 
 export function CertificateTemplateComponent({
@@ -15,26 +19,34 @@ export function CertificateTemplateComponent({
   studentName = 'Nome do Aluno',
   evaluationTitle = 'Avaliação',
   grade,
-  className = ''
+  className = '',
+  resolvedImages,
 }: CertificateTemplateProps) {
-  const [logoUrl, setLogoUrl] = useState<string | undefined>(undefined);
-  const [signatureUrl, setSignatureUrl] = useState<string | undefined>(undefined);
+  const [logoUrl, setLogoUrl] = useState<string | undefined>(resolvedImages?.logoUrl);
+  const [signatureUrl, setSignatureUrl] = useState<string | undefined>(
+    resolvedImages?.signatureUrl
+  );
   const [isLoadingImages, setIsLoadingImages] = useState(false);
 
-  // Carregar imagens via fetch + blob
   useEffect(() => {
+    if (resolvedImages) {
+      setLogoUrl(resolvedImages.logoUrl);
+      setSignatureUrl(resolvedImages.signatureUrl);
+      return;
+    }
+
     const accessToken = getAccessToken();
     const cityId = getCityId();
-    
+
     const loadImages = async () => {
       setIsLoadingImages(true);
-      
+
       try {
         const [loadedLogo, loadedSignature] = await Promise.all([
           loadCertificateImage(template.logo_url, accessToken, cityId),
-          loadCertificateImage(template.signature_url, accessToken, cityId)
+          loadCertificateImage(template.signature_url, accessToken, cityId),
         ]);
-        
+
         setLogoUrl(loadedLogo);
         setSignatureUrl(loadedSignature);
       } catch (error) {
@@ -46,7 +58,6 @@ export function CertificateTemplateComponent({
 
     loadImages();
 
-    // Cleanup: revogar blob URLs quando o componente for desmontado
     return () => {
       if (template.logo_url) {
         revokeCertificateImageBlob(template.logo_url, accessToken);
@@ -55,7 +66,7 @@ export function CertificateTemplateComponent({
         revokeCertificateImageBlob(template.signature_url, accessToken);
       }
     };
-  }, [template.logo_url, template.signature_url]);
+  }, [template.logo_url, template.signature_url, resolvedImages]);
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return new Date().toLocaleDateString('pt-BR');

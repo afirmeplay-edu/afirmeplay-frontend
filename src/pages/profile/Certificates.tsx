@@ -4,12 +4,19 @@ import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { ArrowLeft, Award, CheckCircle2, Info } from 'lucide-react';
 import { CertificateList } from '@/components/certificates/CertificateList';
 import { StudentList } from '@/components/certificates/StudentList';
 import { CertificateStatsBadges } from '@/components/certificates/CertificateStatsBadges';
 import { CertificateCustomizer } from '@/components/certificates/CertificateCustomizer';
 import { CertificateTemplateComponent } from '@/components/certificates/CertificateTemplate';
+import { CertificateRanking } from '@/components/certificates/CertificateRanking';
 import { CertificatesApiService } from '@/services/certificatesApi';
 import { getUserHierarchyContext } from '@/utils/userHierarchy';
 import { getCertificateStats, getStudentsAwaitingApproval } from '@/utils/certificateStats';
@@ -37,6 +44,21 @@ export default function Certificates() {
     () => getStudentsAwaitingApproval(students),
     [students]
   );
+
+  const canShowApproveButton =
+    !!template && students.length > 0 && isEvaluationCreator;
+
+  const isApproveDisabled =
+    isApproving || studentsAwaitingApproval.length === 0;
+
+  const approveDisabledReason = useMemo(() => {
+    if (!canShowApproveButton) return null;
+    if (isApproving) return null;
+    if (studentsAwaitingApproval.length === 0) {
+      return 'Todos os certificados elegíveis desta avaliação já foram aprovados.';
+    }
+    return null;
+  }, [canShowApproveButton, isApproving, studentsAwaitingApproval.length]);
 
   useEffect(() => {
     const loadHierarchy = async () => {
@@ -301,16 +323,31 @@ export default function Certificates() {
           >
             Personalizar Certificado
           </Button>
-          {template && studentsAwaitingApproval.length > 0 && isEvaluationCreator && (
-            <Button
-              onClick={handleApproveCertificates}
-              disabled={isApproving}
-            >
-              <CheckCircle2 className="h-4 w-4 mr-2" />
-              {isApproving
-                ? 'Aprovando...'
-                : `Aprovar ${studentsAwaitingApproval.length} Certificado(s)`}
-            </Button>
+          {canShowApproveButton && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex">
+                    <Button
+                      onClick={handleApproveCertificates}
+                      disabled={isApproveDisabled}
+                    >
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                      {isApproving
+                        ? 'Aprovando...'
+                        : studentsAwaitingApproval.length === 0
+                          ? 'Todos aprovados'
+                          : `Aprovar ${studentsAwaitingApproval.length} Certificado(s)`}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {approveDisabledReason && (
+                  <TooltipContent side="bottom" className="max-w-xs">
+                    <p>{approveDisabledReason}</p>
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
           )}
         </div>
       </div>
@@ -329,6 +366,7 @@ export default function Certificates() {
         <div>
           <StudentList
             evaluationId={selectedEvaluation}
+            evaluationTitle={selectedEvaluationData?.title ?? 'Avaliação'}
             brandingCityId={municipalityId}
             refreshKey={studentListRefreshKey}
             lockedSchoolId={
@@ -369,6 +407,13 @@ export default function Certificates() {
           </Card>
         )}
       </div>
+
+      <CertificateRanking
+        students={students}
+        lockedSchoolId={
+          ['diretor', 'coordenador', 'professor'].includes(user.role) ? schoolId : undefined
+        }
+      />
     </div>
   );
 }
