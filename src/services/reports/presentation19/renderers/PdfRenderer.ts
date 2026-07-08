@@ -102,6 +102,10 @@ import {
   resolvePresentation19BarTopLabel,
 } from "@/utils/reports/presentation19/presentation19Labels";
 import { resolveMunicipalReferenceXRatios } from "@/utils/reports/presentation19/municipalReferenceLine";
+import {
+  minP19VerticalBarInnerW,
+  resolveP19VerticalBarColumnSlot,
+} from "@/utils/reports/presentation19/presentation19VerticalBarLayout";
 
 type RenderPdfArgs = {
   spec: Presentation19ExportSpec;
@@ -342,8 +346,8 @@ function drawBarChart(doc: jsPDF, chart: ExportChart, area: { x: number; y: numb
   const barsStartX = x + P19_CHART_INNER_HORIZONTAL_PAD_PX;
   const barsW = w - P19_CHART_INNER_HORIZONTAL_PAD_PX * 2;
   const plotTopInset = P19_CHART_V_BAR_TOP_PAD_PX + P19_CHART_V_BAR_VALUE_LABEL_RESERVE_PX;
-  const colWidth = barsW / Math.max(1, chart.data.length);
-  const innerW = Math.max(8, colWidth - 36);
+  const barCount = Math.max(1, chart.data.length);
+  const minInnerW = minP19VerticalBarInnerW(barsW, barCount);
 
   const rawMax = Math.max(
     1,
@@ -363,7 +367,7 @@ function drawBarChart(doc: jsPDF, chart: ExportChart, area: { x: number; y: numb
     let maxCatLines = 1;
     chart.data.forEach((row) => {
       const catStr = String(row[chart.categoryKey] ?? "");
-      const lines = splitTextToSizeBySpaces(doc, catStr, innerW);
+      const lines = splitTextToSizeBySpaces(doc, catStr, minInnerW);
       maxCatLines = Math.max(maxCatLines, lines.length);
     });
     const neededBottom = 8 + maxCatLines * lineH + 10;
@@ -384,27 +388,31 @@ function drawBarChart(doc: jsPDF, chart: ExportChart, area: { x: number; y: numb
   const hasMultipleSeries = chart.valueKeys.length > 1;
 
   chart.data.forEach((row, idx) => {
-    const baseX = barsStartX + idx * colWidth + 18;
+    const slot = resolveP19VerticalBarColumnSlot(barsStartX, barsW, idx, barCount);
     if (hasMultipleSeries && !isStacked) {
-      const gap = 8;
-      const seriesW = Math.max(7, Math.min(22, (innerW - gap * (chart.valueKeys.length - 1)) / chart.valueKeys.length));
+      const gap = Math.min(8, Math.max(2, slot.innerW * 0.12));
+      const seriesW = Math.max(
+        2,
+        Math.min(22, (slot.innerW - gap * (chart.valueKeys.length - 1)) / chart.valueKeys.length)
+      );
       const groupW = chart.valueKeys.length * seriesW + gap * (chart.valueKeys.length - 1);
-      const groupOffsetX = Math.max(0, (innerW - groupW) / 2);
+      const groupX = slot.slotX + (slot.colWidth - groupW) / 2;
       chart.valueKeys.forEach((serie, sIdx) => {
         const value = Number(row[serie.key] ?? 0);
         const barH = (Math.max(0, value - axisMin) / (maxValue - axisMin)) * chartAreaH;
         const barY = baselineY - barH;
-        const barX = baseX + groupOffsetX + sIdx * (seriesW + gap);
+        const barX = groupX + sIdx * (seriesW + gap);
         const rgb = hexToRgb(serie.color);
         doc.setFillColor(rgb.r, rgb.g, rgb.b);
         doc.roundedRect(barX, barY, seriesW, barH, 4, 4, "F");
         doc.setTextColor(15, 23, 42);
         doc.setFontSize(P19_CHART_BAR_VALUE_TOP_PX);
-        doc.text(resolvePresentation19BarTopLabel(row, value, serie.label), barX + seriesW / 2, barY - 1, { align: "center" });
+        doc.text(resolvePresentation19BarTopLabel(row, value, serie.label), barX + seriesW / 2, barY - 1, {
+          align: "center",
+          maxWidth: slot.colWidth,
+        });
       });
     } else if (hasMultipleSeries && isStacked) {
-      const singleW = Math.max(14, Math.min(34, innerW * 0.7));
-      const singleX = baseX + (innerW - singleW) / 2;
       let currentTop = baselineY;
       let total = 0;
       chart.valueKeys.forEach((serie) => {
@@ -414,17 +422,15 @@ function drawBarChart(doc: jsPDF, chart: ExportChart, area: { x: number; y: numb
         const barY = currentTop - barH;
         const rgb = hexToRgb(serie.color);
         doc.setFillColor(rgb.r, rgb.g, rgb.b);
-        doc.roundedRect(singleX, barY, singleW, barH, 4, 4, "F");
+        doc.roundedRect(slot.barX, barY, slot.barW, barH, 4, 4, "F");
         currentTop = barY;
       });
       doc.setTextColor(15, 23, 42);
       doc.setFontSize(P19_CHART_BAR_VALUE_TOP_PX + 1);
-      doc.text(
-        resolvePresentation19BarTopLabel(row, total, chart.valueKeys[0]?.label),
-        singleX + singleW / 2,
-        currentTop - 1,
-        { align: "center" }
-      );
+      doc.text(resolvePresentation19BarTopLabel(row, total, chart.valueKeys[0]?.label), slot.labelCx, currentTop - 1, {
+        align: "center",
+        maxWidth: slot.colWidth,
+      });
     } else {
       const serie = chart.valueKeys[0];
       const value = Number(row[serie.key] ?? 0);
@@ -433,12 +439,13 @@ function drawBarChart(doc: jsPDF, chart: ExportChart, area: { x: number; y: numb
       const barColor = String(row.color ?? palette[idx % palette.length] ?? serie.color);
       const rgb = hexToRgb(barColor);
       doc.setFillColor(rgb.r, rgb.g, rgb.b);
-      const singleW = Math.max(14, Math.min(34, innerW * 0.7));
-      const singleX = baseX + (innerW - singleW) / 2;
-      doc.roundedRect(singleX, barY, singleW, barH, 6, 6, "F");
+      doc.roundedRect(slot.barX, barY, slot.barW, barH, 6, 6, "F");
       doc.setTextColor(15, 23, 42);
       doc.setFontSize(P19_CHART_BAR_VALUE_TOP_PX);
-      doc.text(resolvePresentation19BarTopLabel(row, value, serie.label), singleX + singleW / 2, barY - 1, { align: "center" });
+      doc.text(resolvePresentation19BarTopLabel(row, value, serie.label), slot.labelCx, barY - 1, {
+        align: "center",
+        maxWidth: slot.colWidth,
+      });
     }
   });
 
@@ -467,13 +474,12 @@ function drawBarChart(doc: jsPDF, chart: ExportChart, area: { x: number; y: numb
   doc.setFontSize(catFs);
   doc.setTextColor(51, 65, 85);
   chart.data.forEach((row, idx) => {
-    const baseX = barsStartX + idx * colWidth + 18;
+    const slot = resolveP19VerticalBarColumnSlot(barsStartX, barsW, idx, barCount);
     const catStr = String(row[chart.categoryKey] ?? "");
-    const catLines = splitTextToSizeBySpaces(doc, catStr, innerW);
-    const cx = baseX + innerW / 2;
+    const catLines = splitTextToSizeBySpaces(doc, catStr, slot.innerW);
     let labY = baselineY + 6 + catLineH * 0.72;
     catLines.forEach((ln) => {
-      doc.text(ln, cx, labY, { align: "center" });
+      doc.text(ln, slot.labelCx, labY, { align: "center", maxWidth: slot.colWidth });
       labY += catLineH;
     });
   });

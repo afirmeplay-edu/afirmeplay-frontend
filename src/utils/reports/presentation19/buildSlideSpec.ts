@@ -16,6 +16,7 @@ import {
   mediaMunicipalRelatorioPorDisciplinaResolved,
 } from "@/utils/reports/presentation19/presentation19MunicipalMedia";
 import { attachMunicipalReferenceLineToChart } from "@/utils/reports/presentation19/municipalReferenceLine";
+import { expandDisciplineChartsWithCategoryChunks } from "@/utils/reports/presentation19/presentation19ChartCategoryChunk";
 
 const MAX_CATEGORY_ROWS_PER_SLIDE = 14;
 /** Proficiência por disciplina: 1 gráfico por slide (largura total, uma disciplina por “linha”). */
@@ -743,9 +744,12 @@ export function buildSlideSpec(deckData: Presentation19DeckData): Presentation19
         },
       ];
 
-  const proficiencyDiscChartsAll = multiSchool
-    ? buildProficiencyByDisciplineChartsMunicipalCompare(deckData)
-    : buildDefaultProficiencyByDisciplineCharts(deckData);
+  const proficiencyDiscChartsAll = expandDisciplineChartsWithCategoryChunks(
+    multiSchool
+      ? buildProficiencyByDisciplineChartsMunicipalCompare(deckData)
+      : buildDefaultProficiencyByDisciplineCharts(deckData),
+    MAX_CATEGORY_ROWS_PER_SLIDE
+  );
 
   const profGeralChartSlides: Presentation19SlideSpec[] = multiSchool
     ? [
@@ -771,9 +775,12 @@ export function buildSlideSpec(deckData: Presentation19DeckData): Presentation19
         }))
       : [];
 
-  const gradesDiscChartsAll = multiSchool
-    ? buildGradesByDisciplineChartsMunicipalCompare(deckData)
-    : buildDefaultGradesByDisciplineCharts(deckData);
+  const gradesDiscChartsAll = expandDisciplineChartsWithCategoryChunks(
+    multiSchool
+      ? buildGradesByDisciplineChartsMunicipalCompare(deckData)
+      : buildDefaultGradesByDisciplineCharts(deckData),
+    MAX_CATEGORY_ROWS_PER_SLIDE
+  );
   const gradesDiscChartChunks = chunkFlat(gradesDiscChartsAll, MAX_PROF_DISC_CHARTS_PER_SLIDE);
   const gradesByDisciplineSlides: Presentation19SlideSpec[] =
     gradesDiscChartChunks.length > 0

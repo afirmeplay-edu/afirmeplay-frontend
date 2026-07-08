@@ -81,6 +81,7 @@ import {
   resolvePresentation19BarTopLabel,
 } from "@/utils/reports/presentation19/presentation19Labels";
 import { resolveMunicipalReferenceXRatios } from "@/utils/reports/presentation19/municipalReferenceLine";
+import { p19VerticalBarGapPx } from "@/utils/reports/presentation19/presentation19VerticalBarLayout";
 
 type Props = {
   deckData: Presentation19DeckData;
@@ -293,6 +294,11 @@ function BarChartPreview({ chart, height = P19_CHART_REF_H_PX }: { chart: Export
   };
 
   const categories = chart.data.map((d) => String(d[chart.categoryKey] ?? ""));
+  const barCount = Math.max(1, categories.length);
+  const barGap = p19VerticalBarGapPx(barCount);
+  const compactBars = barCount > 14;
+  const valueLabelPx = compactBars ? Math.max(8, P19_CHART_BAR_VALUE_TOP_PX - 2) : P19_CHART_BAR_VALUE_TOP_PX;
+  const barWidthCss = compactBars ? "min(24px, 88%)" : "min(40px, 88%)";
   const rawMax = Math.max(1, ...chart.data.flatMap((d) => chart.valueKeys.map((s) => Number(d[s.key] ?? 0))));
   const axisMin = Number.isFinite(chart.yAxis?.min) ? Number(chart.yAxis?.min) : 0;
   const axisMax = Number.isFinite(chart.yAxis?.max) ? Number(chart.yAxis?.max) : Math.max(1, Math.ceil(rawMax * 1.15));
@@ -322,19 +328,20 @@ function BarChartPreview({ chart, height = P19_CHART_REF_H_PX }: { chart: Export
         boxSizing: "border-box",
       }}
     >
-      <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+      <div style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden" }}>
         <div
           style={{
             position: "absolute",
             inset: 0,
             display: "flex",
-            gap: 12,
+            gap: barGap,
             /* stretch: colunas precisam da altura total do plot; só `absolute` não gera altura no fluxo */
             alignItems: "stretch",
             // Reservar o mesmo espaço do "eixo" para alinhar com os rótulos.
             paddingLeft: AXIS_LAB_W + 6,
             paddingRight: AXIS_LAB_W + 6,
             zIndex: 2,
+            overflow: "hidden",
           }}
         >
           {chart.data.map((row, idx) => (
@@ -348,6 +355,7 @@ function BarChartPreview({ chart, height = P19_CHART_REF_H_PX }: { chart: Export
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "stretch",
+                overflow: "hidden",
               }}
             >
               <div style={{ flexShrink: 0, height: P19_CHART_V_BAR_VALUE_LABEL_RESERVE_PX }} aria-hidden />
@@ -549,7 +557,7 @@ function BarChartPreview({ chart, height = P19_CHART_REF_H_PX }: { chart: Export
                         >
                           <div
                             style={{
-                              width: "min(40px, 88%)",
+                              width: barWidthCss,
                               height: "100%",
                               minHeight: 2,
                               background: rowColor,
@@ -562,15 +570,19 @@ function BarChartPreview({ chart, height = P19_CHART_REF_H_PX }: { chart: Export
                         <div
                           style={{
                             position: "absolute",
-                            left: "50%",
-                            transform: "translateX(-50%)",
+                            left: 0,
+                            right: 0,
                             bottom: `calc(${q * 100}% + 1px)`,
-                            fontSize: P19_CHART_BAR_VALUE_TOP_PX,
+                            fontSize: valueLabelPx,
                             fontWeight: 900,
                             color: "#0F172A",
                             whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            textAlign: "center",
                             lineHeight: 1,
                             pointerEvents: "none",
+                            paddingInline: 1,
                           }}
                         >
                           {labelText}
@@ -620,9 +632,10 @@ function BarChartPreview({ chart, height = P19_CHART_REF_H_PX }: { chart: Export
           display: "flex",
           minHeight: LABEL_ROW_H,
           paddingTop: 6,
-          gap: 12,
+          gap: barGap,
           paddingLeft: AXIS_LAB_W + 6,
           paddingRight: AXIS_LAB_W + 6,
+          overflow: "hidden",
         }}
       >
         {chart.data.map((row, idx) => (
