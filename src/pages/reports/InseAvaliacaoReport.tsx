@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
-import { InseSaebFiltersApiService } from '@/services/inseSaebFiltersApi';
+import { InseAvaliacaoFiltersApiService } from '@/services/inseAvaliacaoFiltersApi';
 import { InseEvaluationPicker } from '@/components/filters';
 import { FormMultiSelect } from '@/components/ui/form-multi-select';
 import { EvaluationApiService } from '@/services/evaluation/evaluationApi';
@@ -55,16 +55,18 @@ interface DisciplinaAluno {
   nivel_proficiencia: string;
 }
 
-interface AlunoInseSaeb {
+interface AlunoInseAvaliacao {
   id: string;
   nome_completo: string;
   disciplinas: DisciplinaAluno[];
   proficiencia_media: number;
   nota: number;
-  nivel_proficiencia: string;
-  inse_pontos: number;
-  inse_nivel: number;
+  nivel_proficiencia: string | null;
+  inse_valor: number;
+  inse_nivel: number | null;
   inse_nivel_label: string;
+  raca_cor: string | null;
+  raca_cor_grupo: string | null;
 }
 
 interface DistribuicaoInseItem {
@@ -74,7 +76,7 @@ interface DistribuicaoInseItem {
   porcentagem: number;
 }
 
-interface InseSaebResultsResponse {
+interface InseAvaliacaoResultsResponse {
   formId: string;
   formTitle: string;
   avaliacaoId: string;
@@ -89,7 +91,7 @@ interface InseSaebResultsResponse {
     porcentagem_participacao?: number;
     porcentagem_nao_responderam?: number;
   };
-  distribuicao_inse: Record<string, DistribuicaoInseItem>;
+  distribuicao_inse: Record<'1' | '2' | '3' | '4' | '5' | '6' | '7' | '8', DistribuicaoInseItem>;
   distribuicao_proficiencia: {
     abaixo_do_basico: number;
     basico: number;
@@ -101,8 +103,12 @@ interface InseSaebResultsResponse {
     avancado_porcentagem: number;
   };
   disciplinas_avaliacao: Array<{ id: string; nome: string }>;
+  opcoes_raca_cor?: {
+    categorias: Array<{ valor: string; quantidade: number }>;
+    grupos: Array<{ valor: string; quantidade: number }>;
+  };
   alunos: {
-    data: AlunoInseSaeb[];
+    data: AlunoInseAvaliacao[];
     pagination: {
       page: number;
       limit: number;
@@ -229,8 +235,10 @@ function groupBulletinBySubject(
   return bySubject;
 }
 
-const INSE_NIVEIS_ORDEM = ['6', '5', '4', '3', '2', '1'];
+const INSE_NIVEIS_ORDEM: Array<'8' | '7' | '6' | '5' | '4' | '3' | '2' | '1'> = ['8', '7', '6', '5', '4', '3', '2', '1'];
 const INSE_CORES: Record<string, string> = {
+  '8': 'bg-violet-950 text-white',
+  '7': 'bg-violet-900 text-white',
   '6': 'bg-violet-800 text-white',
   '5': 'bg-violet-600 text-white',
   '4': 'bg-violet-500 text-white',
@@ -250,7 +258,20 @@ function getProficienciaBadgeClass(nivel: string): string {
   return NIVEL_PROFICIENCIA_CORES[nivel] ?? 'bg-muted text-muted-foreground';
 }
 
-const InseSaebReport = () => {
+function formatRacaCorLabel(value: string): string {
+  const normalized = value.trim();
+  const map: Record<string, string> = {
+    NaoInformada: 'Não informada',
+    NaoDeclarada: 'Não declarada',
+    PretaParda: 'Preta/Parda',
+  };
+  if (map[normalized]) return map[normalized];
+
+  const withSpaces = normalized.replace(/([a-z])([A-Z])/g, '$1 $2');
+  return withSpaces;
+}
+
+const InseAvaliacaoReport = () => {
   const { toast } = useToast();
 
   const [selectedState, setSelectedState] = useState<string>('all');
@@ -260,6 +281,7 @@ const InseSaebReport = () => {
   const [selectedSchools, setSelectedSchools] = useState<string[]>([]);
   const [selectedGrades, setSelectedGrades] = useState<string[]>([]);
   const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
+  const [selectedRacaCor, setSelectedRacaCor] = useState<string>('all');
 
   const [states, setStates] = useState<Array<{ id: string; name: string }>>([]);
   const [municipalities, setMunicipalities] = useState<Array<{ id: string; name: string }>>([]);
@@ -270,7 +292,7 @@ const InseSaebReport = () => {
   const [classes, setClasses] = useState<Array<{ id: string; name: string }>>([]);
 
   const [isLoadingFilters, setIsLoadingFilters] = useState(false);
-  const [reportData, setReportData] = useState<InseSaebResultsResponse | null>(null);
+  const [reportData, setReportData] = useState<InseAvaliacaoResultsResponse | null>(null);
   const [isLoadingReport, setIsLoadingReport] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [downloadingAluno, setDownloadingAluno] = useState<string | null>(null);
@@ -280,7 +302,7 @@ const InseSaebReport = () => {
   const reportTableRef = useRef<HTMLDivElement>(null);
 
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewAluno, setPreviewAluno] = useState<AlunoInseSaeb | null>(null);
+  const [previewAluno, setPreviewAluno] = useState<AlunoInseAvaliacao | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewFormResponse, setPreviewFormResponse] = useState<UserFormResponse | null>(null);
@@ -295,7 +317,7 @@ const InseSaebReport = () => {
     const load = async () => {
       try {
         setIsLoadingFilters(true);
-        const options = await InseSaebFiltersApiService.getFilterOptions({});
+        const options = await InseAvaliacaoFiltersApiService.getFilterOptions({});
         setStates(options.estados);
       } catch (error) {
         console.error('Erro ao carregar filtros:', error);
@@ -317,7 +339,8 @@ const InseSaebReport = () => {
       setSelectedSchools([]);
       setSelectedGrades([]);
       setSelectedClasses([]);
-      InseSaebFiltersApiService.getFilterOptions({ estado: selectedState })
+      setSelectedRacaCor('all');
+      InseAvaliacaoFiltersApiService.getFilterOptions({ estado: selectedState })
         .then((options) => {
           setMunicipalities(options.municipios);
           setForms([]);
@@ -342,6 +365,7 @@ const InseSaebReport = () => {
       setSelectedSchools([]);
       setSelectedGrades([]);
       setSelectedClasses([]);
+      setSelectedRacaCor('all');
     }
   }, [selectedState]);
 
@@ -354,7 +378,8 @@ const InseSaebReport = () => {
       setSelectedSchools([]);
       setSelectedGrades([]);
       setSelectedClasses([]);
-      InseSaebFiltersApiService.getFilterOptions({
+      setSelectedRacaCor('all');
+      InseAvaliacaoFiltersApiService.getFilterOptions({
         estado: selectedState,
         municipio: selectedMunicipality,
       })
@@ -394,7 +419,8 @@ const InseSaebReport = () => {
       setSelectedSchools([]);
       setSelectedGrades([]);
       setSelectedClasses([]);
-      InseSaebFiltersApiService.getFilterOptions({
+      setSelectedRacaCor('all');
+      InseAvaliacaoFiltersApiService.getFilterOptions({
         estado: selectedState,
         municipio: selectedMunicipality,
         formulario: selectedForm,
@@ -432,7 +458,7 @@ const InseSaebReport = () => {
       const allGradesByName = new Map<string, string>();
       Promise.all(
         selectedSchools.map((schoolId) =>
-          InseSaebFiltersApiService.getFilterOptions({
+          InseAvaliacaoFiltersApiService.getFilterOptions({
             estado: selectedState,
             municipio: selectedMunicipality,
             formulario: selectedForm,
@@ -476,11 +502,11 @@ const InseSaebReport = () => {
       setIsLoadingFilters(true);
       const allClassesById = new Map<string, { id: string; name: string }>();
       const allClassesByName = new Map<string, string>();
-      const promises: Promise<ReturnType<typeof InseSaebFiltersApiService.getFilterOptions>>[] = [];
+      const promises: Promise<ReturnType<typeof InseAvaliacaoFiltersApiService.getFilterOptions>>[] = [];
       selectedSchools.forEach((schoolId) => {
         selectedGrades.forEach((gradeId) => {
           promises.push(
-            InseSaebFiltersApiService.getFilterOptions({
+            InseAvaliacaoFiltersApiService.getFilterOptions({
               estado: selectedState,
               municipio: selectedMunicipality,
               formulario: selectedForm,
@@ -537,6 +563,7 @@ const InseSaebReport = () => {
     if (selectedSchools.length > 0) params.escola = selectedSchools.join(',');
     if (selectedGrades.length > 0) params.serie = selectedGrades.join(',');
     if (selectedClasses.length > 0) params.turma = selectedClasses.join(',');
+    if (selectedRacaCor !== 'all') params.raca_cor = selectedRacaCor;
 
     const requestConfig =
       selectedMunicipality !== 'all'
@@ -544,8 +571,8 @@ const InseSaebReport = () => {
         : { params };
 
     try {
-      const response = await api.get<InseSaebResultsResponse>(
-        `/forms/${selectedForm}/results/inse-saeb`,
+      const response = await api.get<InseAvaliacaoResultsResponse>(
+        `/forms/${selectedForm}/results/inse-avaliacao`,
         requestConfig
       );
       if (response.status === 200) {
@@ -571,6 +598,7 @@ const InseSaebReport = () => {
     selectedSchools,
     selectedGrades,
     selectedClasses,
+    selectedRacaCor,
     toast,
   ]);
 
@@ -596,6 +624,7 @@ const InseSaebReport = () => {
     selectedSchools,
     selectedGrades,
     selectedClasses,
+    selectedRacaCor,
     fetchReport,
   ]);
 
@@ -613,7 +642,7 @@ const InseSaebReport = () => {
   );
 
   const handleOpenPreview = useCallback(
-    async (aluno: AlunoInseSaeb) => {
+    async (aluno: AlunoInseAvaliacao) => {
       if (!reportData?.formId || !reportData?.avaliacaoId) return;
       setPreviewAluno(aluno);
       setPreviewOpen(true);
@@ -671,7 +700,7 @@ const InseSaebReport = () => {
   }, []);
 
   const handleExportAlunoPdf = useCallback(
-    async (aluno: AlunoInseSaeb, indexOnPage: number) => {
+    async (aluno: AlunoInseAvaliacao, indexOnPage: number) => {
       if (!reportData?.formId || !reportData?.avaliacaoId) return;
       const key = `${aluno.nome_completo}-${indexOnPage}`;
       try {
@@ -782,7 +811,7 @@ const InseSaebReport = () => {
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(16);
           doc.setTextColor(...primaryRgb);
-          doc.text('Relatório INSE x SAEB — Aluno', centerX, y, { align: 'center' });
+          doc.text('Relatório INSE x Avaliação — Aluno', centerX, y, { align: 'center' });
           y += 12;
           doc.setFontSize(10);
           doc.setTextColor(...textDark);
@@ -1061,23 +1090,24 @@ const InseSaebReport = () => {
             y
           );
           y += 6;
+          const nivelAluno = aluno.nivel_proficiencia ?? '—';
           doc.setFillColor(
-            ...(aluno.nivel_proficiencia.includes('Avançado')
+            ...(nivelAluno.includes('Avançado')
               ? [34, 197, 94]
-              : aluno.nivel_proficiencia.includes('Adequado')
+              : nivelAluno.includes('Adequado')
                 ? [22, 163, 74]
-                : aluno.nivel_proficiencia.includes('Básico')
+                : nivelAluno.includes('Básico')
                   ? [234, 179, 8]
                   : [239, 68, 68])
           );
           doc.rect(margin, y - 3, 30, 5, 'F');
           doc.setTextColor(255, 255, 255);
           doc.setFontSize(8);
-          doc.text(aluno.nivel_proficiencia, margin + 2, y + 0.5);
+          doc.text(nivelAluno, margin + 2, y + 0.5);
         }
 
         const safeName = aluno.nome_completo.replace(/[\\/:*?"<>|]/g, '_');
-        doc.save(`INSE_SAEB_Relatorio_${safeName}.pdf`);
+        doc.save(`INSE_AVALIACAO_Relatorio_${safeName}.pdf`);
         toast({ title: 'PDF gerado', description: 'Relatório do aluno exportado com sucesso.' });
       } catch (err) {
         console.error('Erro ao gerar PDF:', err);
@@ -1192,7 +1222,7 @@ const InseSaebReport = () => {
         doc.setTextColor(...(hasLetterhead ? primaryRgb : ([255, 255, 255] as [number, number, number])));
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(17);
-        doc.text('RELATÓRIO INSE x SAEB', centerX, titleY, { align: 'center' });
+        doc.text('RELATÓRIO INSE x AVALIAÇÃO', centerX, titleY, { align: 'center' });
         doc.setFontSize(11);
         doc.setTextColor(...(hasLetterhead ? textDark : ([255, 255, 255] as [number, number, number])));
         doc.text('ANÁLISE COMPARATIVA DE INDICADORES', centerX, titleY + 8, { align: 'center' });
@@ -1279,11 +1309,11 @@ const InseSaebReport = () => {
       const pagination = reportData.alunos?.pagination;
 
       doc.addPage();
-      let y = drawCompactHeader('RELATÓRIO INSE x SAEB');
+      let y = drawCompactHeader('RELATÓRIO INSE x AVALIAÇÃO');
       const ensureSpace = (heightNeeded: number) => {
         if (y + heightNeeded > pageHeight - margin) {
           doc.addPage();
-          y = drawCompactHeader('RELATÓRIO INSE x SAEB');
+          y = drawCompactHeader('RELATÓRIO INSE x AVALIAÇÃO');
         }
       };
 
@@ -1399,6 +1429,8 @@ const InseSaebReport = () => {
 
       // --- Distribuição (layout tabela, cores do HTML) ---
       const INSE_RGB: Record<string, { bg: [number, number, number]; text: [number, number, number] }> = {
+        '8': { bg: [46, 16, 101], text: [255, 255, 255] },
+        '7': { bg: [76, 29, 149], text: [255, 255, 255] },
         '6': { bg: [91, 33, 182], text: [255, 255, 255] },
         '5': { bg: [124, 58, 237], text: [255, 255, 255] },
         '4': { bg: [139, 92, 246], text: [255, 255, 255] },
@@ -1537,13 +1569,13 @@ const InseSaebReport = () => {
       });
       y += 4 * rowH + 14;
 
-      // --- Tabela INSE x SAEB ---
+      // --- Tabela INSE x Avaliação ---
       doc.addPage();
-      y = drawCompactHeader('RELATÓRIO INSE x SAEB');
+      y = drawCompactHeader('RELATÓRIO INSE x AVALIAÇÃO');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(18);
       doc.setTextColor(...primaryRgb);
-      doc.text('INSE x SAEB', margin, y);
+      doc.text('INSE x Avaliação', margin, y);
       y += 10;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(11);
@@ -1558,6 +1590,7 @@ const InseSaebReport = () => {
         'Prof.\nMédia',
         'Nota',
         'Nível de\nAprendizagem',
+        'Raça/Cor',
         'INSE',
         'Nível\nINSE',
       ];
@@ -1577,7 +1610,8 @@ const InseSaebReport = () => {
                 aluno.proficiencia_media != null ? String(aluno.proficiencia_media) : '—',
                 aluno.nota != null ? String(aluno.nota) : '—',
                 aluno.nivel_proficiencia ?? '—',
-                aluno.inse_pontos != null ? String(aluno.inse_pontos) : '—',
+                aluno.raca_cor ?? '—',
+                aluno.inse_valor != null ? Number(aluno.inse_valor).toFixed(2) : '—',
                 aluno.inse_nivel_label ?? '—',
               ];
             });
@@ -1585,6 +1619,8 @@ const InseSaebReport = () => {
       const nivelColIndex = 4 + disciplinasAvaliacao.length;
       const inseColIndex = head.length - 1;
       const INSE_TABLE_RGB: Record<string, { bg: [number, number, number]; text: [number, number, number] }> = {
+        '8': { bg: [46, 16, 101], text: [255, 255, 255] },
+        '7': { bg: [76, 29, 149], text: [255, 255, 255] },
         '6': { bg: [91, 33, 182], text: [255, 255, 255] },
         '5': { bg: [124, 58, 237], text: [255, 255, 255] },
         '4': { bg: [139, 92, 246], text: [255, 255, 255] },
@@ -1609,6 +1645,7 @@ const InseSaebReport = () => {
         const nDisc = disciplinasAvaliacao.length;
         const profMedIdx = 2 + nDisc;
         const notaIdx = profMedIdx + 1;
+        const racaCorIdx = head.length - 3;
         const inseColIdx = head.length - 2;
         const floor = {
           num: 8,
@@ -1617,6 +1654,7 @@ const InseSaebReport = () => {
           profMed: 15,
           nota: 12,
           nivelApr: 26,
+          racaCor: 18,
           inse: 12,
           nivelInse: 24,
         };
@@ -1624,6 +1662,7 @@ const InseSaebReport = () => {
           0: floor.num,
           1: floor.aluno,
           [nivelColIndex]: floor.nivelApr,
+          [racaCorIdx]: floor.racaCor,
           [inseColIdx]: floor.inse,
           [head.length - 1]: floor.nivelInse,
         };
@@ -1641,6 +1680,7 @@ const InseSaebReport = () => {
           growWeight[profMedIdx] = 0.45;
           growWeight[notaIdx] = 0.35;
           growWeight[nivelColIndex] = 0.85;
+          growWeight[racaCorIdx] = 0.55;
           growWeight[inseColIdx] = 0.35;
           growWeight[head.length - 1] = 0.75;
           const wsum = Object.values(growWeight).reduce((a, b) => a + b, 0);
@@ -1665,6 +1705,11 @@ const InseSaebReport = () => {
               });
             }
             d -= take;
+          }
+          if (d > 0) {
+            const shrinkRaca = Math.min(d, Math.max(0, colWidths[racaCorIdx] - 14));
+            colWidths[racaCorIdx] -= shrinkRaca;
+            d -= shrinkRaca;
           }
           if (d > 0) {
             colWidths[nivelColIndex] = Math.max(22, colWidths[nivelColIndex] - d);
@@ -1759,7 +1804,7 @@ const InseSaebReport = () => {
       const safeTitle = (reportData.formTitle + '_' + reportData.avaliacaoTitulo)
         .replace(/[\\/:*?"<>|]/g, '_')
         .slice(0, 60);
-      doc.save(`INSE_SAEB_Relatorio_${safeTitle}_${dateStr}.pdf`);
+      doc.save(`INSE_AVALIACAO_Relatorio_${safeTitle}_${dateStr}.pdf`);
       toast({
         title: 'PDF gerado',
         description: 'Relatório completo exportado com sucesso.',
@@ -1800,6 +1845,8 @@ const InseSaebReport = () => {
   const disciplinasAvaliacao = reportData?.disciplinas_avaliacao ?? [];
   const alunosData = reportData?.alunos?.data ?? [];
   const pagination = reportData?.alunos?.pagination;
+  const opcoesRacaCor = reportData?.opcoes_raca_cor;
+  const racaCorCategorias = opcoesRacaCor?.categorias ?? [];
 
   const previewSortedQuestions = useMemo(() => {
     if (!previewTestData?.questions?.length) return [];
@@ -1827,10 +1874,10 @@ const InseSaebReport = () => {
       <div className="space-y-1.5">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex flex-wrap items-center gap-2 sm:gap-3">
           <BarChart3 className="w-7 h-7 sm:w-8 sm:h-8 text-primary shrink-0" />
-          INSE x SAEB
+          INSE x Avaliação
         </h1>
         <p className="text-muted-foreground text-sm sm:text-base">
-          Relatório socioeconômico (INSE) cruzado com resultados SAEB
+          Relatório socioeconômico (INSE) cruzado com resultados da avaliação
         </p>
       </div>
 
@@ -1845,7 +1892,7 @@ const InseSaebReport = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-9 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Estado *</label>
               <Select value={selectedState} onValueChange={setSelectedState} disabled={isLoadingFilters}>
@@ -1961,6 +2008,26 @@ const InseSaebReport = () => {
                   selectedClasses.length === 0 ? 'Todas' : `${selectedClasses.length} selecionada(s)`
                 }
               />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Raça/Cor</label>
+              <Select
+                value={selectedRacaCor}
+                onValueChange={setSelectedRacaCor}
+                disabled={!reportData || isLoadingReport}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  {racaCorCategorias.map((item) => (
+                    <SelectItem key={item.valor} value={item.valor}>
+                      {formatRacaCorLabel(item.valor)} ({item.quantidade})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           {isLoadingReport && (
@@ -2153,12 +2220,12 @@ const InseSaebReport = () => {
           </div>
           </div>
 
-          {/* Tabela INSE x SAEB */}
+          {/* Tabela INSE x Avaliação */}
           <Card ref={reportTableRef}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
-                INSE x SAEB
+                INSE x Avaliação
               </CardTitle>
               <CardDescription>
                 Alunos no escopo dos filtros — {reportData.formTitle} × {reportData.avaliacaoTitulo}
@@ -2179,6 +2246,7 @@ const InseSaebReport = () => {
                       <TableHead className="text-primary-foreground font-medium">Proficiência Média</TableHead>
                       <TableHead className="text-primary-foreground font-medium">Nota</TableHead>
                       <TableHead className="text-primary-foreground font-medium text-center min-w-[140px]">Nível de Aprendizagem</TableHead>
+                      <TableHead className="text-primary-foreground font-medium min-w-[140px]">Raça/Cor</TableHead>
                       <TableHead className="text-primary-foreground font-medium">INSE</TableHead>
                       <TableHead className="text-primary-foreground font-medium text-center min-w-[100px] whitespace-nowrap">Nível INSE</TableHead>
                       <TableHead className="text-primary-foreground font-medium w-[140px]">Ações</TableHead>
@@ -2187,7 +2255,7 @@ const InseSaebReport = () => {
                   <TableBody>
                     {alunosData.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9 + disciplinasAvaliacao.length} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={10 + disciplinasAvaliacao.length} className="text-center py-8 text-muted-foreground">
                           Nenhum aluno no escopo.
                         </TableCell>
                       </TableRow>
@@ -2212,12 +2280,13 @@ const InseSaebReport = () => {
                             <TableCell>{aluno.nota}</TableCell>
                             <TableCell className="text-center">
                               <div className="flex justify-center">
-                                <Badge className={getProficienciaBadgeClass(aluno.nivel_proficiencia)}>
-                                  {aluno.nivel_proficiencia}
+                                <Badge className={getProficienciaBadgeClass(aluno.nivel_proficiencia ?? '—')}>
+                                  {aluno.nivel_proficiencia ?? '—'}
                                 </Badge>
                               </div>
                             </TableCell>
-                            <TableCell>{aluno.inse_pontos}</TableCell>
+                            <TableCell>{aluno.raca_cor ?? '—'}</TableCell>
+                            <TableCell>{aluno.inse_valor != null ? Number(aluno.inse_valor).toFixed(2) : '—'}</TableCell>
                             <TableCell className="text-center">
                               <div className="flex justify-center">
                                 <Badge variant="secondary" className="bg-violet-100 text-violet-900 hover:bg-violet-100 whitespace-nowrap">
@@ -2501,4 +2570,4 @@ const InseSaebReport = () => {
   );
 };
 
-export default InseSaebReport;
+export default InseAvaliacaoReport;

@@ -27,7 +27,7 @@ import {
   Cell,
 } from 'recharts';
 import { useToast } from '@/hooks/use-toast';
-import { InseSaebFiltersApiService } from '@/services/inseSaebFiltersApi';
+import { InseAvaliacaoFiltersApiService } from '@/services/inseAvaliacaoFiltersApi';
 import { InseEvaluationPicker } from '@/components/filters';
 import { FormMultiSelect } from '@/components/ui/form-multi-select';
 import {
@@ -97,7 +97,7 @@ export default function PneerqReport() {
     const load = async () => {
       try {
         setIsLoadingFilters(true);
-        const options = await InseSaebFiltersApiService.getFilterOptions({});
+        const options = await InseAvaliacaoFiltersApiService.getFilterOptions({});
         setStates(options.estados);
       } catch {
         toast({
@@ -121,7 +121,7 @@ export default function PneerqReport() {
       setSelectedSchools([]);
       setSelectedGrades([]);
       setSelectedClasses([]);
-      InseSaebFiltersApiService.getFilterOptions({ estado: selectedState })
+      InseAvaliacaoFiltersApiService.getFilterOptions({ estado: selectedState })
         .then((options) => {
           setMunicipalities(options.municipios);
           setForms([]);
@@ -157,7 +157,7 @@ export default function PneerqReport() {
       setSelectedSchools([]);
       setSelectedGrades([]);
       setSelectedClasses([]);
-      InseSaebFiltersApiService.getFilterOptions({
+      InseAvaliacaoFiltersApiService.getFilterOptions({
         estado: selectedState,
         municipio: selectedMunicipality,
       })
@@ -196,7 +196,7 @@ export default function PneerqReport() {
       setSelectedSchools([]);
       setSelectedGrades([]);
       setSelectedClasses([]);
-      InseSaebFiltersApiService.getFilterOptions({
+      InseAvaliacaoFiltersApiService.getFilterOptions({
         estado: selectedState,
         municipio: selectedMunicipality,
         formulario: selectedForm,
@@ -233,7 +233,7 @@ export default function PneerqReport() {
       const allGradesByName = new Map<string, string>();
       Promise.all(
         selectedSchools.map((schoolId) =>
-          InseSaebFiltersApiService.getFilterOptions({
+          InseAvaliacaoFiltersApiService.getFilterOptions({
             estado: selectedState,
             municipio: selectedMunicipality,
             formulario: selectedForm,
@@ -276,11 +276,11 @@ export default function PneerqReport() {
       setIsLoadingFilters(true);
       const allClassesById = new Map<string, { id: string; name: string }>();
       const allClassesByName = new Map<string, string>();
-      const promises: Promise<ReturnType<typeof InseSaebFiltersApiService.getFilterOptions>>[] = [];
+      const promises: Promise<ReturnType<typeof InseAvaliacaoFiltersApiService.getFilterOptions>>[] = [];
       selectedSchools.forEach((schoolId) => {
         selectedGrades.forEach((gradeId) => {
           promises.push(
-            InseSaebFiltersApiService.getFilterOptions({
+            InseAvaliacaoFiltersApiService.getFilterOptions({
               estado: selectedState,
               municipio: selectedMunicipality,
               formulario: selectedForm,
@@ -506,7 +506,7 @@ export default function PneerqReport() {
                 Filtros
               </CardTitle>
               <CardDescription>
-                Mesmo fluxo do INSE x SAEB: estado, município, formulário, avaliação e ao menos uma escola
+                Mesmo fluxo do INSE x Avaliação: estado, município, formulário, avaliação e ao menos uma escola
               </CardDescription>
             </div>
             <Tabs

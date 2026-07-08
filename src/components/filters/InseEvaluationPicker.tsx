@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { InseSaebFiltersApiService } from "@/services/inseSaebFiltersApi";
+import { InseAvaliacaoFiltersApiService } from "@/services/inseAvaliacaoFiltersApi";
 import { InstrumentPickerField } from "./InstrumentPickerField";
 import {
   buildPickerContextLines,
@@ -72,7 +72,7 @@ export function InseEvaluationPicker({
     }
     try {
       setFetchLoading(true);
-      const options = await InseSaebFiltersApiService.getFilterOptions({ estado, municipio });
+      const options = await InseAvaliacaoFiltersApiService.getFilterOptions({ estado, municipio });
       if (requestId !== fieldRequestIdRef.current) return;
       setFieldItems(options.avaliacoes);
       setSeriesDisponiveis(options.series_disponiveis ?? []);
@@ -97,7 +97,7 @@ export function InseEvaluationPicker({
       }
       try {
         setModalLoading(true);
-        const options = await InseSaebFiltersApiService.getFilterOptions({
+        const options = await InseAvaliacaoFiltersApiService.getFilterOptions({
           estado,
           municipio,
           ...(modalFilters?.serieFiltro && modalFilters.serieFiltro !== "all"
