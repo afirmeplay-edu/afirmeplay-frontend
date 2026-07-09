@@ -18,7 +18,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
-  GraduationCap
+  GraduationCap,
+  Download,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
@@ -30,6 +31,7 @@ import {
   buildQuestionNumberMap,
   getOrderedProfileKeys,
 } from '@/components/reports/form-reports/FormReportProfileCharts';
+import { generateFormReportsProfilesPdf } from '@/services/reports/formReportsProfilesPdf';
 
 // Interfaces
 interface State {
@@ -150,6 +152,7 @@ const FormReports = () => {
   const [studentsData, setStudentsData] = useState<Student[]>([]);
   const [studentsPagination, setStudentsPagination] = useState<any>(null);
   const [isLoadingStudents, setIsLoadingStudents] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   // Carregar estados iniciais (rota de resultados: GET /forms/results/filter-options)
   useEffect(() => {
@@ -773,13 +776,112 @@ const FormReports = () => {
     return getOrderedProfileKeys(profilesData.perfisConsolidados);
   }, [profilesData?.perfisConsolidados]);
 
+  const handleExportPdf = useCallback(async () => {
+    if (!profilesData?.perfisConsolidados) return;
+
+    try {
+      setIsGeneratingPdf(true);
+
+      const municipioName =
+        municipalities.find((m) => m.id === selectedMunicipality)?.name ||
+        selectedMunicipality ||
+        '';
+      const escolaNames =
+        selectedSchools.length === 0
+          ? '—'
+          : selectedSchools
+              .map((id) => schools.find((s) => s.id === id)?.name)
+              .filter(Boolean)
+              .join(', ') || '—';
+      const formTitle =
+        selectedForm === 'all'
+          ? 'Todos (agregado)'
+          : forms.find((f) => f.id === selectedForm)?.name || selectedForm;
+      const serieNames =
+        selectedGrades.length === 0
+          ? '—'
+          : selectedGrades
+              .map((id) => grades.find((g) => g.id === id)?.name)
+              .filter(Boolean)
+              .join(', ') || '—';
+      const turmaNames =
+        selectedClasses.length === 0
+          ? '—'
+          : selectedClasses
+              .map((id) => classes.find((c) => c.id === id)?.name)
+              .filter(Boolean)
+              .join(', ') || '—';
+
+      const indicesMap = indicesData?.indicesConsolidados ?? indicesData?.indices;
+      const indicesSummary = indicesMap
+        ? Object.entries(indicesMap)
+            .map(([key, data]: [string, any]) => {
+              const info = indexTypeTitles[key];
+              if (!info || !data) return null;
+              return {
+                title: info.title,
+                total: Number(data.total ?? 0),
+                porcentagem: Number(data.porcentagem ?? 0),
+              };
+            })
+            .filter(Boolean) as Array<{ title: string; total: number; porcentagem: number }>
+        : [];
+
+      await generateFormReportsProfilesPdf({
+        perfis: profilesData.perfisConsolidados,
+        profileTitles: profileTabTitles,
+        municipalityId: selectedMunicipality,
+        municipalityName: municipioName,
+        schoolNames: escolaNames,
+        formTitle,
+        gradeNames: serieNames,
+        classNames: turmaNames,
+        totalRespostas:
+          profilesData.totalRespostas ??
+          indicesData?.totalRespostas ??
+          undefined,
+        indicesSummary,
+      });
+
+      toast({
+        title: 'PDF gerado',
+        description: 'O dashboard foi exportado com sucesso.',
+      });
+    } catch (error) {
+      console.error('Erro ao gerar PDF do dashboard:', error);
+      toast({
+        title: 'Erro ao gerar PDF',
+        description: 'Não foi possível exportar o dashboard em PDF.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  }, [
+    profilesData,
+    indicesData,
+    municipalities,
+    selectedMunicipality,
+    selectedSchools,
+    schools,
+    selectedForm,
+    forms,
+    selectedGrades,
+    grades,
+    selectedClasses,
+    classes,
+    profileTabTitles,
+    indexTypeTitles,
+    toast,
+  ]);
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1.5">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex flex-wrap items-center gap-2 sm:gap-3">
             <BarChart3 className="w-7 h-7 sm:w-8 sm:h-8 text-primary shrink-0" />
-            Relatórios de Formulários Socioeconômicos
+            Dashboard dos Formulários Socioeconômicos
           </h1>
           <p className="text-muted-foreground text-sm sm:text-base">
             Visualize os resultados dos questionários socioeconômicos aplicados
@@ -994,10 +1096,31 @@ const FormReports = () => {
           {profilesData && profilesData.perfisConsolidados && (
             <Card>
               <CardHeader>
-                <CardTitle>Análise Detalhada por Perfil</CardTitle>
-                <CardDescription>
-                  Visualize as respostas dos alunos organizadas por categoria
-                </CardDescription>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="space-y-1.5">
+                    <CardTitle>Análise Detalhada por Perfil</CardTitle>
+                    <CardDescription>
+                      Visualize as respostas dos alunos organizadas por categoria
+                    </CardDescription>
+                  </div>
+                  <Button
+                    onClick={handleExportPdf}
+                    disabled={isGeneratingPdf}
+                    className="shrink-0"
+                  >
+                    {isGeneratingPdf ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Gerando PDF...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="h-4 w-4 mr-2" />
+                        Exportar PDF
+                      </>
+                    )}
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <Tabs value={activeTab} onValueChange={setActiveTab}>
