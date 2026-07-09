@@ -18,24 +18,20 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
-  GraduationCap
+  GraduationCap,
+  Download,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { FormResultsFiltersApiService } from '@/services/formResultsFiltersApi';
 import { FormFiltersApiService } from '@/services/formFiltersApi';
 import { FormMultiSelect } from '@/components/ui/form-multi-select';
-import { 
-  BarChart as RechartsBarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  Cell,
-  LabelList
-} from 'recharts';
+import {
+  FormReportProfileTabContent,
+  buildQuestionNumberMap,
+  getOrderedProfileKeys,
+} from '@/components/reports/form-reports/FormReportProfileCharts';
+import { generateFormReportsProfilesPdf } from '@/services/reports/formReportsProfilesPdf';
 
 // Interfaces
 interface State {
@@ -98,23 +94,6 @@ interface IndexData {
   };
 }
 
-interface ProfileQuestion {
-  textoPergunta: string;
-  tipo: string;
-  contagem: Record<string, number>;
-  totalRespostas: number;
-  subperguntas?: Record<string, {
-    texto: string;
-    contagem: Record<string, number>;
-  }>;
-}
-
-interface ProfileData {
-  nome: string;
-  questoes: string[];
-  dados: Record<string, ProfileQuestion>;
-}
-
 /** Normaliza resposta de índices (agregado usa indicesConsolidados; resultado de um formulário pode vir em outro campo) */
 function normalizeIndicesResponse(data: any): any {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
@@ -173,6 +152,7 @@ const FormReports = () => {
   const [studentsData, setStudentsData] = useState<Student[]>([]);
   const [studentsPagination, setStudentsPagination] = useState<any>(null);
   const [isLoadingStudents, setIsLoadingStudents] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   // Carregar estados iniciais (rota de resultados: GET /forms/results/filter-options)
   useEffect(() => {
@@ -786,119 +766,114 @@ const FormReports = () => {
     ambienteEscolar: 'Percepções sobre o ambiente escolar'
   };
 
-  // Renderizar gráfico de uma questão
-  const renderQuestionChart = (questionData: ProfileQuestion, questionId: string) => {
-    if (!questionData || typeof questionData !== 'object') return null;
-    const contagem = questionData.contagem && typeof questionData.contagem === 'object' ? questionData.contagem : {};
-    const totalRespostas = questionData.totalRespostas ?? 0;
-    // Preparar dados para o gráfico
-    const chartData = Object.entries(contagem).map(([label, value]) => ({
-      name: label.length > 30 ? label.substring(0, 30) + '...' : label,
-      fullName: label,
-      valor: value,
-      porcentagem: totalRespostas > 0 ? ((value / totalRespostas) * 100).toFixed(1) : '0'
-    }));
+  const questionNumberById = useMemo(() => {
+    if (!profilesData?.perfisConsolidados) return {};
+    return buildQuestionNumberMap(profilesData.perfisConsolidados);
+  }, [profilesData?.perfisConsolidados]);
 
-    const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+  const orderedProfileKeys = useMemo(() => {
+    if (!profilesData?.perfisConsolidados) return [];
+    return getOrderedProfileKeys(profilesData.perfisConsolidados);
+  }, [profilesData?.perfisConsolidados]);
 
-    return (
-      <div className="mb-8">
-        <h4 className="font-medium text-base mb-4">{questionData.textoPergunta ?? questionId}</h4>
-        <div className="w-full h-[300px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <RechartsBarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 80 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis 
-                dataKey="name" 
-                angle={-45} 
-                textAnchor="end" 
-                height={100}
-                interval={0}
-                tick={{ fontSize: 12 }}
-              />
-              <YAxis />
-              <Tooltip 
-                content={({ active, payload }) => {
-                  if (active && payload && payload.length) {
-                    const data = payload[0].payload;
-                    return (
-                      <div className="bg-white dark:bg-gray-800 p-3 border rounded-lg shadow-lg">
-                        <p className="font-medium text-sm mb-1">{data.fullName}</p>
-                        <p className="text-sm text-blue-600 dark:text-blue-400">
-                          Respostas: <strong>{data.valor}</strong>
-                        </p>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                          Porcentagem: <strong>{data.porcentagem}%</strong>
-                        </p>
-                      </div>
-                    );
-                  }
-                  return null;
-                }}
-              />
-              <Bar dataKey="valor" radius={[8, 8, 0, 0]}>
-                {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-                <LabelList 
-                  dataKey="valor" 
-                  position="top" 
-                  style={{ fontSize: '14px', fontWeight: 'bold', fill: '#374151' }}
-                />
-              </Bar>
-            </RechartsBarChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="mt-2 text-sm text-muted-foreground">
-          Total de respostas: {totalRespostas}
-        </div>
-      </div>
-    );
-  };
+  const handleExportPdf = useCallback(async () => {
+    if (!profilesData?.perfisConsolidados) return;
 
-  // Renderizar subperguntas (matriz de seleção)
-  const renderSubQuestions = (subperguntas: Record<string, { texto: string; contagem: Record<string, number> }>) => {
-    if (!subperguntas || typeof subperguntas !== 'object') return null;
-    return (
-      <div className="space-y-6">
-        {Object.entries(subperguntas).map(([subId, subData]) => {
-          const subContagem = subData?.contagem && typeof subData.contagem === 'object' ? subData.contagem : {};
-          const chartData = Object.entries(subContagem).map(([label, value]) => ({
-            name: label,
-            valor: value
-          }));
+    try {
+      setIsGeneratingPdf(true);
 
-          const COLORS = ['#10b981', '#ef4444'];
+      const municipioName =
+        municipalities.find((m) => m.id === selectedMunicipality)?.name ||
+        selectedMunicipality ||
+        '';
+      const escolaNames =
+        selectedSchools.length === 0
+          ? '—'
+          : selectedSchools
+              .map((id) => schools.find((s) => s.id === id)?.name)
+              .filter(Boolean)
+              .join(', ') || '—';
+      const formTitle =
+        selectedForm === 'all'
+          ? 'Todos (agregado)'
+          : forms.find((f) => f.id === selectedForm)?.name || selectedForm;
+      const serieNames =
+        selectedGrades.length === 0
+          ? '—'
+          : selectedGrades
+              .map((id) => grades.find((g) => g.id === id)?.name)
+              .filter(Boolean)
+              .join(', ') || '—';
+      const turmaNames =
+        selectedClasses.length === 0
+          ? '—'
+          : selectedClasses
+              .map((id) => classes.find((c) => c.id === id)?.name)
+              .filter(Boolean)
+              .join(', ') || '—';
 
-          return (
-            <div key={subId} className="pl-4 border-l-2 border-gray-200 dark:border-gray-700">
-              <h5 className="font-medium text-sm mb-3">{subData.texto}</h5>
-              <div className="w-full h-[200px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <RechartsBarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 40 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="valor" radius={[8, 8, 0, 0]}>
-                      {chartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                      <LabelList 
-                        dataKey="valor" 
-                        position="top" 
-                        style={{ fontSize: '14px', fontWeight: 'bold', fill: '#374151' }}
-                      />
-                    </Bar>
-                  </RechartsBarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
+      const indicesMap = indicesData?.indicesConsolidados ?? indicesData?.indices;
+      const indicesSummary = indicesMap
+        ? Object.entries(indicesMap)
+            .map(([key, data]: [string, any]) => {
+              const info = indexTypeTitles[key];
+              if (!info || !data) return null;
+              return {
+                title: info.title,
+                total: Number(data.total ?? 0),
+                porcentagem: Number(data.porcentagem ?? 0),
+              };
+            })
+            .filter(Boolean) as Array<{ title: string; total: number; porcentagem: number }>
+        : [];
+
+      await generateFormReportsProfilesPdf({
+        perfis: profilesData.perfisConsolidados,
+        profileTitles: profileTabTitles,
+        municipalityId: selectedMunicipality,
+        municipalityName: municipioName,
+        schoolNames: escolaNames,
+        formTitle,
+        gradeNames: serieNames,
+        classNames: turmaNames,
+        totalRespostas:
+          profilesData.totalRespostas ??
+          indicesData?.totalRespostas ??
+          undefined,
+        indicesSummary,
+      });
+
+      toast({
+        title: 'PDF gerado',
+        description: 'O dashboard foi exportado com sucesso.',
+      });
+    } catch (error) {
+      console.error('Erro ao gerar PDF do dashboard:', error);
+      toast({
+        title: 'Erro ao gerar PDF',
+        description: 'Não foi possível exportar o dashboard em PDF.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  }, [
+    profilesData,
+    indicesData,
+    municipalities,
+    selectedMunicipality,
+    selectedSchools,
+    schools,
+    selectedForm,
+    forms,
+    selectedGrades,
+    grades,
+    selectedClasses,
+    classes,
+    profileTabTitles,
+    indexTypeTitles,
+    toast,
+  ]);
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -906,7 +881,7 @@ const FormReports = () => {
         <div className="space-y-1.5">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex flex-wrap items-center gap-2 sm:gap-3">
             <BarChart3 className="w-7 h-7 sm:w-8 sm:h-8 text-primary shrink-0" />
-            Relatórios de Formulários Socioeconômicos
+            Dashboard dos Formulários Socioeconômicos
           </h1>
           <p className="text-muted-foreground text-sm sm:text-base">
             Visualize os resultados dos questionários socioeconômicos aplicados
@@ -1121,15 +1096,36 @@ const FormReports = () => {
           {profilesData && profilesData.perfisConsolidados && (
             <Card>
               <CardHeader>
-                <CardTitle>Análise Detalhada por Perfil</CardTitle>
-                <CardDescription>
-                  Visualize as respostas dos alunos organizadas por categoria
-                </CardDescription>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="space-y-1.5">
+                    <CardTitle>Análise Detalhada por Perfil</CardTitle>
+                    <CardDescription>
+                      Visualize as respostas dos alunos organizadas por categoria
+                    </CardDescription>
+                  </div>
+                  <Button
+                    onClick={handleExportPdf}
+                    disabled={isGeneratingPdf}
+                    className="shrink-0"
+                  >
+                    {isGeneratingPdf ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Gerando PDF...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="h-4 w-4 mr-2" />
+                        Exportar PDF
+                      </>
+                    )}
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <Tabs value={activeTab} onValueChange={setActiveTab}>
                   <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4 h-auto gap-2">
-                    {Object.keys(profilesData.perfisConsolidados).map((profileKey) => (
+                    {orderedProfileKeys.map((profileKey) => (
                       <TabsTrigger 
                         key={profileKey} 
                         value={profileKey}
@@ -1140,29 +1136,19 @@ const FormReports = () => {
                     ))}
                   </TabsList>
 
-                  {Object.entries(profilesData.perfisConsolidados).map(([profileKey, profileData]: [string, any]) => (
+                  {orderedProfileKeys.map((profileKey) => {
+                    const profileData = profilesData.perfisConsolidados[profileKey];
+                    return (
                     <TabsContent key={profileKey} value={profileKey} className="mt-6">
-                      <div>
-                        <h3 className="text-xl font-bold mb-4">{profileData?.nome ?? profileKey}</h3>
-                        
-                        {/* Gráficos em duas colunas */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          {Object.entries(profileData?.dados ?? {}).map(([questionId, questionData]: [string, any]) => (
-                            <div key={questionId} className="min-w-0">
-                              {questionData?.subperguntas && Object.keys(questionData.subperguntas).length > 0 ? (
-                                <div className="md:col-span-2">
-                                  <h4 className="font-medium text-base mb-4">{questionData.textoPergunta ?? questionId}</h4>
-                                  {renderSubQuestions(questionData.subperguntas)}
-                                </div>
-                              ) : (
-                                renderQuestionChart(questionData, questionId)
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                      <FormReportProfileTabContent
+                        profileKey={profileKey}
+                        profileTitle={profileTabTitles[profileKey] || profileData?.nome || profileKey}
+                        profileData={profileData}
+                        questionNumberById={questionNumberById}
+                      />
                     </TabsContent>
-                  ))}
+                    );
+                  })}
                 </Tabs>
               </CardContent>
             </Card>
