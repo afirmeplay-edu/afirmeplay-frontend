@@ -25,17 +25,11 @@ import { useToast } from '@/hooks/use-toast';
 import { FormResultsFiltersApiService } from '@/services/formResultsFiltersApi';
 import { FormFiltersApiService } from '@/services/formFiltersApi';
 import { FormMultiSelect } from '@/components/ui/form-multi-select';
-import { 
-  BarChart as RechartsBarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  Cell,
-  LabelList
-} from 'recharts';
+import {
+  FormReportProfileTabContent,
+  buildQuestionNumberMap,
+  getOrderedProfileKeys,
+} from '@/components/reports/form-reports/FormReportProfileCharts';
 
 // Interfaces
 interface State {
@@ -96,23 +90,6 @@ interface IndexData {
       totalPages: number;
     };
   };
-}
-
-interface ProfileQuestion {
-  textoPergunta: string;
-  tipo: string;
-  contagem: Record<string, number>;
-  totalRespostas: number;
-  subperguntas?: Record<string, {
-    texto: string;
-    contagem: Record<string, number>;
-  }>;
-}
-
-interface ProfileData {
-  nome: string;
-  questoes: string[];
-  dados: Record<string, ProfileQuestion>;
 }
 
 /** Normaliza resposta de índices (agregado usa indicesConsolidados; resultado de um formulário pode vir em outro campo) */
@@ -786,119 +763,15 @@ const FormReports = () => {
     ambienteEscolar: 'Percepções sobre o ambiente escolar'
   };
 
-  // Renderizar gráfico de uma questão
-  const renderQuestionChart = (questionData: ProfileQuestion, questionId: string) => {
-    if (!questionData || typeof questionData !== 'object') return null;
-    const contagem = questionData.contagem && typeof questionData.contagem === 'object' ? questionData.contagem : {};
-    const totalRespostas = questionData.totalRespostas ?? 0;
-    // Preparar dados para o gráfico
-    const chartData = Object.entries(contagem).map(([label, value]) => ({
-      name: label.length > 30 ? label.substring(0, 30) + '...' : label,
-      fullName: label,
-      valor: value,
-      porcentagem: totalRespostas > 0 ? ((value / totalRespostas) * 100).toFixed(1) : '0'
-    }));
+  const questionNumberById = useMemo(() => {
+    if (!profilesData?.perfisConsolidados) return {};
+    return buildQuestionNumberMap(profilesData.perfisConsolidados);
+  }, [profilesData?.perfisConsolidados]);
 
-    const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
-
-    return (
-      <div className="mb-8">
-        <h4 className="font-medium text-base mb-4">{questionData.textoPergunta ?? questionId}</h4>
-        <div className="w-full h-[300px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <RechartsBarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 80 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis 
-                dataKey="name" 
-                angle={-45} 
-                textAnchor="end" 
-                height={100}
-                interval={0}
-                tick={{ fontSize: 12 }}
-              />
-              <YAxis />
-              <Tooltip 
-                content={({ active, payload }) => {
-                  if (active && payload && payload.length) {
-                    const data = payload[0].payload;
-                    return (
-                      <div className="bg-white dark:bg-gray-800 p-3 border rounded-lg shadow-lg">
-                        <p className="font-medium text-sm mb-1">{data.fullName}</p>
-                        <p className="text-sm text-blue-600 dark:text-blue-400">
-                          Respostas: <strong>{data.valor}</strong>
-                        </p>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                          Porcentagem: <strong>{data.porcentagem}%</strong>
-                        </p>
-                      </div>
-                    );
-                  }
-                  return null;
-                }}
-              />
-              <Bar dataKey="valor" radius={[8, 8, 0, 0]}>
-                {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-                <LabelList 
-                  dataKey="valor" 
-                  position="top" 
-                  style={{ fontSize: '14px', fontWeight: 'bold', fill: '#374151' }}
-                />
-              </Bar>
-            </RechartsBarChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="mt-2 text-sm text-muted-foreground">
-          Total de respostas: {totalRespostas}
-        </div>
-      </div>
-    );
-  };
-
-  // Renderizar subperguntas (matriz de seleção)
-  const renderSubQuestions = (subperguntas: Record<string, { texto: string; contagem: Record<string, number> }>) => {
-    if (!subperguntas || typeof subperguntas !== 'object') return null;
-    return (
-      <div className="space-y-6">
-        {Object.entries(subperguntas).map(([subId, subData]) => {
-          const subContagem = subData?.contagem && typeof subData.contagem === 'object' ? subData.contagem : {};
-          const chartData = Object.entries(subContagem).map(([label, value]) => ({
-            name: label,
-            valor: value
-          }));
-
-          const COLORS = ['#10b981', '#ef4444'];
-
-          return (
-            <div key={subId} className="pl-4 border-l-2 border-gray-200 dark:border-gray-700">
-              <h5 className="font-medium text-sm mb-3">{subData.texto}</h5>
-              <div className="w-full h-[200px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <RechartsBarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 40 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="valor" radius={[8, 8, 0, 0]}>
-                      {chartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                      <LabelList 
-                        dataKey="valor" 
-                        position="top" 
-                        style={{ fontSize: '14px', fontWeight: 'bold', fill: '#374151' }}
-                      />
-                    </Bar>
-                  </RechartsBarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
+  const orderedProfileKeys = useMemo(() => {
+    if (!profilesData?.perfisConsolidados) return [];
+    return getOrderedProfileKeys(profilesData.perfisConsolidados);
+  }, [profilesData?.perfisConsolidados]);
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -1129,7 +1002,7 @@ const FormReports = () => {
               <CardContent>
                 <Tabs value={activeTab} onValueChange={setActiveTab}>
                   <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4 h-auto gap-2">
-                    {Object.keys(profilesData.perfisConsolidados).map((profileKey) => (
+                    {orderedProfileKeys.map((profileKey) => (
                       <TabsTrigger 
                         key={profileKey} 
                         value={profileKey}
@@ -1140,29 +1013,19 @@ const FormReports = () => {
                     ))}
                   </TabsList>
 
-                  {Object.entries(profilesData.perfisConsolidados).map(([profileKey, profileData]: [string, any]) => (
+                  {orderedProfileKeys.map((profileKey) => {
+                    const profileData = profilesData.perfisConsolidados[profileKey];
+                    return (
                     <TabsContent key={profileKey} value={profileKey} className="mt-6">
-                      <div>
-                        <h3 className="text-xl font-bold mb-4">{profileData?.nome ?? profileKey}</h3>
-                        
-                        {/* Gráficos em duas colunas */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          {Object.entries(profileData?.dados ?? {}).map(([questionId, questionData]: [string, any]) => (
-                            <div key={questionId} className="min-w-0">
-                              {questionData?.subperguntas && Object.keys(questionData.subperguntas).length > 0 ? (
-                                <div className="md:col-span-2">
-                                  <h4 className="font-medium text-base mb-4">{questionData.textoPergunta ?? questionId}</h4>
-                                  {renderSubQuestions(questionData.subperguntas)}
-                                </div>
-                              ) : (
-                                renderQuestionChart(questionData, questionId)
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                      <FormReportProfileTabContent
+                        profileKey={profileKey}
+                        profileTitle={profileTabTitles[profileKey] || profileData?.nome || profileKey}
+                        profileData={profileData}
+                        questionNumberById={questionNumberById}
+                      />
                     </TabsContent>
-                  ))}
+                    );
+                  })}
                 </Tabs>
               </CardContent>
             </Card>
