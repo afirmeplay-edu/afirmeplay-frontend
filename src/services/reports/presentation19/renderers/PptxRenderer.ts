@@ -107,6 +107,7 @@ import {
   resolvePresentation19BarTopLabel,
 } from "@/utils/reports/presentation19/presentation19Labels";
 import { resolveMunicipalReferenceXRatios } from "@/utils/reports/presentation19/municipalReferenceLine";
+import { resolveP19VerticalBarColumnSlot } from "@/utils/reports/presentation19/presentation19VerticalBarLayout";
 
 type RenderPptxArgs = {
   spec: Presentation19ExportSpec;
@@ -280,28 +281,36 @@ function drawPdfAlignedBarChart(slide: PptxGenJS.Slide, chart: ExportChart, box:
   const axisMax = Number.isFinite(chart.yAxis?.max) ? Number(chart.yAxis?.max) : Math.max(1, Math.ceil(rawMax * 1.15));
   const maxValue = Math.max(axisMin + 1, axisMax);
   const categories = chart.data.map((d) => String(d[chart.categoryKey] ?? ""));
-  const colWidth = barsW / Math.max(1, categories.length);
+  const barCount = Math.max(1, categories.length);
   const hasMultipleSeries = chart.valueKeys.length > 1;
 
   const catY = box.y + box.h - bottomPadIn + 0.04;
   const catH = Math.max(0.5, bottomPadIn - 0.08);
 
   chart.data.forEach((row, idx) => {
-    const baseXAligned = barsStartX + idx * colWidth + xScale(18);
-    const innerW = Math.max(0.04, colWidth - xScale(36));
+    const slotPx = resolveP19VerticalBarColumnSlot(0, PDF_CHART_REF_W, idx, barCount);
+    const colWidth = (slotPx.colWidth / PDF_CHART_REF_W) * barsW;
+    const slotX = barsStartX + idx * colWidth;
+    const innerW = Math.max(0.02, colWidth * (slotPx.innerW / slotPx.colWidth));
+    const barW = Math.max(0.02, Math.min(xScale(34), innerW * 0.88));
+    const barX = slotX + (colWidth - barW) / 2;
+    const labelCx = slotX + colWidth / 2;
 
     if (hasMultipleSeries && !isStacked) {
-      const gapIn = xScale(8);
-      const seriesW = Math.max(0.02, Math.min(xScale(22), (innerW - gapIn * (chart.valueKeys.length - 1)) / chart.valueKeys.length));
+      const gapIn = Math.min(xScale(8), Math.max(0.02, innerW * 0.12));
+      const seriesW = Math.max(
+        0.02,
+        Math.min(xScale(22), (innerW - gapIn * (chart.valueKeys.length - 1)) / chart.valueKeys.length)
+      );
       const groupW = chart.valueKeys.length * seriesW + gapIn * (chart.valueKeys.length - 1);
-      const groupOffsetX = Math.max(0, (innerW - groupW) / 2);
+      const groupX = slotX + (colWidth - groupW) / 2;
       chart.valueKeys.forEach((s, sIdx) => {
         const value = Number(row[s.key] ?? 0);
         const barH = (Math.max(0, value - axisMin) / (maxValue - axisMin)) * chartAreaH;
         const barY = baselineY - barH;
-        const barX = baseXAligned + groupOffsetX + sIdx * (seriesW + gapIn);
+        const seriesBarX = groupX + sIdx * (seriesW + gapIn);
         slide.addShape(pptx.ShapeType.roundRect, {
-          x: barX,
+          x: seriesBarX,
           y: barY,
           w: seriesW,
           h: barH,
@@ -309,9 +318,9 @@ function drawPdfAlignedBarChart(slide: PptxGenJS.Slide, chart: ExportChart, box:
           line: { color: hexNoHash(s.color), pt: 0 },
           rectRadius: 0.06,
         });
-        const valBoxW = Math.max(0.58, seriesW + 0.26);
+        const valBoxW = Math.max(0.58, Math.min(seriesW + 0.26, colWidth));
         slide.addText(resolvePresentation19BarTopLabel(row, value, s.label), {
-          x: barX + seriesW / 2 - valBoxW / 2,
+          x: seriesBarX + seriesW / 2 - valBoxW / 2,
           y: barY - yScale(16) + yScale(1),
           w: valBoxW,
           h: yScale(18),
@@ -323,8 +332,6 @@ function drawPdfAlignedBarChart(slide: PptxGenJS.Slide, chart: ExportChart, box:
         });
       });
     } else if (hasMultipleSeries && isStacked) {
-      const singleW = Math.max(0.04, Math.min(xScale(34), innerW * 0.7));
-      const singleX = baseXAligned + (innerW - singleW) / 2;
       let currentTop = baselineY;
       let total = 0;
       chart.valueKeys.forEach((s) => {
@@ -333,9 +340,9 @@ function drawPdfAlignedBarChart(slide: PptxGenJS.Slide, chart: ExportChart, box:
         const barH = (Math.max(0, value - axisMin) / (maxValue - axisMin)) * chartAreaH;
         const barY = currentTop - barH;
         slide.addShape(pptx.ShapeType.roundRect, {
-          x: singleX,
+          x: barX,
           y: barY,
-          w: singleW,
+          w: barW,
           h: barH,
           fill: { color: hexNoHash(s.color) },
           line: { color: hexNoHash(s.color), pt: 0 },
@@ -343,9 +350,9 @@ function drawPdfAlignedBarChart(slide: PptxGenJS.Slide, chart: ExportChart, box:
         });
         currentTop = barY;
       });
-      const totW = Math.max(0.58, singleW + 0.28);
+      const totW = Math.max(0.58, Math.min(barW + 0.28, colWidth));
       slide.addText(resolvePresentation19BarTopLabel(row, total, chart.valueKeys[0]?.label), {
-        x: singleX + singleW / 2 - totW / 2,
+        x: labelCx - totW / 2,
         y: currentTop - yScale(17) + yScale(1),
         w: totW,
         h: yScale(18),
@@ -361,20 +368,18 @@ function drawPdfAlignedBarChart(slide: PptxGenJS.Slide, chart: ExportChart, box:
       const barH = (Math.max(0, value - axisMin) / (maxValue - axisMin)) * chartAreaH;
       const barY = baselineY - barH;
       const barColor = String(row.color ?? palette[idx % palette.length] ?? s.color);
-      const singleW = Math.max(0.04, Math.min(xScale(34), innerW * 0.7));
-      const singleX = baseXAligned + (innerW - singleW) / 2;
       slide.addShape(pptx.ShapeType.roundRect, {
-        x: singleX,
+        x: barX,
         y: barY,
-        w: singleW,
+        w: barW,
         h: barH,
         fill: { color: hexNoHash(barColor) },
         line: { color: hexNoHash(barColor), pt: 0 },
         rectRadius: 0.1,
       });
-      const oneSerW = Math.max(0.62, singleW + 0.32);
+      const oneSerW = Math.max(0.62, Math.min(barW + 0.32, colWidth));
       slide.addText(resolvePresentation19BarTopLabel(row, value, s.label), {
-        x: singleX + singleW / 2 - oneSerW / 2,
+        x: labelCx - oneSerW / 2,
         y: barY - yScale(17) + yScale(1),
         w: oneSerW,
         h: yScale(18),
@@ -389,9 +394,9 @@ function drawPdfAlignedBarChart(slide: PptxGenJS.Slide, chart: ExportChart, box:
     const catFontPt = Math.max(9.5, p19PxToPtForPptx(P19_CHART_CATEGORY_LABEL_PX));
     const maxChars = approxMaxCharsForWidth(innerW, catFontPt);
     slide.addText(wrapTextBySpacesForPptx(String(row[chart.categoryKey] ?? ""), maxChars), {
-      x: baseXAligned,
+      x: slotX,
       y: catY,
-      w: innerW,
+      w: colWidth,
       h: catH,
       fontSize: catFontPt,
       bold: true,

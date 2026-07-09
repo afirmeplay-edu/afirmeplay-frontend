@@ -34,7 +34,7 @@ const HREF_FEATURE_EXACT: Record<string, string> = {
   '/app/questionarios/cadastro': 'socioeconomic_forms',
   '/app/questionarios/relatorios-socio-economicos': 'socioeconomic_forms',
   '/app/questionarios/resultados-socioeconomicos': 'socioeconomic_forms',
-  '/app/questionarios/inse-saeb': 'socioeconomic_forms',
+  '/app/questionarios/inse-avaliacao': 'socioeconomic_forms',
   '/app/questionarios/pneerq': 'socioeconomic_forms',
   '/app/relatorios/acerto-niveis': 'reports',
   '/app/relatorios/mapa-habilidades': 'reports',

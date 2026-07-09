@@ -1,7 +1,7 @@
 import { api } from '@/lib/api';
 
-/** Resposta bruta da API GET /forms/results/inse-saeb/filter-options */
-interface RawInseSaebFilterOptionsResponse {
+/** Resposta bruta da API GET /forms/results/inse-avaliacao/filter-options */
+interface RawInseAvaliacaoFilterOptionsResponse {
   estados?: Array<{ id: string; nome?: string; name?: string; uf?: string }>;
   municipios?: Array<{ id: string; nome?: string; name?: string; estado_id?: string }>;
   formularios?: Array<{ id: string; titulo?: string; nome?: string; name?: string; formType?: string }>;
@@ -12,7 +12,7 @@ interface RawInseSaebFilterOptionsResponse {
   turmas?: Array<{ id: string; nome?: string; name?: string; grade_id?: string; school_id?: string }>;
 }
 
-export interface InseSaebFilterOptions {
+export interface InseAvaliacaoFilterOptions {
   estados: Array<{ id: string; name: string; uf?: string }>;
   municipios: Array<{ id: string; name: string }>;
   formularios: Array<{ id: string; name: string; formType?: string }>;
@@ -23,7 +23,7 @@ export interface InseSaebFilterOptions {
   turmas: Array<{ id: string; name: string }>;
 }
 
-const emptyOptions: InseSaebFilterOptions = {
+const emptyOptions: InseAvaliacaoFilterOptions = {
   estados: [],
   municipios: [],
   formularios: [],
@@ -39,11 +39,11 @@ function normalizeName(value: string | undefined): string {
 }
 
 /**
- * Serviço para opções de filtro da tela INSE x SAEB.
- * GET /forms/results/inse-saeb/filter-options
+ * Serviço para opções de filtro da tela INSE x Avaliação.
+ * GET /forms/results/inse-avaliacao/filter-options
  * Cascata: Estado → Município → Formulário + Avaliação → Escola → Série → Turma
  */
-export class InseSaebFiltersApiService {
+export class InseAvaliacaoFiltersApiService {
   static async getFilterOptions(params: {
     estado?: string;
     municipio?: string;
@@ -54,7 +54,7 @@ export class InseSaebFiltersApiService {
     turma?: string;
     serie_filtro?: string;
     nome?: string;
-  }): Promise<InseSaebFilterOptions> {
+  }): Promise<InseAvaliacaoFilterOptions> {
     try {
       const queryParams = new URLSearchParams();
       if (params.estado && params.estado !== 'all') queryParams.append('estado', params.estado);
@@ -69,10 +69,10 @@ export class InseSaebFiltersApiService {
       }
       if (params.nome?.trim()) queryParams.append('nome', params.nome.trim());
 
-      const url = `/forms/results/inse-saeb/filter-options${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      const url = `/forms/results/inse-avaliacao/filter-options${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
       const requestConfig =
         params.municipio && params.municipio !== 'all' ? { meta: { cityId: params.municipio } } : {};
-      const response = await api.get<RawInseSaebFilterOptionsResponse>(url, requestConfig);
+      const response = await api.get<RawInseAvaliacaoFilterOptionsResponse>(url, requestConfig);
       const data = response.data || {};
 
       return {
@@ -112,7 +112,7 @@ export class InseSaebFiltersApiService {
         })),
       };
     } catch (error) {
-      console.error('Erro ao buscar opções de filtro (INSE x SAEB):', error);
+      console.error('Erro ao buscar opções de filtro (INSE x Avaliação):', error);
       return emptyOptions;
     }
   }
