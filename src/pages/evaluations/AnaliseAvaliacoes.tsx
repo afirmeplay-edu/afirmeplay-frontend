@@ -38,6 +38,7 @@ import { getUserHierarchyContext, getRestrictionMessage, validateReportAccess, U
 import { normalizeRelatorioCompletoForAnaliseUI } from "@/utils/report/relatorioCompletoNormalize";
 import { generateRelatorioOrganizadoPdf } from "@/services/reports/analiseAvaliacoesPdf";
 import { formatDecimal1PtBr, formatPercent1PtBr } from "@/utils/numberFormat";
+import { isDisciplinaGeralAggregateKey } from "@/utils/reports/presentation19/presentation19MunicipalMedia";
 
 // Interfaces para os dados da API
 interface EvaluationResult {
@@ -772,7 +773,9 @@ export default function AnaliseAvaliacoes() {
              </CardHeader>
              <CardContent>
                <div className="space-y-8">
-                 {Object.entries(apiData.niveis_aprendizagem).map(([disciplina, dadosDisciplina]) => (
+                 {Object.entries(apiData.niveis_aprendizagem)
+                   .filter(([disciplina]) => !isDisciplinaGeralAggregateKey(disciplina))
+                   .map(([disciplina, dadosDisciplina]) => (
                    <div key={disciplina} className="space-y-4">
                      <h4 className="text-xl font-bold text-foreground text-center uppercase">
                        {disciplina}
@@ -867,7 +870,9 @@ export default function AnaliseAvaliacoes() {
              </CardHeader>
              <CardContent>
                <div className="space-y-8">
-                 {Object.entries(apiData.proficiencia.por_disciplina).map(([disciplina, dadosDisciplina]) => (
+                 {Object.entries(apiData.proficiencia.por_disciplina)
+                   .filter(([disciplina]) => !isDisciplinaGeralAggregateKey(disciplina))
+                   .map(([disciplina, dadosDisciplina]) => (
                    <div key={disciplina} className="space-y-4">
                      <h4 className="text-xl font-bold text-foreground text-center uppercase">
                        {disciplina}
@@ -927,7 +932,9 @@ export default function AnaliseAvaliacoes() {
              </CardHeader>
              <CardContent>
                <div className="space-y-8">
-                 {Object.entries(apiData.nota_geral.por_disciplina).map(([disciplina, dadosDisciplina]) => (
+                 {Object.entries(apiData.nota_geral.por_disciplina)
+                   .filter(([disciplina]) => !isDisciplinaGeralAggregateKey(disciplina))
+                   .map(([disciplina, dadosDisciplina]) => (
                    <div key={disciplina} className="space-y-4">
                      <h4 className="text-xl font-bold text-foreground text-center uppercase">
                        {disciplina}
@@ -988,6 +995,7 @@ export default function AnaliseAvaliacoes() {
               <CardContent>
                 <div className="space-y-8">
                   {Object.entries(apiData.acertos_por_habilidade)
+                    .filter(([disciplina]) => !isDisciplinaGeralAggregateKey(disciplina))
                     .sort(([aKey, aVal], [bKey, bVal]) => {
                       if (aKey === 'GERAL') return -1;
                       if (bKey === 'GERAL') return 1;
