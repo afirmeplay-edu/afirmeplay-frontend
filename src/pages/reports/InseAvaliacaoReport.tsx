@@ -11,6 +11,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -72,6 +74,7 @@ interface AlunoInseAvaliacao {
 interface DistribuicaoInseItem {
   nivel: number;
   label: string;
+  descricao?: string;
   quantidade: number;
   porcentagem: number;
 }
@@ -256,6 +259,23 @@ const NIVEL_PROFICIENCIA_CORES: Record<string, string> = {
 
 function getProficienciaBadgeClass(nivel: string): string {
   return NIVEL_PROFICIENCIA_CORES[nivel] ?? 'bg-muted text-muted-foreground';
+}
+
+function getInseBadgeClass(nivel: number | null | undefined): string {
+  if (nivel == null) return 'bg-muted text-muted-foreground';
+  return INSE_CORES[String(nivel)] ?? 'bg-violet-500 text-white';
+}
+
+function getInseNivelMeta(
+  distInse: Partial<Record<string, DistribuicaoInseItem>>,
+  nivel: number | null | undefined
+): { label: string; descricao?: string } {
+  if (nivel == null) return { label: '—' };
+  const item = distInse[String(nivel)];
+  return {
+    label: item?.label ?? `Nível ${nivel}`,
+    descricao: item?.descricao,
+  };
 }
 
 function formatRacaCorLabel(value: string): string {
@@ -1453,14 +1473,14 @@ const InseAvaliacaoReport = () => {
       y += 12;
 
       const tableW = pageWidth - margin * 2;
-      const col1W = 28;
-      const col2W = tableW * 0.4;
+      const col1W = 32;
+      const col2W = tableW * 0.48;
       const col3W = 22;
       const col4W = 22;
       const headerH = 10;
       const rowH = 9;
 
-      const drawTableHeader = (startX: number, title: string) => {
+      const drawTableHeader = (startX: number) => {
         doc.setFillColor(...primaryRgb);
         if (typeof (doc as import('jspdf').jsPDF & { roundedRect?: unknown }).roundedRect === 'function') {
           (doc as import('jspdf').jsPDF & { roundedRect: (x: number, y: number, w: number, h: number, rx: number, ry: number, style: string) => void }).roundedRect(startX, y, tableW, headerH, 2, 2, 'F');
@@ -1471,48 +1491,62 @@ const InseAvaliacaoReport = () => {
         doc.setFontSize(10);
         doc.setFont('helvetica', 'bold');
         doc.text('Nível INSE', startX + col1W / 2, y + headerH / 2 + 1.5, { align: 'center' });
-        doc.text('Classificação', startX + col1W + col2W / 2, y + headerH / 2 + 1.5, { align: 'center' });
+        doc.text('Descrição', startX + col1W + col2W / 2, y + headerH / 2 + 1.5, { align: 'center' });
         doc.text('Qtd', startX + col1W + col2W + col3W / 2, y + headerH / 2 + 1.5, { align: 'center' });
         doc.text('%', startX + col1W + col2W + col3W + col4W / 2, y + headerH / 2 + 1.5, { align: 'center' });
         doc.setFont('helvetica', 'normal');
         y += headerH;
       };
 
-      drawTableHeader(margin, 'INSE');
+      drawTableHeader(margin);
       INSE_NIVEIS_ORDEM.forEach((key, idx) => {
         const item = distInse[key];
         const qtd = item?.quantidade ?? 0;
         const pct = item?.porcentagem ?? 0;
         const label = item?.label ?? `Nível ${key}`;
-        const rowY = y + idx * rowH;
+        const descricao = item?.descricao ?? '';
+        const descLines = descricao
+          ? (doc.splitTextToSize(descricao, col2W - 6) as string[])
+          : [];
+        const dynamicRowH = Math.max(rowH, 8 + Math.max(1, descLines.length) * 4.2);
+
+        ensureSpace(dynamicRowH + 4);
+        const rowY = y;
         const rowFill: [number, number, number] =
           idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
         doc.setFillColor(...rowFill);
-        doc.rect(margin, rowY, tableW, rowH, 'F');
+        doc.rect(margin, rowY, tableW, dynamicRowH, 'F');
         doc.setDrawColor(226, 232, 240);
         doc.setLineWidth(0.1);
-        doc.rect(margin, rowY, tableW, rowH, 'S');
+        doc.rect(margin, rowY, tableW, dynamicRowH, 'S');
         const badgeStyle = INSE_RGB[key] ?? { bg: [124, 58, 237], text: [255, 255, 255] };
         doc.setFillColor(...badgeStyle.bg);
-        const badgeW = 18;
+        const badgeW = 26;
+        const badgeH = 7;
         const badgeX = margin + (col1W - badgeW) / 2;
+        const badgeY = rowY + (dynamicRowH - badgeH) / 2;
         if (typeof (doc as import('jspdf').jsPDF & { roundedRect?: unknown }).roundedRect === 'function') {
-          (doc as import('jspdf').jsPDF & { roundedRect: (x: number, y: number, w: number, h: number, rx: number, ry: number, style: string) => void }).roundedRect(badgeX, rowY + 1.5, badgeW, rowH - 3, 3, 3, 'F');
+          (doc as import('jspdf').jsPDF & { roundedRect: (x: number, y: number, w: number, h: number, rx: number, ry: number, style: string) => void }).roundedRect(badgeX, badgeY, badgeW, badgeH, 3, 3, 'F');
         } else {
-          doc.rect(badgeX, rowY + 1.5, badgeW, rowH - 3, 'F');
+          doc.rect(badgeX, badgeY, badgeW, badgeH, 'F');
         }
-        doc.setFontSize(8);
+        doc.setFontSize(7);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(...badgeStyle.text);
-        doc.text(`Nível ${key}`, margin + col1W / 2, rowY + rowH / 2 + 1, { align: 'center' });
+        doc.text(label, margin + col1W / 2, rowY + dynamicRowH / 2 + 1, { align: 'center' });
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(...textDark);
+        doc.setFontSize(7.5);
+        if (descLines.length) {
+          doc.text(descLines, margin + col1W + 3, rowY + 5);
+        }
+        const midY = rowY + dynamicRowH / 2 + 1;
         doc.setFontSize(9);
-        doc.text(label, margin + col1W + 3, rowY + rowH / 2 + 1);
-        doc.text(String(qtd), margin + col1W + col2W + col3W / 2, rowY + rowH / 2 + 1, { align: 'center' });
-        doc.text(`${pct.toFixed(1)}%`, margin + col1W + col2W + col3W + col4W / 2, rowY + rowH / 2 + 1, { align: 'center' });
+        doc.text(String(qtd), margin + col1W + col2W + col3W / 2, midY, { align: 'center' });
+        doc.text(`${pct.toFixed(1)}%`, margin + col1W + col2W + col3W + col4W / 2, midY, { align: 'center' });
+        y += dynamicRowH;
       });
-      y += INSE_NIVEIS_ORDEM.length * rowH + 14;
+      y += 14;
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(12);
@@ -2172,15 +2206,22 @@ const InseAvaliacaoReport = () => {
                       return (
                         <div
                           key={key}
-                          className="flex items-center justify-between rounded-lg border p-2"
+                          className="flex items-start justify-between gap-3 rounded-lg border p-2"
                         >
-                          <div className="flex items-center gap-2 flex-1">
+                          <div className="flex items-start gap-2 flex-1 min-w-0">
                             <div
-                              className={`w-3 h-3 rounded-full flex-shrink-0 ${INSE_CORES[key]?.split(' ')[0] ?? 'bg-muted'}`}
+                              className={`w-3 h-3 rounded-full flex-shrink-0 mt-1 ${INSE_CORES[key]?.split(' ')[0] ?? 'bg-muted'}`}
                             />
-                            <span className="text-sm font-medium">{`Nível ${key} - ${label}`}</span>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium">{label}</p>
+                              {item?.descricao ? (
+                                <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
+                                  {item.descricao}
+                                </p>
+                              ) : null}
+                            </div>
                           </div>
-                          <div className="flex gap-2 text-sm text-muted-foreground">
+                          <div className="flex gap-2 text-sm text-muted-foreground flex-shrink-0">
                             <span>{qtd}</span>
                             <span>{pct.toFixed(1)}%</span>
                           </div>
@@ -2289,9 +2330,29 @@ const InseAvaliacaoReport = () => {
                             <TableCell>{aluno.inse_valor != null ? Number(aluno.inse_valor).toFixed(2) : '—'}</TableCell>
                             <TableCell className="text-center">
                               <div className="flex justify-center">
-                                <Badge variant="secondary" className="bg-violet-100 text-violet-900 hover:bg-violet-100 whitespace-nowrap">
-                                  {aluno.inse_nivel_label}
-                                </Badge>
+                                {(() => {
+                                  const inseMeta = getInseNivelMeta(distInse, aluno.inse_nivel);
+                                  const badge = (
+                                    <Badge
+                                      className={cn(
+                                        getInseBadgeClass(aluno.inse_nivel),
+                                        'whitespace-nowrap'
+                                      )}
+                                    >
+                                      {aluno.inse_nivel_label}
+                                    </Badge>
+                                  );
+                                  if (!inseMeta.descricao) return badge;
+                                  return (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>{badge}</TooltipTrigger>
+                                      <TooltipContent className="max-w-sm">
+                                        <p className="font-medium">{inseMeta.label}</p>
+                                        <p className="text-muted-foreground">{inseMeta.descricao}</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  );
+                                })()}
                               </div>
                             </TableCell>
                             <TableCell>
