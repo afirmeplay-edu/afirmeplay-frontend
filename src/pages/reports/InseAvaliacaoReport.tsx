@@ -278,6 +278,11 @@ function getInseNivelMeta(
   };
 }
 
+function formatReportMetric(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  return Number(value).toFixed(1);
+}
+
 function formatRacaCorLabel(value: string): string {
   const normalized = value.trim();
   const map: Record<string, string> = {
@@ -2313,12 +2318,12 @@ const InseAvaliacaoReport = () => {
                               const disc = aluno.disciplinas?.find((x) => x.id === d.id);
                               return (
                                 <TableCell key={d.id}>
-                                  {disc != null ? disc.proficiencia : '—'}
+                                  {disc != null ? formatReportMetric(disc.proficiencia) : '—'}
                                 </TableCell>
                               );
                             })}
-                            <TableCell>{aluno.proficiencia_media}</TableCell>
-                            <TableCell>{aluno.nota}</TableCell>
+                            <TableCell>{formatReportMetric(aluno.proficiencia_media)}</TableCell>
+                            <TableCell>{formatReportMetric(aluno.nota)}</TableCell>
                             <TableCell className="text-center">
                               <div className="flex justify-center">
                                 <Badge className={getProficienciaBadgeClass(aluno.nivel_proficiencia ?? '—')}>
@@ -2327,7 +2332,7 @@ const InseAvaliacaoReport = () => {
                               </div>
                             </TableCell>
                             <TableCell>{aluno.raca_cor ?? '—'}</TableCell>
-                            <TableCell>{aluno.inse_valor != null ? Number(aluno.inse_valor).toFixed(2) : '—'}</TableCell>
+                            <TableCell>{formatReportMetric(aluno.inse_valor)}</TableCell>
                             <TableCell className="text-center">
                               <div className="flex justify-center">
                                 {(() => {
