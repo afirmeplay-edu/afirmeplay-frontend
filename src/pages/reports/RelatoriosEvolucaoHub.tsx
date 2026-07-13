@@ -4,6 +4,7 @@ import { DualReportEvalCartaoTabs } from '@/pages/reports/DualReportEvalCartaoTa
 
 const Evolution = lazy(() => import('@/pages/reports/Evolution'));
 const EvolutionCartaoResposta = lazy(() => import('@/pages/reports/EvolutionCartaoResposta'));
+const EvolutionPorAluno = lazy(() => import('@/pages/reports/EvolutionPorAluno'));
 
 export default function RelatoriosEvolucaoHub() {
   return (
@@ -11,9 +12,10 @@ export default function RelatoriosEvolucaoHub() {
       defaultTab="avaliacao"
       title="Análise de Evolução"
       titleIcon={TrendingUp}
-      description="Compare múltiplas avaliações ou gabaritos corrigidos e acompanhe a evolução dos resultados ao longo do tempo."
+      description="Compare múltiplas avaliações ou gabaritos corrigidos e acompanhe a evolução dos resultados ao longo do tempo — inclusive por aluno."
       avaliacao={<Evolution hidePageHeading />}
       cartao={<EvolutionCartaoResposta hidePageHeading />}
+      aluno={<EvolutionPorAluno />}
     />
   );
 }

@@ -148,6 +148,200 @@ export interface EvolucaoOpcoesFiltrosResponse {
   turmas?: Array<{ id: string; nome?: string; name?: string }>;
 }
 
+/** Parâmetros para GET /evaluation-results/evolucao/alunos */
+export interface EvolucaoAlunosParams {
+  estado: string;
+  municipio: string;
+  escola?: string;
+  serie?: string;
+  turma?: string;
+  page?: number;
+  per_page?: number;
+  nome_aluno?: string;
+  data_inicio?: string;
+  data_fim?: string;
+}
+
+export interface EvolucaoAlunoEvolutionMetrics {
+  value?: number;
+  percentage?: number;
+  direction?: 'increase' | 'decrease' | 'stable' | string;
+}
+
+export interface EvolucaoAlunoMetricPair {
+  evaluation_1?: number;
+  evaluation_2?: number;
+  evolution?: EvolucaoAlunoEvolutionMetrics;
+}
+
+export interface EvolucaoAlunoEvaluationResult {
+  grade?: number | null;
+  proficiency?: number | null;
+  classification?: string | null;
+  correct_answers?: number | null;
+  total_questions?: number | null;
+  score_percentage?: number | null;
+}
+
+export interface EvolucaoAlunoEvaluationClassRef {
+  id?: string;
+  name?: string;
+}
+
+export interface EvolucaoAlunoEvaluation {
+  order?: number;
+  id?: string;
+  title?: string;
+  titulo?: string;
+  created_at?: string | null;
+  application_date?: string | null;
+  grade_id?: string;
+  grade_name?: string;
+  grade_names?: string[];
+  classes?: EvolucaoAlunoEvaluationClassRef[];
+  result?: EvolucaoAlunoEvaluationResult | null;
+}
+
+export interface EvolucaoAlunoEvaluationRef {
+  id?: string;
+  title?: string;
+  order?: number;
+  grade_id?: string;
+  grade_name?: string;
+  grade_names?: string[];
+  classes?: EvolucaoAlunoEvaluationClassRef[];
+}
+
+export interface EvolucaoAlunoGeneralComparison {
+  student_grade?: EvolucaoAlunoMetricPair;
+  student_proficiency?: EvolucaoAlunoMetricPair;
+  student_classification?: {
+    evaluation_1?: string;
+    evaluation_2?: string;
+  };
+  correct_answers?: EvolucaoAlunoMetricPair;
+  total_questions?: {
+    evaluation_1?: number;
+    evaluation_2?: number;
+  };
+  score_percentage?: EvolucaoAlunoMetricPair;
+}
+
+export interface EvolucaoAlunoSubjectComparison {
+  [subjectName: string]: {
+    subject_id?: string;
+    student_grade?: EvolucaoAlunoMetricPair;
+    student_proficiency?: EvolucaoAlunoMetricPair;
+    student_classification?: {
+      evaluation_1?: string;
+      evaluation_2?: string;
+    };
+    correct_answers?: EvolucaoAlunoMetricPair;
+    total_questions?: {
+      evaluation_1?: number;
+      evaluation_2?: number;
+    };
+    score_percentage?: EvolucaoAlunoMetricPair;
+  };
+}
+
+export interface EvolucaoAlunoSkillsComparison {
+  [subjectName: string]: {
+    [skillCode: string]: {
+      skill_id?: string;
+      skill_code?: string;
+      skill_description?: string;
+      code?: string;
+      description?: string;
+      student_grade?: EvolucaoAlunoMetricPair;
+      correct_answers?: EvolucaoAlunoMetricPair;
+      total_questions?: {
+        evaluation_1?: number;
+        evaluation_2?: number;
+      };
+    };
+  };
+}
+
+export interface EvolucaoAlunoComparison {
+  from_evaluation?: EvolucaoAlunoEvaluationRef;
+  to_evaluation?: EvolucaoAlunoEvaluationRef;
+  general_comparison?: EvolucaoAlunoGeneralComparison;
+  subject_comparison?: EvolucaoAlunoSubjectComparison;
+  skills_comparison?: EvolucaoAlunoSkillsComparison;
+}
+
+export interface EvolucaoAlunoItem {
+  id?: string;
+  student_id?: string;
+  user_id?: string;
+  name?: string;
+  nome?: string;
+  school_id?: string;
+  class_id?: string;
+  grade_id?: string;
+  school_name?: string;
+  class_name?: string;
+  grade_name?: string;
+  source_type?: string;
+  evaluations?: EvolucaoAlunoEvaluation[];
+  comparisons?: EvolucaoAlunoComparison[];
+  total_evaluations?: number;
+  total_comparisons?: number;
+}
+
+export interface EvolucaoAlunosFiltersEcho {
+  estado?: string;
+  municipio?: string;
+  escola?: string;
+  serie?: string;
+  turma?: string;
+}
+
+export interface EvolucaoAlunosPagination {
+  page?: number;
+  per_page?: number;
+  total_students?: number;
+  total_pages?: number;
+}
+
+/** Resposta de GET /evaluation-results/evolucao/alunos */
+export interface EvolucaoAlunosResponse {
+  filters?: EvolucaoAlunosFiltersEcho;
+  pagination?: EvolucaoAlunosPagination;
+  source_type?: string;
+  students?: EvolucaoAlunoItem[];
+  /** @deprecated preferir pagination.* */
+  total?: number;
+  /** @deprecated preferir pagination.page */
+  page?: number;
+  /** @deprecated preferir pagination.per_page */
+  per_page?: number;
+  /** @deprecated preferir pagination.total_pages */
+  pages?: number;
+  /** @deprecated preferir pagination.total_pages */
+  total_pages?: number;
+}
+
+/** Normaliza paginação do contrato (pagination.*) com fallback legado no root. */
+export function resolveEvolucaoAlunosPagination(
+  response: EvolucaoAlunosResponse,
+  fallbackPage: number,
+  fallbackPerPage: number,
+  studentsCount: number
+): { page: number; per_page: number; total: number; total_pages: number } {
+  const p = response.pagination;
+  const page = p?.page ?? response.page ?? fallbackPage;
+  const per_page = p?.per_page ?? response.per_page ?? fallbackPerPage;
+  const total = p?.total_students ?? response.total ?? studentsCount;
+  const total_pages =
+    p?.total_pages ??
+    response.total_pages ??
+    response.pages ??
+    Math.max(1, Math.ceil(total / Math.max(1, per_page)));
+  return { page, per_page, total, total_pages };
+}
+
 // ✅ NOVO: Interfaces para tabela detalhada
 interface TabelaDetalhada {
   disciplinas: Array<{
@@ -596,6 +790,35 @@ export class EvaluationResultsApiService {
     const requestConfig = params.municipio ? { meta: { cityId: params.municipio } } : {};
     const response = await api.get(url, requestConfig);
     return response.data ?? {};
+  }
+
+  /**
+   * Lista alunos com evolução individual. GET /evaluation-results/evolucao/alunos
+   * Obrigatórios: estado, municipio. Opcionais: escola, serie, turma, nome_aluno, datas, paginação.
+   */
+  static async getEvolucaoAlunos(filters: EvolucaoAlunosParams): Promise<EvolucaoAlunosResponse> {
+    const params = new URLSearchParams({
+      estado: filters.estado,
+      municipio: filters.municipio,
+      page: String(filters.page ?? 1),
+      per_page: String(filters.per_page ?? 50),
+    });
+    if (filters.escola != null && filters.escola !== '' && filters.escola !== 'all') {
+      params.append('escola', filters.escola);
+    }
+    if (filters.serie != null && filters.serie !== '' && filters.serie !== 'all') {
+      params.append('serie', filters.serie);
+    }
+    if (filters.turma != null && filters.turma !== '' && filters.turma !== 'all') {
+      params.append('turma', filters.turma);
+    }
+    if (filters.nome_aluno?.trim()) params.append('nome_aluno', filters.nome_aluno.trim());
+    if (filters.data_inicio) params.append('data_inicio', filters.data_inicio);
+    if (filters.data_fim) params.append('data_fim', filters.data_fim);
+
+    const requestConfig = { meta: { cityId: filters.municipio } } as const;
+    const response = await api.get(`/evaluation-results/evolucao/alunos?${params}`, requestConfig);
+    return response.data ?? { students: [] };
   }
 
   /**
