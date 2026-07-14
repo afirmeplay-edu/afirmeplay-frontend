@@ -39,6 +39,12 @@ interface FilterOption {
   name: string;
 }
 
+function sortByName(options: FilterOption[]): FilterOption[] {
+  return [...options].sort((a, b) =>
+    a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base', numeric: true })
+  );
+}
+
 function extractApiError(error: unknown): string {
   if (error && typeof error === 'object') {
     if ('response' in error) {
@@ -367,10 +373,12 @@ export default function EvolutionPorAluno() {
           escola: selectedSchool,
         });
         setGrades(
-          (response.series ?? []).map((g) => ({
-            id: g.id,
-            name: g.nome ?? g.name ?? g.id,
-          }))
+          sortByName(
+            (response.series ?? []).map((g) => ({
+              id: g.id,
+              name: g.nome ?? g.name ?? g.id,
+            }))
+          )
         );
       } catch (error) {
         console.error('Erro ao carregar séries:', error);
@@ -402,10 +410,12 @@ export default function EvolutionPorAluno() {
           serie: selectedGrade,
         });
         setClasses(
-          (response.turmas ?? []).map((c) => ({
-            id: c.id,
-            name: c.nome ?? c.name ?? c.id,
-          }))
+          sortByName(
+            (response.turmas ?? []).map((c) => ({
+              id: c.id,
+              name: c.nome ?? c.name ?? c.id,
+            }))
+          )
         );
       } catch (error) {
         console.error('Erro ao carregar turmas:', error);
@@ -417,14 +427,22 @@ export default function EvolutionPorAluno() {
     void loadClasses();
   }, [selectedState, selectedMunicipality, selectedSchool, selectedGrade, fetchOpcoesFiltros]);
 
+  const canSearch =
+    selectedState !== 'all' && selectedMunicipality !== 'all' && selectedSchool !== 'all';
+
   const searchStudents = useCallback(
     async (pageToLoad = 1) => {
-      if (selectedState === 'all' || selectedMunicipality === 'all') {
-        toast({
-          title: 'Filtros obrigatórios',
-          description: 'Selecione pelo menos Estado e Município para buscar alunos.',
-          variant: 'destructive',
-        });
+      if (
+        selectedState === 'all' ||
+        selectedMunicipality === 'all' ||
+        selectedSchool === 'all'
+      ) {
+        setStudents([]);
+        setHasSearched(false);
+        setSearchError(null);
+        setSelectedStudentKey(null);
+        setTotal(0);
+        setTotalPages(1);
         return;
       }
 
@@ -436,7 +454,7 @@ export default function EvolutionPorAluno() {
         const filters = {
           estado: selectedState,
           municipio: selectedMunicipality,
-          escola: selectedSchool !== 'all' ? selectedSchool : undefined,
+          escola: selectedSchool,
           serie: selectedGrade !== 'all' ? selectedGrade : undefined,
           turma: selectedClass !== 'all' ? selectedClass : undefined,
           nome_aluno: studentNameSearch.trim() || undefined,
@@ -494,7 +512,37 @@ export default function EvolutionPorAluno() {
     ]
   );
 
-  const canSearch = selectedState !== 'all' && selectedMunicipality !== 'all';
+  // Busca automática ao mudar filtros (mínimo: Estado + Município + Escola)
+  useEffect(() => {
+    if (!canSearch) {
+      setStudents([]);
+      setHasSearched(false);
+      setSearchError(null);
+      setSelectedStudentKey(null);
+      setTotal(0);
+      setTotalPages(1);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void searchStudents(1);
+    }, studentNameSearch.trim() ? 400 : 0);
+
+    return () => window.clearTimeout(timer);
+    // searchStudents omitido de propósito para não re-disparar por mudança de identidade da função
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    canSearch,
+    selectedState,
+    selectedMunicipality,
+    selectedSchool,
+    selectedGrade,
+    selectedClass,
+    studentNameSearch,
+    periodStart,
+    periodEnd,
+    sourceMode,
+  ]);
 
   const selectedStudent = useMemo(() => {
     if (!selectedStudentKey) return null;
@@ -680,9 +728,7 @@ export default function EvolutionPorAluno() {
                       placeholder="Buscar por nome..."
                       value={studentNameSearch}
                       onChange={(e) => setStudentNameSearch(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && canSearch) void searchStudents(1);
-                      }}
+                      disabled={!canSearch}
                     />
                   </div>
                 </div>
@@ -690,25 +736,13 @@ export default function EvolutionPorAluno() {
             </div>
           )}
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              onClick={() => void searchStudents(1)}
-              disabled={!canSearch || isSearching}
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-            >
-              {isSearching ? (
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Search className="h-4 w-4 mr-2" />
-              )}
-              Buscar
-            </Button>
-            {!canSearch && (
-              <p className="text-sm text-muted-foreground">
-                Selecione Estado e Município para consultar a evolução dos alunos.
-              </p>
-            )}
-          </div>
+          <p className="text-sm text-muted-foreground">
+            {canSearch
+              ? isSearching
+                ? 'Atualizando lista de alunos...'
+                : 'Os resultados atualizam automaticamente conforme os filtros.'
+              : 'Selecione Estado, Município e Escola para carregar a evolução dos alunos. Série e turma são opcionais.'}
+          </p>
         </CardContent>
       </Card>
 
@@ -725,7 +759,7 @@ export default function EvolutionPorAluno() {
               <Users className="h-12 w-12 mx-auto mb-3 opacity-40" />
               <p className="font-medium text-foreground mb-1">Nenhuma busca realizada</p>
               <p className="text-sm">
-                Use os filtros acima e clique em Buscar para listar os alunos e a evolução de cada um.
+                Use os filtros acima. Com Estado, Município e Escola selecionados, a lista carrega automaticamente.
               </p>
             </div>
           )}
