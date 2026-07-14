@@ -31,6 +31,19 @@ import {
     optionHasContent,
     getActiveQuestionOptions,
 } from "@/utils/questionOptionImages";
+import {
+    SUBJECTIVE_INTERACTION_TYPES,
+    defaultInteraction,
+    ensureInteraction,
+    type Interaction,
+    type InteractionType,
+} from "@/lib/question-interactions";
+import { type FormQuestionType } from "@/utils/questionTypeMapping";
+import SubjectiveTypePicker from "./SubjectiveTypePicker";
+import SubjectiveInteractionEditor from "./SubjectiveInteractionEditor";
+import SubjectiveInteractionPreview from "./SubjectiveInteractionPreview";
+
+const FORM_QUESTION_TYPES = ["multipleChoice", ...SUBJECTIVE_INTERACTION_TYPES] as [string, ...string[]];
 
 const emptyOption = () => ({ text: "", isCorrect: false, image: null as null });
 
@@ -61,9 +74,10 @@ const baseSchema = z.object({
         })
     ).optional(),
     secondStatement: z.string().optional(),
-    skills: z.array(z.string()).min(1, "Selecione pelo menos uma habilidade"),
+    skills: z.array(z.string()).optional(),
+    skillText: z.string().optional(),
     topics: z.string().optional(),
-    questionType: z.enum(['multipleChoice', 'dissertativa']),
+    questionType: z.enum(FORM_QUESTION_TYPES),
 });
 
 const questionSchema = baseSchema.superRefine((data, ctx) => {
@@ -94,7 +108,17 @@ const questionSchema = baseSchema.superRefine((data, ctx) => {
                 });
             }
         }
+
+        if (!data.skills || data.skills.length === 0) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Selecione pelo menos uma habilidade.',
+                path: ['skills'],
+            });
+        }
     }
+    // Questões subjetivas (dissertativa e demais tipos de interação) não exigem
+    // alternativas nem habilidade da tabela BNCC — usam skillText (texto livre).
 });
 
 type QuestionFormValues = z.infer<typeof questionSchema>;
@@ -125,9 +149,11 @@ interface QuestionFormReadOnlyProps {
         grade: string;
         subject: string;
     };
+    /** Quando true, abre o formulário já na aba "Subjetiva" (avaliação com evaluation_mode = subjective). */
+    defaultToSubjective?: boolean;
 }
 
-const QuestionPreview: React.FC<{ data: QuestionFormValues }> = ({ data }) => {
+const QuestionPreview: React.FC<{ data: QuestionFormValues; interactionConfig?: Interaction }> = ({ data, interactionConfig }) => {
     const [subjects, setSubjects] = useState<Subject[]>([]);
     const [grades, setGrades] = useState<{ id: string; name: string }[]>([]);
     const [skillsOptions, setSkillsOptions] = useState<{ id: string; name: string }[]>([]);
@@ -239,6 +265,13 @@ const QuestionPreview: React.FC<{ data: QuestionFormValues }> = ({ data }) => {
                 </div>
             )}
 
+            {data.questionType !== 'multipleChoice' && interactionConfig && (
+                <div className="space-y-3">
+                    <h4 className="font-medium">Interação ({data.questionType}):</h4>
+                    <SubjectiveInteractionPreview interaction={interactionConfig} />
+                </div>
+            )}
+
             {data.solution && (
                 <div className="space-y-2">
                     <h4 className="font-medium">Resolução:</h4>
@@ -256,12 +289,14 @@ const QuestionFormReadOnly = ({
     onQuestionAdded,
     questionNumber,
     evaluationData,
+    defaultToSubjective = false,
 }: QuestionFormReadOnlyProps) => {
     const [subjects, setSubjects] = useState<Subject[]>([]);
     const [grades, setGrades] = useState<{ id: string; name: string }[]>([]);
     const [skills, setSkills] = useState<SkillOption[]>([]);
     const [showPreview, setShowPreview] = useState(false);
-    const [questionType, setQuestionType] = useState<'multipleChoice' | 'dissertativa'>('multipleChoice');
+    const [questionType, setQuestionType] = useState<FormQuestionType>(defaultToSubjective ? 'dissertativa' : 'multipleChoice');
+    const [interactionConfig, setInteractionConfig] = useState<Interaction>(defaultInteraction('dissertativa'));
     const { toast } = useToast();
     const navigate = useNavigate();
     const { user } = useAuth();
@@ -278,7 +313,7 @@ const QuestionFormReadOnly = ({
             difficulty: "",
             value: "",
             solution: "",
-            options: [
+            options: defaultToSubjective ? [] : [
                 emptyOption(),
                 emptyOption(),
                 emptyOption(),
@@ -286,8 +321,9 @@ const QuestionFormReadOnly = ({
             ],
             secondStatement: "",
             skills: [], // Array vazio ao invés de string vazia
+            skillText: "",
             topics: "",
-            questionType: 'multipleChoice',
+            questionType: defaultToSubjective ? 'dissertativa' : 'multipleChoice',
         },
     });
 
@@ -314,11 +350,13 @@ const QuestionFormReadOnly = ({
         
         form.setValue('questionType', questionType);
 
-        // Limpar opções quando mudar para dissertativa
-        if (questionType === 'dissertativa') {
-            console.log('🔍 QuestionFormReadOnly - Limpando opções para questão dissertativa');
+        // Limpar opções/habilidades quando mudar para subjetiva
+        if (questionType !== 'multipleChoice') {
+            console.log('🔍 QuestionFormReadOnly - Limpando opções para questão subjetiva');
             form.setValue('options', []);
+            form.setValue('skills', []);
             form.clearErrors('options');
+            form.clearErrors('skills');
         } else {
             const currentOptions = form.getValues("options");
             const hasOptionsWithContent = currentOptions?.some((opt) => optionHasContent(opt));
@@ -335,6 +373,20 @@ const QuestionFormReadOnly = ({
         
         console.log('🔍 QuestionFormReadOnly - Opções após configuração:', form.getValues("options"));
     }, [questionType, form]);
+
+    const handleSetMainType = (type: 'multipleChoice' | 'subjective') => {
+        if (type === 'multipleChoice') {
+            setQuestionType('multipleChoice');
+        } else {
+            setQuestionType('dissertativa');
+            setInteractionConfig(defaultInteraction('dissertativa'));
+        }
+    };
+
+    const handleSetSubjectiveSubtype = (subtype: InteractionType) => {
+        setQuestionType(subtype);
+        setInteractionConfig((current) => ensureInteraction(subtype, current));
+    };
 
     // Função para adicionar alternativa
     const addOption = () => {
@@ -467,6 +519,7 @@ const QuestionFormReadOnly = ({
             // skills como array
             const skills = data.skills || [];
             console.log('🔍 QuestionFormReadOnly - Habilidades selecionadas:', skills);
+            const isSubjectiveQuestion = data.questionType !== 'multipleChoice';
 
             // Encontrar o subject e grade para criar o objeto Question completo
             const selectedSubject = subjects.find(s => s.id === data.subjectId);
@@ -476,7 +529,7 @@ const QuestionFormReadOnly = ({
             console.log('🔍 QuestionFormReadOnly - Grade encontrada:', selectedGrade);
 
             // Criar payload seguindo o mesmo padrão do QuestionForm
-            const payload = {
+            const payload: Record<string, unknown> = {
                 title: data.title,
                 text: htmlToText(data.text),
                 formattedText: formattedTextForApi,
@@ -489,34 +542,41 @@ const QuestionFormReadOnly = ({
                 solution,
                 formattedSolution: formattedSolutionForApi,
                 options,
-                skills: data.skills,
                 secondStatement: secondStatementForApi,
                 lastModifiedBy: user?.id || '',
                 createdBy: user?.id || '',
             };
 
-
+            if (isSubjectiveQuestion) {
+                // Questões subjetivas usam habilidade em texto livre e não a tabela de skills.
+                payload.skillText = data.skillText || "";
+                payload.interactionConfig = interactionConfig;
+            } else {
+                payload.skills = data.skills;
+            }
 
             // Criar objeto Question para compatibilidade com a interface
             const question: Question = {
                 id: '', // Será gerado pelo backend
-                title: payload.title,
-                text: payload.text,
-                formattedText: payload.formattedText,
-                secondStatement: payload.secondStatement,
-                type: payload.type,
-                subjectId: payload.subjectId,
+                title: payload.title as string,
+                text: payload.text as string,
+                formattedText: payload.formattedText as string,
+                secondStatement: payload.secondStatement as string,
+                type: payload.type as Question['type'],
+                subjectId: payload.subjectId as string,
                 subject: selectedSubject || { id: data.subjectId, name: '' },
                 educationStage: evaluationData.course ? { id: evaluationData.course, name: '' } : undefined,
                 grade: selectedGrade ? { id: selectedGrade.id, name: selectedGrade.name } : undefined,
-                difficulty: payload.difficulty,
-                value: payload.value,
-                solution: payload.solution, // Garantir que é a letra da alternativa correta
-                formattedSolution: payload.formattedSolution,
-                options: payload.options,
-                skills: Array.isArray(payload.skills) && payload.skills.length > 0 ? payload.skills[0] : undefined, // ✅ CORREÇÃO: skills é uma string única, não array
-                created_by: payload.createdBy,
-                lastModifiedBy: payload.lastModifiedBy,
+                difficulty: payload.difficulty as string,
+                value: payload.value as number,
+                solution: payload.solution as string, // Garantir que é a letra da alternativa correta
+                formattedSolution: payload.formattedSolution as string,
+                options: payload.options as Question['options'],
+                skills: Array.isArray(skills) && skills.length > 0 ? skills[0] : undefined, // ✅ CORREÇÃO: skills é uma string única, não array
+                skillText: isSubjectiveQuestion ? (data.skillText || "") : undefined,
+                interactionConfig: isSubjectiveQuestion ? interactionConfig : undefined,
+                created_by: payload.createdBy as string,
+                lastModifiedBy: payload.lastModifiedBy as string,
             };
 
 
@@ -573,7 +633,7 @@ const QuestionFormReadOnly = ({
                         <Eye className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                         <h3 className="text-lg font-semibold text-foreground">Preview da Questão</h3>
                     </div>
-                    <QuestionPreview data={{ ...form.getValues(), questionType }} />
+                    <QuestionPreview data={{ ...form.getValues(), questionType }} interactionConfig={interactionConfig} />
                 </div>
             ) : (
                 <Form {...form}>
@@ -707,6 +767,7 @@ const QuestionFormReadOnly = ({
                                     )}
                                 />
 
+                                {questionType === 'multipleChoice' ? (
                                 <FormField
                                     control={form.control}
                                     name="skills"
@@ -753,6 +814,28 @@ const QuestionFormReadOnly = ({
                                         </FormItem>
                                     )}
                                 />
+                                ) : (
+                                <FormField
+                                    control={form.control}
+                                    name="skillText"
+                                    render={({ field }) => (
+                                        <FormItem className="sm:col-span-2 min-w-0">
+                                            <FormLabel className="text-sm font-semibold text-foreground">
+                                                Habilidade
+                                                <span className="text-muted-foreground font-normal ml-1">(texto livre, opcional)</span>
+                                            </FormLabel>
+                                            <FormControl>
+                                                <Input
+                                                    {...field}
+                                                    placeholder="Ex.: EF05MA07 - Resolver problemas envolvendo cálculo de área..."
+                                                    className="h-11"
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                )}
                             </div>
                         </div>
 
@@ -768,7 +851,7 @@ const QuestionFormReadOnly = ({
                                     type="button"
                                     variant={questionType === 'multipleChoice' ? 'default' : 'outline'}
                                     size="lg"
-                                    onClick={() => setQuestionType('multipleChoice')}
+                                    onClick={() => handleSetMainType('multipleChoice')}
                                     className={`w-full h-auto min-h-[4rem] p-4 ${questionType === 'multipleChoice'
                                         ? 'bg-purple-600 dark:bg-purple-700 hover:bg-purple-700 dark:hover:bg-purple-600 text-white shadow-lg'
                                         : 'hover:bg-purple-50 dark:hover:bg-purple-950/50 hover:border-purple-300 dark:hover:border-purple-700'
@@ -785,10 +868,10 @@ const QuestionFormReadOnly = ({
 
                                 <Button
                                     type="button"
-                                    variant={questionType === 'dissertativa' ? 'default' : 'outline'}
+                                    variant={questionType !== 'multipleChoice' ? 'default' : 'outline'}
                                     size="lg"
-                                    onClick={() => setQuestionType('dissertativa')}
-                                    className={`w-full h-auto min-h-[4rem] p-4 ${questionType === 'dissertativa'
+                                    onClick={() => handleSetMainType('subjective')}
+                                    className={`w-full h-auto min-h-[4rem] p-4 ${questionType !== 'multipleChoice'
                                         ? 'bg-purple-600 dark:bg-purple-700 hover:bg-purple-700 dark:hover:bg-purple-600 text-white shadow-lg'
                                         : 'hover:bg-purple-50 dark:hover:bg-purple-950/50 hover:border-purple-300 dark:hover:border-purple-700'
                                         }`}
@@ -796,12 +879,25 @@ const QuestionFormReadOnly = ({
                                     <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3">
                                         <Type className="h-5 w-5 flex-shrink-0" />
                                         <div className="text-center sm:text-left">
-                                            <div className="font-semibold text-sm sm:text-base">Dissertativa</div>
-                                            <div className="text-xs opacity-80 hidden sm:block">Questão com resposta livre do aluno</div>
+                                            <div className="font-semibold text-sm sm:text-base">Subjetiva</div>
+                                            <div className="text-xs opacity-80 hidden sm:block">Correção manual: dissertativa, arrastar e soltar, ligar colunas...</div>
                                         </div>
                                     </div>
                                 </Button>
                             </div>
+
+                            {questionType !== 'multipleChoice' && (
+                                <div className="mt-4 space-y-4">
+                                    <div>
+                                        <p className="mb-2 text-sm font-semibold text-foreground">Tipo de interação</p>
+                                        <SubjectiveTypePicker
+                                            value={questionType as InteractionType}
+                                            onChange={handleSetSubjectiveSubtype}
+                                        />
+                                    </div>
+                                    <SubjectiveInteractionEditor value={interactionConfig} onChange={setInteractionConfig} />
+                                </div>
+                            )}
                         </div>
 
                         {/* Seção: Enunciados */}

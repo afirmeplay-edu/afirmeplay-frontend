@@ -173,6 +173,14 @@ export function EvaluationsCardGrid({
                       {evaluation.model}
                     </Badge>
                   ) : null}
+                  {evaluation.evaluation_mode === 'subjective' ? (
+                    <Badge
+                      variant="outline"
+                      className="text-xs border-purple-300 bg-purple-50 text-purple-700 dark:border-purple-700 dark:bg-purple-950/40 dark:text-purple-400"
+                    >
+                      Subjetiva
+                    </Badge>
+                  ) : null}
                   {evaluation.grade ? (
                     <Badge
                       variant="outline"

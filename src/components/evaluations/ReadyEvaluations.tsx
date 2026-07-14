@@ -581,6 +581,14 @@ const EvaluationsTable = ({
                                 {evaluation.model}
                               </Badge>
                             )}
+                            {evaluation.evaluation_mode === 'subjective' && (
+                              <Badge
+                                variant="outline"
+                                className="text-xs w-fit border-purple-300 bg-purple-50 text-purple-700 dark:border-purple-700 dark:bg-purple-950/40 dark:text-purple-400"
+                              >
+                                Subjetiva
+                              </Badge>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
