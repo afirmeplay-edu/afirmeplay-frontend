@@ -4,12 +4,17 @@ import type { LucideIcon } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-export type ReportTabValue = 'avaliacao' | 'cartao';
+export type ReportTabValue = 'avaliacao' | 'cartao' | 'aluno';
 
-function resolveTab(aba: string | null, defaultTab: ReportTabValue): ReportTabValue {
+function resolveTab(
+  aba: string | null,
+  defaultTab: ReportTabValue,
+  hasAlunoTab: boolean
+): ReportTabValue {
   if (aba === 'cartao') return 'cartao';
   if (aba === 'avaliacao') return 'avaliacao';
-  return defaultTab;
+  if (aba === 'aluno' && hasAlunoTab) return 'aluno';
+  return defaultTab === 'aluno' && !hasAlunoTab ? 'avaliacao' : defaultTab;
 }
 
 function TabFallback() {
@@ -30,10 +35,15 @@ type DualReportEvalCartaoTabsProps = {
   titleIcon?: LucideIcon;
   avaliacao: ReactNode;
   cartao: ReactNode;
+  /** Aba opcional "Evolução por aluno" (ex.: Análise de Evolução). */
+  aluno?: ReactNode;
+  /** Rótulo da aba opcional (padrão: Evolução por aluno). */
+  alunoTabLabel?: string;
 };
 
 /**
  * Abas Avaliação online / Cartão-resposta com ?aba=avaliacao|cartao na URL.
+ * Opcionalmente inclui ?aba=aluno quando `aluno` é informado.
  * Só monta o conteúdo da aba ativa (evita duas cargas de API).
  */
 export function DualReportEvalCartaoTabs({
@@ -43,10 +53,16 @@ export function DualReportEvalCartaoTabs({
   titleIcon: TitleIcon,
   avaliacao,
   cartao,
+  aluno,
+  alunoTabLabel = 'Evolução por aluno',
 }: DualReportEvalCartaoTabsProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const abaParam = searchParams.get('aba');
-  const value = useMemo(() => resolveTab(abaParam, defaultTab), [abaParam, defaultTab]);
+  const hasAlunoTab = aluno != null;
+  const value = useMemo(
+    () => resolveTab(abaParam, defaultTab, hasAlunoTab),
+    [abaParam, defaultTab, hasAlunoTab]
+  );
 
   const onValueChange = useCallback(
     (v: string) => {
@@ -73,19 +89,25 @@ export function DualReportEvalCartaoTabs({
       </header>
 
       <Tabs value={value} onValueChange={onValueChange} className="w-full">
-        <TabsList className="mb-0 w-full max-w-md">
+        <TabsList className={`mb-0 w-full ${hasAlunoTab ? 'max-w-2xl' : 'max-w-md'}`}>
           <TabsTrigger value="avaliacao" className="flex-1">
             Avaliação online
           </TabsTrigger>
           <TabsTrigger value="cartao" className="flex-1">
             Cartão-resposta
           </TabsTrigger>
+          {hasAlunoTab ? (
+            <TabsTrigger value="aluno" className="flex-1">
+              {alunoTabLabel}
+            </TabsTrigger>
+          ) : null}
         </TabsList>
       </Tabs>
 
       <div className="w-full min-w-0 pt-2 space-y-6">
         {value === 'avaliacao' && <Suspense fallback={<TabFallback />}>{avaliacao}</Suspense>}
         {value === 'cartao' && <Suspense fallback={<TabFallback />}>{cartao}</Suspense>}
+        {hasAlunoTab && value === 'aluno' && <Suspense fallback={<TabFallback />}>{aluno}</Suspense>}
       </div>
     </div>
   );

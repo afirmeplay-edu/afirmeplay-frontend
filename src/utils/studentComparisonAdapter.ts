@@ -7,39 +7,106 @@ import type {
   EvolutionMetrics,
   EvaluationInfo,
 } from '@/services/evaluation/evaluationComparisonApi';
+import type { EvolucaoAlunoItem } from '@/services/evaluation/evaluationResultsApi';
 
 /**
- * Resposta do endpoint de comparação do aluno (POST /test/student/compare).
+ * Resposta do endpoint de comparação do aluno (POST /test/student/compare)
+ * ou item de GET /evaluation-results|answer-sheets/evolucao/alunos.
  * Usa student_grade, student_proficiency etc. em vez de average_grade, average_proficiency.
  */
 export interface StudentCompareApiResponse {
   student?: { id: string; user_id: string; name: string };
-  evaluations: Array<{ order: number; id: string; title: string; created_at?: string; application_date?: string }>;
-  total_evaluations: number;
-  comparisons: Array<{
-    from_evaluation: { id: string; title: string; order: number };
-    to_evaluation: { id: string; title: string; order: number };
-    general_comparison: {
-      student_grade?: { evaluation_1: number; evaluation_2: number; evolution: EvolutionMetrics };
-      student_proficiency?: { evaluation_1: number; evaluation_2: number; evolution: EvolutionMetrics };
-      student_classification?: { evaluation_1: string; evaluation_2: string };
-      correct_answers?: { evaluation_1: number; evaluation_2: number; evolution: EvolutionMetrics };
-      total_questions?: { evaluation_1: number; evaluation_2: number };
-      score_percentage?: { evaluation_1: number; evaluation_2: number; evolution: EvolutionMetrics };
+  id?: string;
+  user_id?: string;
+  name?: string;
+  evaluations?: Array<{
+    order?: number;
+    id?: string;
+    title?: string;
+    titulo?: string;
+    created_at?: string | null;
+    application_date?: string | null;
+    grade_id?: string;
+    grade_name?: string;
+    grade_names?: string[];
+    classes?: EvaluationInfo['classes'];
+    result?: unknown;
+  }>;
+  total_evaluations?: number;
+  comparisons?: Array<{
+    from_evaluation?: {
+      id?: string;
+      title?: string;
+      order?: number;
+      grade_id?: string;
+      grade_name?: string;
+      grade_names?: string[];
+      classes?: EvaluationInfo['classes'];
     };
-    subject_comparison: Record<
+    to_evaluation?: {
+      id?: string;
+      title?: string;
+      order?: number;
+      grade_id?: string;
+      grade_name?: string;
+      grade_names?: string[];
+      classes?: EvaluationInfo['classes'];
+    };
+    general_comparison?: {
+      student_grade?: {
+        evaluation_1?: number;
+        evaluation_2?: number;
+        evolution?: EvolutionMetrics | { value?: number; percentage?: number; direction?: string };
+      };
+      student_proficiency?: {
+        evaluation_1?: number;
+        evaluation_2?: number;
+        evolution?: EvolutionMetrics | { value?: number; percentage?: number; direction?: string };
+      };
+      student_classification?: { evaluation_1?: string; evaluation_2?: string };
+      correct_answers?: {
+        evaluation_1?: number;
+        evaluation_2?: number;
+        evolution?: EvolutionMetrics | { value?: number; percentage?: number; direction?: string };
+      };
+      total_questions?: { evaluation_1?: number; evaluation_2?: number };
+      score_percentage?: {
+        evaluation_1?: number;
+        evaluation_2?: number;
+        evolution?: EvolutionMetrics | { value?: number; percentage?: number; direction?: string };
+      };
+    };
+    subject_comparison?: Record<
       string,
       {
         subject_id?: string;
-        student_grade?: { evaluation_1: number; evaluation_2: number; evolution: EvolutionMetrics };
-        student_proficiency?: { evaluation_1: number; evaluation_2: number; evolution: EvolutionMetrics };
-        student_classification?: { evaluation_1: string; evaluation_2: string };
-        correct_answers?: { evaluation_1: number; evaluation_2: number; evolution: EvolutionMetrics };
-        total_questions?: { evaluation_1: number; evaluation_2: number };
+        student_grade?: {
+          evaluation_1?: number;
+          evaluation_2?: number;
+          evolution?: EvolutionMetrics | { value?: number; percentage?: number; direction?: string };
+        };
+        student_proficiency?: {
+          evaluation_1?: number;
+          evaluation_2?: number;
+          evolution?: EvolutionMetrics | { value?: number; percentage?: number; direction?: string };
+        };
+        student_classification?: { evaluation_1?: string; evaluation_2?: string };
+        correct_answers?: {
+          evaluation_1?: number;
+          evaluation_2?: number;
+          evolution?: EvolutionMetrics | { value?: number; percentage?: number; direction?: string };
+        };
+        total_questions?: { evaluation_1?: number; evaluation_2?: number };
+        score_percentage?: {
+          evaluation_1?: number;
+          evaluation_2?: number;
+          evolution?: EvolutionMetrics | { value?: number; percentage?: number; direction?: string };
+        };
       }
     >;
+    skills_comparison?: SkillsComparison | Record<string, unknown>;
   }>;
-  total_comparisons: number;
+  total_comparisons?: number;
 }
 
 function toEvolutionMetrics(ev?: { value?: number; percentage?: number; direction?: string }): EvolutionMetrics {
@@ -51,19 +118,40 @@ function toEvolutionMetrics(ev?: { value?: number; percentage?: number; directio
   };
 }
 
+function metricOrZero(metric?: {
+  evaluation_1?: number;
+  evaluation_2?: number;
+  evolution?: { value?: number; percentage?: number; direction?: string };
+}) {
+  if (!metric) {
+    return {
+      evaluation_1: 0,
+      evaluation_2: 0,
+      evolution: { value: 0, percentage: 0, direction: 'stable' as const },
+    };
+  }
+  return {
+    evaluation_1: typeof metric.evaluation_1 === 'number' ? metric.evaluation_1 : 0,
+    evaluation_2: typeof metric.evaluation_2 === 'number' ? metric.evaluation_2 : 0,
+    evolution: toEvolutionMetrics(metric.evolution),
+  };
+}
+
 /**
  * Converte a resposta da API de comparação do aluno para o formato ComparisonResponse
- * usado por processComparisonData e EvolutionCharts (mesmos gráficos e parâmetros da Evolution.tsx).
+ * usado por processComparisonData e EvolutionCharts (mesmos gráficos da Evolution.tsx).
  */
 export function studentComparisonToComparisonResponse(
-  student: StudentCompareApiResponse | null | undefined
+  student: StudentCompareApiResponse | EvolucaoAlunoItem | null | undefined
 ): ComparisonResponse | null {
-  if (!student?.comparisons?.length || !student.evaluations?.length) return null;
+  if (!student) return null;
 
-  const comparisons: Comparison[] = student.comparisons.map((comp) => {
-    const gen = comp.general_comparison;
-    const studentGrade = gen.student_grade;
-    const studentProf = gen.student_proficiency;
+  const evaluationsRaw = student.evaluations ?? [];
+  const comparisonsRaw = student.comparisons ?? [];
+  if (!comparisonsRaw.length || !evaluationsRaw.length) return null;
+
+  const comparisons: Comparison[] = comparisonsRaw.map((comp) => {
+    const gen = comp.general_comparison ?? {};
     const studentClass = gen.student_classification;
 
     const classificationDistribution = {
@@ -78,20 +166,8 @@ export function studentComparisonToComparisonResponse(
     }
 
     const general_comparison: GeneralComparison = {
-      average_grade: studentGrade
-        ? {
-            evaluation_1: studentGrade.evaluation_1,
-            evaluation_2: studentGrade.evaluation_2,
-            evolution: toEvolutionMetrics(studentGrade.evolution),
-          }
-        : { evaluation_1: 0, evaluation_2: 0, evolution: { value: 0, percentage: 0, direction: 'stable' } },
-      average_proficiency: studentProf
-        ? {
-            evaluation_1: studentProf.evaluation_1,
-            evaluation_2: studentProf.evaluation_2,
-            evolution: toEvolutionMetrics(studentProf.evolution),
-          }
-        : { evaluation_1: 0, evaluation_2: 0, evolution: { value: 0, percentage: 0, direction: 'stable' } },
+      average_grade: metricOrZero(gen.student_grade),
+      average_proficiency: metricOrZero(gen.student_proficiency),
       total_students: { evaluation_1: 1, evaluation_2: 1 },
       classification_distribution: classificationDistribution,
     };
@@ -99,60 +175,68 @@ export function studentComparisonToComparisonResponse(
     const subject_comparison: SubjectComparison = {};
     if (comp.subject_comparison && typeof comp.subject_comparison === 'object') {
       Object.entries(comp.subject_comparison).forEach(([subjectName, subj]) => {
-        const sg = subj.student_grade;
-        const sp = subj.student_proficiency;
         const sc = subj.student_classification;
         const dist1: Record<string, number> = sc?.evaluation_1 ? { [sc.evaluation_1]: 1 } : {};
         const dist2: Record<string, number> = sc?.evaluation_2 ? { [sc.evaluation_2]: 1 } : {};
         subject_comparison[subjectName] = {
           subject_id: subj.subject_id ?? '',
-          average_grade: sg
-            ? {
-                evaluation_1: sg.evaluation_1,
-                evaluation_2: sg.evaluation_2,
-                evolution: toEvolutionMetrics(sg.evolution),
-              }
-            : { evaluation_1: 0, evaluation_2: 0, evolution: { value: 0, percentage: 0, direction: 'stable' } },
-          average_proficiency: sp
-            ? {
-                evaluation_1: sp.evaluation_1,
-                evaluation_2: sp.evaluation_2,
-                evolution: toEvolutionMetrics(sp.evolution),
-              }
-            : { evaluation_1: 0, evaluation_2: 0, evolution: { value: 0, percentage: 0, direction: 'stable' } },
+          average_grade: metricOrZero(subj.student_grade),
+          average_proficiency: metricOrZero(subj.student_proficiency),
           total_students: { evaluation_1: 1, evaluation_2: 1 },
           classification_distribution: { evaluation_1: dist1, evaluation_2: dist2 },
         };
       });
     }
 
-    const skills_comparison: SkillsComparison = {};
+    const skills_comparison: SkillsComparison =
+      comp.skills_comparison && typeof comp.skills_comparison === 'object'
+        ? (comp.skills_comparison as SkillsComparison)
+        : {};
+
+    const from = comp.from_evaluation ?? { id: '', title: '', order: 0 };
+    const to = comp.to_evaluation ?? { id: '', title: '', order: 0 };
 
     return {
-      from_evaluation: comp.from_evaluation,
-      to_evaluation: comp.to_evaluation,
+      from_evaluation: {
+        id: from.id ?? '',
+        title: from.title ?? '',
+        order: from.order ?? 0,
+        grade_id: from.grade_id,
+        grade_name: from.grade_name,
+        grade_names: from.grade_names,
+        classes: from.classes,
+      },
+      to_evaluation: {
+        id: to.id ?? '',
+        title: to.title ?? '',
+        order: to.order ?? 0,
+        grade_id: to.grade_id,
+        grade_name: to.grade_name,
+        grade_names: to.grade_names,
+        classes: to.classes,
+      },
       general_comparison,
       subject_comparison,
       skills_comparison,
     };
   });
 
-  const evaluations = student.evaluations.map((e) => ({
-    order: e.order ?? 0,
-    id: e.id,
-    title: e.title,
-    created_at: e.created_at,
-    application_date: e.application_date,
-    grade_id: (e as { grade_id?: string }).grade_id,
-    grade_name: (e as { grade_name?: string }).grade_name,
-    grade_names: (e as { grade_names?: string[] }).grade_names,
-    classes: (e as { classes?: EvaluationInfo['classes'] }).classes,
+  const evaluations: EvaluationInfo[] = evaluationsRaw.map((e, index) => ({
+    order: e.order ?? index + 1,
+    id: e.id ?? `eval-${index}`,
+    title: (e.title ?? ('titulo' in e ? e.titulo : undefined) ?? `Avaliação ${index + 1}`) as string,
+    created_at: e.created_at ?? undefined,
+    application_date: e.application_date ?? undefined,
+    grade_id: e.grade_id,
+    grade_name: e.grade_name,
+    grade_names: e.grade_names,
+    classes: e.classes,
   }));
 
   return {
     evaluations,
-    total_evaluations: student.total_evaluations,
+    total_evaluations: student.total_evaluations ?? evaluations.length,
     comparisons,
-    total_comparisons: student.total_comparisons,
+    total_comparisons: student.total_comparisons ?? comparisons.length,
   };
 }

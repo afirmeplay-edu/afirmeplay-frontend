@@ -1,5 +1,12 @@
 import { api } from '@/lib/api';
 import type { ComparisonResponse, StudentComparisonResponse } from '@/services/evaluation/evaluationComparisonApi';
+import type {
+  EvolucaoAlunoItem,
+  EvolucaoAlunosFiltersEcho,
+  EvolucaoAlunosPagination,
+  EvolucaoAlunosResponse,
+} from '@/services/evaluation/evaluationResultsApi';
+import { resolveEvolucaoAlunosPagination } from '@/services/evaluation/evaluationResultsApi';
 
 /** Parâmetros para GET /answer-sheets/evolucao/opcoes-filtros */
 export interface AnswerSheetEvolucaoOpcoesFiltrosParams {
@@ -46,6 +53,40 @@ export interface AnswerSheetEvolutionExportPayload {
   department?: string;
 }
 
+/** Parâmetros para GET /answer-sheets/evolucao/alunos */
+export interface AnswerSheetEvolucaoAlunosParams {
+  estado: string;
+  municipio: string;
+  escola?: string;
+  serie?: string;
+  turma?: string;
+  page?: number;
+  per_page?: number;
+  nome_aluno?: string;
+  data_inicio?: string;
+  data_fim?: string;
+}
+
+export type {
+  EvolucaoAlunoEvaluationResult as AnswerSheetEvolucaoAlunoEvaluationResult,
+  EvolucaoAlunoEvaluation as AnswerSheetEvolucaoAlunoEvaluation,
+  EvolucaoAlunoEvolutionMetrics as AnswerSheetEvolucaoAlunoEvolutionMetrics,
+  EvolucaoAlunoComparison as AnswerSheetEvolucaoAlunoComparison,
+  EvolucaoAlunoItem as AnswerSheetEvolucaoAlunoItem,
+  EvolucaoAlunosFiltersEcho as AnswerSheetEvolucaoAlunosFiltersEcho,
+  EvolucaoAlunosPagination as AnswerSheetEvolucaoAlunosPagination,
+} from '@/services/evaluation/evaluationResultsApi';
+
+/** Resposta de GET /answer-sheets/evolucao/alunos */
+export interface AnswerSheetEvolucaoAlunosResponse extends EvolucaoAlunosResponse {
+  source_type?: 'cartao_resposta' | string;
+  filters?: EvolucaoAlunosFiltersEcho;
+  pagination?: EvolucaoAlunosPagination;
+  students?: EvolucaoAlunoItem[];
+}
+
+export { resolveEvolucaoAlunosPagination };
+
 export class AnswerSheetComparisonApiService {
   /**
    * Opções geo para Evolução cartão-resposta.
@@ -64,6 +105,34 @@ export class AnswerSheetComparisonApiService {
     const requestConfig = params.municipio ? { meta: { cityId: params.municipio } } : {};
     const response = await api.get<AnswerSheetEvolucaoOpcoesFiltrosResponse>(url, requestConfig);
     return response.data ?? {};
+  }
+
+  /**
+   * Lista alunos com evolução individual (cartão-resposta).
+   * GET /answer-sheets/evolucao/alunos
+   */
+  static async getEvolucaoAlunos(
+    filters: AnswerSheetEvolucaoAlunosParams
+  ): Promise<AnswerSheetEvolucaoAlunosResponse> {
+    const params = new URLSearchParams({
+      estado: filters.estado,
+      municipio: filters.municipio,
+      page: String(filters.page ?? 1),
+      per_page: String(filters.per_page ?? 50),
+    });
+    if (filters.escola && filters.escola !== 'all') params.set('escola', filters.escola);
+    if (filters.serie && filters.serie !== 'all') params.set('serie', filters.serie);
+    if (filters.turma && filters.turma !== 'all') params.set('turma', filters.turma);
+    if (filters.nome_aluno?.trim()) params.set('nome_aluno', filters.nome_aluno.trim());
+    if (filters.data_inicio) params.set('data_inicio', filters.data_inicio);
+    if (filters.data_fim) params.set('data_fim', filters.data_fim);
+
+    const requestConfig = { meta: { cityId: filters.municipio } };
+    const response = await api.get<AnswerSheetEvolucaoAlunosResponse>(
+      `/answer-sheets/evolucao/alunos?${params.toString()}`,
+      requestConfig
+    );
+    return response.data ?? { students: [], source_type: 'cartao_resposta' };
   }
 
   /**
