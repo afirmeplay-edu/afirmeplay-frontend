@@ -204,17 +204,16 @@ function processSubjectComparison(comparison: ComparisonResponse): { [subjectNam
     });
   });
   
-  // Para cada disciplina normalizada, verificar se existe em todas as comparações
+  // Para cada disciplina normalizada, incluir se aparecer em pelo menos 1 comparação
+  // (antes exigia todas — com timelines longas os gráficos por disciplina ficavam vazios)
   allSubjectsMap.forEach((originalName, normalizedName) => {
-    // Verificar se a disciplina existe em todas as comparações
-    const existsInAll = comparison.comparisons.every(comp => {
-      return Object.keys(comp.subject_comparison).some(name => 
-        normalizeSubjectName(name) === normalizedName
-      );
-    });
-    
-    if (!existsInAll) {
-      // Pular disciplinas que não existem em todas as comparações
+    const presentInAny = comparison.comparisons.some((comp) =>
+      Object.keys(comp.subject_comparison || {}).some(
+        (name) => normalizeSubjectName(name) === normalizedName
+      )
+    );
+
+    if (!presentInAny) {
       return;
     }
     
@@ -224,7 +223,7 @@ function processSubjectComparison(comparison: ComparisonResponse): { [subjectNam
     // Primeira comparação
     if (comparison.comparisons[0]) {
       // Encontrar a disciplina na primeira comparação (pode ter case diferente)
-      const firstCompSubjectKey = Object.keys(comparison.comparisons[0].subject_comparison).find(
+      const firstCompSubjectKey = Object.keys(comparison.comparisons[0].subject_comparison || {}).find(
         name => normalizeSubjectName(name) === normalizedName
       );
       
@@ -240,7 +239,7 @@ function processSubjectComparison(comparison: ComparisonResponse): { [subjectNam
     
     // Comparações subsequentes
     for (let i = 1; i < comparison.comparisons.length; i++) {
-      const compSubjectKey = Object.keys(comparison.comparisons[i].subject_comparison).find(
+      const compSubjectKey = Object.keys(comparison.comparisons[i].subject_comparison || {}).find(
         name => normalizeSubjectName(name) === normalizedName
       );
       
@@ -253,8 +252,8 @@ function processSubjectComparison(comparison: ComparisonResponse): { [subjectNam
       }
     }
     
-    // Só adicionar se tiver valores válidos
-    if (values.length > 0) {
+    // Só adicionar se tiver pelo menos 2 pontos (1 par)
+    if (values.length >= 2) {
       const result: any = {
         name: originalName.toUpperCase(),
       };
@@ -306,17 +305,15 @@ function processSubjectProficiencyComparison(comparison: ComparisonResponse): { 
     });
   });
   
-  // Para cada disciplina normalizada, verificar se existe em todas as comparações
+  // Para cada disciplina normalizada, incluir se aparecer em pelo menos 1 comparação
   allSubjectsMap.forEach((originalName, normalizedName) => {
-    // Verificar se a disciplina existe em todas as comparações
-    const existsInAll = comparison.comparisons.every(comp => {
-      return Object.keys(comp.subject_comparison).some(name => 
-        normalizeSubjectName(name) === normalizedName
-      );
-    });
-    
-    if (!existsInAll) {
-      // Pular disciplinas que não existem em todas as comparações
+    const presentInAny = comparison.comparisons.some((comp) =>
+      Object.keys(comp.subject_comparison || {}).some(
+        (name) => normalizeSubjectName(name) === normalizedName
+      )
+    );
+
+    if (!presentInAny) {
       return;
     }
     
@@ -326,7 +323,7 @@ function processSubjectProficiencyComparison(comparison: ComparisonResponse): { 
     // Primeira comparação
     if (comparison.comparisons[0]) {
       // Encontrar a disciplina na primeira comparação (pode ter case diferente)
-      const firstCompSubjectKey = Object.keys(comparison.comparisons[0].subject_comparison).find(
+      const firstCompSubjectKey = Object.keys(comparison.comparisons[0].subject_comparison || {}).find(
         name => normalizeSubjectName(name) === normalizedName
       );
       
@@ -342,7 +339,7 @@ function processSubjectProficiencyComparison(comparison: ComparisonResponse): { 
     
     // Comparações subsequentes
     for (let i = 1; i < comparison.comparisons.length; i++) {
-      const compSubjectKey = Object.keys(comparison.comparisons[i].subject_comparison).find(
+      const compSubjectKey = Object.keys(comparison.comparisons[i].subject_comparison || {}).find(
         name => normalizeSubjectName(name) === normalizedName
       );
       
@@ -355,8 +352,8 @@ function processSubjectProficiencyComparison(comparison: ComparisonResponse): { 
       }
     }
     
-    // Só adicionar se tiver valores válidos
-    if (values.length > 0) {
+    // Só adicionar se tiver pelo menos 2 pontos (1 par)
+    if (values.length >= 2) {
       const result: any = {
         name: originalName.toUpperCase(),
       };
