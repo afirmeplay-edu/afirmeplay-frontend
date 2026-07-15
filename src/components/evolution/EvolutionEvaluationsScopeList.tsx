@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, GraduationCap, Users } from 'lucide-react';
+import { Calendar, GraduationCap, Users, ListOrdered } from 'lucide-react';
 import type { EvaluationInfo } from '@/services/evaluation/evaluationComparisonApi';
 import {
   formatEvaluationClassNames,
@@ -23,27 +23,53 @@ export function EvolutionScopeMetaLines({ evaluation }: { evaluation: Evaluation
   );
 }
 
+type ScopeDisplayMode = 'full' | 'title-only';
+
 type Props = {
   evaluations: EvaluationInfo[];
   /** Rótulo do instrumento (avaliação ou gabarito). */
   instrumentLabel?: string;
   variant?: 'screen' | 'pdf';
+  /** `title-only`: só nome (ex.: Evolução por aluno). */
+  displayMode?: ScopeDisplayMode;
 };
 
 function ScopeRow({
   evaluation,
   index,
   variant,
+  displayMode,
 }: {
   evaluation: EvaluationInfo;
   index: number;
   variant: 'screen' | 'pdf';
+  displayMode: ScopeDisplayMode;
 }) {
   const grades = formatEvaluationGradeNames(evaluation);
   const classes = formatEvaluationClassNames(evaluation);
   const dateLabel = formatEvaluationScopeDate(evaluation.application_date ?? evaluation.created_at);
+  const titleOnly = displayMode === 'title-only';
 
   if (variant === 'pdf') {
+    if (titleOnly) {
+      return (
+        <div
+          style={{
+            padding: '10px 12px',
+            border: '1px solid #e5e7eb',
+            borderRadius: '6px',
+            backgroundColor: '#f9fafb',
+            marginBottom: '8px',
+            pageBreakInside: 'avoid',
+          }}
+        >
+          <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#1f2937' }}>
+            {index + 1}. {evaluation.title}
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div
         style={{
@@ -66,6 +92,19 @@ function ScopeRow({
         </div>
         <div style={{ fontSize: '8px', color: '#374151' }}>
           <strong>Turmas:</strong> {classes || '—'}
+        </div>
+      </div>
+    );
+  }
+
+  if (titleOnly) {
+    return (
+      <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-7 h-7 shrink-0 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+            {index + 1}
+          </div>
+          <p className="font-semibold text-sm text-foreground leading-tight truncate">{evaluation.title}</p>
         </div>
       </div>
     );
@@ -119,9 +158,15 @@ export function EvolutionEvaluationsScopeList({
   evaluations,
   instrumentLabel = 'avaliações',
   variant = 'screen',
+  displayMode = 'full',
 }: Props) {
   const sorted = sortEvaluationsByOrder(evaluations);
   if (sorted.length === 0) return null;
+
+  const titleOnly = displayMode === 'title-only';
+  const sectionTitle = titleOnly
+    ? `${instrumentLabel.charAt(0).toUpperCase()}${instrumentLabel.slice(1)} selecionadas`
+    : `Séries e turmas das ${instrumentLabel}`;
 
   if (variant === 'pdf') {
     return (
@@ -135,10 +180,16 @@ export function EvolutionEvaluationsScopeList({
             marginTop: '0',
           }}
         >
-          Séries e turmas das {instrumentLabel}
+          {sectionTitle}
         </h2>
         {sorted.map((evaluation, index) => (
-          <ScopeRow key={evaluation.id} evaluation={evaluation} index={index} variant="pdf" />
+          <ScopeRow
+            key={evaluation.id}
+            evaluation={evaluation}
+            index={index}
+            variant="pdf"
+            displayMode={displayMode}
+          />
         ))}
       </div>
     );
@@ -148,13 +199,23 @@ export function EvolutionEvaluationsScopeList({
     <Card className="border border-border shadow-sm">
       <CardHeader className="pb-3">
         <CardTitle className="text-base font-semibold flex items-center gap-2">
-          <GraduationCap className="h-4 w-4 text-muted-foreground" />
-          Séries e turmas das {instrumentLabel}
+          {titleOnly ? (
+            <ListOrdered className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <GraduationCap className="h-4 w-4 text-muted-foreground" />
+          )}
+          {sectionTitle}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {sorted.map((evaluation, index) => (
-          <ScopeRow key={evaluation.id} evaluation={evaluation} index={index} variant="screen" />
+          <ScopeRow
+            key={evaluation.id}
+            evaluation={evaluation}
+            index={index}
+            variant="screen"
+            displayMode={displayMode}
+          />
         ))}
       </CardContent>
     </Card>

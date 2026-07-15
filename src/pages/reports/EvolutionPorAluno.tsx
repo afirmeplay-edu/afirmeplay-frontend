@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -17,6 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
   BarChart3,
+  Info,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/authContext';
@@ -30,7 +32,13 @@ import {
 import { AnswerSheetComparisonApiService } from '@/services/answer-sheet/answerSheetComparisonApi';
 import { EvolutionCharts } from '@/components/evolution/EvolutionCharts';
 import { processComparisonData } from '@/utils/evolution/evolutionDataProcessor';
-import { studentComparisonToComparisonResponse } from '@/utils/studentComparisonAdapter';
+import {
+  studentComparisonToComparisonResponse,
+  filterStudentEvolutionByEvaluationIds,
+  defaultSelectedEvaluationIds,
+  MAX_STUDENT_EVOLUTION_EVALUATIONS,
+} from '@/utils/studentComparisonAdapter';
+import { formatEvolutionMetric } from '@/utils/evolution/formatEvolutionMetric';
 
 type SourceMode = 'avaliacao' | 'cartao';
 
@@ -56,14 +64,6 @@ function extractApiError(error: unknown): string {
     }
   }
   return '';
-}
-
-function formatNumber(value: number | null | undefined, digits = 1): string {
-  if (value == null || Number.isNaN(Number(value))) return '—';
-  return Number(value).toLocaleString('pt-BR', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: digits,
-  });
 }
 
 function getStudentName(student: EvolucaoAlunoItem): string {
@@ -123,7 +123,7 @@ function EvolutionBadge({
 
   const dir = (direction || 'stable').toLowerCase();
   const value = percentage != null ? Math.abs(percentage) : 0;
-  const label = `${formatNumber(value, 1)}%`;
+  const label = `${formatEvolutionMetric(value, 'percentual')}%`;
 
   if (dir === 'increase') {
     return (
@@ -181,6 +181,7 @@ export default function EvolutionPorAluno() {
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [selectedStudentKey, setSelectedStudentKey] = useState<string | null>(null);
+  const [selectedEvaluationIds, setSelectedEvaluationIds] = useState<string[]>([]);
 
   const prevMunicipalityRef = useRef(selectedMunicipality);
   const prevSchoolRef = useRef(selectedSchool);
@@ -265,6 +266,7 @@ export default function EvolutionPorAluno() {
     setTotal(0);
     setTotalPages(1);
     setSelectedStudentKey(null);
+    setSelectedEvaluationIds([]);
     void loadInitialFilters();
   }, [sourceMode, loadInitialFilters]);
 
@@ -476,9 +478,11 @@ export default function EvolutionPorAluno() {
         setTotal(pagination.total);
         setTotalPages(pagination.total_pages);
 
-        const firstWithCharts = list.findIndex((s) => (s.comparisons?.length ?? 0) > 0);
+        const firstWithCharts = list.findIndex((s) => (s.evaluations?.length ?? 0) >= 2);
         const autoIndex = firstWithCharts >= 0 ? firstWithCharts : 0;
-        setSelectedStudentKey(list.length > 0 ? getStudentKey(list[autoIndex], autoIndex) : null);
+        const nextStudent = list.length > 0 ? list[autoIndex] : null;
+        setSelectedStudentKey(nextStudent ? getStudentKey(nextStudent, autoIndex) : null);
+        setSelectedEvaluationIds(defaultSelectedEvaluationIds(nextStudent?.evaluations));
       } catch (error) {
         console.error('Erro ao buscar evolução por aluno:', error);
         const message =
@@ -488,6 +492,7 @@ export default function EvolutionPorAluno() {
         setTotal(0);
         setTotalPages(1);
         setSelectedStudentKey(null);
+        setSelectedEvaluationIds([]);
         toast({
           title: 'Erro ao buscar alunos',
           description: message,
@@ -519,6 +524,7 @@ export default function EvolutionPorAluno() {
       setHasSearched(false);
       setSearchError(null);
       setSelectedStudentKey(null);
+      setSelectedEvaluationIds([]);
       setTotal(0);
       setTotalPages(1);
       return;
@@ -550,10 +556,42 @@ export default function EvolutionPorAluno() {
     return idx >= 0 ? students[idx] : null;
   }, [students, selectedStudentKey]);
 
-  const selectedStudentProcessedData = useMemo(() => {
-    const adapted = studentComparisonToComparisonResponse(selectedStudent);
-    return adapted ? processComparisonData(adapted) : null;
+  // Ao trocar de aluno, resetar seleção de avaliações (default: últimas 2)
+  useEffect(() => {
+    if (!selectedStudent) {
+      setSelectedEvaluationIds([]);
+      return;
+    }
+    setSelectedEvaluationIds(defaultSelectedEvaluationIds(selectedStudent.evaluations));
+  }, [selectedStudentKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const orderedStudentEvaluations = useMemo(() => {
+    return [...(selectedStudent?.evaluations ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   }, [selectedStudent]);
+
+  const selectedStudentProcessedData = useMemo(() => {
+    const filtered = filterStudentEvolutionByEvaluationIds(selectedStudent, selectedEvaluationIds);
+    const adapted = studentComparisonToComparisonResponse(filtered);
+    return adapted ? processComparisonData(adapted) : null;
+  }, [selectedStudent, selectedEvaluationIds]);
+
+  const toggleEvaluationSelection = useCallback((evaluationId: string, checked: boolean) => {
+    setSelectedEvaluationIds((prev) => {
+      if (checked) {
+        if (prev.includes(evaluationId)) return prev;
+        if (prev.length >= MAX_STUDENT_EVOLUTION_EVALUATIONS) {
+          toast({
+            title: 'Limite atingido',
+            description: `Você pode comparar no máximo ${MAX_STUDENT_EVOLUTION_EVALUATIONS} avaliações.`,
+            variant: 'destructive',
+          });
+          return prev;
+        }
+        return [...prev, evaluationId];
+      }
+      return prev.filter((id) => id !== evaluationId);
+    });
+  }, [toast]);
 
   const instrumentLabel = sourceMode === 'cartao' ? 'gabaritos' : 'avaliações';
 
@@ -906,34 +944,64 @@ export default function EvolutionPorAluno() {
                 </p>
               )}
             </CardHeader>
-            <CardContent>
-              {(() => {
-                const evaluations = [...(selectedStudent.evaluations ?? [])].sort(
-                  (a, b) => (a.order ?? 0) - (b.order ?? 0)
-                );
-                if (evaluations.length === 0) {
-                  return (
-                    <p className="text-sm text-muted-foreground">Sem avaliações neste recorte.</p>
-                  );
-                }
-                return (
+            <CardContent className="space-y-4">
+              {orderedStudentEvaluations.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Sem avaliações neste recorte.</p>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        Selecione as {instrumentLabel} para comparar
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Mínimo 2 · máximo {MAX_STUDENT_EVOLUTION_EVALUATIONS} · padrão: últimas 2
+                      </p>
+                    </div>
+                    <Badge variant="outline">
+                      {selectedEvaluationIds.length}/{MAX_STUDENT_EVOLUTION_EVALUATIONS} selecionada(s)
+                    </Badge>
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                    {evaluations.map((evaluation, evalIndex) => {
+                    {orderedStudentEvaluations.map((evaluation, evalIndex) => {
+                      const evalId = evaluation.id || `eval-${evalIndex}`;
                       const result = evaluation.result;
+                      const isChecked = selectedEvaluationIds.includes(evalId);
+                      const disableUncheck = isChecked && selectedEvaluationIds.length <= 2;
+                      const disableCheck =
+                        !isChecked && selectedEvaluationIds.length >= MAX_STUDENT_EVOLUTION_EVALUATIONS;
+
                       return (
-                        <div
-                          key={evaluation.id || `sel-eval-${evalIndex}`}
-                          className="rounded-lg border border-border/80 bg-background/80 p-3 space-y-2"
+                        <label
+                          key={evalId}
+                          className={`rounded-lg border p-3 space-y-2 cursor-pointer transition-colors ${
+                            isChecked
+                              ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                              : 'border-border/80 bg-background/80 hover:border-primary/40'
+                          } ${disableCheck ? 'opacity-60' : ''}`}
                         >
-                          <p className="font-medium text-sm text-foreground leading-snug">
-                            {getEvaluationTitle(evaluation, evalIndex)}
-                          </p>
-                          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs sm:text-sm">
+                          <div className="flex items-start gap-2">
+                            <Checkbox
+                              checked={isChecked}
+                              disabled={disableUncheck || disableCheck}
+                              onCheckedChange={(checked) =>
+                                toggleEvaluationSelection(evalId, checked === true)
+                              }
+                              className="mt-0.5"
+                            />
+                            <p className="font-medium text-sm text-foreground leading-snug flex-1">
+                              {getEvaluationTitle(evaluation, evalIndex)}
+                            </p>
+                          </div>
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs sm:text-sm pl-6">
                             <span className="text-muted-foreground">Nota</span>
-                            <span className="font-medium text-right">{formatNumber(result?.grade)}</span>
+                            <span className="font-medium text-right">
+                              {formatEvolutionMetric(result?.grade, 'nota')}
+                            </span>
                             <span className="text-muted-foreground">Proficiência</span>
                             <span className="font-medium text-right">
-                              {formatNumber(result?.proficiency, 0)}
+                              {formatEvolutionMetric(result?.proficiency, 'proficiencia')}
                             </span>
                             <span className="text-muted-foreground">Classificação</span>
                             <span className="font-medium text-right">
@@ -946,18 +1014,27 @@ export default function EvolutionPorAluno() {
                                   {result.correct_answers}
                                   {result.total_questions != null ? ` / ${result.total_questions}` : ''}
                                   {result.score_percentage != null
-                                    ? ` (${formatNumber(result.score_percentage, 0)}%)`
+                                    ? ` (${formatEvolutionMetric(result.score_percentage, 'percentual')}%)`
                                     : ''}
                                 </span>
                               </>
                             )}
                           </div>
-                        </div>
+                        </label>
                       );
                     })}
                   </div>
-                );
-              })()}
+
+                  <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <p>
+                      A <strong className="text-foreground">classificação</strong> vem das faixas de{' '}
+                      <strong className="text-foreground">proficiência</strong> (SAEB), não da nota 0–10.
+                      Por isso nota e nível podem parecer diferentes em limiares.
+                    </p>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -966,6 +1043,7 @@ export default function EvolutionPorAluno() {
               data={selectedStudentProcessedData}
               isLoading={false}
               instrumentLabel={instrumentLabel}
+              scopeDisplayMode="title-only"
             />
           ) : (
             <Card>
@@ -973,8 +1051,9 @@ export default function EvolutionPorAluno() {
                 <BarChart3 className="h-10 w-10 mx-auto mb-3 opacity-40" />
                 <p className="font-medium text-foreground mb-1">Sem comparação para gráficos</p>
                 <p className="text-sm max-w-md mx-auto">
-                  Este aluno precisa de pelo menos 2 {instrumentLabel} com resultado neste recorte
-                  para exibir os gráficos de evolução (Nota Geral, Proficiência, etc.).
+                  {orderedStudentEvaluations.length < 2
+                    ? `Este aluno precisa de pelo menos 2 ${instrumentLabel} com resultado neste recorte.`
+                    : `Selecione pelo menos 2 ${instrumentLabel} acima para exibir os gráficos de evolução.`}
                 </p>
               </CardContent>
             </Card>

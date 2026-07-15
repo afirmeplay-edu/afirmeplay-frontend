@@ -64,6 +64,8 @@ interface EvolutionChartsProps {
   instrumentLabel?: string;
   /** Se true, exibe apenas o conteúdo da aba "Visão Geral" (sem abas Por Disciplina / Por Níveis) */
   onlyOverviewTab?: boolean;
+  /** Lista de avaliações só com o nome (sem data/série/turmas). */
+  scopeDisplayMode?: 'full' | 'title-only';
 }
 
 const colors = {
@@ -342,7 +344,7 @@ function mergeByName(rows: EvolutionData[]): EvolutionDataWithDynamicKeys[] {
   return [...map.values()];
 }
 
-export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = false, instrumentLabel = 'avaliações' }: EvolutionChartsProps) {
+export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = false, instrumentLabel = 'avaliações', scopeDisplayMode = 'full' }: EvolutionChartsProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'subjects' | 'levels'>('general');
   const [hiddenByChart, setHiddenByChart] = useState<Record<string, Set<string>>>({});
   const [collapsedCharts, setCollapsedCharts] = useState<Set<string>>(new Set());
@@ -852,6 +854,7 @@ export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = fal
             evaluations={data.evaluations}
             instrumentLabel={instrumentLabel}
             variant="screen"
+            displayMode={scopeDisplayMode}
           />
         )}
 
