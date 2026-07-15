@@ -1050,16 +1050,6 @@ export default function ViewEvaluation({
               <label className="text-sm font-medium text-muted-foreground">Modelo</label>
               <p className="text-sm dark:text-gray-300">{evaluation.model || 'Não informado'}</p>
             </div>
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Modo de Aplicação</label>
-              <p className="text-sm dark:text-gray-300">
-                {evaluation.evaluation_mode === 'subjective'
-                  ? 'Presencial — correção manual por rubrica'
-                  : evaluation.evaluation_mode === 'physical'
-                    ? 'Papel (gabarito ótico)'
-                    : 'Online'}
-              </p>
-            </div>
             <div className="flex items-center gap-4 pt-2 border-t dark:border-gray-800">
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-muted-foreground" />

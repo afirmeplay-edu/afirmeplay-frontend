@@ -28,6 +28,8 @@ import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import QuestionPreview from "./questions/QuestionPreview";
 import { Question } from "./types";
+import { mapApiQuestionTypeToForm } from "@/utils/questionTypeMapping";
+import type { Interaction } from "@/lib/question-interactions";
 
 interface ApiQuestionOption {
   id?: string;
@@ -46,6 +48,9 @@ interface ApiQuestion {
   grade_id?: string;
   difficulty_level?: string;
   difficulty?: string; // Campo alternativo da API
+  /** Campo real retornado por /questions (ex.: "multiple_choice", "ligar_colunas", ...). */
+  type?: string;
+  /** Campo legado/alternativo, mantido por segurança — não é o nome usado por /questions. */
   question_type?: string;
   value?: number;
   correct_answer?: string;
@@ -55,6 +60,9 @@ interface ApiQuestion {
   created_by?: string;
   secondStatement?: string;
   second_statement?: string;
+  /** Configuração da interação, para as questões subjetivas (ligar colunas, arrastar e soltar, etc.). */
+  interaction_config?: Interaction | null;
+  interactionConfig?: Interaction | null;
 }
 
 interface Subject {
@@ -313,21 +321,12 @@ export function QuestionBank({
       }
 
       const convertedQuestions: Question[] = questionsData.map((apiQuestion) => {
-        const getQuestionType = (type: string | undefined): "multipleChoice" | "dissertativa" | "trueFalse" => {
-          switch (type) {
-            case "multipleChoice":
-            case "multiple_choice":
-              return "multipleChoice";
-            case "open":
-            case "essay":
-            case "dissertativa":
-              return "dissertativa";
-            case "trueFalse":
-            case "true_false":
-              return "trueFalse";
-            default:
-              return "multipleChoice";
-          }
+        // ✅ CORRIGIDO: preserva os tipos de interação subjetiva (ligar_colunas, arrastar_soltar, etc.)
+        // em vez de rotulá-los como "multipleChoice" — isso fazia a validação de alternativas
+        // marcar essas questões como inválidas ao criar/editar uma avaliação.
+        const getQuestionType = (type: string | undefined): Question["type"] => {
+          if (type === "trueFalse" || type === "true_false") return "trueFalse";
+          return mapApiQuestionTypeToForm(type);
         };
 
         // Mapear dificuldades corretamente
@@ -362,7 +361,7 @@ export function QuestionBank({
           id: apiQuestion.id,
           text: apiQuestion.text || apiQuestion.formatted_text || "",
           title: apiQuestion.title || "",
-          type: getQuestionType(apiQuestion.question_type),
+          type: getQuestionType(apiQuestion.type ?? apiQuestion.question_type),
           difficulty: mapDifficulty(apiQuestion.difficulty_level || apiQuestion.difficulty),
           subjectId: apiQuestion.subject_id || apiQuestion.subject?.id || "",
           subject: apiQuestion.subject ? {
@@ -379,6 +378,7 @@ export function QuestionBank({
             text: alt.text,
             isCorrect: alt.isCorrect || false
           })) || [],
+          interactionConfig: apiQuestion.interaction_config || apiQuestion.interactionConfig || undefined,
           created_by: apiQuestion.created_by || "",
           skills: Array.isArray(apiQuestion.skill) && apiQuestion.skill.length > 0 
             ? apiQuestion.skill[0] 

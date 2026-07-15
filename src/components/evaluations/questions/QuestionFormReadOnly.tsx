@@ -3,34 +3,37 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { DisciplineTag } from "@/components/ui/discipline-tag";
-import { useForm, useFieldArray, useWatch } from "react-hook-form";
+import { useForm, useFieldArray, useWatch, type FieldErrors } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, Book, Check, List as ListIcon, Minus, Plus, Save, Eye, Heading1, Heading2, Heading3, List, Code, Type, Trash } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Question, Subject } from "../types";
 import { api, BASE_URL } from "@/lib/api";
-import { getQuestionHtmlForDisplay, toRelativeQuestionImageSrc } from "@/utils/questionImages";
+import { toRelativeQuestionImageSrc } from "@/utils/questionImages";
 import { useToast } from "@/hooks/use-toast";
 import './QuestionForm.css';
 import MyEditor from './MyEditor';
 import './MyEditor.css';
 import { Option } from "@/components/ui/multi-select";
 import { useAuth } from "@/context/authContext";
+import QuestionPreview from "./QuestionPreview";
 import SkillsSelector from "./SkillsSelector";
 import { QuestionOptionInput } from "./QuestionOptionInput";
-import { QuestionOptionContent } from "./QuestionOptionContent";
 import {
     mapOptionToApiPayload,
     optionHasContent,
     getActiveQuestionOptions,
 } from "@/utils/questionOptionImages";
+import {
+    scrollToFirstError,
+    scrollToFirstFormError,
+    getFieldLabel,
+    getFirstFormErrorMessage,
+} from "@/utils/formValidation";
 import {
     SUBJECTIVE_INTERACTION_TYPES,
     defaultInteraction,
@@ -41,7 +44,6 @@ import {
 import { type FormQuestionType } from "@/utils/questionTypeMapping";
 import SubjectiveTypePicker from "./SubjectiveTypePicker";
 import SubjectiveInteractionEditor from "./SubjectiveInteractionEditor";
-import SubjectiveInteractionPreview from "./SubjectiveInteractionPreview";
 
 const FORM_QUESTION_TYPES = ["multipleChoice", ...SUBJECTIVE_INTERACTION_TYPES] as [string, ...string[]];
 
@@ -58,6 +60,7 @@ const baseSchema = z.object({
     solution: z.string().optional(),
     options: z.array(
         z.object({
+            id: z.string().optional(),
             text: z.string(),
             isCorrect: z.boolean(),
             image: z
@@ -75,7 +78,6 @@ const baseSchema = z.object({
     ).optional(),
     secondStatement: z.string().optional(),
     skills: z.array(z.string()).optional(),
-    skillText: z.string().optional(),
     topics: z.string().optional(),
     questionType: z.enum(FORM_QUESTION_TYPES),
 });
@@ -108,17 +110,16 @@ const questionSchema = baseSchema.superRefine((data, ctx) => {
                 });
             }
         }
-
-        if (!data.skills || data.skills.length === 0) {
-            ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: 'Selecione pelo menos uma habilidade.',
-                path: ['skills'],
-            });
-        }
     }
-    // Questões subjetivas (dissertativa e demais tipos de interação) não exigem
-    // alternativas nem habilidade da tabela BNCC — usam skillText (texto livre).
+
+    // Habilidade (BNCC) é obrigatória para qualquer tipo de questão, inclusive as subjetivas.
+    if (!data.skills || data.skills.length === 0) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Selecione pelo menos uma habilidade.',
+            path: ['skills'],
+        });
+    }
 });
 
 type QuestionFormValues = z.infer<typeof questionSchema>;
@@ -153,135 +154,6 @@ interface QuestionFormReadOnlyProps {
     defaultToSubjective?: boolean;
 }
 
-const QuestionPreview: React.FC<{ data: QuestionFormValues; interactionConfig?: Interaction }> = ({ data, interactionConfig }) => {
-    const [subjects, setSubjects] = useState<Subject[]>([]);
-    const [grades, setGrades] = useState<{ id: string; name: string }[]>([]);
-    const [skillsOptions, setSkillsOptions] = useState<{ id: string; name: string }[]>([]);
-
-    useEffect(() => {
-        const fetchSubjects = async () => {
-            try {
-                const response = await api.get("/subjects");
-                setSubjects(response.data);
-            } catch (error) {
-                console.error("Erro ao buscar disciplinas:", error);
-            }
-        };
-        const fetchGrades = async () => {
-            try {
-                const response = await api.get("/grades/");
-                setGrades(response.data);
-            } catch (error) {
-                console.error("Erro ao buscar séries:", error);
-            }
-        };
-        const fetchSkills = async () => {
-            if (data.subjectId) {
-                try {
-                    const response = await api.get<ApiSkill[]>(`/skills/subject/${data.subjectId}`);
-                    if (Array.isArray(response.data)) {
-                        setSkillsOptions(response.data.map((skill) => ({ id: skill.id, name: `${skill.code} - ${skill.description}` })));
-                    } else {
-                        setSkillsOptions([]);
-                    }
-                } catch (error) {
-                    setSkillsOptions([]);
-                }
-            }
-        };
-        fetchSubjects();
-        fetchGrades();
-        fetchSkills();
-    }, [data.subjectId]);
-
-    const selectedSubject = subjects.find(s => s.id === data.subjectId);
-    const selectedGrade = grades.find(g => g.id === data.grade);
-    // Buscar nomes das habilidades (apenas os 7 primeiros caracteres)
-    const selectedSkills = data.skills 
-        ? data.skills.map(skillId => 
-            skillsOptions.find(opt => opt.id === skillId)?.name.substring(0, 6) || skillId
-          )
-        : [];
-
-    return (
-        <div className="space-y-6 p-4">
-            <div className="space-y-2">
-                <h3 className="text-lg font-semibold">{data.title}</h3>
-                <div className="flex flex-wrap gap-2">
-                    <Badge variant="outline">{selectedGrade?.name || data.grade}</Badge>
-                    <DisciplineTag
-                      subjectId={selectedSubject?.id || data.subjectId}
-                      name={selectedSubject?.name || data.subjectId}
-                    />
-                    <Badge variant="outline">{data.difficulty}</Badge>
-                    <Badge variant="outline">Valor: {data.value}</Badge>
-                    {selectedSkills.map(skill => (
-                        <Badge key={skill} variant="outline">{skill}</Badge>
-                    ))}
-                </div>
-            </div>
-
-            <div className="space-y-4">
-                {data.text && (
-                    <div>
-                        <h4 className="font-medium mb-2">Enunciado:</h4>
-                        <div
-                            className="prose max-w-none question-enunciado-html"
-                            dangerouslySetInnerHTML={{
-                                __html: getQuestionHtmlForDisplay(data.text, BASE_URL),
-                            }}
-                        />
-                    </div>
-                )}
-                {data.secondStatement?.trim() && (
-                    <div>
-                        <h4 className="font-medium mb-2">Segundo Enunciado:</h4>
-                        <div
-                            className="prose max-w-none question-enunciado-html"
-                            dangerouslySetInnerHTML={{
-                                __html: getQuestionHtmlForDisplay(data.secondStatement, BASE_URL),
-                            }}
-                        />
-                    </div>
-                )}
-            </div>
-
-            {(data.options?.length ?? 0) > 0 && (
-                <div className="space-y-3">
-                    <h4 className="font-medium">Alternativas:</h4>
-                    {data.options!.map((option, index) => (
-                        <div key={index} className="flex items-start gap-2">
-                            <div className={`w-6 h-6 shrink-0 rounded-full border flex items-center justify-center text-xs ${option.isCorrect ? 'bg-primary text-primary-foreground' : 'bg-background'
-                                }`}>
-                                {String.fromCharCode(65 + index)}
-                            </div>
-                            <QuestionOptionContent
-                                text={option.text}
-                                image={option.image}
-                                apiBase={BASE_URL}
-                            />
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {data.questionType !== 'multipleChoice' && interactionConfig && (
-                <div className="space-y-3">
-                    <h4 className="font-medium">Interação ({data.questionType}):</h4>
-                    <SubjectiveInteractionPreview interaction={interactionConfig} />
-                </div>
-            )}
-
-            {data.solution && (
-                <div className="space-y-2">
-                    <h4 className="font-medium">Resolução:</h4>
-                    <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: getQuestionHtmlForDisplay(data.solution, BASE_URL) }} />
-                </div>
-            )}
-        </div>
-    );
-};
-
 const QuestionFormReadOnly = ({
     onSubmit: externalOnSubmit,
     open,
@@ -295,6 +167,8 @@ const QuestionFormReadOnly = ({
     const [grades, setGrades] = useState<{ id: string; name: string }[]>([]);
     const [skills, setSkills] = useState<SkillOption[]>([]);
     const [showPreview, setShowPreview] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
     const [questionType, setQuestionType] = useState<FormQuestionType>(defaultToSubjective ? 'dissertativa' : 'multipleChoice');
     const [interactionConfig, setInteractionConfig] = useState<Interaction>(defaultInteraction('dissertativa'));
     const { toast } = useToast();
@@ -305,6 +179,8 @@ const QuestionFormReadOnly = ({
 
     const form = useForm<QuestionFormValues>({
         resolver: zodResolver(questionSchema),
+        mode: "onSubmit",
+        reValidateMode: "onSubmit",
         defaultValues: {
             title: "",
             text: "",
@@ -318,10 +194,10 @@ const QuestionFormReadOnly = ({
                 emptyOption(),
                 emptyOption(),
                 emptyOption(),
+                emptyOption(),
             ],
             secondStatement: "",
             skills: [], // Array vazio ao invés de string vazia
-            skillText: "",
             topics: "",
             questionType: defaultToSubjective ? 'dissertativa' : 'multipleChoice',
         },
@@ -363,6 +239,7 @@ const QuestionFormReadOnly = ({
 
             if (!hasOptionsWithContent) {
                 form.setValue('options', [
+                    emptyOption(),
                     emptyOption(),
                     emptyOption(),
                     emptyOption(),
@@ -487,8 +364,75 @@ const QuestionFormReadOnly = ({
         return tempDiv.textContent || tempDiv.innerText || '';
     }
 
+    const handleFormInvalid = (errors: FieldErrors<QuestionFormValues>) => {
+        setHasAttemptedSubmit(true);
+        scrollToFirstFormError(errors);
+        toast({
+            title: "Não foi possível salvar a questão",
+            description: getFirstFormErrorMessage(errors),
+            variant: "destructive",
+        });
+    };
+
     const handleFormSubmit = async (data: QuestionFormValues) => {
+        setHasAttemptedSubmit(true);
+
+        // Forçar validação do formulário
+        const isValid = await form.trigger();
+
+        if (!isValid) {
+            const errors = form.formState.errors;
+            const firstErrorField = Object.keys(errors)[0];
+            scrollToFirstError(errors);
+
+            toast({
+                title: "Campo obrigatório não preenchido",
+                description: `Por favor, preencha o campo "${getFieldLabel(firstErrorField)}"`,
+                variant: "destructive",
+            });
+            return;
+        }
+
+        // Validação customizada para alternativas (múltipla escolha)
+        if (data.questionType === 'multipleChoice') {
+            const activeOptions = getActiveQuestionOptions(data.options);
+
+            if (activeOptions.length < 2) {
+                scrollToFirstFormError({ options: { message: 'Adicione pelo menos duas alternativas.' } });
+                toast({
+                    title: "Alternativas insuficientes",
+                    description: "Adicione pelo menos 2 alternativas para questões de múltipla escolha",
+                    variant: "destructive",
+                });
+                return;
+            }
+
+            if (!activeOptions.some((opt) => opt.isCorrect)) {
+                scrollToFirstFormError({ options: { message: 'Marque uma alternativa como correta.' } });
+                toast({
+                    title: "Resposta correta não marcada",
+                    description: "Clique no círculo à esquerda de uma alternativa para marcá-la como correta",
+                    variant: "destructive",
+                });
+                return;
+            }
+
+            const emptyOptionIndex = activeOptions.findIndex((opt) => !optionHasContent(opt));
+            if (emptyOptionIndex !== -1) {
+                scrollToFirstFormError({
+                    options: [{ text: { message: 'Preencha o texto, uma expressão ou uma imagem na alternativa.' } }],
+                });
+                toast({
+                    title: "Alternativa incompleta",
+                    description: `Preencha texto, expressão LaTeX ou imagem na alternativa ${String.fromCharCode(65 + emptyOptionIndex)}`,
+                    variant: "destructive",
+                });
+                return;
+            }
+        }
+
         try {
+            setIsSubmitting(true);
             // Debug: verificar dados do formulário
             console.log('🔍 QuestionFormReadOnly - Dados do formulário:', data);
             console.log('🔍 QuestionFormReadOnly - evaluationData:', evaluationData);
@@ -547,12 +491,9 @@ const QuestionFormReadOnly = ({
                 createdBy: user?.id || '',
             };
 
+            payload.skills = data.skills;
             if (isSubjectiveQuestion) {
-                // Questões subjetivas usam habilidade em texto livre e não a tabela de skills.
-                payload.skillText = data.skillText || "";
                 payload.interactionConfig = interactionConfig;
-            } else {
-                payload.skills = data.skills;
             }
 
             // Criar objeto Question para compatibilidade com a interface
@@ -573,7 +514,6 @@ const QuestionFormReadOnly = ({
                 formattedSolution: payload.formattedSolution as string,
                 options: payload.options as Question['options'],
                 skills: Array.isArray(skills) && skills.length > 0 ? skills[0] : undefined, // ✅ CORREÇÃO: skills é uma string única, não array
-                skillText: isSubjectiveQuestion ? (data.skillText || "") : undefined,
                 interactionConfig: isSubjectiveQuestion ? interactionConfig : undefined,
                 created_by: payload.createdBy as string,
                 lastModifiedBy: payload.lastModifiedBy as string,
@@ -609,6 +549,8 @@ const QuestionFormReadOnly = ({
                 description: "Não foi possível salvar a avaliação",
                 variant: "destructive",
             });
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -620,7 +562,7 @@ const QuestionFormReadOnly = ({
                     variant="outline"
                     onClick={() => setShowPreview(!showPreview)}
                     type="button"
-                    className="flex items-center gap-2"
+                    className="flex items-center gap-2 text-foreground border-border"
                 >
                     <Eye className="h-4 w-4" />
                     {showPreview ? "Voltar à Edição" : "Visualizar"}
@@ -628,19 +570,49 @@ const QuestionFormReadOnly = ({
             </div>
 
             {showPreview ? (
-                <div className="bg-muted dark:bg-muted/50 rounded-xl border-2 border-border p-6">
+                <div className="bg-muted rounded-xl border-2 border-border p-6">
                     <div className="flex items-center gap-2 mb-4">
                         <Eye className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                         <h3 className="text-lg font-semibold text-foreground">Preview da Questão</h3>
                     </div>
-                    <QuestionPreview data={{ ...form.getValues(), questionType }} interactionConfig={interactionConfig} />
+                    {(() => {
+                        const formData = form.getValues();
+                        const previewQuestion: Question = {
+                            id: 'preview',
+                            title: formData.title,
+                            text: formData.text,
+                            formattedText: formData.text,
+                            type: formData.questionType,
+                            subjectId: formData.subjectId,
+                            subject: subjects.find(s => s.id === formData.subjectId) || { id: formData.subjectId, name: 'Carregando...' },
+                            grade: grades.find(g => g.id === formData.grade) || { id: formData.grade, name: 'Carregando...' },
+                            difficulty: formData.difficulty,
+                            value: Number(formData.value),
+                            solution: formData.solution || '',
+                            formattedSolution: formData.solution || '',
+                            options: formData.questionType === 'multipleChoice'
+                                ? (formData.options ?? []).map((o, i) => ({
+                                    id: o.id ?? `preview-${i}`,
+                                    text: o.text || '',
+                                    isCorrect: o.isCorrect || false,
+                                    image: o.image ?? undefined,
+                                }))
+                                : [],
+                            skills: formData.skills || [],
+                            interactionConfig: formData.questionType !== 'multipleChoice' ? interactionConfig : undefined,
+                            created_by: user?.id || '',
+                            secondStatement: formData.secondStatement,
+                            educationStage: null
+                        };
+                        return <QuestionPreview question={previewQuestion} />;
+                    })()}
                 </div>
             ) : (
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-8">
+                    <form onSubmit={form.handleSubmit(handleFormSubmit, handleFormInvalid)} className="space-y-8">
 
                         {/* Seção: Informações Básicas */}
-                        <div className="bg-blue-50 dark:bg-card rounded-xl p-6 border border-blue-200 dark:border-border">
+                        <div className="bg-blue-50 dark:bg-muted/40 rounded-xl p-6 border border-blue-200 dark:border-border">
                             <div className="flex items-center gap-2 mb-4">
                                 <Book className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                                 <h3 className="text-lg font-semibold text-foreground">Informações Básicas</h3>
@@ -653,7 +625,7 @@ const QuestionFormReadOnly = ({
                                         name="title"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel className="text-sm font-semibold text-foreground">Titulo da Questão *</FormLabel>
+                                                <FormLabel className="text-sm font-semibold text-foreground">Conteúdo da Questão *</FormLabel>
                                                 <FormControl>
                                                     <Input
                                                         {...field}
@@ -767,14 +739,13 @@ const QuestionFormReadOnly = ({
                                     )}
                                 />
 
-                                {questionType === 'multipleChoice' ? (
                                 <FormField
                                     control={form.control}
                                     name="skills"
                                     render={({ field }) => (
                                         <FormItem className="sm:col-span-2 min-w-0">
                                             <FormLabel className="text-sm font-semibold text-foreground">
-                                                Habilidades (BNCC)
+                                                Habilidades (BNCC) *
                                                 <span className="text-muted-foreground font-normal ml-1">
                                                     {skills.length > 0 ? `(${skills.length} disponíveis)` : ''}
                                                 </span>
@@ -814,33 +785,11 @@ const QuestionFormReadOnly = ({
                                         </FormItem>
                                     )}
                                 />
-                                ) : (
-                                <FormField
-                                    control={form.control}
-                                    name="skillText"
-                                    render={({ field }) => (
-                                        <FormItem className="sm:col-span-2 min-w-0">
-                                            <FormLabel className="text-sm font-semibold text-foreground">
-                                                Habilidade
-                                                <span className="text-muted-foreground font-normal ml-1">(texto livre, opcional)</span>
-                                            </FormLabel>
-                                            <FormControl>
-                                                <Input
-                                                    {...field}
-                                                    placeholder="Ex.: EF05MA07 - Resolver problemas envolvendo cálculo de área..."
-                                                    className="h-11"
-                                                />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                )}
                             </div>
                         </div>
 
                         {/* Seção: Tipo de Questão */}
-                        <div className="bg-purple-50 dark:bg-card rounded-xl p-6 border border-purple-200 dark:border-border">
+                        <div className="bg-purple-50 dark:bg-muted/40 rounded-xl p-6 border border-purple-200 dark:border-border">
                             <div className="flex items-center gap-2 mb-4">
                                 <ListIcon className="h-5 w-5 text-purple-600 dark:text-purple-400" />
                                 <h3 className="text-lg font-semibold text-foreground">Tipo de Questão</h3>
@@ -853,8 +802,8 @@ const QuestionFormReadOnly = ({
                                     size="lg"
                                     onClick={() => handleSetMainType('multipleChoice')}
                                     className={`w-full h-auto min-h-[4rem] p-4 ${questionType === 'multipleChoice'
-                                        ? 'bg-purple-600 dark:bg-purple-700 hover:bg-purple-700 dark:hover:bg-purple-600 text-white shadow-lg'
-                                        : 'hover:bg-purple-50 dark:hover:bg-purple-950/50 hover:border-purple-300 dark:hover:border-purple-700'
+                                        ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-lg'
+                                        : 'hover:bg-purple-50 dark:hover:bg-muted/60 hover:border-purple-300 dark:hover:border-border'
                                         }`}
                                 >
                                     <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3">
@@ -872,8 +821,8 @@ const QuestionFormReadOnly = ({
                                     size="lg"
                                     onClick={() => handleSetMainType('subjective')}
                                     className={`w-full h-auto min-h-[4rem] p-4 ${questionType !== 'multipleChoice'
-                                        ? 'bg-purple-600 dark:bg-purple-700 hover:bg-purple-700 dark:hover:bg-purple-600 text-white shadow-lg'
-                                        : 'hover:bg-purple-50 dark:hover:bg-purple-950/50 hover:border-purple-300 dark:hover:border-purple-700'
+                                        ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-lg'
+                                        : 'hover:bg-purple-50 dark:hover:bg-muted/60 hover:border-purple-300 dark:hover:border-border'
                                         }`}
                                 >
                                     <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3">
@@ -901,7 +850,7 @@ const QuestionFormReadOnly = ({
                         </div>
 
                         {/* Seção: Enunciados */}
-                        <div className="bg-green-50 dark:bg-card rounded-xl p-6 border border-green-200 dark:border-border">
+                        <div className="bg-green-50 dark:bg-muted/40 rounded-xl p-6 border border-green-200 dark:border-border">
                             <div className="flex items-center gap-2 mb-4">
                                 <Type className="h-5 w-5 text-green-600 dark:text-green-400" />
                                 <h3 className="text-lg font-semibold text-foreground">Enunciados</h3>
@@ -949,8 +898,15 @@ const QuestionFormReadOnly = ({
 
                         {/* Seção: Alternativas (apenas para múltipla escolha) */}
                         {questionType === 'multipleChoice' && (
-                            <div className="bg-orange-50 dark:bg-orange-950/30 rounded-xl p-6 border border-orange-200 dark:border-orange-800">
-                                <div className="flex items-center justify-between mb-4">
+                            <div
+                                id="question-form-options"
+                                className={`bg-orange-50 dark:bg-muted/40 rounded-xl p-6 border transition-colors ${
+                                    form.formState.errors.options
+                                        ? 'border-red-500 dark:border-red-500 ring-2 ring-red-200 dark:ring-red-900/50'
+                                        : 'border-orange-200 dark:border-border'
+                                }`}
+                            >
+                                <div className="flex items-center justify-between mb-2">
                                     <div className="flex items-center gap-2">
                                         <Check className="h-5 w-5 text-orange-600 dark:text-orange-400" />
                                         <h3 className="text-lg font-semibold text-foreground">Alternativas</h3>
@@ -961,7 +917,7 @@ const QuestionFormReadOnly = ({
                                             variant="outline"
                                             size="sm"
                                             onClick={addOption}
-                                            className="flex items-center gap-2 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-400 hover:bg-orange-100 dark:hover:bg-orange-950/50"
+                                            className="flex items-center gap-2 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-orange-900/50"
                                         >
                                             <Plus className="h-4 w-4" />
                                             Adicionar Alternativa
@@ -974,6 +930,15 @@ const QuestionFormReadOnly = ({
                                     <span className="font-medium text-green-700 dark:text-green-400">correta</span>.
                                 </p>
 
+                                {hasAttemptedSubmit && form.formState.errors.options?.message && (
+                                    <div
+                                        role="alert"
+                                        className="mb-4 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-300"
+                                    >
+                                        {form.formState.errors.options.message}
+                                    </div>
+                                )}
+
                                 <div className="space-y-4">
                                     {fields.map((field, index) => (
                                         <div key={field.id} className="flex items-center gap-4 p-4 bg-card rounded-lg border border-border shadow-sm">
@@ -981,9 +946,12 @@ const QuestionFormReadOnly = ({
                                                 type="button"
                                                 onClick={() => handleRadioChange(index)}
                                                 className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all shrink-0 ${form.watch("options")?.[index]?.isCorrect
-                                                    ? 'bg-green-500 dark:bg-green-600 border-green-500 dark:border-green-600 text-white shadow-lg'
-                                                    : 'bg-card dark:bg-card border-border hover:border-border/80'
+                                                    ? 'bg-green-500 border-green-500 text-white shadow-lg'
+                                                    : hasAttemptedSubmit && form.formState.errors.options
+                                                        ? 'bg-card border-red-400 dark:border-red-500 hover:border-red-500'
+                                                        : 'bg-card border-border hover:border-green-400 dark:hover:border-green-600'
                                                     }`}
+                                                title="Marcar como alternativa correta"
                                                 aria-label={`Marcar alternativa ${String.fromCharCode(65 + index)} como correta`}
                                             >
                                                 {form.watch("options")?.[index]?.isCorrect ? <Check className="w-4 h-4" /> : null}
@@ -1025,7 +993,7 @@ const QuestionFormReadOnly = ({
                                                     variant="ghost"
                                                     size="sm"
                                                     onClick={() => remove(index)}
-                                                    className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/30"
+                                                    className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/50"
                                                     aria-label="Remover alternativa"
                                                 >
                                                     <Trash className="w-4 h-4" />
@@ -1034,17 +1002,11 @@ const QuestionFormReadOnly = ({
                                         </div>
                                     ))}
                                 </div>
-
-                                {form.formState.errors.options && (
-                                    <p className="text-red-600 text-sm mt-2">
-                                        {form.formState.errors.options.message}
-                                    </p>
-                                )}
                             </div>
                         )}
 
                         {/* Seção: Resolução */}
-                        <div className="bg-indigo-50 dark:bg-indigo-950/30 rounded-xl p-6 border border-indigo-200 dark:border-indigo-800">
+                        <div className="bg-indigo-50 dark:bg-muted/40 rounded-xl p-6 border border-indigo-200 dark:border-border">
                             <div className="flex items-center gap-2 mb-4">
                                 <Save className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                                 <h3 className="text-lg font-semibold text-foreground">
@@ -1086,13 +1048,21 @@ const QuestionFormReadOnly = ({
                             </Button>
                             <Button
                                 type="submit"
+                                disabled={isSubmitting}
                                 size="lg"
                                 className="w-full sm:w-auto px-6 sm:px-8 bg-blue-600 hover:bg-blue-700 order-1 sm:order-2"
                             >
-                                <div className="flex items-center justify-center gap-2">
-                                    <Plus className="h-4 w-4" />
-                                    <span>Criar Questão</span>
-                                </div>
+                                {isSubmitting ? (
+                                    <div className="flex items-center justify-center gap-2">
+                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                        <span>Salvando...</span>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center justify-center gap-2">
+                                        <Plus className="h-4 w-4" />
+                                        <span>Criar Questão</span>
+                                    </div>
+                                )}
                             </Button>
                         </div>
                     </form>

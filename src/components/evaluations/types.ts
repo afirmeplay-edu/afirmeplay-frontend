@@ -92,8 +92,6 @@ export interface Question {
   skills?: string | string[]; // id(s) ou códigos (normalizado como array no front)
   /** Código da habilidade vinculada (skill_code) para exibição */
   skillCode?: string;
-  /** Habilidade digitada livremente (questões subjetivas) — não usa a tabela skills. */
-  skillText?: string;
   /** Configuração da interação (formato livre, ver src/lib/question-interactions.ts). */
   interactionConfig?: import('@/lib/question-interactions').Interaction;
   created_by: string;

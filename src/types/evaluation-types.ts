@@ -40,9 +40,7 @@ export interface Question {
     }[];
     points: number;
     difficulty: "easy" | "medium" | "hard";
-    /** Habilidade digitada livremente (questões subjetivas) — não usa a tabela skills. */
     skill?: string | null;
-    skillText?: string | null;
     /** Configuração da interação (formato livre, ver src/lib/question-interactions.ts). */
     interactionConfig?: import('@/lib/question-interactions').Interaction;
     // ✅ NOVO: Mapeamento de posições embaralhadas para originais
@@ -231,7 +229,6 @@ export interface Evaluation {
         subject?: Subject;
         skills?: string[];
         skill?: string | null;
-        skillText?: string | null;
         interactionConfig?: import('@/lib/question-interactions').Interaction;
     }>;
     duration?: number; // Duração em minutos

@@ -150,12 +150,6 @@ const QuestionPreview: React.FC<QuestionPreviewProps> = ({ question: initialQues
                             </Badge>
                         )}
 
-                        {question.skillText && (
-                            <Badge variant="outline" title={question.skillText}>
-                                {question.skillText}
-                            </Badge>
-                        )}
-                        
                         {/* Skills */}
                         {isLoadingSkills ? (
                             <Badge variant="outline" className="animate-pulse">Carregando skills...</Badge>

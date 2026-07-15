@@ -141,7 +141,6 @@ const EditEvaluation = () => {
                                 })) || q.options || [],
                                 secondStatement: q.secondStatement || q.secondstatement || '',
                                 skills: q.skills || '',
-                                skillText: q.skillText || q.skill_text || '',
                                 interactionConfig: q.interactionConfig || q.interaction_config || undefined,
                             };
                         }) as FormQuestion[];

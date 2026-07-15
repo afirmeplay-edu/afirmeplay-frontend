@@ -86,7 +86,6 @@ const baseSchema = z.object({
   ).optional(),
   secondStatement: z.string().optional(),
   skills: z.array(z.string()).optional(),
-  skillText: z.string().optional(),
   questionType: z.enum(FORM_QUESTION_TYPES),
 });
 
@@ -118,17 +117,16 @@ const questionSchema = baseSchema.superRefine((data, ctx) => {
         });
       }
     }
-
-    if (!data.skills || data.skills.length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Selecione pelo menos uma habilidade.',
-        path: ['skills'],
-      });
-    }
   }
-  // Questões subjetivas (dissertativa e demais tipos de interação) não exigem
-  // alternativas nem habilidade da tabela BNCC — usam skillText (texto livre).
+
+  // Habilidade (BNCC) é obrigatória para qualquer tipo de questão, inclusive as subjetivas.
+  if (!data.skills || data.skills.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Selecione pelo menos uma habilidade.',
+      path: ['skills'],
+    });
+  }
 });
 
 type QuestionFormValues = z.infer<typeof questionSchema>;
@@ -200,7 +198,6 @@ const QuestionForm = ({
       ],
       secondStatement: "",
       skills: [],
-      skillText: "",
       questionType: 'multipleChoice',
     },
   });
@@ -297,7 +294,6 @@ const QuestionForm = ({
           );
 
           const mappedQuestionType = mapApiQuestionTypeToForm(questionData.type as string);
-          const skillTextValue = (questionData as any).skillText || (questionData as any).skill_text || "";
 
                      const formData: QuestionFormValues = { // Keep the explicit type here for clarity
              title: questionData.title || "",
@@ -311,7 +307,6 @@ const QuestionForm = ({
              options: optionsForEditor.length > 0 ? optionsForEditor : [],
              secondStatement: secondStatementForEditor,
             skills: normalizedSkills,
-            skillText: skillTextValue,
             // Corrigir o mapeamento do tipo da questão (preserva os 9 tipos subjetivos)
             questionType: mappedQuestionType,
           };
@@ -656,12 +651,9 @@ const QuestionForm = ({
       createdBy: user.id,
     };
 
+    payload.skills = data.skills;
     if (isSubjectiveQuestion) {
-      // Questões subjetivas usam habilidade em texto livre e não a tabela de skills.
-      payload.skillText = data.skillText || "";
       payload.interactionConfig = interactionConfig;
-    } else {
-      payload.skills = data.skills;
     }
 
 
@@ -826,7 +818,6 @@ const QuestionForm = ({
                   }))
                 : [],
               skills: formData.skills || [],
-              skillText: formData.skillText || '',
               interactionConfig: formData.questionType !== 'multipleChoice' ? interactionConfig : undefined,
               created_by: user?.id || '',
               secondStatement: formData.secondStatement,
@@ -1015,14 +1006,13 @@ const QuestionForm = ({
                   )}
                 />
 
-                {questionType === 'multipleChoice' ? (
                 <FormField
                   control={form.control}
                   name="skills"
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2 min-w-0">
                       <FormLabel className="text-sm font-semibold text-foreground">
-                        Habilidades (BNCC)
+                        Habilidades (BNCC) *
                         <span className="text-muted-foreground font-normal ml-1">
                           {skills.length > 0 ? `(${skills.length} disponíveis)` : ''}
                         </span>
@@ -1062,28 +1052,6 @@ const QuestionForm = ({
                     </FormItem>
                   )}
                 />
-                ) : (
-                <FormField
-                  control={form.control}
-                  name="skillText"
-                  render={({ field }) => (
-                    <FormItem className="sm:col-span-2 min-w-0">
-                      <FormLabel className="text-sm font-semibold text-foreground">
-                        Habilidade
-                        <span className="text-muted-foreground font-normal ml-1">(texto livre, opcional)</span>
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="Ex.: EF05MA07 - Resolver problemas envolvendo cálculo de área..."
-                          className="h-11"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                )}
               </div>
             </div>
 

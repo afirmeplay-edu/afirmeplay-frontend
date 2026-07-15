@@ -219,6 +219,12 @@ interface DisciplinaTabela {
     question_id?: string;
     /** Entradas da API podem usar várias chaves (name, descricao, etc.). */
     skills?: Array<Record<string, unknown>>;
+    /**
+     * % de acerto da questão/habilidade já calculado pelo backend
+     * (corretas / total de alunos participantes, em branco conta como erro) —
+     * mesma fórmula de `/answer-sheets/mapa-habilidades`.
+     */
+    percentual_acertos?: number;
   }>;
   alunos: Array<{
     id: string;
@@ -1243,6 +1249,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
           habilidade: habilidadeParaHeader,
           codigo_habilidade: codigo,
           question_id,
+          percentual_acertos: q.percentual_acertos,
         };
       }),
       alunos: (d.alunos || []).map((a) => ({

@@ -20,8 +20,8 @@ export interface SubjectiveCorrectionQuestion {
   number: number;
   text: string;
   question_type: string;
-  skill_text: string | null;
-  skill: string | null;
+  /** Array com o(s) UUID(s) da tabela `skills` vinculados à questão. */
+  skills: string[] | null;
   interaction_config: Interaction | null;
 }
 

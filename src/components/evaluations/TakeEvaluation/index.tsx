@@ -32,6 +32,8 @@ import { resolveQuestionImageSrc, getQuestionHtmlForDisplay } from "@/utils/ques
 import { cleanLegacyText, isLikelyPlainText } from "@/utils/textFormatter";
 import { QuestionRenderer } from "@/components/evaluations/questions/QuestionRenderer";
 import { QuestionOptionContent } from "@/components/evaluations/questions/QuestionOptionContent";
+import { SubjectiveInteractionPlayer } from "@/components/evaluations/questions/SubjectiveInteractionPlayer";
+import { isSubjectiveInteractionType, type Response as InteractionResponse } from "@/lib/question-interactions";
 
 /** State passado quando a prova é feita no contexto de uma competição. */
 interface CompetitionLocationState {
@@ -2173,6 +2175,36 @@ function QuestionOptions({
                 <div className="text-xs sm:text-sm text-muted-foreground font-medium">
                     {answer ? `${answer.length} caracteres` : '0 caracteres'}
                 </div>
+            </div>
+        );
+    }
+
+    // ✅ Interações subjetivas (arrastar e soltar, ligar colunas, ordenação, etc.) — resposta
+    // estruturada, persistida como JSON string no mesmo campo `answer` usado pelas demais questões.
+    if (isSubjectiveInteractionType(question.type) && question.type !== "dissertativa" && question.interactionConfig) {
+        let parsedResponse: InteractionResponse | undefined;
+        if (answer) {
+            try {
+                const parsed = JSON.parse(answer);
+                if (parsed && typeof parsed === "object" && parsed.type === question.interactionConfig.type) {
+                    parsedResponse = parsed as InteractionResponse;
+                }
+            } catch {
+                parsedResponse = undefined;
+            }
+        }
+
+        return (
+            <div className="space-y-4 sm:space-y-6">
+                <div className="text-base sm:text-lg md:text-xl font-bold text-foreground mb-2 sm:mb-4">
+                    Responda a interação abaixo:
+                </div>
+                <SubjectiveInteractionPlayer
+                    interaction={question.interactionConfig}
+                    value={parsedResponse}
+                    onChange={(next) => onAnswerChange(JSON.stringify(next))}
+                    disabled={disabled}
+                />
             </div>
         );
     }

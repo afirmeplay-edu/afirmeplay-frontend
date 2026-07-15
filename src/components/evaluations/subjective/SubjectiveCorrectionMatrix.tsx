@@ -237,7 +237,6 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
                       </TooltipTrigger>
                       <TooltipContent side="top" className="max-w-xs">
                         <p className="font-medium">{q.text}</p>
-                        {q.skill_text && <p className="mt-1 text-xs text-muted-foreground">{q.skill_text}</p>}
                       </TooltipContent>
                     </Tooltip>
                   </th>

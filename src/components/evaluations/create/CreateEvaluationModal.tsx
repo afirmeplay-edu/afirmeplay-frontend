@@ -111,7 +111,7 @@ export function CreateEvaluationModal({
   const [duration, setDuration] = useState('60');
   const [type, setType] = useState<'AVALIACAO' | 'SIMULADO'>('AVALIACAO');
   const [model, setModel] = useState<'SAEB' | 'PROVA' | 'AVALIE'>('SAEB');
-  const [evaluationMode, setEvaluationMode] = useState<'virtual' | 'physical' | 'subjective'>('virtual');
+  const [isSubjective, setIsSubjective] = useState(false);
   
   // Seleções
   const [course, setCourse] = useState('');
@@ -233,7 +233,7 @@ export function CreateEvaluationModal({
         setDuration(data.duration || '60');
         setType(data.type || 'AVALIACAO');
         setModel(data.model || 'SAEB');
-        setEvaluationMode(data.evaluation_mode || 'virtual');
+        setIsSubjective(data.evaluation_mode === 'subjective');
         setCourse(data.course || '');
         setGrade(data.grade || '');
         setState(data.state || '');
@@ -312,7 +312,6 @@ export function CreateEvaluationModal({
                   })) || q.options || [],
                   secondStatement: q.secondStatement || q.secondstatement || '',
                   skills: q.skills || '',
-                  skillText: q.skillText || q.skill_text || '',
                   interactionConfig: q.interactionConfig || q.interaction_config || undefined,
                 };
               });
@@ -360,7 +359,6 @@ export function CreateEvaluationModal({
                       })) || q.options || [],
                       secondStatement: q.secondStatement || q.secondstatement || '',
                       skills: q.skills || '',
-                      skillText: q.skillText || q.skill_text || '',
                       interactionConfig: q.interactionConfig || q.interaction_config || undefined,
                     };
                   });
@@ -396,7 +394,7 @@ export function CreateEvaluationModal({
         setDuration(String(evaluation.duration || 60));
         setType(evaluation.type === 'SIMULADO' ? 'SIMULADO' : 'AVALIACAO');
         setModel(evaluation.model || 'SAEB');
-        setEvaluationMode(evaluation.evaluation_mode || 'virtual');
+        setIsSubjective(evaluation.evaluation_mode === 'subjective');
         setCourse(evaluation.course?.id || evaluation.course || '');
         setGrade(evaluation.grade?.id || evaluation.grade_id || evaluation.grade || '');
         
@@ -480,7 +478,6 @@ export function CreateEvaluationModal({
                   })) || q.options || [],
                   secondStatement: q.secondStatement || q.secondstatement || '',
                   skills: q.skills || '',
-                  skillText: q.skillText || q.skill_text || '',
                   interactionConfig: q.interactionConfig || q.interaction_config || undefined,
                 };
               });
@@ -838,7 +835,6 @@ export function CreateEvaluationModal({
                       })) || q.options || [],
                       secondStatement: q.secondStatement || q.secondstatement || '',
                       skills: q.skills || '',
-                      skillText: q.skillText || q.skill_text || '',
                       interactionConfig: q.interactionConfig || q.interaction_config || undefined,
                     };
                   });
@@ -919,7 +915,7 @@ export function CreateEvaluationModal({
           ? new Date(new Date(initialData.startDateTime).getTime() + (parseInt(initialData.duration, 10) || 60) * 60 * 1000).toISOString()
           : new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
         duration: parseInt(duration, 10) || 60,
-        evaluation_mode: evaluationMode,
+        evaluation_mode: isSubjective ? 'subjective' : 'virtual',
         municipalities: municipality === 'all' ? [] : [municipality],
         schools: schoolsToSend,
         classes: classesToSend,
@@ -1043,12 +1039,9 @@ export function CreateEvaluationModal({
             // ✅ CORREÇÃO: NÃO incluir 'id' aqui - questões novas não devem ter ID no payload
           };
 
+          newQuestion.skills = question.skills || "";
           if (isSubjectiveQuestion) {
-            // Questões subjetivas usam habilidade em texto livre e não a tabela de skills.
-            newQuestion.skillText = question.skillText || "";
             newQuestion.interactionConfig = question.interactionConfig || undefined;
-          } else {
-            newQuestion.skills = question.skills || "";
           }
           
           console.log(`✅ Questão ${index + 1} preparada para envio (nova):`, {
@@ -1626,7 +1619,6 @@ export function CreateEvaluationModal({
                   })) || q.options || [],
                   secondStatement: q.secondStatement || q.secondstatement || '',
                       skills: q.skills || '',
-                      skillText: q.skillText || q.skill_text || '',
                       interactionConfig: q.interactionConfig || q.interaction_config || undefined,
                     };
                   });
@@ -1726,7 +1718,6 @@ export function CreateEvaluationModal({
                     })) || q.options || [],
                     secondStatement: q.secondStatement || q.secondstatement || '',
                     skills: q.skills || '',
-                    skillText: q.skillText || q.skill_text || '',
                     interactionConfig: q.interactionConfig || q.interaction_config || undefined,
                   };
                 });
@@ -1876,13 +1867,24 @@ export function CreateEvaluationModal({
 
                   <div className="space-y-2">
                     <Label>Tipo *</Label>
-                    <Select value={type} onValueChange={(value) => setType(value as 'AVALIACAO' | 'SIMULADO')}>
+                    <Select
+                      value={isSubjective ? 'SUBJETIVA' : type}
+                      onValueChange={(value) => {
+                        if (value === 'SUBJETIVA') {
+                          setIsSubjective(true);
+                        } else {
+                          setIsSubjective(false);
+                          setType(value as 'AVALIACAO' | 'SIMULADO');
+                        }
+                      }}
+                    >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="AVALIACAO">Avaliação</SelectItem>
                         <SelectItem value="SIMULADO">Simulado</SelectItem>
+                        <SelectItem value="SUBJETIVA">Subjetiva</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1900,23 +1902,6 @@ export function CreateEvaluationModal({
                       <SelectItem value="AVALIE">Avalie</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Modo de Aplicação *</Label>
-                  <Select value={evaluationMode} onValueChange={(value) => setEvaluationMode(value as 'virtual' | 'physical' | 'subjective')}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="virtual">Online (aluno responde no sistema)</SelectItem>
-                      <SelectItem value="physical">Papel (gabarito ótico)</SelectItem>
-                      <SelectItem value="subjective">Presencial — correção manual por rubrica</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    No modo presencial, as questões subjetivas (dissertativa, arrastar e soltar, ligar colunas...) são impressas e corrigidas manualmente pelo professor.
-                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -2536,7 +2521,7 @@ export function CreateEvaluationModal({
               grade: grade,
               subject: selectedSubjectForQuestion
             }}
-            defaultToSubjective={evaluationMode === 'subjective'}
+            defaultToSubjective={isSubjective}
           />
         </DialogContent>
       </Dialog>

@@ -41,6 +41,8 @@ import { useToast } from "@/hooks/use-toast";
 import { EvaluationFormData, Question, Subject } from "../types";
 import { QuestionBank } from "../QuestionBank";
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from "../results/constants";
+import { mapApiQuestionTypeToForm } from "@/utils/questionTypeMapping";
+import type { Interaction } from "@/lib/question-interactions";
 
 interface QuestionSelectionStepProps {
   evaluationData: EvaluationFormData;
@@ -59,6 +61,9 @@ interface ApiQuestion {
   grade?: { id: string; name: string };
   grade_id?: string;
   difficulty_level?: string;
+  /** Campo real retornado por /questions (ex.: "multiple_choice", "ligar_colunas", ...). */
+  type?: string;
+  /** Campo legado/alternativo, mantido por segurança — não é o nome usado por /questions. */
   question_type?: string;
   value?: number;
   correct_answer?: string;
@@ -66,6 +71,9 @@ interface ApiQuestion {
   alternatives?: { id?: string; text: string; isCorrect?: boolean }[];
   skill?: string | string[];
   created_by?: string;
+  /** Configuração da interação, para as questões subjetivas (ligar colunas, arrastar e soltar, etc.). */
+  interaction_config?: Interaction | null;
+  interactionConfig?: Interaction | null;
 }
 
 interface QuestionPreviewData {
@@ -260,12 +268,18 @@ export default function QuestionSelectionStep({
         subject: apiQuestion.subject || { id: apiQuestion.subject_id || "", name: "Disciplina não definida" },
         grade: apiQuestion.grade || { id: apiQuestion.grade_id || safeGrade, name: currentGradeName },
         difficulty: apiQuestion.difficulty_level || "Básico",
-        type: apiQuestion.question_type === "essay" ? "open" : 
-              apiQuestion.question_type === "trueFalse" ? "trueFalse" : "multipleChoice",
+        // ✅ CORRIGIDO: preserva os tipos de interação subjetiva (ligar_colunas, arrastar_soltar, etc.)
+        // em vez de rotulá-los como "multipleChoice" — isso fazia a validação de alternativas
+        // marcar essas questões como inválidas ao criar/editar uma avaliação.
+        type:
+          apiQuestion.type === "trueFalse" || apiQuestion.type === "true_false"
+            ? "trueFalse"
+            : mapApiQuestionTypeToForm(apiQuestion.type ?? apiQuestion.question_type),
         value: String(apiQuestion.value || 1.0),
         solution: apiQuestion.correct_answer || "",
         formattedSolution: apiQuestion.formatted_solution || apiQuestion.correct_answer || "",
         options: apiQuestion.alternatives || [],
+        interactionConfig: apiQuestion.interaction_config || apiQuestion.interactionConfig || undefined,
         skills: Array.isArray(apiQuestion.skill) ? apiQuestion.skill : [apiQuestion.skill || ""],
         created_by: apiQuestion.created_by || "",
       };

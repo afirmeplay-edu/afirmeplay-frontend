@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { ImagePlus, X } from "lucide-react";
+import { resizeImageToDataUrl, TARGET_SIZE_BY_ASPECT } from "@/utils/resizeImage";
 
 interface InteractionImageUploadProps {
   value?: string | null;
@@ -14,6 +15,10 @@ interface InteractionImageUploadProps {
  * de questões subjetivas. O backend salva `interactionConfig` como JSON livre sem
  * validar o schema interno, então embutir a imagem como dataURL evita depender de
  * um endpoint de upload dedicado — mesma abordagem do protótipo de referência.
+ *
+ * Todas as imagens enviadas para um mesmo `aspect` (ex.: as duas colunas de "Ligar
+ * Colunas") são redimensionadas para as mesmas dimensões fixas antes de serem
+ * salvas, para que fiquem sempre do mesmo tamanho independente do arquivo original.
  */
 export function InteractionImageUpload({
   value,
@@ -24,15 +29,28 @@ export function InteractionImageUpload({
 }: InteractionImageUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
-  function handleFile(file: File | undefined) {
+  async function handleFile(file: File | undefined) {
     if (!file) return;
     if (file.size > 4 * 1024 * 1024) {
       window.alert("Imagem muito grande (máx 4MB).");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => onChange(String(reader.result));
-    reader.readAsDataURL(file);
+
+    const target = TARGET_SIZE_BY_ASPECT[aspect];
+    if (!target) {
+      const reader = new FileReader();
+      reader.onload = () => onChange(String(reader.result));
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    try {
+      const dataUrl = await resizeImageToDataUrl(file, target.width, target.height, "contain");
+      onChange(dataUrl);
+    } catch (error) {
+      console.error("Erro ao redimensionar imagem:", error);
+      window.alert("Não foi possível processar essa imagem. Tente outro arquivo.");
+    }
   }
 
   const box =

@@ -182,3 +182,43 @@ export function ensureInteraction(type: InteractionType, current?: Interaction |
   if (current && current.type === type) return current;
   return defaultInteraction(type);
 }
+
+/**
+ * Resposta do aluno a uma interação subjetiva — sempre serializável em JSON. Usada pelo
+ * `SubjectiveInteractionPlayer` durante a prova; persistida como string (`JSON.stringify`)
+ * no mesmo campo `answer` usado pelas demais questões.
+ */
+export type Response =
+  | { type: "dissertativa"; text: string }
+  | { type: "arrastar_soltar"; slotValues: (string | null)[] }
+  | { type: "ligar_colunas"; mapping: Record<number, number> } // leftIndex -> rightIndex
+  | { type: "ordenacao"; order: number[] }
+  | { type: "completar_lacunas"; values: string[] }
+  | { type: "substituicao"; values: string[] }
+  | { type: "destacar_trechos"; selected: number[] }
+  | { type: "escrita_matematica"; text: string }
+  | { type: "construcao_resposta"; steps: string[] };
+
+/** Resposta inicial (vazia) para a interação informada. */
+export function emptyResponse(interaction: Interaction): Response {
+  switch (interaction.type) {
+    case "dissertativa":
+      return { type: "dissertativa", text: "" };
+    case "arrastar_soltar":
+      return { type: "arrastar_soltar", slotValues: interaction.slots.map(() => null) };
+    case "ligar_colunas":
+      return { type: "ligar_colunas", mapping: {} };
+    case "ordenacao":
+      return { type: "ordenacao", order: interaction.items.map((_, i) => i) };
+    case "completar_lacunas":
+      return { type: "completar_lacunas", values: interaction.answers.map(() => "") };
+    case "substituicao":
+      return { type: "substituicao", values: interaction.targets.map(() => "") };
+    case "destacar_trechos":
+      return { type: "destacar_trechos", selected: [] };
+    case "escrita_matematica":
+      return { type: "escrita_matematica", text: "" };
+    case "construcao_resposta":
+      return { type: "construcao_resposta", steps: interaction.steps.map(() => "") };
+  }
+}
