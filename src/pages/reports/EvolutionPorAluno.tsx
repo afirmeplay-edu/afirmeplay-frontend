@@ -19,6 +19,7 @@ import {
   ChevronRight,
   BarChart3,
   Info,
+  Download,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/authContext';
@@ -32,6 +33,7 @@ import {
 import { AnswerSheetComparisonApiService } from '@/services/answer-sheet/answerSheetComparisonApi';
 import { EvolutionCharts } from '@/components/evolution/EvolutionCharts';
 import { processComparisonData } from '@/utils/evolution/evolutionDataProcessor';
+import { generateEvolutionPDFFromHTML } from '@/utils/evolution/evolutionPdfService';
 import {
   studentComparisonToComparisonResponse,
   filterStudentEvolutionByEvaluationIds,
@@ -173,6 +175,7 @@ export default function EvolutionPorAluno() {
 
   const [isLoadingFilters, setIsLoadingFilters] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [students, setStudents] = useState<EvolucaoAlunoItem[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -595,6 +598,101 @@ export default function EvolutionPorAluno() {
 
   const instrumentLabel = sourceMode === 'cartao' ? 'gabaritos' : 'avaliações';
 
+  const handleExportPdf = useCallback(async () => {
+    if (!selectedStudent || !selectedStudentProcessedData) {
+      toast({
+        title: 'Dados insuficientes',
+        description: `Selecione um aluno com pelo menos 2 ${instrumentLabel} para gerar o relatório.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setIsGeneratingPDF(true);
+
+      const filtered = filterStudentEvolutionByEvaluationIds(selectedStudent, selectedEvaluationIds);
+      const comparisonData = studentComparisonToComparisonResponse(filtered);
+      if (!comparisonData) {
+        toast({
+          title: 'Dados insuficientes',
+          description: `Selecione pelo menos 2 ${instrumentLabel} para gerar o relatório.`,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const studentName = getStudentName(selectedStudent);
+      const filterInfo = {
+        state:
+          selectedState !== 'all'
+            ? { id: selectedState, name: states.find((s) => s.id === selectedState)?.name ?? selectedState }
+            : undefined,
+        municipality:
+          selectedMunicipality !== 'all'
+            ? {
+                id: selectedMunicipality,
+                name: municipalities.find((m) => m.id === selectedMunicipality)?.name ?? selectedMunicipality,
+              }
+            : undefined,
+        school:
+          selectedSchool !== 'all'
+            ? { id: selectedSchool, name: schools.find((s) => s.id === selectedSchool)?.name ?? selectedSchool }
+            : undefined,
+        grade:
+          selectedGrade !== 'all'
+            ? { id: selectedGrade, name: grades.find((g) => g.id === selectedGrade)?.name ?? selectedGrade }
+            : undefined,
+        class:
+          selectedClass !== 'all'
+            ? { id: selectedClass, name: classes.find((c) => c.id === selectedClass)?.name ?? selectedClass }
+            : undefined,
+        periodStart: periodStart || undefined,
+        periodEnd: periodEnd || undefined,
+      };
+
+      await generateEvolutionPDFFromHTML(
+        selectedStudentProcessedData,
+        comparisonData,
+        selectedStudentProcessedData.evaluationNames,
+        filterInfo,
+        instrumentLabel
+      );
+
+      toast({
+        title: 'PDF gerado com sucesso!',
+        description: `Relatório de evolução de ${studentName} salvo no seu dispositivo.`,
+      });
+    } catch (error) {
+      console.error('Erro ao gerar PDF (evolução por aluno):', error);
+      toast({
+        title: 'Erro ao gerar PDF',
+        description: 'Não foi possível gerar o relatório. Tente novamente.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsGeneratingPDF(false);
+    }
+  }, [
+    selectedStudent,
+    selectedStudentProcessedData,
+    selectedEvaluationIds,
+    instrumentLabel,
+    selectedState,
+    selectedMunicipality,
+    selectedSchool,
+    selectedGrade,
+    selectedClass,
+    periodStart,
+    periodEnd,
+    states,
+    municipalities,
+    schools,
+    grades,
+    classes,
+    toast,
+  ]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap justify-center gap-2 w-full sm:w-auto sm:justify-end">
@@ -606,6 +704,17 @@ export default function EvolutionPorAluno() {
           <RefreshCw className={`h-4 w-4 mr-2 ${isSearching ? 'animate-spin' : ''}`} />
           Atualizar
         </Button>
+
+        {selectedStudent && selectedStudentProcessedData && (
+          <Button
+            onClick={() => void handleExportPdf()}
+            disabled={isGeneratingPDF}
+            className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+          >
+            <Download className={`h-4 w-4 mr-2 ${isGeneratingPDF ? 'animate-spin' : ''}`} />
+            {isGeneratingPDF ? 'Gerando PDF...' : 'Exportar PDF'}
+          </Button>
+        )}
       </div>
 
       <Card>
