@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Pencil, Trash2, ArrowLeft, Eye, Users, BookOpen, FileText, Calendar, User, MapPin, School, Play, Download, Loader2, ClipboardCheck } from "lucide-react";
+import { Pencil, Trash2, ArrowLeft, Eye, Users, BookOpen, FileText, Calendar, User, MapPin, School, Play, Download, Loader2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { generateEvaluationExamPdf } from "@/services/reports/evaluationExamPdf";
@@ -935,17 +935,6 @@ export default function ViewEvaluation({
               <Play className="h-4 w-4 mr-2" />
               {isOlimpiadaType ? 'Aplicar Olimpíada' : 'Aplicar Avaliação'}
             </Button>
-            {evaluation.evaluation_mode === 'subjective' && (
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => navigate(`/app/avaliacao/${evaluation.id}/correcao-subjetiva`)}
-                className="bg-purple-600 hover:bg-purple-700 text-white"
-              >
-                <ClipboardCheck className="h-4 w-4 mr-2" />
-                Corrigir Avaliação
-              </Button>
-            )}
             <Button variant="outline" size="sm" onClick={handleEdit}>
               <Pencil className="h-4 w-4 mr-2" />
               Editar

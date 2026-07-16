@@ -33,9 +33,14 @@ const CreateEvaluation = React.lazy(() => import("@/pages/evaluations/CreateEval
 const EditEvaluation = React.lazy(() => import("@/pages/evaluations/EditEvaluation"));
 const EvaluationCorrection = React.lazy(() => import("@/pages/evaluations/EvaluationCorrection"));
 const ViewEvaluation = React.lazy(() => import("@/pages/evaluations/ViewEvaluation"));
-const SubjectiveCorrection = React.lazy(() => import("@/pages/evaluations/SubjectiveCorrection"));
 const SkillsHeatMapPage = React.lazy(() => import("@/pages/evaluations/SkillsHeatMapPage"));
 const AnaliseAvaliacoes = React.lazy(() => import("@/pages/evaluations/AnaliseAvaliacoes"));
+const SubjectiveEvaluations = React.lazy(() => import("@/pages/evaluations/subjective/SubjectiveEvaluations"));
+const CreateSubjectiveEvaluation = React.lazy(() => import("@/pages/evaluations/subjective/CreateSubjectiveEvaluation"));
+const ViewSubjectiveEvaluation = React.lazy(() => import("@/pages/evaluations/subjective/ViewSubjectiveEvaluation"));
+const SubjectiveCorrectionPage = React.lazy(() => import("@/pages/evaluations/subjective/SubjectiveCorrectionPage"));
+const SubjectiveCorrectionHub = React.lazy(() => import("@/pages/evaluations/subjective/SubjectiveCorrectionHub"));
+const SubjectiveDashboard = React.lazy(() => import("@/pages/evaluations/subjective/SubjectiveDashboard"));
 
 // answer-sheet
 const AnswerSheetGenerator = React.lazy(() => import("@/pages/answer-sheet/AnswerSheetGenerator"));
@@ -264,6 +269,14 @@ const App = () => {
               <Route index element={<PrivateRoute><Index /></PrivateRoute>} />
               <Route path="/app/avaliacoes" element={<PrivateRoute><Evaluations /></PrivateRoute>} />
               <Route path="/app/avaliacoes/correcao" element={<PrivateRoute><EvaluationCorrection /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas" element={<PrivateRoute><SubjectiveEvaluations /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas/nova" element={<PrivateRoute><CreateSubjectiveEvaluation /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas/correcao" element={<PrivateRoute><SubjectiveCorrectionHub /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas/dashboard" element={<PrivateRoute><SubjectiveDashboard /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas/:id/editar" element={<PrivateRoute><CreateSubjectiveEvaluation /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas/:id/correcao" element={<PrivateRoute><SubjectiveCorrectionPage /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas/:id/correcao/:classId" element={<PrivateRoute><SubjectiveCorrectionPage /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas/:id" element={<PrivateRoute><ViewSubjectiveEvaluation /></PrivateRoute>} />
               <Route
                 path="/app/resultados"
                 element={
@@ -280,8 +293,6 @@ const App = () => {
               <Route path="/app/avaliacao/:id/aluno/:studentId/resultados" element={<PrivateRoute><StudentDetailedResults onBack={() => window.history.back()} /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id" element={<PrivateRoute><ViewEvaluation /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id/editar" element={<PrivateRoute><EditEvaluation /></PrivateRoute>} />
-              <Route path="/app/avaliacao/:id/correcao-subjetiva" element={<PrivateRoute><SubjectiveCorrection /></PrivateRoute>} />
-              <Route path="/app/avaliacao/:id/correcao-subjetiva/:classId" element={<PrivateRoute><SubjectiveCorrection /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id/fisica" element={<PrivateRoute><PhysicalTestPage /></PrivateRoute>} />
               <Route path="/app/provas-fisicas/:id" element={<PrivateRoute><PhysicalTestPage /></PrivateRoute>} />
               <Route path="/app/editar-atalhos" element={<PrivateRoute><EditQuickLinks /></PrivateRoute>} />

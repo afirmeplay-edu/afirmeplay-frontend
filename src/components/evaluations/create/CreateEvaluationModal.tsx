@@ -24,7 +24,7 @@ import { useEvaluationsManager } from '@/hooks/use-cache';
 import { useNavigate } from 'react-router-dom';
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../results/constants';
 import { mapEvaluationQuestionOptions } from '@/utils/questionOptionImages';
-import { mapApiQuestionTypeToForm, getQuestionTypeLabel, isSubjectiveFormType } from '@/utils/questionTypeMapping';
+import { mapApiQuestionTypeToForm, getQuestionTypeLabel } from '@/utils/questionTypeMapping';
 
 interface CreateEvaluationModalProps {
   isOpen: boolean;
@@ -111,7 +111,6 @@ export function CreateEvaluationModal({
   const [duration, setDuration] = useState('60');
   const [type, setType] = useState<'AVALIACAO' | 'SIMULADO'>('AVALIACAO');
   const [model, setModel] = useState<'SAEB' | 'PROVA' | 'AVALIE'>('SAEB');
-  const [isSubjective, setIsSubjective] = useState(false);
   
   // Seleções
   const [course, setCourse] = useState('');
@@ -233,7 +232,6 @@ export function CreateEvaluationModal({
         setDuration(data.duration || '60');
         setType(data.type || 'AVALIACAO');
         setModel(data.model || 'SAEB');
-        setIsSubjective(data.evaluation_mode === 'subjective');
         setCourse(data.course || '');
         setGrade(data.grade || '');
         setState(data.state || '');
@@ -394,7 +392,6 @@ export function CreateEvaluationModal({
         setDuration(String(evaluation.duration || 60));
         setType(evaluation.type === 'SIMULADO' ? 'SIMULADO' : 'AVALIACAO');
         setModel(evaluation.model || 'SAEB');
-        setIsSubjective(evaluation.evaluation_mode === 'subjective');
         setCourse(evaluation.course?.id || evaluation.course || '');
         setGrade(evaluation.grade?.id || evaluation.grade_id || evaluation.grade || '');
         
@@ -915,7 +912,7 @@ export function CreateEvaluationModal({
           ? new Date(new Date(initialData.startDateTime).getTime() + (parseInt(initialData.duration, 10) || 60) * 60 * 1000).toISOString()
           : new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
         duration: parseInt(duration, 10) || 60,
-        evaluation_mode: isSubjective ? 'subjective' : 'virtual',
+        evaluation_mode: 'virtual',
         municipalities: municipality === 'all' ? [] : [municipality],
         schools: schoolsToSend,
         classes: classesToSend,
@@ -1867,24 +1864,13 @@ export function CreateEvaluationModal({
 
                   <div className="space-y-2">
                     <Label>Tipo *</Label>
-                    <Select
-                      value={isSubjective ? 'SUBJETIVA' : type}
-                      onValueChange={(value) => {
-                        if (value === 'SUBJETIVA') {
-                          setIsSubjective(true);
-                        } else {
-                          setIsSubjective(false);
-                          setType(value as 'AVALIACAO' | 'SIMULADO');
-                        }
-                      }}
-                    >
+                    <Select value={type} onValueChange={(value) => setType(value as 'AVALIACAO' | 'SIMULADO')}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="AVALIACAO">Avaliação</SelectItem>
                         <SelectItem value="SIMULADO">Simulado</SelectItem>
-                        <SelectItem value="SUBJETIVA">Subjetiva</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -2521,7 +2507,6 @@ export function CreateEvaluationModal({
               grade: grade,
               subject: selectedSubjectForQuestion
             }}
-            defaultToSubjective={isSubjective}
           />
         </DialogContent>
       </Dialog>

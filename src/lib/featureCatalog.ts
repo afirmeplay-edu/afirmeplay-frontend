@@ -8,6 +8,10 @@ const HREF_FEATURE_EXACT: Record<string, string> = {
   '/app/agenda': 'calendar',
   '/aluno/agenda': 'calendar',
   '/app/avaliacoes': 'evaluations',
+  '/app/avaliacoes-subjetivas': 'evaluations',
+  '/app/avaliacoes-subjetivas/nova': 'evaluations',
+  '/app/avaliacoes-subjetivas/correcao': 'evaluations',
+  '/app/avaliacoes-subjetivas/dashboard': 'evaluations',
   '/aluno/avaliacoes': 'evaluations',
   '/app/resultados': 'evaluation_results',
   '/aluno/resultados': 'evaluation_results',
@@ -58,6 +62,7 @@ const HREF_FEATURE_EXACT: Record<string, string> = {
 const HREF_FEATURE_PREFIX: Array<[string, string]> = [
   ['/app/cartao-resposta', 'answer_sheet'],
   ['/app/avaliacao/', 'evaluations'],
+  ['/app/avaliacoes-subjetivas/', 'evaluations'],
   ['/app/provas-fisicas/', 'physical_tests'],
   ['/app/jogos/', 'games'],
   ['/app/play-tv/', 'play_tv'],
