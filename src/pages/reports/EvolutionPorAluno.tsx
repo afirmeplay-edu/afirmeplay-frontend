@@ -623,7 +623,13 @@ export default function EvolutionPorAluno() {
       }
 
       const studentName = getStudentName(selectedStudent);
+      const meta = resolveStudentMetaLabel(selectedStudent, schools, grades, classes);
       const filterInfo = {
+        reportKind: 'student' as const,
+        studentName,
+        studentSchoolName: meta[0],
+        studentGradeName: meta[1],
+        studentClassName: meta[2],
         state:
           selectedState !== 'all'
             ? { id: selectedState, name: states.find((s) => s.id === selectedState)?.name ?? selectedState }

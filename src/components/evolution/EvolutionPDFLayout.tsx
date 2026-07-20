@@ -16,10 +16,17 @@ import type { ProcessedEvolutionData } from './EvolutionCharts';
 import type { ComparisonResponse } from '@/services/evaluation/evaluationComparisonApi';
 import { EvolutionData } from './EvolutionChart';
 
-interface EvolutionPDFLayoutProps {
+export interface EvolutionPDFLayoutProps {
   processedData: ProcessedEvolutionData;
   comparisonData: ComparisonResponse | null;
   evaluationNames: string[];
+  reportKind?: 'aggregate' | 'student';
+  studentLabel?: {
+    name: string;
+    school?: string;
+    grade?: string;
+    class?: string;
+  };
 }
 
 // Paleta de cores personalizada
@@ -220,7 +227,14 @@ function calculateGeneralStats(processedData: ProcessedEvolutionData) {
   };
 }
 
-export const EvolutionPDFLayout = ({ processedData, evaluationNames }: EvolutionPDFLayoutProps) => {
+export const EvolutionPDFLayout = ({
+  processedData,
+  comparisonData,
+  evaluationNames,
+  reportKind = 'aggregate',
+  studentLabel,
+}: EvolutionPDFLayoutProps) => {
+  const isStudentReport = reportKind === 'student';
   // Calcular estatísticas gerais
   const generalStats = useMemo(() => calculateGeneralStats(processedData), [processedData]);
 
@@ -365,12 +379,92 @@ export const EvolutionPDFLayout = ({ processedData, evaluationNames }: Evolution
       {/* Cabeçalho */}
       <div data-pdf-section="header" style={{ marginBottom: '20px', marginTop: '15mm', textAlign: 'center', borderBottom: '2px solid #2563eb', paddingBottom: '12px' }}>
         <h1 style={{ fontSize: '20px', fontWeight: 'bold', color: '#2563eb', marginBottom: '8px', marginTop: '0' }}>
-          ANÁLISE DE EVOLUÇÃO
+          {isStudentReport ? 'EVOLUÇÃO INDIVIDUAL DO ALUNO' : 'ANÁLISE DE EVOLUÇÃO'}
         </h1>
+        {isStudentReport && studentLabel?.name && (
+          <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#1f2937', margin: '0 0 6px 0' }}>
+            {studentLabel.name}
+          </p>
+        )}
+        {isStudentReport && (studentLabel?.school || studentLabel?.class || studentLabel?.grade) && (
+          <p style={{ fontSize: '10px', color: '#4b5563', margin: '0 0 8px 0' }}>
+            {[studentLabel?.school, studentLabel?.grade && `Série ${studentLabel.grade}`, studentLabel?.class && `Turma ${studentLabel.class}`]
+              .filter(Boolean)
+              .join(' • ')}
+          </p>
+        )}
         <p style={{ fontSize: '10px', color: '#666666', margin: '0' }}>
           {evaluationNames.join(' • ')}
         </p>
       </div>
+
+      {isStudentReport && comparisonData?.comparisons && comparisonData.comparisons.length > 0 && (
+        <div
+          data-pdf-section="student-comparisons"
+          style={{ marginBottom: '18px', pageBreakInside: 'avoid', pageBreakAfter: 'avoid' }}
+        >
+          <h2
+            style={{
+              fontSize: '13px',
+              fontWeight: 'bold',
+              marginBottom: '10px',
+              color: '#1f2937',
+              marginTop: '0',
+            }}
+          >
+            Comparações entre avaliações (nota e proficiência)
+          </h2>
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: '9px',
+              color: '#1f2937',
+            }}
+          >
+            <thead>
+              <tr style={{ backgroundColor: '#f3f4f6' }}>
+                <th style={{ border: '1px solid #e5e7eb', padding: '6px', textAlign: 'left' }}>De → Para</th>
+                <th style={{ border: '1px solid #e5e7eb', padding: '6px', textAlign: 'center' }}>Nota (1ª → 2ª)</th>
+                <th style={{ border: '1px solid #e5e7eb', padding: '6px', textAlign: 'center' }}>Proficiência (1ª → 2ª)</th>
+                <th style={{ border: '1px solid #e5e7eb', padding: '6px', textAlign: 'center' }}>Variação nota</th>
+              </tr>
+            </thead>
+            <tbody>
+              {comparisonData.comparisons.map((comp, idx) => {
+                const gen = comp.general_comparison;
+                const n1 = gen?.average_grade?.evaluation_1;
+                const n2 = gen?.average_grade?.evaluation_2;
+                const p1 = gen?.average_proficiency?.evaluation_1;
+                const p2 = gen?.average_proficiency?.evaluation_2;
+                const pctN = gen?.average_grade?.evolution?.percentage;
+                const fmt = (v?: number) =>
+                  typeof v === 'number' && Number.isFinite(v) ? v.toFixed(1).replace('.', ',') : '—';
+                const fromTitle = comp.from_evaluation?.title ?? '—';
+                const toTitle = comp.to_evaluation?.title ?? '—';
+                return (
+                  <tr key={idx}>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '6px' }}>
+                      {fromTitle} → {toTitle}
+                    </td>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '6px', textAlign: 'center' }}>
+                      {fmt(n1)} → {fmt(n2)}
+                    </td>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '6px', textAlign: 'center' }}>
+                      {fmt(p1)} → {fmt(p2)}
+                    </td>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '6px', textAlign: 'center' }}>
+                      {typeof pctN === 'number' && Number.isFinite(pctN)
+                        ? `${pctN > 0 ? '+' : ''}${pctN.toFixed(1).replace('.', ',')}%`
+                        : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Resumo Estatístico */}
       {generalStats && (
@@ -1027,8 +1121,8 @@ export const EvolutionPDFLayout = ({ processedData, evaluationNames }: Evolution
         </div>
       )}
 
-      {/* Gráficos por Níveis */}
-      {Object.keys(processedData.levelsData || {}).length > 0 && (
+      {/* Gráficos por Níveis — omitidos no relatório individual (foco em nota/proficiência) */}
+      {!isStudentReport && Object.keys(processedData.levelsData || {}).length > 0 && (
         <div style={{ marginTop: '20px', pageBreakBefore: 'always', pageBreakAfter: 'avoid' }}>
           <h2 style={{ 
             fontSize: '13px', 

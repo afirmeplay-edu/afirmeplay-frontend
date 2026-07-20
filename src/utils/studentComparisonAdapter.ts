@@ -246,35 +246,73 @@ export function filterStudentEvolutionByEvaluationIds(
   const idSet = new Set(selectedIds.filter(Boolean));
   if (idSet.size < 2) return null;
 
-  const ordered = sortEvaluations(student.evaluations ?? []).filter((e, i) =>
-    idSet.has(getEvaluationId(e, i))
-  );
-  if (ordered.length < 2) return null;
+  const orderedAll = sortEvaluations(student.evaluations ?? []);
+  const orderedWithIdx = orderedAll
+    .map((e, idx) => ({ e, idx }))
+    .filter(({ e, idx }) => idSet.has(getEvaluationId(e, idx)));
+  if (orderedWithIdx.length < 2) return null;
 
   const existing = student.comparisons ?? [];
   const comparisons: EvolucaoAlunoComparison[] = [];
 
-  for (let i = 0; i < ordered.length - 1; i++) {
-    const from = ordered[i];
-    const to = ordered[i + 1];
-    const fromId = getEvaluationId(from, i);
-    const toId = getEvaluationId(to, i + 1);
-    const found = existing.find(
-      (c) => c.from_evaluation?.id === fromId && c.to_evaluation?.id === toId
-    );
-    comparisons.push(found ?? synthesizeComparison(from, to, i, i + 1));
+  const findExistingComparison = (
+    from: EvolucaoAlunoEvaluation,
+    to: EvolucaoAlunoEvaluation,
+    fromIdx: number,
+    toIdx: number
+  ): EvolucaoAlunoComparison | undefined => {
+    const fromId = getEvaluationId(from, fromIdx);
+    const toId = getEvaluationId(to, toIdx);
+    return existing.find((c) => {
+      const cf = c.from_evaluation?.id;
+      const ct = c.to_evaluation?.id;
+      if (cf && ct && cf === fromId && ct === toId) return true;
+      if (
+        c.from_evaluation?.order != null &&
+        c.to_evaluation?.order != null &&
+        c.from_evaluation.order === (from.order ?? fromIdx + 1) &&
+        c.to_evaluation.order === (to.order ?? toIdx + 1)
+      ) {
+        return true;
+      }
+      return false;
+    });
+  };
+
+  for (let i = 0; i < orderedWithIdx.length - 1; i++) {
+    const { e: from, idx: fromIdx } = orderedWithIdx[i];
+    const { e: to, idx: toIdx } = orderedWithIdx[i + 1];
+    const found = findExistingComparison(from, to, fromIdx, toIdx);
+    const synthesized = synthesizeComparison(from, to, fromIdx, toIdx);
+    if (found) {
+      const hasSubject =
+        found.subject_comparison &&
+        typeof found.subject_comparison === 'object' &&
+        Object.keys(found.subject_comparison).length > 0;
+      comparisons.push(
+        hasSubject
+          ? found
+          : {
+              ...found,
+              subject_comparison: found.subject_comparison ?? synthesized.subject_comparison,
+              general_comparison: found.general_comparison ?? synthesized.general_comparison,
+            }
+      );
+    } else {
+      comparisons.push(synthesized);
+    }
   }
 
   return {
     ...student,
-    evaluations: ordered.map((e, i) => ({
+    evaluations: orderedWithIdx.map(({ e, idx }, i) => ({
       ...e,
       order: e.order ?? i + 1,
-      id: getEvaluationId(e, i),
-      title: getEvaluationTitle(e, i),
+      id: getEvaluationId(e, idx),
+      title: getEvaluationTitle(e, idx),
     })),
     comparisons,
-    total_evaluations: ordered.length,
+    total_evaluations: orderedWithIdx.length,
     total_comparisons: comparisons.length,
   };
 }
@@ -294,7 +332,9 @@ export function studentComparisonToComparisonResponse(
 
   const comparisons: Comparison[] = comparisonsRaw.map((comp) => {
     const gen = comp.general_comparison ?? {};
+    const genAny = gen as Record<string, MetricPair | undefined>;
     const studentClass = gen.student_classification;
+
 
     const classificationDistribution = {
       evaluation_1: {} as Record<string, number>,
@@ -307,8 +347,8 @@ export function studentComparisonToComparisonResponse(
       classificationDistribution.evaluation_2[studentClass.evaluation_2] = 1;
     }
 
-    const gradeMetric = metricOrNull(gen.student_grade);
-    const profMetric = metricOrNull(gen.student_proficiency);
+    const gradeMetric = metricOrNull(gen.student_grade ?? genAny.grade);
+    const profMetric = metricOrNull(gen.student_proficiency ?? genAny.proficiency);
 
     const general_comparison: GeneralComparison = {
       average_grade: gradeMetric ?? metricOrZero(undefined),
