@@ -1,6 +1,6 @@
 import type { ProcessedEvolutionData } from '@/components/evolution/EvolutionCharts';
 import type { ComparisonResponse } from '@/services/evaluation/evaluationComparisonApi';
-import { EvolutionPDFLayout } from '@/components/evolution/EvolutionPDFLayout';
+import { EvolutionPDFLayout, type EvolutionPDFLayoutProps } from '@/components/evolution/EvolutionPDFLayout';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { loadCityBrandingForReportPdf, type PdfImageAsset, urlToPngAsset } from '@/utils/pdfCityBranding';
@@ -10,7 +10,7 @@ import {
   sortEvaluationsByOrder,
 } from '@/utils/evolution/evaluationScopeLabels';
 
-interface FilterInfo {
+export interface FilterInfo {
   state?: { id: string; name: string };
   municipality?: { id: string; name: string };
   school?: { id: string; name: string }; // Escola única (para compatibilidade)
@@ -19,6 +19,16 @@ interface FilterInfo {
   class?: { id: string; name: string };
   periodStart?: string;
   periodEnd?: string;
+  /** Relatório da aba Evolução por aluno */
+  reportKind?: 'student';
+  studentName?: string;
+  studentSchoolName?: string;
+  studentGradeName?: string;
+  studentClassName?: string;
+}
+
+function isStudentReport(filterInfo: FilterInfo | null | undefined): boolean {
+  return filterInfo?.reportKind === 'student' || Boolean(filterInfo?.studentName?.trim());
 }
 
 /**
@@ -181,6 +191,25 @@ function addFiltersInfoPage(
   const ACCENT_W = 4;
   const rowH = 6;
   const filterLines: Array<{ label: string; value: string }> = [];
+  const studentReport = isStudentReport(filterInfo);
+
+  if (studentReport && filterInfo?.studentName?.trim()) {
+    filterLines.push({ label: 'ALUNO', value: filterInfo.studentName.trim() });
+  }
+  const studentSchool =
+    filterInfo?.studentSchoolName?.trim() ||
+    (filterInfo?.school?.name ? filterInfo.school.name : undefined);
+  if (studentReport && studentSchool) {
+    filterLines.push({ label: 'ESCOLA', value: studentSchool });
+  }
+  const studentGrade = filterInfo?.studentGradeName?.trim() || filterInfo?.grade?.name;
+  const studentClass = filterInfo?.studentClassName?.trim() || filterInfo?.class?.name;
+  if (studentReport && studentGrade) {
+    filterLines.push({ label: 'SÉRIE', value: studentGrade });
+  }
+  if (studentReport && studentClass) {
+    filterLines.push({ label: 'TURMA', value: studentClass });
+  }
 
   if (filterInfo?.state?.name) filterLines.push({ label: 'ESTADO', value: filterInfo.state.name });
   if (filterInfo?.municipality?.name) filterLines.push({ label: 'MUNICÍPIO', value: filterInfo.municipality.name });
@@ -189,16 +218,25 @@ function addFiltersInfoPage(
     : filterInfo?.school
       ? [filterInfo.school]
       : [];
-  if (schoolsToDisplay.length === 1) filterLines.push({ label: 'ESCOLA', value: schoolsToDisplay[0].name });
-  if (schoolsToDisplay.length > 1) filterLines.push({ label: 'ESCOLAS', value: `${schoolsToDisplay.length} escolas selecionadas` });
-  if (filterInfo?.grade?.name) filterLines.push({ label: 'SÉRIE', value: filterInfo.grade.name });
-  if (filterInfo?.class?.name) filterLines.push({ label: 'TURMA', value: filterInfo.class.name });
+  if (!studentReport && schoolsToDisplay.length === 1) filterLines.push({ label: 'ESCOLA', value: schoolsToDisplay[0].name });
+  if (!studentReport && schoolsToDisplay.length > 1) filterLines.push({ label: 'ESCOLAS', value: `${schoolsToDisplay.length} escolas selecionadas` });
+  if (!studentReport && filterInfo?.grade?.name) filterLines.push({ label: 'SÉRIE', value: filterInfo.grade.name });
+  if (!studentReport && filterInfo?.class?.name) filterLines.push({ label: 'TURMA', value: filterInfo.class.name });
   if (filterInfo?.periodStart || filterInfo?.periodEnd) {
     filterLines.push({ label: 'PERÍODO', value: `${filterInfo.periodStart || '—'} → ${filterInfo.periodEnd || '—'}` });
   }
 
   const evalLabel = evaluationNames?.length ? `${evaluationNames.length} ${instrumentLabel}` : `Nenhuma ${instrumentLabel.slice(0, -1)} selecionada`;
   filterLines.push({ label: instrumentLabel === 'gabaritos' ? 'GABARITOS' : 'AVALIAÇÕES', value: evalLabel });
+
+  if (studentReport && evaluationNames.length > 0) {
+    evaluationNames.forEach((name, index) => {
+      filterLines.push({
+        label: index === 0 ? 'TÍTULOS' : '',
+        value: `${index + 1}. ${name}`,
+      });
+    });
+  }
 
   const cardH = Math.max(64, 24 + filterLines.length * rowH + 16);
   pdf.setFillColor(...COLORS.bgLight);
@@ -408,9 +446,39 @@ async function addCoverPage(
   pdf.setFontSize(17);
   pdf.text('ANÁLISE DE EVOLUÇÃO', centerX, titleY, { align: 'center' });
   pdf.setFontSize(11);
-  pdf.text('RELATÓRIO DE COMPARAÇÃO DE AVALIAÇÕES', centerX, titleY + 8, { align: 'center' });
+  const subtitle = isStudentReport(filterInfo)
+    ? 'RELATÓRIO INDIVIDUAL DO ALUNO'
+    : 'RELATÓRIO DE COMPARAÇÃO DE AVALIAÇÕES';
+  pdf.text(subtitle, centerX, titleY + 8, { align: 'center' });
 
   let y = BAND_H + 13;
+
+  if (isStudentReport(filterInfo) && filterInfo?.studentName?.trim()) {
+    pdf.setFontSize(15);
+    pdf.setTextColor(...COLORS.textDark);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(filterInfo.studentName.trim().toUpperCase(), centerX, y, { align: 'center' });
+    y += 8;
+
+    const identParts: string[] = [];
+    const escola =
+      filterInfo.studentSchoolName?.trim() || filterInfo.school?.name?.trim();
+    if (escola) identParts.push(escola);
+    const serie = filterInfo.studentGradeName?.trim() || filterInfo.grade?.name?.trim();
+    const turma = filterInfo.studentClassName?.trim() || filterInfo.class?.name?.trim();
+    if (serie) identParts.push(`Série ${serie}`);
+    if (turma) identParts.push(`Turma ${turma}`);
+    if (identParts.length > 0) {
+      pdf.setFontSize(10);
+      pdf.setTextColor(...COLORS.textGray);
+      pdf.setFont('helvetica', 'normal');
+      const identLines = pdf.splitTextToSize(identParts.join('  •  '), pageWidth - 40);
+      pdf.text(identLines, centerX, y, { align: 'center' });
+      y += identLines.length * 5 + 6;
+    } else {
+      y += 4;
+    }
+  }
 
   // Município - Estado (extrair de filterInfo)
   const municipio = filterInfo?.municipality?.name || 'MUNICÍPIO';
@@ -439,6 +507,7 @@ async function addCoverPage(
   // Calcular altura necessária para o card com mais espaço
   let estimatedCardHeight = 60; // Base aumentada
   // Removido: AVALIAÇÕES COMPARADAS (já aparece na página de informações)
+  estimatedCardHeight += filterInfo?.studentName ? 10 : 0;
   estimatedCardHeight += filterInfo?.municipality || filterInfo?.state ? 7 : 0; // Estado/Município
   estimatedCardHeight += (filterInfo?.schools && filterInfo.schools.length > 0) || filterInfo?.school ? 12 : 0; // Escola (pode ter múltiplas linhas)
   estimatedCardHeight += filterInfo?.grade ? 7 : 0; // Série
@@ -469,7 +538,12 @@ async function addCoverPage(
   pdf.setFontSize(13);
   pdf.setTextColor(...COLORS.primary);
   pdf.setFont('helvetica', 'bold');
-  pdf.text('INFORMAÇÕES DA COMPARAÇÃO', cardContentCenterX, cardY, { align: 'center' });
+  pdf.text(
+    isStudentReport(filterInfo) ? 'INFORMAÇÕES DO ALUNO' : 'INFORMAÇÕES DA COMPARAÇÃO',
+    cardContentCenterX,
+    cardY,
+    { align: 'center' }
+  );
 
   cardY += 6;
   pdf.setDrawColor(...COLORS.borderLight);
@@ -483,6 +557,52 @@ async function addCoverPage(
 
   const leftColX = cardX + ACCENT_W + 15; // Margem interna aumentada
   const labelWidth = 50; // Largura do label aumentada para acomodar textos maiores
+
+  if (isStudentReport(filterInfo) && filterInfo?.studentName?.trim()) {
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(...COLORS.primary);
+    pdf.setFontSize(9);
+    pdf.text('ALUNO:', leftColX, cardY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(...COLORS.textDark);
+    const alunoLines = pdf.splitTextToSize(filterInfo.studentName.trim(), cardWidth - labelWidth - 30);
+    pdf.text(alunoLines, leftColX + labelWidth, cardY);
+    cardY += Math.max(7, alunoLines.length * 5);
+  }
+
+  const coverSchool =
+    filterInfo?.studentSchoolName?.trim() || filterInfo?.school?.name?.trim();
+  if (isStudentReport(filterInfo) && coverSchool) {
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(...COLORS.primary);
+    pdf.text('ESCOLA:', leftColX, cardY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(...COLORS.textDark);
+    const escolaLines = pdf.splitTextToSize(coverSchool.toUpperCase(), cardWidth - labelWidth - 30);
+    pdf.text(escolaLines, leftColX + labelWidth, cardY);
+    cardY += Math.max(7, escolaLines.length * 5);
+  }
+
+  const coverGrade = filterInfo?.studentGradeName?.trim() || filterInfo?.grade?.name;
+  const coverClass = filterInfo?.studentClassName?.trim() || filterInfo?.class?.name;
+  if (isStudentReport(filterInfo) && coverGrade) {
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(...COLORS.primary);
+    pdf.text('SÉRIE:', leftColX, cardY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(...COLORS.textDark);
+    pdf.text(coverGrade, leftColX + labelWidth, cardY);
+    cardY += 7;
+  }
+  if (isStudentReport(filterInfo) && coverClass) {
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(...COLORS.primary);
+    pdf.text('TURMA:', leftColX, cardY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(...COLORS.textDark);
+    pdf.text(coverClass, leftColX + labelWidth, cardY);
+    cardY += 7;
+  }
 
   // Removido: AVALIAÇÕES COMPARADAS (já aparece na página de informações do relatório)
 
@@ -505,14 +625,14 @@ async function addCoverPage(
     cardY += Math.max(7, estadoMunicipioLines.length * 5);
   }
 
-  // ESCOLA(S)
+  // ESCOLA(S) — omitir no relatório por aluno (já exibida acima)
   const schoolsToDisplay = filterInfo?.schools && filterInfo.schools.length > 0 
     ? filterInfo.schools 
     : filterInfo?.school 
       ? [filterInfo.school]
       : [];
   
-  if (schoolsToDisplay.length > 0) {
+  if (!isStudentReport(filterInfo) && schoolsToDisplay.length > 0) {
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(...COLORS.primary);
     pdf.setFontSize(9);
@@ -529,7 +649,7 @@ async function addCoverPage(
   }
 
   // SÉRIE
-  if (filterInfo?.grade) {
+  if (!isStudentReport(filterInfo) && filterInfo?.grade) {
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(...COLORS.primary);
     pdf.setFontSize(9);
@@ -541,7 +661,7 @@ async function addCoverPage(
   }
 
   // TURMA
-  if (filterInfo?.class) {
+  if (!isStudentReport(filterInfo) && filterInfo?.class) {
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(...COLORS.primary);
     pdf.setFontSize(9);
@@ -680,21 +800,26 @@ async function addCategoryDivider(
   cy += 7;
 
   if (scopeEvaluations.length > 0) {
+    const studentReport = isStudentReport(filterInfo ?? null);
     for (const [index, ev] of scopeEvaluations.entries()) {
-      const grades = formatEvaluationGradeNames(ev) || '—';
-      const classes = formatEvaluationClassNames(ev) || '—';
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(8);
       const titleLines = pdf.splitTextToSize(`${index + 1}. ${ev.title}`, contentMaxW) as string[];
       pdf.text(titleLines, contentX, cy);
       cy += titleLines.length * 4.5;
 
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(8);
-      const scopeLine = `Série: ${grades}  •  Turmas: ${classes}`;
-      const scopeLines = pdf.splitTextToSize(scopeLine, contentMaxW) as string[];
-      pdf.text(scopeLines, contentX, cy);
-      cy += scopeLines.length * 4.5 + 3;
+      if (!studentReport) {
+        const grades = formatEvaluationGradeNames(ev) || '—';
+        const classes = formatEvaluationClassNames(ev) || '—';
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(8);
+        const scopeLine = `Série: ${grades}  •  Turmas: ${classes}`;
+        const scopeLines = pdf.splitTextToSize(scopeLine, contentMaxW) as string[];
+        pdf.text(scopeLines, contentX, cy);
+        cy += scopeLines.length * 4.5 + 3;
+      } else {
+        cy += 3;
+      }
     }
   } else {
     const grade = filterInfo?.grade?.name || '—';
@@ -802,6 +927,10 @@ function addHeader(
 
   const headerParts: string[] = [];
 
+  if (isStudentReport(filterInfo) && filterInfo?.studentName?.trim()) {
+    headerParts.push(`Aluno: ${filterInfo.studentName.trim()}`);
+  }
+
   const schoolsToDisplay = filterInfo?.schools && filterInfo.schools.length > 0
     ? filterInfo.schools
     : filterInfo?.school
@@ -814,16 +943,25 @@ function addHeader(
     } else {
       headerParts.push(`${schoolsToDisplay.length} Escolas`);
     }
+  } else if (isStudentReport(filterInfo) && filterInfo?.studentSchoolName?.trim()) {
+    headerParts.push(`Escola: ${filterInfo.studentSchoolName.trim()}`);
   }
 
-  if (filterInfo?.grade) {
-    headerParts.push(`Série: ${filterInfo.grade.name}`);
+  const headerGrade =
+    filterInfo?.studentGradeName?.trim() || filterInfo?.grade?.name;
+  const headerClass =
+    filterInfo?.studentClassName?.trim() || filterInfo?.class?.name;
+
+  if (headerGrade) {
+    headerParts.push(`Série: ${headerGrade}`);
   }
 
-  if (filterInfo?.class) {
-    headerParts.push(`Turma: ${filterInfo.class.name}`);
-    const turno = (filterInfo.class as { shift?: string }).shift?.trim();
-    if (turno) headerParts.push(`Turno: ${turno}`);
+  if (headerClass) {
+    headerParts.push(`Turma: ${headerClass}`);
+    if (!isStudentReport(filterInfo) && filterInfo?.class) {
+      const turno = (filterInfo.class as { shift?: string }).shift?.trim();
+      if (turno) headerParts.push(`Turno: ${turno}`);
+    }
   }
 
   if (headerParts.length > 0) {
@@ -876,13 +1014,22 @@ export async function generateEvolutionPDFFromHTML(
     const root = createRoot(container);
     
     await new Promise<void>((resolve) => {
-      root.render(
-        React.createElement(EvolutionPDFLayout, {
-          processedData,
-          comparisonData,
-          evaluationNames,
-        })
-      );
+      const layoutProps: EvolutionPDFLayoutProps = {
+        processedData,
+        comparisonData,
+        evaluationNames,
+      };
+      if (isStudentReport(filterInfo ?? null)) {
+        layoutProps.reportKind = 'student';
+        layoutProps.studentLabel = {
+          name: filterInfo?.studentName?.trim() || 'Aluno',
+          school: filterInfo?.studentSchoolName?.trim() || filterInfo?.school?.name,
+          grade: filterInfo?.studentGradeName?.trim() || filterInfo?.grade?.name,
+          class: filterInfo?.studentClassName?.trim() || filterInfo?.class?.name,
+        };
+      }
+
+      root.render(React.createElement(EvolutionPDFLayout, layoutProps));
       
       // Aguardar para garantir que o React renderizou completamente
       // e que os gráficos Recharts foram renderizados
@@ -998,7 +1145,18 @@ export async function generateEvolutionPDFFromHTML(
       }
     };
 
-    // Removido: outras seções (header, summary, etc.) - página 3 removida conforme solicitado
+    // Removido: outras seções agregadas (header/summary). Relatório por aluno inclui tabela de comparações.
+    const studentReport = isStudentReport(filterInfo ?? null);
+    const studentComparisonSections = otherSections.filter(
+      (el) => el.getAttribute('data-pdf-section') === 'student-comparisons'
+    );
+
+    if (studentReport && studentComparisonSections.length > 0) {
+      pdf.addPage();
+      currentY =
+        addHeader(pdf, imgWidth, filterInfo || null, 'COMPARAÇÕES ENTRE AVALIAÇÕES', icoAsset) || marginTop;
+      await addSectionsToPDF(studentComparisonSections);
+    }
 
     // Adicionar gráficos gerais com página divisória
     if (generalSections.length > 0) {
@@ -1044,8 +1202,8 @@ export async function generateEvolutionPDFFromHTML(
       await addSectionsToPDF(subjectSections);
     }
 
-    // Adicionar gráficos por nível com página divisória
-    if (levelSections.length > 0) {
+    // Adicionar gráficos por nível com página divisória (não aplicável ao relatório individual)
+    if (levelSections.length > 0 && !studentReport) {
       pdf.addPage();
       await addCategoryDivider(
         pdf,
@@ -1074,7 +1232,13 @@ export async function generateEvolutionPDFFromHTML(
     addFootersToAllPages(pdf, pageHeight, totalPages);
 
     // Salvar PDF
-    const fileName = `relatorio-evolucao-${evaluationNames.join('-').replace(/[^a-zA-Z0-9]/g, '-')}-${new Date().toISOString().split('T')[0]}.pdf`;
+    const datePart = new Date().toISOString().split('T')[0];
+    const studentSlug =
+      filterInfo?.studentName?.trim().replace(/[^a-zA-Z0-9à-üÀ-Ü]+/gi, '-').replace(/^-|-$/g, '').slice(0, 48) ||
+      '';
+    const fileName = studentSlug
+      ? `relatorio-evolucao-aluno-${studentSlug}-${datePart}.pdf`
+      : `relatorio-evolucao-${evaluationNames.join('-').replace(/[^a-zA-Z0-9]/g, '-')}-${datePart}.pdf`;
     pdf.save(fileName);
   } catch (error) {
     console.error('Erro ao gerar PDF:', error);
