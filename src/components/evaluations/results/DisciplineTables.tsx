@@ -22,6 +22,8 @@ interface TabelaDetalhadaQuestao {
   habilidade: string;
   codigo_habilidade: string;
   question_id: string;
+  /** % de acerto da questão/habilidade já calculado pelo backend (mesma fórmula do mapa de habilidades). */
+  percentual_acertos?: number;
 }
 
 interface TabelaDetalhadaAluno {
@@ -125,27 +127,6 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
     }));
   };
 
-  // Função para calcular estatísticas de uma questão
-  const getQuestionStats = (disciplina: TabelaDetalhadaDisciplina, questaoNumero: number) => {
-    if (!disciplina.alunos.length) return { correct: 0, total: 0, percentage: 0 };
-
-    let correct = 0;
-    let total = 0;
-
-    disciplina.alunos.forEach(aluno => {
-      const resposta = aluno.respostas_por_questao.find(r => r.questao === questaoNumero);
-      if (resposta && resposta.respondeu) {
-        total++;
-        if (resposta.acertou) {
-          correct++;
-        }
-      }
-    });
-    
-    const percentage = total > 0 ? Math.round((correct / total) * 100) : 0;
-    return { correct, total, percentage };
-  };
-
   // Função para obter cor do nível
   const getLevelColor = (classificacao: string) => {
     switch (classificacao) {
@@ -168,6 +149,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
           habilidade: questao.habilidade,
           codigo_habilidade: questao.codigo_habilidade,
           question_id: questao.question_id,
+          percentual_acertos: questao.percentual_acertos,
           disciplina: disciplina.nome
         });
       });
@@ -461,7 +443,8 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                         numero: q.numero,
                         habilidade: q.habilidade,
                         codigo_habilidade: q.codigo_habilidade,
-                        question_id: q.question_id
+                        question_id: q.question_id,
+                        percentual_acertos: (q as QuestaoConsolidada).percentual_acertos
                       }]
                     }))
                   }}
@@ -539,7 +522,8 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                             numero: q.numero,
                             habilidade: q.habilidade,
                             codigo_habilidade: q.codigo_habilidade,
-                            question_id: q.question_id
+                            question_id: q.question_id,
+                            percentual_acertos: (q as QuestaoConsolidada).percentual_acertos
                           }]
                         }))
                       }}

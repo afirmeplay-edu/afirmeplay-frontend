@@ -37,6 +37,8 @@ import {
   PieChart,
   FileBarChart,
   ClipboardList,
+  ClipboardCheck,
+  PencilRuler,
   NotebookPen,
   MapPin,
   ScanLine,
@@ -304,6 +306,16 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
             { icon: FileCheck, label: "Avaliações", href: "/app/avaliacoes", role: ["admin", "tecadm"] },
             { icon: MapPin, label: "Municípios", href: "/app/city", role: ["admin", "tecadm"] },
             { icon: HelpCircle, label: "Questão", href: "/app/cadastros/questao", role: ["admin", "tecadm"] },
+          ]
+        },
+        {
+          icon: ClipboardCheck,
+          label: "Avaliação Subjetiva",
+          role: ["admin", "professor", "diretor", "coordenador", "tecadm"],
+          children: [
+            { icon: FilePlus, label: "Criar", href: "/app/avaliacoes-subjetivas/nova", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
+            { icon: PencilRuler, label: "Corrigir", href: "/app/avaliacoes-subjetivas/correcao", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
+            { icon: LayoutDashboard, label: "Dashboard", href: "/app/avaliacoes-subjetivas/dashboard", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
           ]
         },
         {

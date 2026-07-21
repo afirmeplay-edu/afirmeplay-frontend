@@ -1,12 +1,14 @@
 import React, { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
-/** Paleta fixa (referência SAEB) — não depende do tema claro/escuro */
+/** Paleta fixa (referência SAEB / tema InnovPlay) — não depende do tema claro/escuro */
 const CHART_PALETTE = [
   { color: '#4B218E', textOnBar: '#FFFFFF' },
   { color: '#3B82F6', textOnBar: '#FFFFFF' },
   { color: '#DDD6FE', textOnBar: '#1F2937' },
+  { color: '#7C3AED', textOnBar: '#FFFFFF' },
 ] as const;
 
 const BAR_FILL_COLOR = '#3B82F6';
@@ -108,6 +110,16 @@ function formatRespondentCount(value: number): string {
   return value.toLocaleString('pt-BR');
 }
 
+function formatOptionStats(pct: number, count: number): string {
+  const verb = count === 1 ? 'respondeu' : 'responderam';
+  return `${pct}% · ${formatRespondentCount(count)} ${verb}`;
+}
+
+function formatRespondentVerb(count: number): string {
+  const verb = count === 1 ? 'respondeu' : 'responderam';
+  return `${formatRespondentCount(count)} ${verb}`;
+}
+
 function getPercentage(count: number, total: number): number {
   if (total <= 0) return 0;
   return Math.round((count / total) * 100);
@@ -115,6 +127,12 @@ function getPercentage(count: number, total: number): number {
 
 function getOptionSortIndex(label: string): number {
   const normalized = label.toLowerCase().trim();
+
+  if (/discordo\s+totalmente|totalmente\s+discordo/.test(normalized)) return 3;
+  if (/\bdiscordo\b/.test(normalized)) return 2;
+  if (/concordo\s+totalmente|totalmente\s+concordo/.test(normalized)) return 1;
+  if (/\bconcordo\b/.test(normalized)) return 0;
+
   if (/nunca|nenhum/.test(normalized)) return 0;
   if (/vez em quando|às vezes|as vezes|maioria/.test(normalized)) return 1;
   if (/sempre|todos/.test(normalized)) return 2;
@@ -176,61 +194,73 @@ type HorizontalBarRowProps = {
 
 function HorizontalBarRow({ label, count, total }: HorizontalBarRowProps) {
   const pct = getPercentage(count, total);
+  const statsLabel = formatOptionStats(pct, count);
+  const countLabel = formatRespondentVerb(count);
   const isLongLabel = label.length > LONG_LABEL_THRESHOLD;
   const barWidth = pct > 0 ? Math.max(pct, isLongLabel ? 10 : 15) : 0;
 
-  if (isLongLabel) {
-    return (
-      <div className="space-y-1.5">
-        <p className="text-sm font-medium leading-snug text-foreground">{label}</p>
+  const pctElement = (
+    <span className="w-10 shrink-0 text-right text-sm font-semibold tabular-nums text-foreground">
+      {pct}%
+    </span>
+  );
+
+  const countElement = (
+    <span className="shrink-0 min-w-[5.5rem] text-right text-sm tabular-nums text-muted-foreground">
+      {countLabel}
+    </span>
+  );
+
+  const barElement = (
+    <div
+      className="relative h-9 min-w-0 flex-1 overflow-hidden rounded-full"
+      style={{ backgroundColor: BAR_TRACK_COLOR }}
+    >
+      {barWidth > 0 ? (
         <div
-          className="relative h-9 w-full overflow-hidden rounded-full"
-          style={{ backgroundColor: BAR_TRACK_COLOR }}
+          className="flex h-full min-w-[4.5rem] items-center rounded-full"
+          style={{ width: `${barWidth}%`, backgroundColor: BAR_FILL_COLOR }}
         >
-          {barWidth > 0 ? (
-            <div
-              className="flex h-full items-center rounded-full"
-              style={{ width: `${barWidth}%`, backgroundColor: BAR_FILL_COLOR }}
-            >
-              <span className="px-3 text-sm font-semibold" style={{ color: '#FFFFFF' }}>
-                {pct}%
-              </span>
-            </div>
-          ) : (
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">
-              0%
-            </span>
-          )}
+          <span className="truncate px-3 text-sm" style={{ color: '#FFFFFF' }}>
+            {label}
+          </span>
+        </div>
+      ) : (
+        <span className="absolute left-3 top-1/2 flex -translate-y-1/2 items-center text-sm text-muted-foreground">
+          <span className="truncate">{label}</span>
+        </span>
+      )}
+    </div>
+  );
+
+  const tooltip = (trigger: React.ReactNode) => (
+    <Tooltip>
+      <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+      <TooltipContent className="max-w-sm">
+        <p className="font-medium">{label}</p>
+        <p>{statsLabel}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+
+  if (isLongLabel) {
+    return tooltip(
+      <div className="cursor-default space-y-1.5">
+        <p className="text-sm font-medium leading-snug text-foreground">{label}</p>
+        <div className="flex items-center gap-3">
+          {pctElement}
+          {barElement}
+          {countElement}
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="flex items-center gap-3">
-      <span className="w-10 shrink-0 text-right text-sm font-semibold tabular-nums text-foreground">
-        {pct}%
-      </span>
-      <div
-        className="relative h-9 min-w-0 flex-1 overflow-hidden rounded-full"
-        style={{ backgroundColor: BAR_TRACK_COLOR }}
-      >
-        {barWidth > 0 ? (
-          <div
-            className="flex h-full min-w-[4.5rem] items-center rounded-full"
-            style={{ width: `${barWidth}%`, backgroundColor: BAR_FILL_COLOR }}
-          >
-            <span className="truncate px-3 text-sm" style={{ color: '#FFFFFF' }}>
-              {label}
-            </span>
-          </div>
-        ) : (
-          <span className="absolute left-3 top-1/2 flex -translate-y-1/2 items-center gap-2 text-sm text-muted-foreground">
-            <span className="font-semibold">0%</span>
-            <span className="truncate">{label}</span>
-          </span>
-        )}
-      </div>
+  return tooltip(
+    <div className="flex cursor-default items-center gap-3">
+      {pctElement}
+      {barElement}
+      {countElement}
     </div>
   );
 }
@@ -306,26 +336,33 @@ export function FormReportStackedSubQuestions({ subperguntas }: FormReportStacke
               >
                 {segments.map((segment) => {
                   if (segment.pct <= 0) return null;
+                  const statsLabel = formatOptionStats(segment.pct, segment.count);
                   return (
-                    <div
-                      key={segment.label}
-                      className="flex items-center justify-center overflow-hidden"
-                      style={{
-                        width: `${segment.pct}%`,
-                        backgroundColor: segment.color,
-                        minWidth: segment.pct >= 6 ? undefined : 0,
-                      }}
-                      title={`${segment.label}: ${segment.pct}%`}
-                    >
-                      {segment.pct >= 6 && (
-                        <span
-                          className="px-1 text-xs font-semibold"
-                          style={{ color: segment.textOnBar }}
+                    <Tooltip key={segment.label}>
+                      <TooltipTrigger asChild>
+                        <div
+                          className="flex cursor-default items-center justify-center overflow-hidden"
+                          style={{
+                            width: `${segment.pct}%`,
+                            backgroundColor: segment.color,
+                            minWidth: segment.pct >= 6 ? undefined : 0,
+                          }}
                         >
-                          {segment.pct}%
-                        </span>
-                      )}
-                    </div>
+                          {segment.pct >= 6 && (
+                            <span
+                              className="px-1 text-xs font-semibold"
+                              style={{ color: segment.textOnBar }}
+                            >
+                              {segment.pct}%
+                            </span>
+                          )}
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-sm">
+                        <p className="font-medium">{segment.label}</p>
+                        <p>{statsLabel}</p>
+                      </TooltipContent>
+                    </Tooltip>
                   );
                 })}
                 {subTotal === 0 && (

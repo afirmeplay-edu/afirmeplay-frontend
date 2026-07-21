@@ -24,6 +24,7 @@ import { useEvaluationsManager } from '@/hooks/use-cache';
 import { useNavigate } from 'react-router-dom';
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../results/constants';
 import { mapEvaluationQuestionOptions } from '@/utils/questionOptionImages';
+import { mapApiQuestionTypeToForm, getQuestionTypeLabel } from '@/utils/questionTypeMapping';
 
 interface CreateEvaluationModalProps {
   isOpen: boolean;
@@ -294,7 +295,7 @@ export function CreateEvaluationModal({
                   text: q.text || q.formattedText || '',
                   formattedText: q.formattedText || q.text || '',
                   title: q.title || q.command || '',
-                  type: q.type === 'multiple_choice' ? 'multipleChoice' : (q.type === 'open' || q.type === 'essay' ? 'dissertativa' : 'multipleChoice'),
+                  type: mapApiQuestionTypeToForm(q.type),
                   subjectId: subjectId,
                   subject: q.subject || (subjectId ? { id: subjectId } : undefined),
                   grade: q.grade,
@@ -309,6 +310,7 @@ export function CreateEvaluationModal({
                   })) || q.options || [],
                   secondStatement: q.secondStatement || q.secondstatement || '',
                   skills: q.skills || '',
+                  interactionConfig: q.interactionConfig || q.interaction_config || undefined,
                 };
               });
               setQuestions(questionsData);
@@ -340,7 +342,7 @@ export function CreateEvaluationModal({
                       text: q.text || q.formattedText || '',
                       formattedText: q.formattedText || q.text || '',
                       title: q.title || q.command || '',
-                      type: q.type === 'multiple_choice' ? 'multipleChoice' : (q.type === 'open' || q.type === 'essay' ? 'dissertativa' : 'multipleChoice'),
+                      type: mapApiQuestionTypeToForm(q.type),
                       subjectId: subjectId,
                       subject: q.subject || (subjectId ? { id: subjectId } : undefined),
                       grade: q.grade,
@@ -355,6 +357,7 @@ export function CreateEvaluationModal({
                       })) || q.options || [],
                       secondStatement: q.secondStatement || q.secondstatement || '',
                       skills: q.skills || '',
+                      interactionConfig: q.interactionConfig || q.interaction_config || undefined,
                     };
                   });
                   setQuestions(mappedQuestions);
@@ -457,7 +460,7 @@ export function CreateEvaluationModal({
                   text: q.text || q.formattedText || '',
                   formattedText: q.formattedText || q.text || '',
                   title: q.title || q.command || '',
-                  type: q.type === 'multiple_choice' ? 'multipleChoice' : (q.type === 'open' || q.type === 'essay' ? 'dissertativa' : 'multipleChoice'),
+                  type: mapApiQuestionTypeToForm(q.type),
                   subjectId: subjectId,
                   subject: q.subject || (subjectId ? { id: subjectId } : undefined),
                   grade: q.grade,
@@ -472,6 +475,7 @@ export function CreateEvaluationModal({
                   })) || q.options || [],
                   secondStatement: q.secondStatement || q.secondstatement || '',
                   skills: q.skills || '',
+                  interactionConfig: q.interactionConfig || q.interaction_config || undefined,
                 };
               });
               console.log('📚 Carregando questões da API:', questionsData.length);
@@ -813,7 +817,7 @@ export function CreateEvaluationModal({
                       text: q.text || q.formattedText || '',
                       formattedText: q.formattedText || q.text || '',
                       title: q.title || q.command || '',
-                      type: q.type === 'multiple_choice' ? 'multipleChoice' : (q.type === 'open' || q.type === 'essay' ? 'dissertativa' : 'multipleChoice'),
+                      type: mapApiQuestionTypeToForm(q.type),
                       subjectId: subjectId,
                       subject: q.subject || (subjectId ? { id: subjectId } : undefined),
                       grade: q.grade,
@@ -828,6 +832,7 @@ export function CreateEvaluationModal({
                       })) || q.options || [],
                       secondStatement: q.secondStatement || q.secondstatement || '',
                       skills: q.skills || '',
+                      interactionConfig: q.interactionConfig || q.interaction_config || undefined,
                     };
                   });
                   setQuestions(questionsData);
@@ -907,7 +912,7 @@ export function CreateEvaluationModal({
           ? new Date(new Date(initialData.startDateTime).getTime() + (parseInt(initialData.duration, 10) || 60) * 60 * 1000).toISOString()
           : new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
         duration: parseInt(duration, 10) || 60,
-        evaluation_mode: "virtual",
+        evaluation_mode: 'virtual',
         municipalities: municipality === 'all' ? [] : [municipality],
         schools: schoolsToSend,
         classes: classesToSend,
@@ -1005,6 +1010,7 @@ export function CreateEvaluationModal({
 
           // ✅ CORREÇÃO: Questão verdadeiramente nova (sem ID válido) - criar completa
           // Questões novas NÃO devem incluir 'id' no payload completo
+          const isSubjectiveQuestion = question.type !== 'multipleChoice';
           const newQuestion: any = {
             number: index + 1,
             text: question.text || '',
@@ -1016,12 +1022,12 @@ export function CreateEvaluationModal({
             subtitle: question.title || '',
             secondStatement: question.secondStatement || '',
             options: mapEvaluationQuestionOptions(question.options),
-            skills: question.skills || "",
             grade: question.grade?.id || grade,
             difficulty: question.difficulty || '',
             solution: question.solution || "",
             formattedSolution: question.formattedSolution || question.solution || "",
-            type: question.type === 'multipleChoice' ? 'multiple_choice' : 'open',
+            // Mantém o subtipo real (dissertativa, arrastar_soltar, ligar_colunas, etc.) — não força "open".
+            type: question.type === 'multipleChoice' ? 'multiple_choice' : question.type,
             value: question.value || 0,
             topics: [],
             educationStageId: course,
@@ -1029,6 +1035,11 @@ export function CreateEvaluationModal({
             lastModifiedBy: user?.id || ""
             // ✅ CORREÇÃO: NÃO incluir 'id' aqui - questões novas não devem ter ID no payload
           };
+
+          newQuestion.skills = question.skills || "";
+          if (isSubjectiveQuestion) {
+            newQuestion.interactionConfig = question.interactionConfig || undefined;
+          }
           
           console.log(`✅ Questão ${index + 1} preparada para envio (nova):`, {
             number: newQuestion.number,
@@ -1590,7 +1601,7 @@ export function CreateEvaluationModal({
                   text: q.text || q.formattedText || '',
                   formattedText: q.formattedText || q.text || '',
                   title: q.title || q.command || '',
-                  type: q.type === 'multiple_choice' ? 'multipleChoice' : (q.type === 'open' || q.type === 'essay' ? 'dissertativa' : 'multipleChoice'),
+                  type: mapApiQuestionTypeToForm(q.type),
                   subjectId: subjectId,
                   subject: q.subject || (subjectId ? { id: subjectId } : undefined),
                   grade: q.grade,
@@ -1604,12 +1615,13 @@ export function CreateEvaluationModal({
                     isCorrect: alt.isCorrect || false,
                   })) || q.options || [],
                   secondStatement: q.secondStatement || q.secondstatement || '',
-                  skills: q.skills || '',
-                };
-              });
-              setQuestions(questionsData);
-              setQuestionsLoaded(true);
-              console.log('✅ Step 2: Questões carregadas da API:', questionsData.length, questionsData.map((q: any) => ({
+                      skills: q.skills || '',
+                      interactionConfig: q.interactionConfig || q.interaction_config || undefined,
+                    };
+                  });
+                  setQuestions(questionsData);
+                  setQuestionsLoaded(true);
+                  console.log('✅ Step 2: Questões carregadas da API:', questionsData.length, questionsData.map((q: any) => ({
                 id: q.id,
                 subjectId: q.subjectId
               })));
@@ -1688,7 +1700,7 @@ export function CreateEvaluationModal({
                     text: q.text || q.formattedText || '',
                     formattedText: q.formattedText || q.text || '',
                     title: q.title || q.command || '',
-                    type: q.type === 'multiple_choice' ? 'multipleChoice' : (q.type === 'open' || q.type === 'essay' ? 'dissertativa' : 'multipleChoice'),
+                    type: mapApiQuestionTypeToForm(q.type),
                     subjectId: subjectId,
                     subject: q.subject || (subjectId ? { id: subjectId } : undefined),
                     grade: q.grade,
@@ -1703,6 +1715,7 @@ export function CreateEvaluationModal({
                     })) || q.options || [],
                     secondStatement: q.secondStatement || q.secondstatement || '',
                     skills: q.skills || '',
+                    interactionConfig: q.interactionConfig || q.interaction_config || undefined,
                   };
                 });
                 setQuestions(questionsData);
@@ -2323,13 +2336,7 @@ export function CreateEvaluationModal({
                                 subjectQuestions.map((question, index) => {
                                   // ✅ CORREÇÃO: Criar chave única combinando ID da questão com ID da disciplina e índice
                                   const uniqueKey = `${subject.id}-${question.id || `temp-${index}`}-${index}`;
-                                  const questionTypeLabel = (() => {
-                                    const rawType = (question.type || '').toString().toLowerCase();
-                                    if (rawType.includes('multiple')) return 'Múltipla Escolha';
-                                    if (rawType.includes('dissert') || rawType.includes('essay') || rawType.includes('open')) return 'Dissertativa';
-                                    if (rawType.includes('true')) return 'Verdadeiro/Falso';
-                                    return question.type || 'Questão';
-                                  })();
+                                  const questionTypeLabel = getQuestionTypeLabel(question.type);
                                   const questionDifficultyLabel = (() => {
                                     const rawDifficulty = (question.difficulty || '').toString().toLowerCase();
                                     if (rawDifficulty.includes('abaixo')) return 'Abaixo do Básico';

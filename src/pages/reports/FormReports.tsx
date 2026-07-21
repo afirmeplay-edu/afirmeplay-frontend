@@ -32,6 +32,7 @@ import {
   getOrderedProfileKeys,
 } from '@/components/reports/form-reports/FormReportProfileCharts';
 import { generateFormReportsProfilesPdf } from '@/services/reports/formReportsProfilesPdf';
+import { generateFormReportsStudentsPdf } from '@/services/reports/formReportsStudentsPdf';
 
 // Interfaces
 interface State {
@@ -112,6 +113,29 @@ function normalizeProfilesResponse(data: any): any {
   return { ...data, perfisConsolidados: consolidated };
 }
 
+const INDEX_TYPE_TITLES: Record<string, { title: string; icon: typeof AlertTriangle; color: string }> = {
+  distorcaoIdadeSerie: {
+    title: 'Alunos com distorção idade-série',
+    icon: AlertTriangle,
+    color: 'bg-orange-500',
+  },
+  historicoReprovacao: {
+    title: 'Alunos com histórico de reprovação',
+    icon: TrendingDown,
+    color: 'bg-red-500',
+  },
+  semAcessoInternet: {
+    title: 'Alunos sem acesso a internet',
+    icon: WifiOff,
+    color: 'bg-blue-500',
+  },
+  baixoEngajamentoFamiliar: {
+    title: 'Baixo engajamento familiar',
+    icon: UserX,
+    color: 'bg-purple-500',
+  },
+};
+
 const FormReports = () => {
   const { toast } = useToast();
 
@@ -153,6 +177,7 @@ const FormReports = () => {
   const [studentsPagination, setStudentsPagination] = useState<any>(null);
   const [isLoadingStudents, setIsLoadingStudents] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [isExportingStudentsPdf, setIsExportingStudentsPdf] = useState(false);
 
   // Carregar estados iniciais (rota de resultados: GET /forms/results/filter-options)
   useEffect(() => {
@@ -734,29 +759,144 @@ const FormReports = () => {
     }
   };
 
-  // Tradução dos tipos de índices
-  const indexTypeTitles: Record<string, { title: string; icon: any; color: string }> = {
-    distorcaoIdadeSerie: {
-      title: 'Alunos com distorção idade-série',
-      icon: AlertTriangle,
-      color: 'bg-orange-500'
+  const fetchAllStudentsForIndex = useCallback(
+    async (indexType: string): Promise<Student[]> => {
+      const params: Record<string, string | number> = {
+        state: selectedState,
+        municipio: selectedMunicipality,
+        page: 1,
+        limit: 100,
+      };
+
+      if (selectedSchools.length > 0) {
+        params.escola = selectedSchools.join(',');
+      }
+      if (selectedGrades.length > 0) {
+        params.serie = selectedGrades.join(',');
+      }
+      if (selectedClasses.length > 0) {
+        params.turma = selectedClasses.join(',');
+      }
+
+      const listConfig =
+        selectedMunicipality !== 'all' ? { params, meta: { cityId: selectedMunicipality } } : { params };
+      const basePath =
+        selectedForm === 'all' ? '/forms/aggregated/results' : `/forms/${selectedForm}/results`;
+
+      const allStudents: Student[] = [];
+      let page = 1;
+      let totalPages = 1;
+
+      do {
+        const response = await api.get(`${basePath}/indices`, {
+          ...listConfig,
+          params: { ...params, page },
+        });
+
+        if (response.status !== 200) break;
+
+        const raw = response.data;
+        const indexData = raw?.indicesConsolidados?.[indexType] ?? raw?.indices?.[indexType];
+        const pageStudents = indexData?.alunos?.data ?? [];
+        allStudents.push(...pageStudents);
+        totalPages = indexData?.alunos?.pagination?.totalPages ?? 1;
+        page += 1;
+      } while (page <= totalPages);
+
+      return allStudents;
     },
-    historicoReprovacao: {
-      title: 'Alunos com histórico de reprovação',
-      icon: TrendingDown,
-      color: 'bg-red-500'
-    },
-    semAcessoInternet: {
-      title: 'Alunos sem acesso a internet',
-      icon: WifiOff,
-      color: 'bg-blue-500'
-    },
-    baixoEngajamentoFamiliar: {
-      title: 'Baixo engajamento familiar',
-      icon: UserX,
-      color: 'bg-purple-500'
+    [selectedState, selectedMunicipality, selectedSchools, selectedGrades, selectedClasses, selectedForm]
+  );
+
+  const handleExportStudentsPdf = useCallback(async () => {
+    if (!selectedIndexType || !INDEX_TYPE_TITLES[selectedIndexType]) return;
+
+    try {
+      setIsExportingStudentsPdf(true);
+
+      const students =
+        studentsPagination?.totalPages && studentsPagination.totalPages <= 1
+          ? studentsData
+          : await fetchAllStudentsForIndex(selectedIndexType);
+
+      const municipioName =
+        municipalities.find((m) => m.id === selectedMunicipality)?.name ||
+        selectedMunicipality ||
+        '';
+      const escolaNames =
+        selectedSchools.length === 0
+          ? '—'
+          : selectedSchools
+              .map((id) => schools.find((s) => s.id === id)?.name)
+              .filter(Boolean)
+              .join(', ') || '—';
+      const formTitle =
+        selectedForm === 'all'
+          ? 'Todos (agregado)'
+          : forms.find((f) => f.id === selectedForm)?.name || selectedForm;
+      const serieNames =
+        selectedGrades.length === 0
+          ? '—'
+          : selectedGrades
+              .map((id) => grades.find((g) => g.id === id)?.name)
+              .filter(Boolean)
+              .join(', ') || '—';
+      const turmaNames =
+        selectedClasses.length === 0
+          ? '—'
+          : selectedClasses
+              .map((id) => classes.find((c) => c.id === id)?.name)
+              .filter(Boolean)
+              .join(', ') || '—';
+
+      await generateFormReportsStudentsPdf({
+        indexTitle: INDEX_TYPE_TITLES[selectedIndexType].title,
+        students: students.map((student) => ({
+          alunoNome: student.alunoNome,
+          escolaNome: student.escolaNome,
+          gradeName: student.gradeName,
+          className: student.className,
+          resposta: student.resposta,
+        })),
+        municipalityId: selectedMunicipality,
+        municipalityName: municipioName,
+        schoolNames: escolaNames,
+        formTitle,
+        gradeNames: serieNames,
+        classNames: turmaNames,
+      });
+
+      toast({
+        title: 'PDF gerado',
+        description: 'A lista de alunos foi exportada com sucesso.',
+      });
+    } catch (error) {
+      console.error('Erro ao gerar PDF da lista de alunos:', error);
+      toast({
+        title: 'Erro ao gerar PDF',
+        description: 'Não foi possível exportar a lista de alunos.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsExportingStudentsPdf(false);
     }
-  };
+  }, [
+    selectedIndexType,
+    studentsPagination,
+    studentsData,
+    fetchAllStudentsForIndex,
+    municipalities,
+    selectedMunicipality,
+    selectedSchools,
+    schools,
+    selectedForm,
+    forms,
+    selectedGrades,
+    grades,
+    selectedClasses,
+    classes,
+    toast,
+  ]);
 
   // Tradução das abas de perfis
   const profileTabTitles: Record<string, string> = {
@@ -816,7 +956,7 @@ const FormReports = () => {
       const indicesSummary = indicesMap
         ? Object.entries(indicesMap)
             .map(([key, data]: [string, any]) => {
-              const info = indexTypeTitles[key];
+              const info = INDEX_TYPE_TITLES[key];
               if (!info || !data) return null;
               return {
                 title: info.title,
@@ -871,7 +1011,6 @@ const FormReports = () => {
     selectedClasses,
     classes,
     profileTabTitles,
-    indexTypeTitles,
     toast,
   ]);
 
@@ -1057,7 +1196,7 @@ const FormReports = () => {
           {/* Cards de Estatísticas */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {Object.entries(indicesData.indicesConsolidados).map(([key, data]: [string, any]) => {
-              const indexInfo = indexTypeTitles[key];
+              const indexInfo = INDEX_TYPE_TITLES[key];
               if (!indexInfo) return null;
 
               const Icon = indexInfo.icon;
@@ -1161,13 +1300,40 @@ const FormReports = () => {
       <Dialog open={studentModalOpen} onOpenChange={setStudentModalOpen}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
-              {selectedIndexType && indexTypeTitles[selectedIndexType]?.title}
-            </DialogTitle>
-            <DialogDescription>
-              Lista de alunos identificados nesta categoria
-            </DialogDescription>
+            <div className="flex items-start justify-between gap-4 pr-6">
+              <div className="space-y-1.5">
+                <DialogTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  {selectedIndexType && INDEX_TYPE_TITLES[selectedIndexType]?.title}
+                </DialogTitle>
+                <DialogDescription>
+                  Lista de alunos identificados nesta categoria
+                </DialogDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportStudentsPdf}
+                disabled={
+                  isExportingStudentsPdf ||
+                  isLoadingStudents ||
+                  !studentsPagination?.total
+                }
+                className="shrink-0"
+              >
+                {isExportingStudentsPdf ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Gerando PDF...
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4 mr-2" />
+                    Baixar PDF
+                  </>
+                )}
+              </Button>
+            </div>
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto">

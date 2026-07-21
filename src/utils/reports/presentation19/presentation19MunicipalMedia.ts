@@ -8,8 +8,13 @@ function normDiscKey(s: string): string {
     .toLowerCase();
 }
 
-function isGeralDisciplineKey(key: string): boolean {
+export function isGeralDisciplineKey(key: string): boolean {
   return normDiscKey(key) === "geral";
+}
+
+/** Agregado redundante da API (ex.: "Disciplina Geral") — distinto da chave `GERAL`. */
+export function isDisciplinaGeralAggregateKey(key: string): boolean {
+  return normDiscKey(key) === "disciplina geral";
 }
 
 /** Chaves de disciplina reais do relatório (`por_disciplina`), excluindo GERAL. */

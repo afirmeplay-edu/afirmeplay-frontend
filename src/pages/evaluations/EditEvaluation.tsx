@@ -6,6 +6,7 @@ import { CreateEvaluationModal } from "@/components/evaluations/create/CreateEva
 import { EvaluationFormData, Question as FormQuestion } from "@/components/evaluations/types";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
+import { mapApiQuestionTypeToForm } from "@/utils/questionTypeMapping";
 
 interface Municipality {
     id: string;
@@ -62,6 +63,7 @@ interface Evaluation {
     municipalities: Municipality[];
     schools: School[];
     type: "AVALIACAO" | "SIMULADO";
+    evaluation_mode?: "virtual" | "physical" | "subjective";
     createdAt: string;
     questions: ApiQuestion[];
     time_limit?: string;
@@ -124,7 +126,7 @@ const EditEvaluation = () => {
                                 text: q.text || q.formattedText || '',
                                 formattedText: q.formattedText || q.text || '',
                                 title: q.title || q.command || '',
-                                type: q.type === 'multiple_choice' ? 'multipleChoice' : (q.type === 'open' || q.type === 'essay' ? 'dissertativa' : 'multipleChoice'),
+                                type: mapApiQuestionTypeToForm(q.type),
                                 subjectId: subjectId,
                                 subject: q.subject || (subjectId ? { id: subjectId } : undefined),
                                 grade: q.grade,
@@ -139,6 +141,7 @@ const EditEvaluation = () => {
                                 })) || q.options || [],
                                 secondStatement: q.secondStatement || q.secondstatement || '',
                                 skills: q.skills || '',
+                                interactionConfig: q.interactionConfig || q.interaction_config || undefined,
                             };
                         }) as FormQuestion[];
                         
@@ -248,6 +251,7 @@ const EditEvaluation = () => {
                     model: (evaluation.model === "SAEB" || evaluation.model === "PROVA" || evaluation.model === "AVALIE")
                         ? evaluation.model
                         : "SAEB",
+                    evaluation_mode: evaluation.evaluation_mode || "virtual",
                     subjects: subjectsNormalized.length > 0 ? subjectsNormalized : (evaluation.subject ? [{ id: evaluation.subject.id, name: evaluation.subject.name || "" }] : []),
                     subject: evaluation.subject?.id || subjectsNormalized[0]?.id || "",
                     questions: questionsData,

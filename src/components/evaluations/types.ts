@@ -68,7 +68,12 @@ export interface Question {
   title: string;
   text: string;
   formattedText?: string;
-  type: 'multipleChoice' | 'dissertativa' | 'trueFalse'; // Atualizado para usar 'dissertativa' em vez de 'open'
+  /**
+   * 'dissertativa' e os demais tipos subjetivos (arrastar_soltar, ligar_colunas, ordenacao,
+   * completar_lacunas, substituicao, destacar_trechos, escrita_matematica, construcao_resposta)
+   * são corrigidos manualmente via rubrica (avaliação subjetiva). 'trueFalse' é legado.
+   */
+  type: 'multipleChoice' | 'trueFalse' | import('@/lib/question-interactions').InteractionType;
   subjectId: string;
   subject?: Subject; // Assuming Subject is also defined
   educationStage?: EducationStage; // Assuming EducationStage is also defined
@@ -87,6 +92,8 @@ export interface Question {
   skills?: string | string[]; // id(s) ou códigos (normalizado como array no front)
   /** Código da habilidade vinculada (skill_code) para exibição */
   skillCode?: string;
+  /** Configuração da interação (formato livre, ver src/lib/question-interactions.ts). */
+  interactionConfig?: import('@/lib/question-interactions').Interaction;
   created_by: string;
   lastModifiedBy?: string;
   // Add other properties as needed
@@ -102,6 +109,8 @@ export interface EvaluationFormData {
   classId: string;
   type: "AVALIACAO" | "SIMULADO";
   model: "SAEB" | "PROVA" | "AVALIE";
+  /** Modo de aplicação: online (virtual), papel (physical) ou presencial com correção manual por rubrica (subjective). */
+  evaluation_mode?: "virtual" | "physical" | "subjective";
   subjects: Subject[];
   subject: string;
   questions: Question[];

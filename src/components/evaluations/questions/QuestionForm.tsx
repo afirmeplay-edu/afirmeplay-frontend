@@ -43,6 +43,18 @@ import {
   getFirstFormErrorMessage,
 } from "@/utils/formValidation";
 import { UpdateQuestionResponse } from "@/types/question-update";
+import {
+  SUBJECTIVE_INTERACTION_TYPES,
+  defaultInteraction,
+  ensureInteraction,
+  type Interaction,
+  type InteractionType,
+} from "@/lib/question-interactions";
+import { mapApiQuestionTypeToForm, type FormQuestionType } from "@/utils/questionTypeMapping";
+import SubjectiveTypePicker from "./SubjectiveTypePicker";
+import SubjectiveInteractionEditor from "./SubjectiveInteractionEditor";
+
+const FORM_QUESTION_TYPES = ["multipleChoice", ...SUBJECTIVE_INTERACTION_TYPES] as [string, ...string[]];
 
 // Form schema
 const baseSchema = z.object({
@@ -73,8 +85,8 @@ const baseSchema = z.object({
     })
   ).optional(),
   secondStatement: z.string().optional(),
-  skills: z.array(z.string()).min(1, "Selecione pelo menos uma habilidade"),
-  questionType: z.enum(['multipleChoice', 'dissertativa']),
+  skills: z.array(z.string()).optional(),
+  questionType: z.enum(FORM_QUESTION_TYPES),
 });
 
 const questionSchema = baseSchema.superRefine((data, ctx) => {
@@ -106,12 +118,14 @@ const questionSchema = baseSchema.superRefine((data, ctx) => {
       }
     }
   }
-  // Se for dissertativa, não validar nem exigir alternativas
-  if (data.questionType === 'dissertativa') {
-    // options pode ser undefined ou array vazio
-    if (data.options && data.options.length > 0) {
-      // Não precisa validar nada, mas pode limpar se quiser
-    }
+
+  // Habilidade (BNCC) é obrigatória para qualquer tipo de questão, inclusive as subjetivas.
+  if (!data.skills || data.skills.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Selecione pelo menos uma habilidade.',
+      path: ['skills'],
+    });
   }
 });
 
@@ -148,7 +162,8 @@ const QuestionForm = ({
   const [showPreview, setShowPreview] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingQuestion, setIsLoadingQuestion] = useState(false);
-  const [questionType, setQuestionType] = useState<'multipleChoice' | 'dissertativa'>('multipleChoice');
+  const [questionType, setQuestionType] = useState<FormQuestionType>('multipleChoice');
+  const [interactionConfig, setInteractionConfig] = useState<Interaction>(defaultInteraction('dissertativa'));
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const hasLoadedInitialData = useRef(false);
   const preservedValues = useRef<{
@@ -278,6 +293,8 @@ const QuestionForm = ({
             mapOptionFromApi(opt as QuestionOptionApi, questionId)
           );
 
+          const mappedQuestionType = mapApiQuestionTypeToForm(questionData.type as string);
+
                      const formData: QuestionFormValues = { // Keep the explicit type here for clarity
              title: questionData.title || "",
              text: textForEditor,
@@ -290,10 +307,8 @@ const QuestionForm = ({
              options: optionsForEditor.length > 0 ? optionsForEditor : [],
              secondStatement: secondStatementForEditor,
             skills: normalizedSkills,
-            // Corrigir o mapeamento do tipo da questão
-            questionType: (questionData.type === 'multipleChoice' || (questionData.type as any) === 'multiple_choice') 
-              ? 'multipleChoice' 
-              : 'dissertativa',
+            // Corrigir o mapeamento do tipo da questão (preserva os 9 tipos subjetivos)
+            questionType: mappedQuestionType,
           };
 
 
@@ -313,9 +328,11 @@ const QuestionForm = ({
             skills: form.getValues("skills")
           };
           
-          setQuestionType((questionData.type === 'multipleChoice' || (questionData.type as any) === 'multiple_choice') 
-            ? 'multipleChoice' 
-            : 'dissertativa');
+          setQuestionType(mappedQuestionType);
+          if (mappedQuestionType !== 'multipleChoice') {
+            const apiInteractionConfig = (questionData as any).interactionConfig || (questionData as any).interaction_config;
+            setInteractionConfig(ensureInteraction(mappedQuestionType as InteractionType, apiInteractionConfig));
+          }
           
           
         } catch (error) {
@@ -601,9 +618,11 @@ const QuestionForm = ({
       }
     }
 
-    // Mapear o tipo da questão para o formato esperado pela API
-    const questionTypeForAPI = data.questionType === 'multipleChoice' ? 'multipleChoice' : 'dissertativa';
-    
+    // Mapear o tipo da questão para o formato esperado pela API — preserva o subtipo
+    // subjetivo (dissertativa, arrastar_soltar, ligar_colunas, etc.), não força "dissertativa".
+    const questionTypeForAPI = data.questionType;
+    const isSubjectiveQuestion = data.questionType !== 'multipleChoice';
+
     // Reverter URLs de imagens para relativas antes de enviar à API
     const formattedTextForApi = toRelativeQuestionImageSrc(data.text, BASE_URL);
     const formattedSolutionForApi = toRelativeQuestionImageSrc(data.solution || "", BASE_URL);
@@ -614,7 +633,7 @@ const QuestionForm = ({
         ? data.options.map((opt, index) => mapOptionToApiPayload(opt, index))
         : [];
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       title: data.title,
       text: htmlToText(data.text),
       formattedText: formattedTextForApi,
@@ -627,11 +646,15 @@ const QuestionForm = ({
       solution,
       formattedSolution: formattedSolutionForApi,
       options: options,
-      skills: data.skills, // Agora é obrigatório, não precisa de fallback
       secondStatement: secondStatementForApi,
       lastModifiedBy: user.id,
       createdBy: user.id,
     };
+
+    payload.skills = data.skills;
+    if (isSubjectiveQuestion) {
+      payload.interactionConfig = interactionConfig;
+    }
 
 
     try {
@@ -721,9 +744,11 @@ const QuestionForm = ({
     }
   };
 
-  const handleSetQuestionType = (type: 'multipleChoice' | 'dissertativa') => {
-    setQuestionType(type);
-    
+  const handleSetQuestionType = (type: 'multipleChoice' | 'subjective') => {
+    const nextType: FormQuestionType = type === 'multipleChoice' ? 'multipleChoice' : 'dissertativa';
+    setQuestionType(nextType);
+    form.setValue('questionType', nextType);
+
     // Só resetar opções se não estiver carregando dados iniciais
     if (!isLoadingQuestion) {
       if (type === 'multipleChoice') {
@@ -732,11 +757,20 @@ const QuestionForm = ({
           { text: '', isCorrect: false, image: null },
         ]);
         form.clearErrors('options');
-      } else if (type === 'dissertativa') {
+      } else {
         form.setValue('options', []);
+        form.setValue('skills', []);
         form.clearErrors('options');
+        form.clearErrors('skills');
+        setInteractionConfig(defaultInteraction('dissertativa'));
       }
     }
+  };
+
+  const handleSetSubjectiveSubtype = (subtype: InteractionType) => {
+    setQuestionType(subtype);
+    form.setValue('questionType', subtype);
+    setInteractionConfig((current) => ensureInteraction(subtype, current));
   };
 
   return (
@@ -784,6 +818,7 @@ const QuestionForm = ({
                   }))
                 : [],
               skills: formData.skills || [],
+              interactionConfig: formData.questionType !== 'multipleChoice' ? interactionConfig : undefined,
               created_by: user?.id || '',
               secondStatement: formData.secondStatement,
               educationStage: null
@@ -977,7 +1012,7 @@ const QuestionForm = ({
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2 min-w-0">
                       <FormLabel className="text-sm font-semibold text-foreground">
-                        Habilidades (BNCC)
+                        Habilidades (BNCC) *
                         <span className="text-muted-foreground font-normal ml-1">
                           {skills.length > 0 ? `(${skills.length} disponíveis)` : ''}
                         </span>
@@ -1049,10 +1084,10 @@ const QuestionForm = ({
 
                 <Button
                   type="button"
-                  variant={questionType === 'dissertativa' ? 'default' : 'outline'}
+                  variant={questionType !== 'multipleChoice' ? 'default' : 'outline'}
                   size="lg"
-                  onClick={() => handleSetQuestionType('dissertativa')}
-                  className={`w-full h-auto min-h-[4rem] p-4 ${questionType === 'dissertativa'
+                  onClick={() => handleSetQuestionType('subjective')}
+                  className={`w-full h-auto min-h-[4rem] p-4 ${questionType !== 'multipleChoice'
                     ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-lg'
                     : 'hover:bg-purple-50 dark:hover:bg-muted/60 hover:border-purple-300 dark:hover:border-border'
                     }`}
@@ -1060,12 +1095,25 @@ const QuestionForm = ({
                   <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3">
                     <Type className="h-5 w-5 flex-shrink-0" />
                     <div className="text-center sm:text-left">
-                      <div className="font-semibold text-sm sm:text-base">Dissertativa</div>
-                      <div className="text-xs opacity-80 hidden sm:block">Questão com resposta livre do aluno</div>
+                      <div className="font-semibold text-sm sm:text-base">Subjetiva</div>
+                      <div className="text-xs opacity-80 hidden sm:block">Correção manual: dissertativa, arrastar e soltar, ligar colunas...</div>
                     </div>
                   </div>
                 </Button>
               </div>
+
+              {questionType !== 'multipleChoice' && (
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <p className="mb-2 text-sm font-semibold text-foreground">Tipo de interação</p>
+                    <SubjectiveTypePicker
+                      value={questionType as InteractionType}
+                      onChange={handleSetSubjectiveSubtype}
+                    />
+                  </div>
+                  <SubjectiveInteractionEditor value={interactionConfig} onChange={setInteractionConfig} />
+                </div>
+              )}
             </div>
 
             {/* Seção: Enunciados */}

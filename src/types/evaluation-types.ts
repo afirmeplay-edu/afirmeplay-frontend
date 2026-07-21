@@ -18,7 +18,7 @@ export interface TestSession {
 export interface Question {
     id: string;
     number: number;
-    type: "multiple_choice" | "true_false" | "essay" | "multiple_answer" | "multipleChoice" | "truefalse" | "open" | "dissertativa";
+    type: "multiple_choice" | "true_false" | "essay" | "multiple_answer" | "multipleChoice" | "truefalse" | "open" | "dissertativa" | import('@/lib/question-interactions').InteractionType;
     text: string;
     formattedText?: string;
     imageUrl?: string;
@@ -40,6 +40,9 @@ export interface Question {
     }[];
     points: number;
     difficulty: "easy" | "medium" | "hard";
+    skill?: string | null;
+    /** Configuração da interação (formato livre, ver src/lib/question-interactions.ts). */
+    interactionConfig?: import('@/lib/question-interactions').Interaction;
     // ✅ NOVO: Mapeamento de posições embaralhadas para originais
     positionMapping?: Array<{
         shuffledIndex: number;
@@ -189,6 +192,8 @@ export interface Evaluation {
     description?: string | null;
     type: "AVALIACAO" | "SIMULADO" | "EVALUATION" | "SIMULATION";
     model: "SAEB" | "PROVA" | "AVALIE";
+    /** Modo de aplicação da avaliação: online (virtual), papel (physical) ou presencial com correção manual por rubrica (subjective). */
+    evaluation_mode?: "virtual" | "physical" | "subjective";
     course?: Course | null;
     grade?: Grade | null;
     grade_id?: string; // Campo alternativo do backend
@@ -223,6 +228,8 @@ export interface Evaluation {
         }>;
         subject?: Subject;
         skills?: string[];
+        skill?: string | null;
+        interactionConfig?: import('@/lib/question-interactions').Interaction;
     }>;
     duration?: number; // Duração em minutos
     duration_minutes?: number; // alternativo do backend

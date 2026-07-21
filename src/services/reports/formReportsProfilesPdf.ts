@@ -14,6 +14,7 @@ const CHART_PALETTE: Array<{ color: [number, number, number]; textOnBar: [number
   { color: [75, 33, 142], textOnBar: [255, 255, 255] },
   { color: [59, 130, 246], textOnBar: [255, 255, 255] },
   { color: [221, 214, 254], textOnBar: [31, 41, 55] },
+  { color: [124, 58, 237], textOnBar: [255, 255, 255] },
 ];
 
 const BAR_FILL: [number, number, number] = [59, 130, 246];
@@ -48,6 +49,12 @@ function getPercentage(count: number, total: number): number {
 
 function getOptionSortIndex(label: string): number {
   const normalized = label.toLowerCase().trim();
+
+  if (/discordo\s+totalmente|totalmente\s+discordo/.test(normalized)) return 3;
+  if (/\bdiscordo\b/.test(normalized)) return 2;
+  if (/concordo\s+totalmente|totalmente\s+concordo/.test(normalized)) return 1;
+  if (/\bconcordo\b/.test(normalized)) return 0;
+
   if (/nunca|nenhum/.test(normalized)) return 0;
   if (/vez em quando|às vezes|as vezes|maioria/.test(normalized)) return 1;
   if (/sempre|todos/.test(normalized)) return 2;

@@ -35,6 +35,12 @@ const EvaluationCorrection = React.lazy(() => import("@/pages/evaluations/Evalua
 const ViewEvaluation = React.lazy(() => import("@/pages/evaluations/ViewEvaluation"));
 const SkillsHeatMapPage = React.lazy(() => import("@/pages/evaluations/SkillsHeatMapPage"));
 const AnaliseAvaliacoes = React.lazy(() => import("@/pages/evaluations/AnaliseAvaliacoes"));
+const SubjectiveEvaluations = React.lazy(() => import("@/pages/evaluations/subjective/SubjectiveEvaluations"));
+const CreateSubjectiveEvaluation = React.lazy(() => import("@/pages/evaluations/subjective/CreateSubjectiveEvaluation"));
+const ViewSubjectiveEvaluation = React.lazy(() => import("@/pages/evaluations/subjective/ViewSubjectiveEvaluation"));
+const SubjectiveCorrectionPage = React.lazy(() => import("@/pages/evaluations/subjective/SubjectiveCorrectionPage"));
+const SubjectiveCorrectionHub = React.lazy(() => import("@/pages/evaluations/subjective/SubjectiveCorrectionHub"));
+const SubjectiveDashboard = React.lazy(() => import("@/pages/evaluations/subjective/SubjectiveDashboard"));
 
 // answer-sheet
 const AnswerSheetGenerator = React.lazy(() => import("@/pages/answer-sheet/AnswerSheetGenerator"));
@@ -263,6 +269,14 @@ const App = () => {
               <Route index element={<PrivateRoute><Index /></PrivateRoute>} />
               <Route path="/app/avaliacoes" element={<PrivateRoute><Evaluations /></PrivateRoute>} />
               <Route path="/app/avaliacoes/correcao" element={<PrivateRoute><EvaluationCorrection /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas" element={<PrivateRoute><SubjectiveEvaluations /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas/nova" element={<PrivateRoute><CreateSubjectiveEvaluation /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas/correcao" element={<PrivateRoute><SubjectiveCorrectionHub /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas/dashboard" element={<PrivateRoute><SubjectiveDashboard /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas/:id/editar" element={<PrivateRoute><CreateSubjectiveEvaluation /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas/:id/correcao" element={<PrivateRoute><SubjectiveCorrectionPage /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas/:id/correcao/:classId" element={<PrivateRoute><SubjectiveCorrectionPage /></PrivateRoute>} />
+              <Route path="/app/avaliacoes-subjetivas/:id" element={<PrivateRoute><ViewSubjectiveEvaluation /></PrivateRoute>} />
               <Route
                 path="/app/resultados"
                 element={

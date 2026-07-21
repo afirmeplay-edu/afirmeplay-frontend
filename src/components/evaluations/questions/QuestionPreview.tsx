@@ -13,6 +13,8 @@ import { getQuestionHtmlForDisplay } from "@/utils/questionImages";
 import { QuestionOptionContent } from "./QuestionOptionContent";
 import { cleanLegacyText, isLikelyPlainText } from "@/utils/textFormatter";
 import { QuestionRenderer } from "./QuestionRenderer";
+import { getQuestionTypeLabel, isSubjectiveFormType } from "@/utils/questionTypeMapping";
+import SubjectiveInteractionPreview from "./SubjectiveInteractionPreview";
 import './QuestionPreview.css';
 
 interface QuestionPreviewProps {
@@ -144,10 +146,10 @@ const QuestionPreview: React.FC<QuestionPreviewProps> = ({ question: initialQues
                         {question.value && <Badge variant="outline">Valor: {question.value}</Badge>}
                         {question.type && (
                             <Badge variant="secondary">
-                                {question.type === 'multipleChoice' ? 'Múltipla Escolha' : 'Dissertativa'}
+                                {getQuestionTypeLabel(question.type)}
                             </Badge>
                         )}
-                        
+
                         {/* Skills */}
                         {isLoadingSkills ? (
                             <Badge variant="outline" className="animate-pulse">Carregando skills...</Badge>
@@ -308,8 +310,21 @@ const QuestionPreview: React.FC<QuestionPreviewProps> = ({ question: initialQues
                 </div>
             )}
 
+            {/* Interação subjetiva (arrastar e soltar, ligar colunas, ordenação, etc.) */}
+            {isSubjectiveFormType(question.type) && question.type !== 'dissertativa' && question.interactionConfig && (
+                <div className="space-y-4 mb-8">
+                    <h4 className="font-semibold text-lg text-foreground mb-4">
+                        {getQuestionTypeLabel(question.type)}
+                    </h4>
+                    <SubjectiveInteractionPreview interaction={question.interactionConfig} />
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                        📝 Questão de correção manual (avaliação subjetiva/presencial), corrigida pelo professor via rubrica.
+                    </p>
+                </div>
+            )}
+
             {/* Área de resposta para questões dissertativas */}
-            {(question.type === 'dissertativa' || question.type === 'open') && (
+            {(question.type === 'dissertativa' || question.type === 'open' || (isSubjectiveFormType(question.type) && !question.interactionConfig)) && (
                 <div className="space-y-4 mb-8">
                     <h4 className="font-semibold text-lg text-foreground mb-4">Área de Resposta</h4>
                     <div className="answer-area rounded-xl p-6 bg-muted border-2 border-dashed border-border">

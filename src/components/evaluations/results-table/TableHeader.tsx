@@ -20,6 +20,13 @@ interface TabelaDetalhadaQuestao {
   habilidade: string;
   codigo_habilidade: string;
   question_id: string;
+  /**
+   * % de acerto da questão/habilidade já calculado pelo backend
+   * (corretas / total de alunos participantes, em branco conta como erro).
+   * Mesma fórmula usada em `/answer-sheets/mapa-habilidades` — quando presente,
+   * deve ser usado no lugar do cálculo local em `getQuestionStatsFallback`.
+   */
+  percentual_acertos?: number;
 }
 
 interface TabelaDetalhadaDisciplina {
@@ -95,6 +102,7 @@ export const TableHeader: React.FC<TableHeaderProps> = ({
       question_id: string;
       disciplina: string;
       disciplina_id: string;
+      percentual_acertos?: number;
     }> = [];
 
     // Coletar todas as questões de todas as disciplinas
@@ -107,7 +115,8 @@ export const TableHeader: React.FC<TableHeaderProps> = ({
           codigo_habilidade: questao.codigo_habilidade,
           question_id: questao.question_id,
           disciplina: disciplina.nome,
-          disciplina_id: disciplina.id
+          disciplina_id: disciplina.id,
+          percentual_acertos: questao.percentual_acertos
         });
       });
     });
@@ -120,27 +129,35 @@ export const TableHeader: React.FC<TableHeaderProps> = ({
 
   const processedQuestions = processQuestionsFromTabelaDetalhada();
 
-  // Função para calcular estatísticas de uma questão
-  const getQuestionStats = (questionNumber: number) => {
+  /**
+   * Fallback: recalcula o % de acerto da questão a partir de `respostas_por_questao`
+   * apenas quando a API ainda não enviar `percentual_acertos` (compatibilidade).
+   * Denominador = todos os alunos da lista (participantes); em branco conta como erro —
+   * mesma fórmula usada em `/answer-sheets/mapa-habilidades`, para não voltar a divergir.
+   */
+  const getQuestionStatsFallback = (questionNumber: number) => {
     if (!students.length) return { correct: 0, total: 0, percentage: 0 };
 
     let correct = 0;
-    let total = 0;
+    const total = students.length;
 
     students.forEach(student => {
-      if (student.respostas) {
-        const response = student.respostas.find(r => r.questao_numero === questionNumber);
-        if (response && !response.resposta_em_branco) {
-          total++;
-          if (response.resposta_correta) {
-            correct++;
-          }
-        }
+      const response = student.respostas?.find(r => r.questao_numero === questionNumber);
+      if (response?.resposta_correta) {
+        correct++;
       }
     });
-    
-    const percentage = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+    const percentage = total > 0 ? (correct / total) * 100 : 0;
     return { correct, total, percentage };
+  };
+
+  /** % de acerto exibido na coluna da questão: prioriza o valor pronto do backend. */
+  const getQuestionPercentage = (questao: { numero: number; percentual_acertos?: number }): number => {
+    if (typeof questao.percentual_acertos === 'number' && Number.isFinite(questao.percentual_acertos)) {
+      return questao.percentual_acertos;
+    }
+    return getQuestionStatsFallback(questao.numero).percentage;
   };
 
   // Função para obter cor baseada na porcentagem de acertos
@@ -197,10 +214,10 @@ export const TableHeader: React.FC<TableHeaderProps> = ({
             {visibleFields.percentualTurma && (
               <div className="mt-1">
                 {(() => {
-                  const stats = getQuestionStats(questao.numero);
+                  const percentage = getQuestionPercentage(questao);
                   return (
-                    <div className={`text-xs font-semibold px-2 py-1 rounded ${getPercentageColor(stats.percentage)}`}>
-                      {stats.percentage}%
+                    <div className={`text-xs font-semibold px-2 py-1 rounded ${getPercentageColor(percentage)}`}>
+                      {percentage.toFixed(1)}%
                     </div>
                   );
                 })()}
