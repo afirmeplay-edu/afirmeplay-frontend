@@ -10,6 +10,9 @@ import {
   type SubjectiveCorrectionMatrixResponse,
   type SubjectiveRubricValue,
   type FinalizeClassCorrectionResponse,
+  type SubjectiveStudentEvaluation,
+  type SubjectiveStudentResultPreview,
+  type FinalizeProcessedStudent,
 } from "@/services/evaluation/subjectiveTestApi";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +37,49 @@ function cellKey(questionId: string, studentId: string) {
   return `${questionId}::${studentId}`;
 }
 
+function evaluationFromPreview(preview: SubjectiveStudentResultPreview): SubjectiveStudentEvaluation | null {
+  if (preview.skipped) return null;
+  return {
+    score_percentage: preview.score_percentage,
+    grade: preview.grade,
+    proficiency: preview.proficiency,
+    classification: preview.classification,
+    correct_answers: preview.correct_answers,
+    total_questions: preview.total_questions,
+    persisted: preview.persisted ?? false,
+  };
+}
+
+function evaluationFromProcessed(processed: FinalizeProcessedStudent): SubjectiveStudentEvaluation {
+  return {
+    score_percentage: processed.score_percentage,
+    grade: processed.grade,
+    proficiency: processed.proficiency,
+    classification: processed.classification,
+    correct_answers: processed.correct_answers,
+    total_questions: processed.total_questions,
+    persisted: processed.persisted ?? true,
+  };
+}
+
+function classificationBadgeClass(classification: string, pct: number) {
+  const c = classification.toLowerCase();
+  if (c.includes("avançado") || c.includes("avancado") || pct >= 80) {
+    return "bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-300";
+  }
+  if (c.includes("adequado") || pct >= 60) {
+    return "bg-lime-100 text-lime-800 dark:bg-lime-950/40 dark:text-lime-300";
+  }
+  if (c.includes("básico") || c.includes("basico") || pct >= 40) {
+    return "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300";
+  }
+  return "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300";
+}
+
+function formatPct(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
 export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrectionMatrixProps) {
   const { toast } = useToast();
   const [data, setData] = useState<SubjectiveCorrectionMatrixResponse | null>(null);
@@ -41,17 +87,85 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
   const [error, setError] = useState<string | null>(null);
   const [savingCells, setSavingCells] = useState<Set<string>>(new Set());
   const [savingPresence, setSavingPresence] = useState<Set<string>>(new Set());
+  const [previewingStudents, setPreviewingStudents] = useState<Set<string>>(new Set());
   const [finalizing, setFinalizing] = useState(false);
   const [finalizeResult, setFinalizeResult] = useState<FinalizeClassCorrectionResponse | null>(null);
+
+  const applyStudentEvaluation = (studentId: string, evaluation: SubjectiveStudentEvaluation | null) => {
+    setData((prevData) => {
+      if (!prevData) return prevData;
+      return {
+        ...prevData,
+        students: prevData.students.map((student) =>
+          student.id === studentId ? { ...student, evaluation } : student
+        ),
+      };
+    });
+  };
+
+  const refreshStudentPreview = async (studentId: string) => {
+    setPreviewingStudents((prev) => new Set(prev).add(studentId));
+    try {
+      const preview = await subjectiveTestApi.getStudentResultPreview(testId, studentId);
+      applyStudentEvaluation(studentId, evaluationFromPreview(preview));
+    } catch (err) {
+      console.error("Erro ao buscar preview do resultado do aluno:", err);
+    } finally {
+      setPreviewingStudents((prev) => {
+        const next = new Set(prev);
+        next.delete(studentId);
+        return next;
+      });
+    }
+  };
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
+    setFinalizeResult(null);
     subjectiveTestApi
       .getCorrectionMatrix(testId, classId)
-      .then((response) => {
-        if (active) setData(response);
+      .then(async (response) => {
+        if (!active) return;
+        setData(response);
+
+        // Mid-correction reload: alunos com rubrica lançada mas sem evaluation persistida
+        // recebem preview ao vivo (sem calcular no frontend).
+        const needsPreview = response.students.filter(
+          (s) =>
+            s.present &&
+            Object.keys(s.results).length > 0 &&
+            !(s.evaluation && s.evaluation.persisted)
+        );
+        if (needsPreview.length === 0) return;
+
+        setPreviewingStudents(new Set(needsPreview.map((s) => s.id)));
+        const previews = await Promise.allSettled(
+          needsPreview.map((s) => subjectiveTestApi.getStudentResultPreview(testId, s.id))
+        );
+        if (!active) return;
+
+        const byStudent = new Map<string, SubjectiveStudentEvaluation | null>();
+        previews.forEach((result, idx) => {
+          const studentId = needsPreview[idx].id;
+          if (result.status === "fulfilled") {
+            byStudent.set(studentId, evaluationFromPreview(result.value));
+          }
+        });
+
+        setData((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            students: prev.students.map((student) =>
+              byStudent.has(student.id)
+                ? { ...student, evaluation: byStudent.get(student.id) ?? null }
+                : student
+            ),
+          };
+        });
+        setPreviewingStudents(new Set());
       })
       .catch((err) => {
         console.error("Erro ao carregar matriz de correção subjetiva:", err);
@@ -109,6 +223,7 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
           }),
         };
       });
+      await refreshStudentPreview(studentId);
     } catch (err) {
       console.error("Erro ao salvar rubrica:", err);
       toast({
@@ -139,6 +254,7 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
           ),
         };
       });
+      await refreshStudentPreview(studentId);
     } catch (err) {
       console.error("Erro ao salvar presença:", err);
       toast({
@@ -160,6 +276,30 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
     try {
       const result = await subjectiveTestApi.finalizeClassCorrection(testId, classId);
       setFinalizeResult(result);
+
+      const processedById = new Map(
+        result.processed.filter((p) => !p.skipped).map((p) => [p.student_id, p] as const)
+      );
+      const skipped = new Set(result.skipped_student_ids);
+      const errored = new Set(result.error_student_ids);
+
+      setData((prevData) => {
+        if (!prevData) return prevData;
+        return {
+          ...prevData,
+          students: prevData.students.map((student) => {
+            if (skipped.has(student.id) || errored.has(student.id)) {
+              return { ...student, evaluation: null };
+            }
+            const processed = processedById.get(student.id);
+            if (processed) {
+              return { ...student, evaluation: evaluationFromProcessed(processed) };
+            }
+            return student;
+          }),
+        };
+      });
+
       toast({
         title: "Correção finalizada",
         description: `${result.processed_count} aluno(s) processado(s), ${result.skipped_count} sem lançamento, ${result.error_count} erro(s).`,
@@ -224,7 +364,7 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
 
       <div className="rounded-xl border border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
         Clique em <b>S</b> (Sim), <b>P</b> (Parcial), <b>N</b> (Não) ou <b>B</b> (Branco). Clique de novo no mesmo valor
-        para remover. Aluno ausente bloqueia as respostas.
+        para remover. Aluno ausente bloqueia as respostas. O índice ao fim da linha vem do servidor após cada lançamento.
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-border">
@@ -259,10 +399,16 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
                   )}
                 </th>
               ))}
+              <th className="min-w-[120px] border-b border-l border-border p-3 text-center font-semibold text-foreground">
+                Índice
+              </th>
             </tr>
           </thead>
           <tbody>
-            {data.students.map((student, rowIdx) => (
+            {data.students.map((student, rowIdx) => {
+              const evaluation = student.evaluation ?? null;
+              const isPreviewing = previewingStudents.has(student.id);
+              return (
               <tr
                 key={student.id}
                 className={cn(rowIdx % 2 === 1 && "bg-muted/20", !student.present && "opacity-50")}
@@ -328,8 +474,47 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
                     </td>
                   );
                 })}
+                <td className="border-b border-l border-border px-3 py-2 text-center">
+                  {!student.present ? (
+                    <span className="inline-flex min-w-[52px] justify-center rounded-full bg-muted px-2 py-1 text-xs font-bold text-muted-foreground">
+                      —
+                    </span>
+                  ) : isPreviewing ? (
+                    <Loader2 className="mx-auto h-4 w-4 animate-spin text-muted-foreground" />
+                  ) : evaluation ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          className={cn(
+                            "inline-flex flex-col items-center gap-0.5 rounded-full px-2.5 py-1 text-xs font-bold",
+                            classificationBadgeClass(evaluation.classification, evaluation.score_percentage)
+                          )}
+                        >
+                          <span>{formatPct(evaluation.score_percentage)}%</span>
+                          <span className="text-[10px] font-semibold leading-tight opacity-90">
+                            {evaluation.classification}
+                          </span>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-xs">
+                        <p className="text-xs">
+                          Nota {Number(evaluation.grade).toFixed(1)} · Proficiência{" "}
+                          {typeof evaluation.proficiency === "number"
+                            ? evaluation.proficiency.toFixed(1)
+                            : evaluation.proficiency}
+                          {evaluation.persisted ? " · gravado" : " · preview"}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <span className="inline-flex min-w-[52px] justify-center rounded-full bg-muted px-2 py-1 text-xs font-bold text-muted-foreground">
+                      —
+                    </span>
+                  )}
+                </td>
               </tr>
-            ))}
+            );
+            })}
           </tbody>
         </table>
       </div>
@@ -359,7 +544,7 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
             </span>
           ) : (
             <span>
-              Finalize a correção para calcular nota e proficiência da turma. Pode ser refeito quantas vezes for preciso.
+              O índice atualiza a cada lançamento. Finalize a turma para gravar nota e proficiência nos relatórios.
             </span>
           )}
         </div>

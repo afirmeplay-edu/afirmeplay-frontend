@@ -93,12 +93,25 @@ export interface SubjectiveCorrectionQuestion {
   skill_description: string;
 }
 
+/** Resultado calculado por aluno (preview ao vivo ou EvaluationResult após finalizar). */
+export interface SubjectiveStudentEvaluation {
+  score_percentage: number;
+  grade: number;
+  proficiency: number | string;
+  classification: string;
+  correct_answers: number;
+  total_questions: number;
+  persisted: boolean;
+}
+
 export interface SubjectiveCorrectionStudent {
   id: string;
   name: string;
   registration: string;
   present: boolean;
   results: Record<string, SubjectiveRubricValue>;
+  /** Presente após finalizar; null se ainda não gravado. Preview ao vivo também pode preencher. */
+  evaluation?: SubjectiveStudentEvaluation | null;
 }
 
 /** Resposta de GET /subjective-tests/:id/turmas/:classId/correcao */
@@ -108,6 +121,22 @@ export interface SubjectiveCorrectionMatrixResponse {
   questions: SubjectiveCorrectionQuestion[];
   students: SubjectiveCorrectionStudent[];
 }
+
+/** Resposta de GET /subjective-tests/:id/alunos/:studentId/resultado (preview, sem gravar). */
+export type SubjectiveStudentResultPreview =
+  | ({
+      skipped: false;
+      persisted: boolean;
+      student_id: string;
+      subjective_test_id: string;
+    } & Omit<SubjectiveStudentEvaluation, "persisted">)
+  | {
+      skipped: true;
+      reason: string;
+      student_id: string;
+      subjective_test_id: string;
+      persisted: boolean;
+    };
 
 export interface SetCorrectionCellPayload {
   subjective_question_id: string;
@@ -151,6 +180,7 @@ export interface FinalizeProcessedStudent {
   grade: number;
   proficiency: number | string;
   classification: string;
+  persisted?: boolean;
 }
 
 export interface FinalizeClassCorrectionResponse {
@@ -214,6 +244,86 @@ export interface SubjectiveDashboardResponse {
   per_question: SubjectiveDashboardPerQuestion[];
 }
 
+/** Item de entidade em GET /subjective-tests/opcoes-filtros */
+export interface SubjectiveFilterEntity {
+  id: string;
+  nome: string;
+}
+
+/** Avaliação em GET /subjective-tests/opcoes-filtros */
+export interface SubjectiveFilterEvaluation {
+  id: string;
+  titulo: string;
+  test_type?: string | null;
+  grade_id?: string | null;
+  subject_id?: string | null;
+}
+
+/** Query de GET /subjective-tests/opcoes-filtros */
+export interface SubjectiveFilterOptionsParams {
+  estado?: string;
+  municipio?: string;
+  escola?: string;
+  serie?: string;
+  avaliacao?: string;
+}
+
+/**
+ * Resposta de GET /subjective-tests/opcoes-filtros
+ * Hierarquia: Estado → Município → Escola → Série → Avaliação → Turma
+ */
+export interface SubjectiveFilterOptionsResponse {
+  estados?: SubjectiveFilterEntity[];
+  municipios?: SubjectiveFilterEntity[];
+  escolas?: SubjectiveFilterEntity[];
+  series?: SubjectiveFilterEntity[];
+  avaliacoes?: SubjectiveFilterEvaluation[];
+  turmas?: SubjectiveFilterEntity[];
+  /** Diretor/coordenador: escola vinculada já pré-selecionada no backend. */
+  escola_pre_selecionada?: string | null;
+  error?: string;
+  status?: number;
+}
+
+function normalizeFilterEntity(raw: unknown): SubjectiveFilterEntity | null {
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  const id = obj.id != null ? String(obj.id) : "";
+  if (!id) return null;
+  const nome = String(obj.nome ?? obj.name ?? id);
+  return { id, nome };
+}
+
+function normalizeFilterEntities(raw: unknown): SubjectiveFilterEntity[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeFilterEntity).filter((e): e is SubjectiveFilterEntity => e != null);
+}
+
+function normalizeFilterEvaluations(raw: unknown): SubjectiveFilterEvaluation[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const obj = item as Record<string, unknown>;
+      const id = obj.id != null ? String(obj.id) : "";
+      if (!id) return null;
+      return {
+        id,
+        titulo: String(obj.titulo ?? obj.title ?? obj.nome ?? obj.name ?? "Sem título"),
+        test_type: obj.test_type != null ? String(obj.test_type) : null,
+        grade_id: obj.grade_id != null ? String(obj.grade_id) : null,
+        subject_id: obj.subject_id != null ? String(obj.subject_id) : null,
+      } satisfies SubjectiveFilterEvaluation;
+    })
+    .filter((e): e is SubjectiveFilterEvaluation => e != null);
+}
+
+function isFilterAll(value?: string | null): boolean {
+  if (value == null) return true;
+  const v = value.trim().toLowerCase();
+  return v === "" || v === "all" || v === "todas" || v === "todos";
+}
+
 function normalizeListResponse(data: unknown): SubjectiveTestListResponse {
   if (Array.isArray(data)) {
     return { items: data as SubjectiveTest[] };
@@ -271,6 +381,17 @@ export const subjectiveTestApi = {
     return response.data;
   },
 
+  /**
+   * GET /subjective-tests/:id/alunos/:studentId/resultado
+   * Preview ao vivo (mesma fórmula do finalize), sem gravar EvaluationResult.
+   */
+  async getStudentResultPreview(testId: string, studentId: string): Promise<SubjectiveStudentResultPreview> {
+    const response = await api.get<SubjectiveStudentResultPreview>(
+      `/subjective-tests/${testId}/alunos/${studentId}/resultado`
+    );
+    return response.data;
+  },
+
   async setCorrectionCell(testId: string, payload: SetCorrectionCellPayload): Promise<SetCorrectionCellResponse> {
     const response = await api.post<SetCorrectionCellResponse>(`/subjective-tests/${testId}/correcao`, payload);
     return response.data;
@@ -291,12 +412,54 @@ export const subjectiveTestApi = {
   /**
    * GET /subjective-tests/:id/dashboard — KPIs e distribuição da correção.
    * Sem class_id agrega todas as turmas do escopo (professor só vê as que leciona).
+   * `cityId` envia X-City-ID (rota exige contexto de município).
    */
-  async getDashboard(testId: string, classId?: string | null): Promise<SubjectiveDashboardResponse> {
+  async getDashboard(
+    testId: string,
+    classId?: string | null,
+    cityId?: string | null
+  ): Promise<SubjectiveDashboardResponse> {
     const response = await api.get<SubjectiveDashboardResponse>(`/subjective-tests/${testId}/dashboard`, {
       params: classId ? { class_id: classId } : undefined,
+      ...(cityId && !isFilterAll(cityId) ? { meta: { cityId } } : {}),
     });
     return response.data;
+  },
+
+  /**
+   * GET /subjective-tests/opcoes-filtros
+   * Hierarquia: Estado → Município → Escola → Série → Avaliação → Turma.
+   * Sem requires_city_context — o backend faz set_search_path ao escolher município.
+   */
+  async getFilterOptions(
+    params: SubjectiveFilterOptionsParams = {}
+  ): Promise<SubjectiveFilterOptionsResponse> {
+    const query: Record<string, string> = {};
+    if (!isFilterAll(params.estado)) query.estado = String(params.estado).trim();
+    if (!isFilterAll(params.municipio)) query.municipio = String(params.municipio).trim();
+    if (!isFilterAll(params.escola)) query.escola = String(params.escola).trim();
+    if (!isFilterAll(params.serie)) query.serie = String(params.serie).trim();
+    if (!isFilterAll(params.avaliacao)) query.avaliacao = String(params.avaliacao).trim();
+
+    const response = await api.get<SubjectiveFilterOptionsResponse>("/subjective-tests/opcoes-filtros", {
+      params: query,
+    });
+    const data = response.data || {};
+    return {
+      estados: normalizeFilterEntities(data.estados),
+      municipios: normalizeFilterEntities(data.municipios),
+      escolas: normalizeFilterEntities(data.escolas),
+      series: normalizeFilterEntities(data.series),
+      avaliacoes: normalizeFilterEvaluations(data.avaliacoes),
+      turmas: normalizeFilterEntities(data.turmas),
+      escola_pre_selecionada: data.escola_pre_selecionada
+        ? String(data.escola_pre_selecionada)
+        : data.escola_pre_selecionada === null
+          ? null
+          : undefined,
+      error: data.error,
+      status: data.status,
+    };
   },
 };
 
