@@ -62,18 +62,26 @@ function evaluationFromProcessed(processed: FinalizeProcessedStudent): Subjectiv
   };
 }
 
-function classificationBadgeClass(classification: string, pct: number) {
+/** Níveis SAEB do protótipo AVALIAÇÃO SUBJETIVA (emoji + cor por % / classificação). */
+const SAEB_LEGEND = [
+  { label: "Abaixo do Básico", emoji: "😠", range: "< 40%", className: "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300" },
+  { label: "Básico", emoji: "😕", range: "40–59%", className: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300" },
+  { label: "Adequado", emoji: "😊", range: "60–79%", className: "bg-lime-100 text-lime-800 dark:bg-lime-950/40 dark:text-lime-300" },
+  { label: "Avançado", emoji: "🤩", range: "≥ 80%", className: "bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-300" },
+] as const;
+
+function classificationStyle(classification: string, pct: number) {
   const c = classification.toLowerCase();
   if (c.includes("avançado") || c.includes("avancado") || pct >= 80) {
-    return "bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-300";
+    return { emoji: "🤩", className: SAEB_LEGEND[3].className };
   }
   if (c.includes("adequado") || pct >= 60) {
-    return "bg-lime-100 text-lime-800 dark:bg-lime-950/40 dark:text-lime-300";
+    return { emoji: "😊", className: SAEB_LEGEND[2].className };
   }
   if (c.includes("básico") || c.includes("basico") || pct >= 40) {
-    return "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300";
+    return { emoji: "😕", className: SAEB_LEGEND[1].className };
   }
-  return "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300";
+  return { emoji: "😠", className: SAEB_LEGEND[0].className };
 }
 
 function formatPct(value: number) {
@@ -362,9 +370,27 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
-        Clique em <b>S</b> (Sim), <b>P</b> (Parcial), <b>N</b> (Não) ou <b>B</b> (Branco). Clique de novo no mesmo valor
-        para remover. Aluno ausente bloqueia as respostas. O índice ao fim da linha vem do servidor após cada lançamento.
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
+        <span>
+          Clique em <b>S</b> (Sim), <b>P</b> (Parcial), <b>N</b> (Não) ou <b>B</b> (Branco). Clique de novo no mesmo valor
+          para remover. Aluno ausente bloqueia as respostas. O índice ao fim da linha vem do servidor após cada lançamento.
+        </span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {SAEB_LEGEND.map((level) => (
+            <span
+              key={level.label}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                level.className
+              )}
+              title={level.label}
+            >
+              <span>{level.emoji}</span>
+              {level.label}{" "}
+              <span className="opacity-70">{level.range}</span>
+            </span>
+          ))}
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-border">
@@ -482,15 +508,24 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
                   ) : isPreviewing ? (
                     <Loader2 className="mx-auto h-4 w-4 animate-spin text-muted-foreground" />
                   ) : evaluation ? (
+                    (() => {
+                      const style = classificationStyle(
+                        evaluation.classification,
+                        evaluation.score_percentage
+                      );
+                      return (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <span
                           className={cn(
-                            "inline-flex flex-col items-center gap-0.5 rounded-full px-2.5 py-1 text-xs font-bold",
-                            classificationBadgeClass(evaluation.classification, evaluation.score_percentage)
+                            "inline-flex flex-col items-center gap-0.5 rounded-lg px-2.5 py-1.5 text-xs font-bold",
+                            style.className
                           )}
                         >
-                          <span>{formatPct(evaluation.score_percentage)}%</span>
+                          <span className="inline-flex items-center gap-1">
+                            <span className="text-sm leading-none">{style.emoji}</span>
+                            {formatPct(evaluation.score_percentage)}%
+                          </span>
                           <span className="text-[10px] font-semibold leading-tight opacity-90">
                             {evaluation.classification}
                           </span>
@@ -506,6 +541,8 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
                         </p>
                       </TooltipContent>
                     </Tooltip>
+                      );
+                    })()
                   ) : (
                     <span className="inline-flex min-w-[52px] justify-center rounded-full bg-muted px-2 py-1 text-xs font-bold text-muted-foreground">
                       —
