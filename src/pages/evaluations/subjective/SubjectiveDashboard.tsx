@@ -61,6 +61,7 @@ const SubjectiveDashboard = () => {
   const [selectedMunicipality, setSelectedMunicipality] = useState("all");
   const [selectedSchool, setSelectedSchool] = useState("all");
   const [selectedGrade, setSelectedGrade] = useState("all");
+  const [gradeTouched, setGradeTouched] = useState(false);
   const [selectedEvaluation, setSelectedEvaluation] = useState("");
   const [selectedClass, setSelectedClass] = useState("all");
 
@@ -93,6 +94,7 @@ const SubjectiveDashboard = () => {
   const resetFromMunicipality = useCallback(() => {
     setSelectedSchool("all");
     setSelectedGrade("all");
+    setGradeTouched(false);
     setSelectedEvaluation("");
     setSelectedClass("all");
     setEscolaPreSelecionada(null);
@@ -104,6 +106,7 @@ const SubjectiveDashboard = () => {
 
   const resetFromSchool = useCallback(() => {
     setSelectedGrade("all");
+    setGradeTouched(false);
     setSelectedEvaluation("");
     setSelectedClass("all");
   }, []);
@@ -254,6 +257,40 @@ const SubjectiveDashboard = () => {
   const hitInfo = saebFromLevel(kpis?.saeb_level, kpis?.saeb_label);
   const filtersReady = selectedState !== "all" && selectedMunicipality !== "all";
   const canLoadDashboard = filtersReady && Boolean(selectedEvaluation);
+
+  const scope = useMemo(
+    () => ({
+      estado: states.find((s) => s.id === selectedState)?.nome ?? "—",
+      municipio: municipalities.find((m) => m.id === selectedMunicipality)?.nome ?? "—",
+      escola:
+        selectedSchool !== "all"
+          ? schools.find((s) => s.id === selectedSchool)?.nome ?? "—"
+          : "Todas",
+      serie:
+        selectedGrade !== "all"
+          ? grades.find((g) => g.id === selectedGrade)?.nome ?? "—"
+          : "Todas",
+      avaliacao: evaluations.find((e) => e.id === selectedEvaluation)?.titulo ?? "—",
+      turma:
+        selectedClass !== "all"
+          ? classes.find((c) => c.id === selectedClass)?.nome ?? "—"
+          : "Todas",
+    }),
+    [
+      states,
+      municipalities,
+      schools,
+      grades,
+      evaluations,
+      classes,
+      selectedState,
+      selectedMunicipality,
+      selectedSchool,
+      selectedGrade,
+      selectedEvaluation,
+      selectedClass,
+    ]
+  );
 
   const downloadPdf = async () => {
     if (!dash) return;
@@ -462,6 +499,7 @@ const SubjectiveDashboard = () => {
                 value={selectedGrade}
                 onValueChange={(v) => {
                   setSelectedGrade(v);
+                  setGradeTouched(true);
                   resetFromGrade();
                 }}
                 disabled={loadingFilters || selectedMunicipality === "all"}
@@ -535,6 +573,30 @@ const SubjectiveDashboard = () => {
           </div>
         </CardContent>
       </Card>
+
+      {canLoadDashboard && gradeTouched && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Filter className="h-4 w-4" />
+              Escopo da pesquisa
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Recorte atual dos dados exibidos abaixo.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              <ScopeItem label="Estado" value={scope.estado} />
+              <ScopeItem label="Município" value={scope.municipio} />
+              <ScopeItem label="Escola" value={scope.escola} />
+              <ScopeItem label="Série" value={scope.serie} />
+              <ScopeItem label="Turma" value={scope.turma} />
+              <ScopeItem label="Avaliação" value={scope.avaliacao} />
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {error && (
         <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
@@ -818,6 +880,15 @@ function ParticipationCard({
         <div className="h-full transition-all" style={{ width: `${pct}%`, background: color }} />
       </div>
     </Card>
+  );
+}
+
+function ScopeItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border bg-muted/40 px-3 py-1.5 text-sm">
+      <span className="text-muted-foreground">{label}:</span>{" "}
+      <span className="font-medium">{value}</span>
+    </div>
   );
 }
 
