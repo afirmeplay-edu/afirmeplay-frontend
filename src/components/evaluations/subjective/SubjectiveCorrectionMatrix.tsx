@@ -518,19 +518,22 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
                       <TooltipTrigger asChild>
                         <span
                           className={cn(
-                            "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold",
+                            "inline-flex flex-col items-center gap-0.5 rounded-lg px-2.5 py-1.5 text-xs font-bold",
                             style.className
                           )}
-                          title={`${evaluation.classification}`}
                         >
-                          <span className="text-sm leading-none">{style.emoji}</span>
-                          {formatPct(evaluation.score_percentage)}%
+                          <span className="inline-flex items-center gap-1">
+                            <span className="text-sm leading-none">{style.emoji}</span>
+                            {formatPct(evaluation.score_percentage)}%
+                          </span>
+                          <span className="text-[10px] font-semibold leading-tight opacity-90">
+                            {evaluation.classification}
+                          </span>
                         </span>
                       </TooltipTrigger>
                       <TooltipContent side="top" className="max-w-xs">
                         <p className="text-xs">
-                          {evaluation.classification} · Nota {Number(evaluation.grade).toFixed(1)} ·
-                          Proficiência{" "}
+                          Nota {Number(evaluation.grade).toFixed(1)} · Proficiência{" "}
                           {typeof evaluation.proficiency === "number"
                             ? evaluation.proficiency.toFixed(1)
                             : evaluation.proficiency}
