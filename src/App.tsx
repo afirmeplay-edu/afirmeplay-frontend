@@ -139,6 +139,7 @@ const StudentCertificates = React.lazy(() => import("@/pages/profile/StudentCert
 const NotFound = React.lazy(() => import("@/pages/misc/NotFound"));
 const SubdominioInvalido = React.lazy(() => import("@/pages/auth/SubdominioInvalido"));
 const EmBreve = React.lazy(() => import("@/pages/misc/EmBreve"));
+const PrivacyPolicy = React.lazy(() => import("@/pages/misc/PrivacyPolicy"));
 const Settings = React.lazy(() => import("@/pages/profile/Settings"));
 const Avisos = React.lazy(() => import("@/pages/dashboard/Avisos"));
 const EditQuickLinks = React.lazy(() => import("@/pages/dashboard/EditQuickLinks"));
@@ -217,6 +218,9 @@ const App = () => {
 
             {/* Subdomínio não cadastrado */}
             <Route path="/subdominio-invalido" element={<SubdominioInvalido />} />
+
+            {/* Página pública — não exige subdomínio nem autenticação */}
+            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
             {/* Rotas de autenticação */}
             <Route path="/forgot-password" element={<ForgotPassword key="forgot-password" />} />
