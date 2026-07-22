@@ -288,11 +288,16 @@ function drawSaebLevels(
   y = drawSectionTitle(
     doc,
     "Niveis de Proficiencia",
-    "Distribuicao das questoes por nivel de acerto",
+    "Distribuicao dos alunos por nivel (passe o mouse na tela para ver os nomes)",
     y
   );
 
-  const counts = dash.saeb_levels || { abaixo: 0, basico: 0, adequado: 0, avancado: 0 };
+  const counts = dash.student_saeb_levels || dash.saeb_levels || {
+    abaixo: 0,
+    basico: 0,
+    adequado: 0,
+    avancado: 0,
+  };
   const total =
     (counts.abaixo || 0) + (counts.basico || 0) + (counts.adequado || 0) + (counts.avancado || 0) || 1;
   const gap = 4;
@@ -326,7 +331,7 @@ function drawSaebLevels(
     doc.setFontSize(8);
     doc.setTextColor(...C.textGray);
     doc.text(
-      `${saebRangeLabel(level.level, level.range)} · ${pct}% das questoes`,
+      `${saebRangeLabel(level.level, level.range)} · ${pct}% dos alunos`,
       x + pad,
       cy + 16
     );
@@ -343,6 +348,135 @@ function drawSaebLevels(
 
   const rows = Math.ceil(SAEB_LEVELS.length / cols);
   return y + rows * cardH + (rows - 1) * gap + 8;
+}
+
+function drawStudentsByLevelLists(
+  doc: import("jspdf").jsPDF,
+  dash: SubjectiveDashboardResponse,
+  y: number,
+  pageWidth: number,
+  pageHeight: number,
+  title: string
+): number {
+  const byLevel = dash.students_by_saeb_level;
+  if (!byLevel) return y;
+
+  y = ensureSpace(doc, y, 24, pageWidth, pageHeight, title);
+  y = drawSectionTitle(doc, "Alunos por nivel", "Lista de alunos em cada faixa de proficiencia", y);
+
+  for (const level of SAEB_LEVELS) {
+    const students = byLevel[level.level] || [];
+    y = ensureSpace(doc, y, 16, pageWidth, pageHeight, title);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(...(SAEB_RGB[level.level] || C.textDark));
+    doc.text(`${level.label} (${students.length})`, MARGIN, y);
+    y += 4;
+
+    if (students.length === 0) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(...C.textGray);
+      doc.text("Nenhum aluno neste nivel.", MARGIN + 2, y);
+      y += 5;
+      continue;
+    }
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(...C.textDark);
+    for (const student of students) {
+      y = ensureSpace(doc, y, 5, pageWidth, pageHeight, title);
+      const line = `${student.name} — ${student.score_percentage}%`;
+      doc.text(line, MARGIN + 2, y);
+      y += 4;
+    }
+    y += 2;
+  }
+
+  return y;
+}
+
+function drawStudentsTable(
+  doc: import("jspdf").jsPDF,
+  dash: SubjectiveDashboardResponse,
+  y: number,
+  pageWidth: number,
+  pageHeight: number,
+  title: string
+): number {
+  const students = dash.students || [];
+  if (students.length === 0) return y;
+
+  y = ensureSpace(doc, y, 28, pageWidth, pageHeight, title);
+  y = drawSectionTitle(
+    doc,
+    "Tabelinha de alunos",
+    "Presenca, acerto e nivel SAEB simplificado",
+    y
+  );
+
+  const contentW = pageWidth - MARGIN * 2;
+  const cols = [
+    { key: "name", label: "Aluno", w: contentW * 0.42 },
+    { key: "present", label: "Presenca", w: contentW * 0.16 },
+    { key: "score", label: "Acerto", w: contentW * 0.16 },
+    { key: "level", label: "Nivel", w: contentW * 0.26 },
+  ];
+  const rowH = 6;
+  const headerH = 7;
+
+  const drawHeader = () => {
+    doc.setFillColor(...C.bgLight);
+    doc.rect(MARGIN, y, contentW, headerH, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(...C.textDark);
+    let x = MARGIN;
+    cols.forEach((c) => {
+      doc.text(c.label, x + 1.5, y + 4.5);
+      x += c.w;
+    });
+    y += headerH;
+  };
+
+  drawHeader();
+
+  students.forEach((student, idx) => {
+    if (y + rowH > pageHeight - FOOTER_H - 4) {
+      doc.addPage();
+      drawTopBand(doc, pageWidth, title);
+      y = MARGIN + TOP_BAND_H + 4;
+      drawHeader();
+    }
+
+    if (idx % 2 === 1) {
+      doc.setFillColor(...C.bgCard);
+      doc.setDrawColor(...C.borderLight);
+      doc.rect(MARGIN, y, contentW, rowH, "F");
+    }
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(...C.textDark);
+
+    const values = [
+      student.name || "—",
+      student.present ? "Presente" : "Ausente",
+      student.score_percentage != null ? `${student.score_percentage}%` : "—",
+      student.saeb_label || "—",
+    ];
+
+    let x = MARGIN;
+    values.forEach((val, i) => {
+      const clipped = doc.splitTextToSize(String(val), cols[i].w - 2);
+      doc.text(clipped.slice(0, 1), x + 1.5, y + 4);
+      x += cols[i].w;
+    });
+    y += rowH;
+  });
+
+  return y + 4;
 }
 
 function drawDistributionChart(
@@ -534,6 +668,8 @@ export async function generateSubjectiveDashboardPdf(
   y = drawKpiCards(doc, dash, y, pageWidth);
   y = ensureSpace(doc, y, 85, pageWidth, pageHeight, title);
   y = drawSaebLevels(doc, dash, y, pageWidth);
+  y = drawStudentsByLevelLists(doc, dash, y, pageWidth, pageHeight, title);
+  y = drawStudentsTable(doc, dash, y, pageWidth, pageHeight, title);
   y = ensureSpace(doc, y, 70, pageWidth, pageHeight, title);
   y = drawDistributionChart(doc, dash, y, pageWidth);
 

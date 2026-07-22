@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, UserCheck, UserX, ClipboardCheck } from "lucide-react";
+import { Loader2, UserCheck, UserX, ClipboardCheck, Download } from "lucide-react";
 import {
   subjectiveTestApi,
   type SubjectiveCorrectionMatrixResponse,
@@ -14,6 +14,7 @@ import {
   type SubjectiveStudentResultPreview,
   type FinalizeProcessedStudent,
 } from "@/services/evaluation/subjectiveTestApi";
+import { generateSubjectiveCorrectionResponsesPdf } from "@/services/reports/subjectiveCorrectionResponsesPdf";
 import { cn } from "@/lib/utils";
 
 interface SubjectiveCorrectionMatrixProps {
@@ -97,6 +98,7 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
   const [savingPresence, setSavingPresence] = useState<Set<string>>(new Set());
   const [previewingStudents, setPreviewingStudents] = useState<Set<string>>(new Set());
   const [finalizing, setFinalizing] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [finalizeResult, setFinalizeResult] = useState<FinalizeClassCorrectionResponse | null>(null);
 
   const applyStudentEvaluation = (studentId: string, evaluation: SubjectiveStudentEvaluation | null) => {
@@ -324,6 +326,27 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
     }
   };
 
+  const handleExportResponses = async () => {
+    if (!data) return;
+    try {
+      setExporting(true);
+      await generateSubjectiveCorrectionResponsesPdf(data);
+      toast({
+        title: "Relatório exportado",
+        description: "O PDF com as respostas dos alunos foi baixado.",
+      });
+    } catch (err) {
+      console.error("Erro ao exportar respostas subjetivas:", err);
+      toast({
+        title: "Erro ao exportar",
+        description: "Não foi possível gerar o relatório de respostas.",
+        variant: "destructive",
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const summary = useMemo(() => {
     if (!data) return null;
     const totalCells = data.students.length * data.questions.length;
@@ -361,12 +384,24 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
             Turma {data.class.name} · {summary?.totalStudents ?? 0} aluno(s) · {totalQuestions} questão(ões)
           </p>
         </div>
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-          <span>{summary?.presentCount ?? 0} presente(s)</span>
-          <span>·</span>
-          <span>
-            {summary?.filledCells ?? 0}/{summary?.totalCells ?? 0} lançamentos
-          </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span>{summary?.presentCount ?? 0} presente(s)</span>
+            <span>·</span>
+            <span>
+              {summary?.filledCells ?? 0}/{summary?.totalCells ?? 0} lançamentos
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => void handleExportResponses()}
+            disabled={exporting || data.students.length === 0}
+          >
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Exportar respostas
+          </Button>
         </div>
       </div>
 
