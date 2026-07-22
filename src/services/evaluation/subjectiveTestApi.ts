@@ -226,6 +226,28 @@ export interface SubjectiveDashboardPerQuestion {
   saeb_label: string;
 }
 
+/** Aluno classificado no nível SAEB simplificado do dashboard. */
+export interface SubjectiveDashboardStudentByLevel {
+  id: string;
+  name: string;
+  registration?: string | null;
+  score_percentage: number;
+  saeb_level: SubjectiveSaebLevel | string;
+  saeb_label: string;
+}
+
+/** Linha da tabelinha de alunos (inclui ausentes / sem lançamento). */
+export interface SubjectiveDashboardStudentRow {
+  id: string;
+  name: string;
+  registration?: string | null;
+  present: boolean;
+  score_percentage: number | null;
+  saeb_level: SubjectiveSaebLevel | string | null;
+  saeb_label: string | null;
+  results: Record<string, SubjectiveRubricValue>;
+}
+
 /** Resposta de GET /subjective-tests/:id/dashboard */
 export interface SubjectiveDashboardResponse {
   subjective_test: {
@@ -240,7 +262,14 @@ export interface SubjectiveDashboardResponse {
   kpis: SubjectiveDashboardKpis;
   totals: Record<SubjectiveRubricValue, number>;
   distribution: SubjectiveDashboardDistributionItem[];
+  /** Contagem de QUESTÕES por faixa (legado / habilidades). */
   saeb_levels: Record<SubjectiveSaebLevel, number>;
+  /** Contagem de ALUNOS por faixa SAEB simplificada. */
+  student_saeb_levels?: Record<SubjectiveSaebLevel, number>;
+  /** Alunos agrupados por nível — usado no hover do gráfico. */
+  students_by_saeb_level?: Record<SubjectiveSaebLevel, SubjectiveDashboardStudentByLevel[]>;
+  /** Tabelinha de alunos com rubrica e nível. */
+  students?: SubjectiveDashboardStudentRow[];
   per_question: SubjectiveDashboardPerQuestion[];
 }
 

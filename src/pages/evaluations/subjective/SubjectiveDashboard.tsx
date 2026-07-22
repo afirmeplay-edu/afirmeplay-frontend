@@ -29,11 +29,14 @@ import {
   type SubjectiveDashboardResponse,
   type SubjectiveFilterEntity,
   type SubjectiveFilterEvaluation,
+  type SubjectiveSaebLevel,
 } from "@/services/evaluation/subjectiveTestApi";
 import { generateSubjectiveDashboardPdf } from "@/services/reports/subjectiveDashboardPdf";
+import { generateSubjectiveCorrectionResponsesPdf } from "@/services/reports/subjectiveCorrectionResponsesPdf";
 import { RUBRIC_COLORS, SAEB_LEVELS, saebFromLevel } from "@/lib/subjectiveSaeb";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { Tooltip as UiTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const DISTRIBUTION_LABEL: Record<string, string> = {
   SIM: "SIM",
@@ -77,6 +80,7 @@ const SubjectiveDashboard = () => {
   const [loadingFilters, setLoadingFilters] = useState(true);
   const [loadingDash, setLoadingDash] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [isExportingResponses, setIsExportingResponses] = useState(false);
   const [dash, setDash] = useState<SubjectiveDashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -330,6 +334,66 @@ const SubjectiveDashboard = () => {
     }
   };
 
+  const downloadResponsesPdf = async () => {
+    if (!dash?.students?.length || !dash.per_question?.length) {
+      toast({
+        title: "Sem respostas para exportar",
+        description: "Selecione uma avaliação com lançamentos de alunos.",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      setIsExportingResponses(true);
+      const turmaLabel =
+        selectedClass !== "all"
+          ? classes.find((c) => c.id === selectedClass)?.nome || "Turma"
+          : "Todas as turmas";
+      await generateSubjectiveCorrectionResponsesPdf({
+        subjective_test: dash.subjective_test,
+        class: { id: dash.filters.class_id || "all", name: turmaLabel },
+        questions: dash.per_question.map((q) => ({
+          id: q.id,
+          number: q.number,
+          code: q.code,
+          skill_description: q.skill_description,
+        })),
+        students: dash.students.map((s) => ({
+          id: s.id,
+          name: s.name,
+          registration: s.registration || "",
+          present: s.present,
+          results: s.results || {},
+          evaluation:
+            s.score_percentage != null
+              ? {
+                  score_percentage: s.score_percentage,
+                  grade: 0,
+                  proficiency: s.score_percentage,
+                  classification: s.saeb_label || "",
+                  correct_answers: 0,
+                  total_questions: dash.per_question.length,
+                  persisted: false,
+                }
+              : null,
+        })),
+      });
+      toast({
+        title: "Respostas exportadas",
+        description: "O PDF com as respostas dos alunos foi baixado.",
+      });
+    } catch (e) {
+      console.error(e);
+      toast({
+        title: "Erro ao exportar respostas",
+        description: "Não foi possível gerar o relatório de respostas.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExportingResponses(false);
+    }
+  };
+
   const distData = useMemo(() => {
     if (!dash?.distribution?.length) {
       const totals = dash?.totals;
@@ -367,12 +431,16 @@ const SubjectiveDashboard = () => {
     [dash]
   );
 
-  const saebCounts = dash?.saeb_levels;
-  const saebTotalQuestions =
-    (saebCounts?.abaixo || 0) +
-      (saebCounts?.basico || 0) +
-      (saebCounts?.adequado || 0) +
-      (saebCounts?.avancado || 0) || 1;
+  const studentSaebCounts = dash?.student_saeb_levels;
+  const studentsByLevel = dash?.students_by_saeb_level;
+  const saebTotalStudents =
+    (studentSaebCounts?.abaixo || 0) +
+      (studentSaebCounts?.basico || 0) +
+      (studentSaebCounts?.adequado || 0) +
+      (studentSaebCounts?.avancado || 0) || 1;
+
+  const studentsTable = dash?.students || [];
+  const getStudentsForLevel = (level: SubjectiveSaebLevel) => studentsByLevel?.[level] || [];
 
   return (
     <div className="container mx-auto max-w-7xl space-y-6 px-4 py-6">
@@ -387,23 +455,43 @@ const SubjectiveDashboard = () => {
             resultados.
           </p>
         </div>
-        <Button
-          onClick={downloadPdf}
-          disabled={!dash || loadingDash || isGeneratingPdf}
-          className="flex shrink-0 items-center gap-2"
-        >
-          {isGeneratingPdf ? (
-            <>
-              <RefreshCw className="h-4 w-4 animate-spin" />
-              Baixando relatório...
-            </>
-          ) : (
-            <>
-              <Download className="h-4 w-4" />
-              Baixar relatório
-            </>
-          )}
-        </Button>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Button
+            variant="outline"
+            onClick={() => void downloadResponsesPdf()}
+            disabled={!dash || loadingDash || isExportingResponses || !(dash.students?.length)}
+            className="flex items-center gap-2"
+          >
+            {isExportingResponses ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                Exportando...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4" />
+                Exportar respostas
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={() => void downloadPdf()}
+            disabled={!dash || loadingDash || isGeneratingPdf}
+            className="flex items-center gap-2"
+          >
+            {isGeneratingPdf ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                Baixando relatório...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4" />
+                Baixar relatório
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -651,34 +739,71 @@ const SubjectiveDashboard = () => {
                 <div>
                   <CardTitle className="text-sm text-muted-foreground">Níveis de Proficiência</CardTitle>
                   <p className="text-xs text-muted-foreground/80">
-                    Distribuição das questões por nível de acerto
+                    Passe o mouse sobre o nível para ver quais alunos estão nele
                   </p>
                 </div>
                 <TrendingUp className="h-4 w-4 text-primary" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {SAEB_LEVELS.map((level) => {
-                  const count = saebCounts?.[level.level] || 0;
-                  const pct = Math.round((count / saebTotalQuestions) * 100);
-                  return (
-                    <div key={level.level} className={cn("rounded-xl border p-4", level.bg)}>
-                      <div className="flex items-center justify-between">
-                        <span className="text-3xl leading-none">{level.emoji}</span>
-                        <span className={cn("text-2xl font-bold", level.text)}>{count}</span>
-                      </div>
-                      <p className={cn("mt-2 text-sm font-semibold", level.text)}>{level.label}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {level.range} · {pct}% das questões
-                      </p>
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background/60">
-                        <div className="h-full" style={{ width: `${pct}%`, background: level.color }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              <TooltipProvider delayDuration={150}>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {SAEB_LEVELS.map((level) => {
+                    const count = studentSaebCounts?.[level.level] || 0;
+                    const pct = Math.round((count / saebTotalStudents) * 100);
+                    const levelStudents = getStudentsForLevel(level.level);
+                    return (
+                      <UiTooltip key={level.level}>
+                        <TooltipTrigger asChild>
+                          <div
+                            className={cn(
+                              "cursor-default rounded-xl border p-4 outline-none transition-shadow hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring",
+                              level.bg
+                            )}
+                            tabIndex={0}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-3xl leading-none">{level.emoji}</span>
+                              <span className={cn("text-2xl font-bold", level.text)}>{count}</span>
+                            </div>
+                            <p className={cn("mt-2 text-sm font-semibold", level.text)}>{level.label}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {level.range} · {pct}% dos alunos
+                            </p>
+                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background/60">
+                              <div className="h-full" style={{ width: `${pct}%`, background: level.color }} />
+                            </div>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="bottom"
+                          align="start"
+                          className="max-h-64 max-w-xs overflow-y-auto border bg-popover p-3 text-popover-foreground shadow-md"
+                        >
+                          <p className="mb-2 text-xs font-semibold">
+                            {level.label} · {count} aluno(s)
+                          </p>
+                          {levelStudents.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">Nenhum aluno neste nível.</p>
+                          ) : (
+                            <ul className="space-y-1">
+                              {levelStudents.map((student) => (
+                                <li key={student.id} className="text-xs leading-snug">
+                                  <span className="font-medium">{student.name}</span>
+                                  <span className="text-muted-foreground">
+                                    {" "}
+                                    · {student.score_percentage}%
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </TooltipContent>
+                      </UiTooltip>
+                    );
+                  })}
+                </div>
+              </TooltipProvider>
             </CardContent>
           </Card>
         </>
@@ -814,6 +939,75 @@ const SubjectiveDashboard = () => {
                   </div>
                 );
               })}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm text-muted-foreground">Alunos por nível</CardTitle>
+              <p className="text-xs text-muted-foreground/80">
+                Tabelinha individual com índice SAEB simplificado da avaliação subjetiva
+              </p>
+            </CardHeader>
+            <CardContent>
+              {studentsTable.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Sem alunos no escopo selecionado.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-border">
+                  <table className="w-full min-w-[520px] border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-muted/60">
+                        <th className="border-b border-border p-3 text-left font-semibold">Aluno</th>
+                        <th className="border-b border-border p-3 text-center font-semibold">Presença</th>
+                        <th className="border-b border-border p-3 text-center font-semibold">Acerto</th>
+                        <th className="border-b border-border p-3 text-center font-semibold">Nível</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {studentsTable.map((student, idx) => {
+                        const info = student.saeb_level
+                          ? saebFromLevel(student.saeb_level, student.saeb_label)
+                          : null;
+                        return (
+                          <tr
+                            key={student.id}
+                            className={cn(idx % 2 === 1 && "bg-muted/20", !student.present && "opacity-60")}
+                          >
+                            <td className="border-b border-border p-3">
+                              <div className="font-medium">{student.name}</div>
+                              {student.registration ? (
+                                <div className="text-xs text-muted-foreground">{student.registration}</div>
+                              ) : null}
+                            </td>
+                            <td className="border-b border-border p-3 text-center text-xs">
+                              {student.present ? "Presente" : "Ausente"}
+                            </td>
+                            <td className="border-b border-border p-3 text-center font-semibold">
+                              {student.score_percentage != null ? `${student.score_percentage}%` : "—"}
+                            </td>
+                            <td className="border-b border-border p-3 text-center">
+                              {info ? (
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                                    info.bg,
+                                    info.text
+                                  )}
+                                >
+                                  <span>{info.emoji}</span>
+                                  {info.label}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
 
