@@ -33,6 +33,17 @@ import {
   Download,
   Eye,
 } from 'lucide-react';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { InseAvaliacaoFiltersApiService } from '@/services/inseAvaliacaoFiltersApi';
@@ -79,7 +90,55 @@ interface DistribuicaoInseItem {
   porcentagem: number;
 }
 
-interface InseAvaliacaoResultsResponse {
+/** Agregados comparativos calculados no backend (front só exibe). */
+interface ComparativoRacaCorItem {
+  raca_cor: string;
+  raca_cor_grupo?: string;
+  quantidade: number;
+  quantidade_com_resultado: number;
+  media_proficiencia: number | null;
+  media_nota: number | null;
+}
+
+interface ComparativoInseItem {
+  inse_nivel: number;
+  label: string;
+  quantidade: number;
+  quantidade_com_resultado: number;
+  media_proficiencia: number | null;
+  media_nota: number | null;
+}
+
+interface ComparativoRacaXInseItem {
+  raca_cor: string;
+  raca_cor_grupo?: string;
+  inse_nivel: number;
+  inse_nivel_label: string;
+  quantidade: number;
+  quantidade_com_resultado: number;
+  media_proficiencia: number | null;
+  media_nota: number | null;
+}
+
+interface ComparativoDestaqueGrupo {
+  dimensao: string;
+  grupo: string;
+  valor: number;
+  quantidade_com_resultado?: number;
+}
+
+interface InseComparativos {
+  comparativo_por_raca_cor?: ComparativoRacaCorItem[];
+  comparativo_por_inse?: ComparativoInseItem[];
+  comparativo_raca_x_inse?: ComparativoRacaXInseItem[];
+  destaques?: {
+    maior_media: ComparativoDestaqueGrupo | null;
+    menor_media: ComparativoDestaqueGrupo | null;
+    maior_gap: number | null;
+  };
+}
+
+interface InseAvaliacaoResultsResponse extends InseComparativos {
   formId: string;
   formTitle: string;
   avaliacaoId: string;
@@ -278,6 +337,78 @@ function getInseNivelMeta(
   };
 }
 
+type InseJsPdfDoc = import('jspdf').jsPDF;
+
+/** Reduz o tamanho da fonte até o texto caber em `maxWidth` (ou até `minSize`). */
+function fitFontSizeToWidth(
+  doc: InseJsPdfDoc,
+  text: string,
+  maxWidth: number,
+  startSize: number,
+  minSize = 7
+): number {
+  let size = startSize;
+  doc.setFontSize(size);
+  const safe = String(text || '');
+  while (size > minSize && doc.getTextWidth(safe) > maxWidth) {
+    size -= 0.5;
+    doc.setFontSize(size);
+  }
+  return size;
+}
+
+/** Texto centralizado com quebra de linha; retorna o Y após o bloco. */
+function drawCenteredWrappedText(
+  doc: InseJsPdfDoc,
+  text: string,
+  centerX: number,
+  y: number,
+  maxWidth: number,
+  lineHeight = 5
+): number {
+  const lines = doc.splitTextToSize(String(text || ''), Math.max(10, maxWidth)) as string[];
+  doc.text(lines, centerX, y, { align: 'center' });
+  return y + Math.max(1, lines.length) * lineHeight;
+}
+
+/**
+ * Label (negrito) + valor (normal), bloco centralizado.
+ * Valor longo quebra de linha sem estourar a margem.
+ */
+function drawCenteredLabeledValue(
+  doc: InseJsPdfDoc,
+  label: string,
+  value: string,
+  centerX: number,
+  y: number,
+  maxWidth: number,
+  lineHeight = 5.5
+): number {
+  const safeLabel = String(label || '');
+  const safeValue = String(value || '');
+  if (!safeValue) return y;
+
+  doc.setFont('helvetica', 'bold');
+  const labelW = doc.getTextWidth(safeLabel);
+  doc.setFont('helvetica', 'normal');
+  const valueMax = Math.max(12, maxWidth - labelW);
+  const valueLines = doc.splitTextToSize(safeValue, valueMax) as string[];
+  const firstW = labelW + doc.getTextWidth(valueLines[0] || '');
+  const startX = centerX - Math.min(firstW, maxWidth) / 2;
+
+  doc.setFont('helvetica', 'bold');
+  doc.text(safeLabel, startX, y);
+  doc.setFont('helvetica', 'normal');
+  doc.text(valueLines[0] || '', startX + labelW, y);
+
+  let cy = y;
+  for (let i = 1; i < valueLines.length; i++) {
+    cy += lineHeight;
+    doc.text(valueLines[i], startX + labelW, cy);
+  }
+  return cy + lineHeight;
+}
+
 function formatReportMetric(value: number | null | undefined): string {
   if (value == null || Number.isNaN(Number(value))) return '—';
   return Number(value).toFixed(1);
@@ -294,6 +425,86 @@ function formatRacaCorLabel(value: string): string {
 
   const withSpaces = normalized.replace(/([a-z])([A-Z])/g, '$1 $2');
   return withSpaces;
+}
+
+/** Cabeçalho curto da disciplina na tabela do PDF (evita "Proficiênci / a"). */
+function shortDisciplinePdfHeader(nome: string): string {
+  const n = (nome || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (n.includes('matem')) return 'Prof.\nMat.';
+  if (n.includes('portug') || n.includes('lingua port')) return 'Prof.\nPort.';
+  if (n.includes('cienc')) return 'Prof.\nCiênc.';
+  if (n.includes('histor')) return 'Prof.\nHist.';
+  if (n.includes('geograf')) return 'Prof.\nGeog.';
+  if (n.includes('ingles')) return 'Prof.\nIngl.';
+  if (n.includes('fisic')) return 'Prof.\nFís.';
+  if (n.includes('quimic')) return 'Prof.\nQuím.';
+  if (n.includes('biolog')) return 'Prof.\nBiol.';
+  const first = (nome || 'Disc').trim().split(/\s+/)[0] || 'Disc';
+  const short = first.length > 8 ? `${first.slice(0, 7)}.` : first;
+  return `Prof.\n${short}`;
+}
+
+/**
+ * Nome do aluno em no máximo 2 linhas (quebra por palavra).
+ * Evita linhas altíssimas na tabela do PDF.
+ */
+function formatStudentNameForPdf(name: string, maxCharsPerLine = 24): string {
+  const words = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 0) return '—';
+
+  const lines: string[] = [];
+  let current = '';
+
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    const next = current ? `${current} ${word}` : word;
+    if (next.length <= maxCharsPerLine) {
+      current = next;
+      continue;
+    }
+    if (current) lines.push(current);
+    if (lines.length >= 1) {
+      const rest = words.slice(i).join(' ');
+      if (rest.length > maxCharsPerLine) {
+        lines.push(`${rest.slice(0, Math.max(1, maxCharsPerLine - 1))}…`);
+      } else {
+        lines.push(rest);
+      }
+      return lines.slice(0, 2).join('\n');
+    }
+    current = word.length > maxCharsPerLine ? `${word.slice(0, maxCharsPerLine - 1)}…` : word;
+  }
+  if (current) lines.push(current);
+  return lines.slice(0, 2).join('\n');
+}
+
+/** Texto do badge de nível que cabe na largura da célula. */
+function fitNivelBadgeLabel(
+  doc: InseJsPdfDoc,
+  nivel: string,
+  maxWidth: number
+): { text: string; size: number } {
+  const raw = String(nivel || '—').trim() || '—';
+  const candidates = raw.toLowerCase().includes('abaixo')
+    ? [raw, 'Abaixo Básico', 'Abaixo']
+    : [raw];
+
+  for (const candidate of candidates) {
+    let size = 8;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(size);
+    while (size > 5.5 && doc.getTextWidth(candidate) > maxWidth) {
+      size -= 0.5;
+      doc.setFontSize(size);
+    }
+    if (doc.getTextWidth(candidate) <= maxWidth) {
+      return { text: candidate, size };
+    }
+  }
+  return { text: '—', size: 7 };
 }
 
 const InseAvaliacaoReport = () => {
@@ -833,14 +1044,22 @@ const InseAvaliacaoReport = () => {
 
         // --- Parte 1: Respostas do questionário (cabeçalho igual à imagem, labels em negrito) ---
         if (formData?.questions?.length) {
+          const contentMaxW = pageWidth - margin * 2;
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(16);
           doc.setTextColor(...primaryRgb);
-          doc.text('Relatório INSE x Avaliação — Aluno', centerX, y, { align: 'center' });
-          y += 12;
+          y = drawCenteredWrappedText(
+            doc,
+            'Relatório INSE x Avaliação — Aluno',
+            centerX,
+            y,
+            contentMaxW,
+            6
+          );
+          y += 4;
           doc.setFontSize(10);
           doc.setTextColor(...textDark);
-          const alunoLines: { label: string; value: string } = [
+          const alunoLines: { label: string; value: string }[] = [
             { label: 'Município: ', value: municipioName },
             { label: 'Formulário: ', value: formData.formTitle ?? reportData.formTitle },
             { label: 'Avaliação: ', value: reportData.avaliacaoTitulo },
@@ -848,25 +1067,22 @@ const InseAvaliacaoReport = () => {
           ];
           alunoLines.forEach(({ label, value }) => {
             if (!value) return;
-            doc.setFont('helvetica', 'bold');
-            const labelW = doc.getTextWidth(label);
-            doc.setFont('helvetica', 'normal');
-            const valueW = doc.getTextWidth(value);
-            const totalW = labelW + valueW;
-            const startX = centerX - totalW / 2;
-            doc.setFont('helvetica', 'bold');
-            doc.text(label, startX, y);
-            doc.setFont('helvetica', 'normal');
-            doc.text(value, startX + labelW, y);
-            y += 7;
+            y = drawCenteredLabeledValue(doc, label, value, centerX, y, contentMaxW, 5.5);
           });
-          y += 8;
+          y += 4;
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(12);
           doc.setTextColor(...primaryRgb);
-          doc.text('Respostas do Questionário Socioeconômico', centerX, y, { align: 'center' });
+          y = drawCenteredWrappedText(
+            doc,
+            'Respostas do Questionário Socioeconômico',
+            centerX,
+            y,
+            contentMaxW,
+            5.5
+          );
           doc.setTextColor(...textDark);
-          y += 8;
+          y += 4;
 
           const autoTableModule = await import('jspdf-autotable');
           const autoTable = (autoTableModule as { default: (doc: import('jspdf').jsPDF, options: unknown) => void })
@@ -877,8 +1093,10 @@ const InseAvaliacaoReport = () => {
             const perguntaTexto = `${index + 1}. ${question.textoPergunta}`;
             doc.setFontSize(10);
             doc.setFont('helvetica', 'bold');
-            doc.text(perguntaTexto, margin, y);
-            y += 6;
+            const perguntaLines = doc.splitTextToSize(perguntaTexto, contentMaxW) as string[];
+            ensureSpace(perguntaLines.length * 5 + 8);
+            doc.text(perguntaLines, margin, y);
+            y += perguntaLines.length * 5 + 1;
             const hasSub = question.subRespostas && question.subRespostas.length > 0;
             if (hasSub && question.options?.length) {
               const options = question.options;
@@ -896,7 +1114,7 @@ const InseAvaliacaoReport = () => {
                 body,
                 theme: 'grid',
                 margin: { left: margin, right: margin },
-                styles: { fontSize: 8, cellPadding: 2, halign: 'center', valign: 'middle' },
+                styles: { fontSize: 8, cellPadding: 2, halign: 'center', valign: 'middle', overflow: 'linebreak' },
                 headStyles: {
                   fillColor: primaryRgb,
                   textColor: [255, 255, 255],
@@ -927,16 +1145,18 @@ const InseAvaliacaoReport = () => {
               y = finalY + 6;
             } else {
               const respostaTexto = question.resposta ?? 'Não respondeu';
-              ensureSpace(12);
-              doc.setDrawColor(...primaryRgb);
-              doc.setFillColor(243, 232, 255);
-              const boxWidth = pageWidth - margin * 2;
-              doc.rect(margin, y, boxWidth, 10, 'FD');
               doc.setFont('helvetica', 'normal');
               doc.setFontSize(9);
+              const boxWidth = contentMaxW;
+              const respostaLines = doc.splitTextToSize(respostaTexto, boxWidth - 6) as string[];
+              const boxH = Math.max(10, 5 + respostaLines.length * 4.2);
+              ensureSpace(boxH + 4);
+              doc.setDrawColor(...primaryRgb);
+              doc.setFillColor(243, 232, 255);
+              doc.rect(margin, y, boxWidth, boxH, 'FD');
               doc.setTextColor(...textDark);
-              doc.text(respostaTexto, margin + 3, y + 6);
-              y += 14;
+              doc.text(respostaLines, margin + 3, y + 5);
+              y += boxH + 4;
             }
           });
           y += 5;
@@ -952,18 +1172,26 @@ const InseAvaliacaoReport = () => {
             doc.addPage();
           }
           y = margin;
+          const contentMaxW = pageWidth - margin * 2;
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(14);
           doc.setTextColor(...primaryRgb);
-          doc.text('BOLETIM DIAGNÓSTICO DO ALUNO', centerX, y, { align: 'center' });
-          y += 8;
+          y = drawCenteredWrappedText(doc, 'BOLETIM DIAGNÓSTICO DO ALUNO', centerX, y, contentMaxW, 6);
+          y += 2;
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(10);
           doc.setTextColor(...textDark);
-          doc.text(`Aluno: ${aluno.nome_completo}`, centerX, y, { align: 'center' });
-          y += 6;
-          doc.text(`Avaliação: ${reportData.avaliacaoTitulo}`, centerX, y, { align: 'center' });
-          y += 10;
+          y = drawCenteredLabeledValue(doc, 'Aluno: ', aluno.nome_completo, centerX, y, contentMaxW, 5.5);
+          y = drawCenteredLabeledValue(
+            doc,
+            'Avaliação: ',
+            reportData.avaliacaoTitulo,
+            centerX,
+            y,
+            contentMaxW,
+            5.5
+          );
+          y += 4;
 
           const validNum = testData.questions
             .map((q) => q.number)
@@ -984,8 +1212,12 @@ const InseAvaliacaoReport = () => {
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(11);
             doc.setTextColor(...textDark);
-            doc.text(subjectName.toUpperCase(), margin, y);
-            y += 7;
+            const subjectLines = doc.splitTextToSize(
+              subjectName.toUpperCase(),
+              pageWidth - margin * 2
+            ) as string[];
+            doc.text(subjectLines, margin, y);
+            y += subjectLines.length * 5 + 2;
 
             const head = [['#', 'A', 'B', 'C', 'D', 'GABARITO']];
             const body = subjectRows.map((row) => [
@@ -1204,7 +1436,12 @@ const InseAvaliacaoReport = () => {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11);
         doc.setTextColor(255, 255, 255);
-        doc.text(title, pageWidth - margin, BAND_H / 2 + 2, { align: 'right' });
+        const headerMaxW = pageWidth - margin * 2 - 36;
+        fitFontSizeToWidth(doc, title, headerMaxW, 11, 7);
+        const headerLines = doc.splitTextToSize(title, headerMaxW) as string[];
+        // Faixa compacta: no máximo 1 linha truncada visualmente
+        const headerText = headerLines[0] || title;
+        doc.text(headerText, pageWidth - margin, BAND_H / 2 + 2, { align: 'right' });
         return BAND_H + 10;
       };
       // ===== CAPA (padrão Evoluções) =====
@@ -1241,44 +1478,87 @@ const InseAvaliacaoReport = () => {
         }
 
         // Título + subtítulo
+        const contentMaxW = pageWidth - margin * 2;
         const titleY = hasLetterhead
           ? logoBottomInBand + 10
           : Math.max(logoBottomInBand + 5, BAND_H - 17);
         doc.setTextColor(...(hasLetterhead ? primaryRgb : ([255, 255, 255] as [number, number, number])));
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(17);
-        doc.text('RELATÓRIO INSE x AVALIAÇÃO', centerX, titleY, { align: 'center' });
+        fitFontSizeToWidth(doc, 'RELATÓRIO INSE x AVALIAÇÃO', contentMaxW, 17, 11);
+        let coverY = drawCenteredWrappedText(
+          doc,
+          'RELATÓRIO INSE x AVALIAÇÃO',
+          centerX,
+          titleY,
+          contentMaxW,
+          6
+        );
+        doc.setFont('helvetica', 'normal');
         doc.setFontSize(11);
         doc.setTextColor(...(hasLetterhead ? textDark : ([255, 255, 255] as [number, number, number])));
-        doc.text('ANÁLISE COMPARATIVA DE INDICADORES', centerX, titleY + 8, { align: 'center' });
+        coverY = drawCenteredWrappedText(
+          doc,
+          'ANÁLISE COMPARATIVA DE INDICADORES',
+          centerX,
+          coverY,
+          contentMaxW,
+          5
+        );
 
         // Município / secretaria
-        let y = hasLetterhead ? titleY + 14 : BAND_H + 13;
+        let y = hasLetterhead ? coverY + 4 : Math.max(coverY + 4, BAND_H + 13);
         const municipioName = municipalities.find((m) => m.id === selectedMunicipality)?.name ?? 'MUNICÍPIO';
         const stateLabel = selectedState !== 'all' ? selectedState : '';
         const locationText = stateLabel
           ? `${municipioName.toUpperCase()} - ${stateLabel.toUpperCase()}`
           : municipioName.toUpperCase();
 
-        doc.setFontSize(14);
-        doc.setTextColor(...primaryRgb);
         doc.setFont('helvetica', 'bold');
-        doc.text(locationText, centerX, y, { align: 'center' });
+        doc.setTextColor(...primaryRgb);
+        fitFontSizeToWidth(doc, locationText, contentMaxW, 14, 9);
+        y = drawCenteredWrappedText(doc, locationText, centerX, y, contentMaxW, 6);
 
-        y += 8;
         doc.setFontSize(11);
         doc.setTextColor(...textMuted);
         doc.setFont('helvetica', 'normal');
-        doc.text('SECRETARIA MUNICIPAL DE EDUCAÇÃO', centerX, y, { align: 'center' });
+        y = drawCenteredWrappedText(doc, 'SECRETARIA MUNICIPAL DE EDUCAÇÃO', centerX, y, contentMaxW, 5);
 
-        y += 20;
+        y += 12;
 
-        // Card com infos (accent bar 4mm)
+        // Card com infos (accent bar 4mm) — altura dinâmica conforme nomes longos
         const cardWidth = pageWidth - 80;
         const cardX = (pageWidth - cardWidth) / 2;
         const ACCENT_W = 4;
+        const leftColX = cardX + ACCENT_W + 15;
+        const labelWidth = 48;
+        const valueMaxWidth = cardWidth - labelWidth - 30;
 
-        const cardHeight = 100;
+        const schoolNames = selectedSchools
+          .map((id) => schools.find((s) => s.id === id)?.name)
+          .filter((n): n is string => Boolean(n));
+        const escolasValue =
+          schoolNames.length === 0
+            ? undefined
+            : schoolNames.length <= 3
+              ? schoolNames.join(', ')
+              : `${schoolNames.length} escolas`;
+
+        const rows: Array<{ label: string; value: string | undefined }> = [
+          { label: 'MUNICÍPIO:', value: municipioName || undefined },
+          { label: 'FORMULÁRIO:', value: reportData.formTitle || undefined },
+          { label: 'AVALIAÇÃO:', value: reportData.avaliacaoTitulo || undefined },
+          { label: 'ESCOLAS:', value: escolasValue },
+        ];
+
+        doc.setFontSize(9);
+        let measuredContentH = 26; // título + divisor + paddings
+        for (const row of rows) {
+          if (!row.value) continue;
+          const lines = doc.splitTextToSize(String(row.value), valueMaxWidth) as string[];
+          measuredContentH += Math.max(7, lines.length * 5);
+        }
+        const cardHeight = Math.max(70, measuredContentH + 8);
+
         doc.setFillColor(250, 250, 250);
         doc.rect(cardX, y, cardWidth, cardHeight, 'F');
         doc.setFillColor(...primaryRgb);
@@ -1301,17 +1581,6 @@ const InseAvaliacaoReport = () => {
         cardY += 8;
 
         doc.setFontSize(9);
-        const leftColX = cardX + ACCENT_W + 15;
-        const labelWidth = 48;
-        const valueMaxWidth = cardWidth - labelWidth - 30;
-
-        const rows: Array<{ label: string; value: string | undefined }> = [
-          { label: 'MUNICÍPIO:', value: municipioName || undefined },
-          { label: 'FORMULÁRIO:', value: reportData.formTitle || undefined },
-          { label: 'AVALIAÇÃO:', value: reportData.avaliacaoTitulo || undefined },
-          { label: 'ESCOLAS:', value: selectedSchools?.length ? `${selectedSchools.length} escolas` : undefined },
-        ];
-
         for (const row of rows) {
           if (!row.value) continue;
           doc.setFont('helvetica', 'bold');
@@ -1319,7 +1588,7 @@ const InseAvaliacaoReport = () => {
           doc.text(row.label, leftColX, cardY);
           doc.setFont('helvetica', 'normal');
           doc.setTextColor(...textDark);
-          const lines = doc.splitTextToSize(String(row.value), valueMaxWidth);
+          const lines = doc.splitTextToSize(String(row.value), valueMaxWidth) as string[];
           doc.text(lines, leftColX + labelWidth, cardY);
           cardY += Math.max(7, lines.length * 5);
         }
@@ -1425,7 +1694,14 @@ const InseAvaliacaoReport = () => {
         ];
         const withQtd = niveis.map((n) => ({ ...n, qtd: (distProf as Record<string, number>)[n.key] ?? 0 }));
         const maior = withQtd.reduce((a, b) => (a.qtd >= b.qtd ? a : b));
-        const badgeW = 32;
+        const badgeLabel = maior.label;
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        const badgePadX = 4;
+        const badgeW = Math.min(
+          cardWidth - cardPad * 2,
+          Math.max(32, doc.getTextWidth(badgeLabel) + badgePadX * 2)
+        );
         const badgeH = 9;
         const badgeY = y + 32;
         doc.setFillColor(234, 179, 8);
@@ -1437,9 +1713,8 @@ const InseAvaliacaoReport = () => {
           doc.rect(cardX2 + cardPad, badgeY, badgeW, badgeH, 'FD');
         }
         doc.setTextColor(0, 0, 0);
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'bold');
-        doc.text(maior.label, cardX2 + cardPad + badgeW / 2, badgeY + badgeH / 2 + 1.5, { align: 'center' });
+        fitFontSizeToWidth(doc, badgeLabel, badgeW - 2, 9, 6.5);
+        doc.text(badgeLabel, cardX2 + cardPad + badgeW / 2, badgeY + badgeH / 2 + 1.5, { align: 'center' });
         doc.setTextColor(...textMuted);
         doc.setFont('helvetica', 'normal');
       }
@@ -1448,7 +1723,9 @@ const InseAvaliacaoReport = () => {
         null
       )?.label ?? '—';
       doc.setFontSize(10);
-      doc.text(inseLabel, cardX3 + cardPad, y + 38);
+      fitFontSizeToWidth(doc, inseLabel, cardWidth - cardPad * 2, 10, 7);
+      const inseLabelLines = doc.splitTextToSize(inseLabel, cardWidth - cardPad * 2) as string[];
+      doc.text(inseLabelLines.slice(0, 2), cardX3 + cardPad, y + 38);
 
       y += cardHeight + 16;
 
@@ -1474,8 +1751,13 @@ const InseAvaliacaoReport = () => {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(18);
       doc.setTextColor(...primaryRgb);
-      doc.text('Distribuição INSE e Níveis de Proficiência', margin, y);
-      y += 12;
+      fitFontSizeToWidth(doc, 'Distribuição INSE e Níveis de Proficiência', pageWidth - margin * 2, 16, 11);
+      const distTitleLines = doc.splitTextToSize(
+        'Distribuição INSE e Níveis de Proficiência',
+        pageWidth - margin * 2
+      ) as string[];
+      doc.text(distTitleLines, margin, y);
+      y += distTitleLines.length * 6 + 4;
 
       const tableW = pageWidth - margin * 2;
       const col1W = 32;
@@ -1608,6 +1890,178 @@ const InseAvaliacaoReport = () => {
       });
       y += 4 * rowH + 14;
 
+      // --- Comparativo Raça/Cor × Socioeconômico (valores do backend) ---
+      const compRaca = reportData.comparativo_por_raca_cor ?? [];
+      const compInse = reportData.comparativo_por_inse ?? [];
+      const compCruz = reportData.comparativo_raca_x_inse ?? [];
+      const destaques = reportData.destaques;
+
+      if (compRaca.length > 0 || compInse.some((i) => (i.quantidade ?? 0) > 0)) {
+        doc.addPage();
+        y = drawCompactHeader('RELATÓRIO INSE x AVALIAÇÃO');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(16);
+        doc.setTextColor(...primaryRgb);
+        const compTitle = 'Comparativo por Raça/Cor e Socioeconômico';
+        fitFontSizeToWidth(doc, compTitle, pageWidth - margin * 2, 16, 11);
+        const compTitleLines = doc.splitTextToSize(compTitle, pageWidth - margin * 2) as string[];
+        doc.text(compTitleLines, margin, y);
+        y += compTitleLines.length * 6 + 2;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(...textMuted);
+        doc.text(
+          'Medias de proficiencia calculadas no servidor (escopo completo; filtro de raca nao altera este bloco).',
+          margin,
+          y
+        );
+        y += 8;
+
+        if (destaques?.maior_media || destaques?.menor_media) {
+          ensureSpace(28);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.setTextColor(...textDark);
+          doc.text('Destaques', margin, y);
+          y += 5;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9);
+          if (destaques.maior_media) {
+            doc.text(
+              `Maior media: ${formatRacaCorLabel(destaques.maior_media.grupo)} (${Number(destaques.maior_media.valor).toFixed(1)})`,
+              margin,
+              y
+            );
+            y += 4.5;
+          }
+          if (destaques.menor_media) {
+            doc.text(
+              `Menor media: ${formatRacaCorLabel(destaques.menor_media.grupo)} (${Number(destaques.menor_media.valor).toFixed(1)})`,
+              margin,
+              y
+            );
+            y += 4.5;
+          }
+          if (destaques.maior_gap != null) {
+            doc.text(`Maior gap: ${Number(destaques.maior_gap).toFixed(1)} pontos`, margin, y);
+            y += 4.5;
+          }
+          y += 4;
+        }
+
+        // Tabela por raça/cor
+        ensureSpace(40);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(...primaryRgb);
+        doc.text('Media por Raca/Cor', margin, y);
+        y += 6;
+
+        autoTable(doc, {
+          startY: y,
+          head: [['Raca/Cor', 'Qtd', 'Com resultado', 'Media prof.', 'Media nota']],
+          body: compRaca.map((item) => [
+            formatRacaCorLabel(item.raca_cor),
+            String(item.quantidade ?? 0),
+            String(item.quantidade_com_resultado ?? 0),
+            item.media_proficiencia != null ? Number(item.media_proficiencia).toFixed(1) : '—',
+            item.media_nota != null ? Number(item.media_nota).toFixed(1) : '—',
+          ]),
+          theme: 'grid',
+          margin: { left: margin, right: margin },
+          styles: { fontSize: 8, cellPadding: 1.8, overflow: 'linebreak', valign: 'middle' },
+          headStyles: {
+            fillColor: primaryRgb,
+            textColor: [255, 255, 255],
+            fontStyle: 'bold',
+            fontSize: 8,
+          },
+          columnStyles: {
+            1: { halign: 'center' },
+            2: { halign: 'center' },
+            3: { halign: 'center' },
+            4: { halign: 'center' },
+          },
+        });
+        y =
+          ((doc as import('jspdf').jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable
+            ?.finalY ?? y) + 10;
+
+        // Tabela por INSE
+        ensureSpace(40);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(...primaryRgb);
+        doc.text('Media por Nivel INSE', margin, y);
+        y += 6;
+
+        autoTable(doc, {
+          startY: y,
+          head: [['Nivel INSE', 'Qtd', 'Com resultado', 'Media prof.', 'Media nota']],
+          body: compInse.map((item) => [
+            item.label || `Nivel ${item.inse_nivel}`,
+            String(item.quantidade ?? 0),
+            String(item.quantidade_com_resultado ?? 0),
+            item.media_proficiencia != null ? Number(item.media_proficiencia).toFixed(1) : '—',
+            item.media_nota != null ? Number(item.media_nota).toFixed(1) : '—',
+          ]),
+          theme: 'grid',
+          margin: { left: margin, right: margin },
+          styles: { fontSize: 8, cellPadding: 1.8, overflow: 'linebreak', valign: 'middle' },
+          headStyles: {
+            fillColor: primaryRgb,
+            textColor: [255, 255, 255],
+            fontStyle: 'bold',
+            fontSize: 8,
+          },
+          columnStyles: {
+            1: { halign: 'center' },
+            2: { halign: 'center' },
+            3: { halign: 'center' },
+            4: { halign: 'center' },
+          },
+        });
+        y =
+          ((doc as import('jspdf').jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable
+            ?.finalY ?? y) + 10;
+
+        // Cruzamento (amostra tabular)
+        if (compCruz.length > 0) {
+          ensureSpace(40);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(11);
+          doc.setTextColor(...primaryRgb);
+          doc.text('Cruzamento Raca/Cor x INSE', margin, y);
+          y += 6;
+
+          autoTable(doc, {
+            startY: y,
+            head: [['Raca/Cor', 'Nivel INSE', 'n', 'Media prof.']],
+            body: compCruz
+              .filter((c) => (c.quantidade_com_resultado ?? 0) > 0)
+              .map((c) => [
+                formatRacaCorLabel(c.raca_cor),
+                c.inse_nivel_label || `Nivel ${c.inse_nivel}`,
+                String(c.quantidade_com_resultado ?? 0),
+                c.media_proficiencia != null ? Number(c.media_proficiencia).toFixed(1) : '—',
+              ]),
+            theme: 'grid',
+            margin: { left: margin, right: margin },
+            styles: { fontSize: 7.5, cellPadding: 1.5, overflow: 'linebreak', valign: 'middle' },
+            headStyles: {
+              fillColor: primaryRgb,
+              textColor: [255, 255, 255],
+              fontStyle: 'bold',
+              fontSize: 7.5,
+            },
+            columnStyles: {
+              2: { halign: 'center' },
+              3: { halign: 'center' },
+            },
+          });
+        }
+      }
+
       // --- Tabela INSE x Avaliação ---
       doc.addPage();
       y = drawCompactHeader('RELATÓRIO INSE x AVALIAÇÃO');
@@ -1617,21 +2071,24 @@ const InseAvaliacaoReport = () => {
       doc.text('INSE x Avaliação', margin, y);
       y += 10;
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(11);
+      doc.setFontSize(10);
       doc.setTextColor(...textMuted);
-      doc.text(`${reportData.formTitle} × ${reportData.avaliacaoTitulo}`, margin, y);
-      y += 14;
+      const subtitle = `${reportData.formTitle || 'Formulário'} × ${reportData.avaliacaoTitulo || 'Avaliação'}`;
+      fitFontSizeToWidth(doc, subtitle, pageWidth - margin * 2, 10, 7.5);
+      const subtitleLines = doc.splitTextToSize(subtitle, pageWidth - margin * 2) as string[];
+      doc.text(subtitleLines, margin, y);
+      y += subtitleLines.length * 5 + 6;
 
       const head = [
         '#',
         'Aluno',
-        ...disciplinasAvaliacao.map((d) => `Proficiência\n${d.nome}`),
-        'Prof.\nMédia',
+        ...disciplinasAvaliacao.map((d) => shortDisciplinePdfHeader(d.nome)),
+        'Prof.\nMéd.',
         'Nota',
-        'Nível de\nAprendizagem',
-        'Raça/Cor',
+        'Nível',
+        'Raça/\nCor',
         'INSE',
-        'Nível\nINSE',
+        'Nív.\nINSE',
       ];
       const body =
         alunosData.length === 0
@@ -1640,18 +2097,19 @@ const InseAvaliacaoReport = () => {
               const rowNum = pagination ? (pagination.page - 1) * pagination.limit + idx + 1 : idx + 1;
               const profs = disciplinasAvaliacao.map((d) => {
                 const disc = aluno.disciplinas?.find((x) => x.id === d.id);
-                return disc != null ? String(disc.proficiencia) : '—';
+                return disc != null ? Number(disc.proficiencia).toFixed(2) : '—';
               });
               return [
                 String(rowNum),
-                aluno.nome_completo,
+                formatStudentNameForPdf(aluno.nome_completo, 26),
                 ...profs,
-                aluno.proficiencia_media != null ? String(aluno.proficiencia_media) : '—',
-                aluno.nota != null ? String(aluno.nota) : '—',
-                aluno.nivel_proficiencia ?? '—',
-                aluno.raca_cor ?? '—',
+                aluno.proficiencia_media != null ? Number(aluno.proficiencia_media).toFixed(2) : '—',
+                aluno.nota != null ? Number(aluno.nota).toFixed(1) : '—',
+                // Texto do nível/INSE desenhado só no badge (didDrawCell) — evita overflow do autoTable
+                '',
+                formatRacaCorLabel(aluno.raca_cor ?? '—'),
                 aluno.inse_valor != null ? Number(aluno.inse_valor).toFixed(2) : '—',
-                aluno.inse_nivel_label ?? '—',
+                '',
               ];
             });
 
@@ -1668,10 +2126,12 @@ const InseAvaliacaoReport = () => {
         '1': { bg: [221, 214, 254], text: [76, 29, 149] },
       };
       const getNivelBadgeStyle = (nivel: string): { fill: [number, number, number]; text: [number, number, number] } => {
-        if (nivel.includes('Avançado')) return { fill: [22, 101, 52], text: [255, 255, 255] };
-        if (nivel.includes('Adequado')) return { fill: [22, 163, 74], text: [255, 255, 255] };
-        if (nivel.includes('Básico')) return { fill: [234, 179, 8], text: [113, 63, 18] };
-        if (nivel.includes('Abaixo')) return { fill: [239, 68, 68], text: [255, 255, 255] };
+        const n = (nivel || '').toLowerCase();
+        // "Abaixo" antes de "Básico" — senão "Abaixo do Básico" cai no amarelo.
+        if (n.includes('abaixo')) return { fill: [239, 68, 68], text: [255, 255, 255] };
+        if (n.includes('avançado') || n.includes('avancado')) return { fill: [22, 101, 52], text: [255, 255, 255] };
+        if (n.includes('adequado')) return { fill: [22, 163, 74], text: [255, 255, 255] };
+        if (n.includes('básico') || n.includes('basico')) return { fill: [234, 179, 8], text: [113, 63, 18] };
         return { fill: [248, 250, 252], text: textDark };
       };
 
@@ -1686,16 +2146,17 @@ const InseAvaliacaoReport = () => {
         const notaIdx = profMedIdx + 1;
         const racaCorIdx = head.length - 3;
         const inseColIdx = head.length - 2;
+        // Larguras mínimas: números não quebram; nível tem espaço para o badge.
         const floor = {
-          num: 8,
-          aluno: 30,
-          profDisc: 22,
-          profMed: 15,
+          num: 7,
+          aluno: 38,
+          profDisc: 16,
+          profMed: 16,
           nota: 12,
-          nivelApr: 26,
-          racaCor: 18,
+          nivelApr: 30,
+          racaCor: 16,
           inse: 12,
-          nivelInse: 24,
+          nivelInse: 18,
         };
         const colWidths: Record<number, number> = {
           0: floor.num,
@@ -1714,14 +2175,14 @@ const InseAvaliacaoReport = () => {
 
         let delta = usableTableWidth - sumWidths();
         if (delta > 0) {
-          const growWeight: Record<number, number> = { 0: 0, 1: 1.15 };
-          for (let i = 0; i < nDisc; i++) growWeight[2 + i] = 1;
-          growWeight[profMedIdx] = 0.45;
-          growWeight[notaIdx] = 0.35;
-          growWeight[nivelColIndex] = 0.85;
-          growWeight[racaCorIdx] = 0.55;
-          growWeight[inseColIdx] = 0.35;
-          growWeight[head.length - 1] = 0.75;
+          const growWeight: Record<number, number> = { 0: 0, 1: 1.4 };
+          for (let i = 0; i < nDisc; i++) growWeight[2 + i] = 0.35;
+          growWeight[profMedIdx] = 0.25;
+          growWeight[notaIdx] = 0.2;
+          growWeight[nivelColIndex] = 1.1;
+          growWeight[racaCorIdx] = 0.45;
+          growWeight[inseColIdx] = 0.2;
+          growWeight[head.length - 1] = 0.55;
           const wsum = Object.values(growWeight).reduce((a, b) => a + b, 0);
           Object.entries(growWeight).forEach(([k, w]) => {
             const idx = Number(k);
@@ -1729,12 +2190,12 @@ const InseAvaliacaoReport = () => {
           });
         } else if (delta < 0) {
           let d = -delta;
-          const shrinkAluno = Math.min(d, Math.max(0, colWidths[1] - 26));
+          const shrinkAluno = Math.min(d, Math.max(0, colWidths[1] - 32));
           colWidths[1] -= shrinkAluno;
           d -= shrinkAluno;
           if (nDisc > 0 && d > 0) {
             const removable = Array.from({ length: nDisc }, (_, i) =>
-              Math.max(0, colWidths[2 + i] - 18)
+              Math.max(0, colWidths[2 + i] - 14)
             );
             const totalRemovable = removable.reduce((a, b) => a + b, 0);
             const take = Math.min(totalRemovable, d);
@@ -1751,7 +2212,7 @@ const InseAvaliacaoReport = () => {
             d -= shrinkRaca;
           }
           if (d > 0) {
-            colWidths[nivelColIndex] = Math.max(22, colWidths[nivelColIndex] - d);
+            colWidths[nivelColIndex] = Math.max(26, colWidths[nivelColIndex] - d);
           }
         }
         const finalSum = sumWidths();
@@ -1766,8 +2227,8 @@ const InseAvaliacaoReport = () => {
           theme: 'grid',
           margin: { left: margin, right: margin },
           styles: {
-            fontSize: 10,
-            cellPadding: 2.5,
+            fontSize: 8,
+            cellPadding: 1.8,
             overflow: 'linebreak',
             valign: 'middle',
           },
@@ -1775,13 +2236,15 @@ const InseAvaliacaoReport = () => {
             fillColor: primaryRgb,
             textColor: [255, 255, 255],
             fontStyle: 'bold',
-            fontSize: 8.5,
-            cellPadding: 2,
+            fontSize: 7.5,
+            cellPadding: 1.6,
             valign: 'middle',
+            overflow: 'linebreak',
           },
           bodyStyles: {
             lineWidth: 0.1,
             lineColor: [226, 232, 240],
+            fontSize: 8,
           },
           alternateRowStyles: {
             fillColor: [248, 250, 252],
@@ -1789,51 +2252,96 @@ const InseAvaliacaoReport = () => {
           columnStyles: Object.fromEntries(
             Object.entries(colWidths).map(([k, w]) => {
               const idx = Number(k);
-              const centerNumeric =
+              const isNumeric =
                 idx === 0 ||
                 (idx >= 2 && idx <= notaIdx) ||
-                idx === inseColIdx ||
-                idx === nivelColIndex ||
-                idx === head.length - 1;
-              return [idx, { cellWidth: w, halign: centerNumeric ? 'center' : 'left' as const }];
+                idx === inseColIdx;
+              const isBadge = idx === nivelColIndex || idx === head.length - 1;
+              return [
+                idx,
+                {
+                  cellWidth: w,
+                  halign: isNumeric || isBadge || idx === racaCorIdx ? 'center' : 'left',
+                  // Números e badges: sem quebra no meio do valor
+                  overflow: isNumeric || isBadge ? 'hidden' : 'linebreak',
+                  minCellHeight: isBadge ? 9 : undefined,
+                },
+              ];
             })
           ),
-          didDrawCell: (data: { section: string; column?: { index: number }; row?: { index: number }; cell: { x: number; y: number; width: number; height: number }; cursor?: { x: number; y: number } }) => {
+          didDrawCell: (data: {
+            section: string;
+            column?: { index: number };
+            row?: { index: number };
+            cell: { x: number; y: number; width: number; height: number; text?: string[] };
+          }) => {
             if (data.section !== 'body') return;
             const colIdx = data.column?.index ?? 0;
             const rowIdx = data.row?.index ?? 0;
             if (rowIdx >= alunosData.length) return;
             const aluno = alunosData[rowIdx];
             const c = data.cell;
+            const pad = 1.2;
+            const innerW = Math.max(4, c.width - pad * 2);
+            const innerH = Math.max(4, c.height - pad * 2);
+
             if (colIdx === nivelColIndex) {
               const nivel = aluno?.nivel_proficiencia ?? '';
               const style = getNivelBadgeStyle(nivel);
               doc.setFillColor(...style.fill);
               if (typeof (doc as import('jspdf').jsPDF & { roundedRect?: unknown }).roundedRect === 'function') {
-                (doc as import('jspdf').jsPDF & { roundedRect: (x: number, y: number, w: number, h: number, rx: number, ry: number, s: string) => void }).roundedRect(c.x + 1, c.y + 1, c.width - 2, c.height - 2, 2, 2, 'F');
+                (doc as import('jspdf').jsPDF & { roundedRect: (x: number, y: number, w: number, h: number, rx: number, ry: number, s: string) => void }).roundedRect(
+                  c.x + pad,
+                  c.y + pad,
+                  innerW,
+                  innerH,
+                  1.5,
+                  1.5,
+                  'F'
+                );
               } else {
-                doc.rect(c.x + 1, c.y + 1, c.width - 2, c.height - 2, 'F');
+                doc.rect(c.x + pad, c.y + pad, innerW, innerH, 'F');
               }
-              doc.setFontSize(9);
+              const fitted = fitNivelBadgeLabel(doc, nivel || '—', innerW - 2);
               doc.setFont('helvetica', 'bold');
+              doc.setFontSize(fitted.size);
               doc.setTextColor(...style.text);
-              doc.text(nivel || '—', c.x + c.width / 2, c.y + c.height / 2 + 1.5, { align: 'center' });
+              doc.text(fitted.text, c.x + c.width / 2, c.y + c.height / 2 + fitted.size * 0.12, {
+                align: 'center',
+                maxWidth: innerW - 1,
+              });
             } else if (colIdx === inseColIndex) {
               const inseNivel = aluno?.inse_nivel != null ? String(aluno.inse_nivel) : '';
-              const style = INSE_TABLE_RGB[inseNivel] ?? { bg: [124, 58, 237], text: [255, 255, 255] as [number, number, number] };
+              const style = INSE_TABLE_RGB[inseNivel] ?? {
+                bg: [124, 58, 237] as [number, number, number],
+                text: [255, 255, 255] as [number, number, number],
+              };
               doc.setFillColor(...style.bg);
               if (typeof (doc as import('jspdf').jsPDF & { roundedRect?: unknown }).roundedRect === 'function') {
-                (doc as import('jspdf').jsPDF & { roundedRect: (x: number, y: number, w: number, h: number, rx: number, ry: number, s: string) => void }).roundedRect(c.x + 1, c.y + 1, c.width - 2, c.height - 2, 2, 2, 'F');
+                (doc as import('jspdf').jsPDF & { roundedRect: (x: number, y: number, w: number, h: number, rx: number, ry: number, s: string) => void }).roundedRect(
+                  c.x + pad,
+                  c.y + pad,
+                  innerW,
+                  innerH,
+                  1.5,
+                  1.5,
+                  'F'
+                );
               } else {
-                doc.rect(c.x + 1, c.y + 1, c.width - 2, c.height - 2, 'F');
+                doc.rect(c.x + pad, c.y + pad, innerW, innerH, 'F');
               }
-              doc.setFontSize(9);
+              const label = aluno?.inse_nivel_label ?? '—';
+              const fitted = fitNivelBadgeLabel(doc, label, innerW - 2);
               doc.setFont('helvetica', 'bold');
+              doc.setFontSize(fitted.size);
               doc.setTextColor(...style.text);
-              doc.text(aluno?.inse_nivel_label ?? '—', c.x + c.width / 2, c.y + c.height / 2 + 1.5, { align: 'center' });
+              doc.text(fitted.text, c.x + c.width / 2, c.y + c.height / 2 + fitted.size * 0.12, {
+                align: 'center',
+                maxWidth: innerW - 1,
+              });
             }
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(10);
+            doc.setFontSize(8);
             doc.setTextColor(...textDark);
           },
         });
@@ -1864,7 +2372,8 @@ const InseAvaliacaoReport = () => {
     selectedMunicipality,
     selectedForm,
     selectedAvaliacao,
-    selectedSchools.length,
+    selectedSchools,
+    schools,
     municipalities,
     toast,
   ]);
@@ -1885,6 +2394,45 @@ const InseAvaliacaoReport = () => {
   const alunosData = reportData?.alunos?.data ?? [];
   const pagination = reportData?.alunos?.pagination;
   const opcoesRacaCor = reportData?.opcoes_raca_cor;
+  const comparativoPorRaca = reportData?.comparativo_por_raca_cor ?? [];
+  const comparativoPorInse = reportData?.comparativo_por_inse ?? [];
+  const comparativoCruzamento = reportData?.comparativo_raca_x_inse ?? [];
+  const destaquesComparativo = reportData?.destaques;
+
+  const chartComparativoRaca = useMemo(
+    () =>
+      comparativoPorRaca.map((item) => ({
+        name: formatRacaCorLabel(item.raca_cor),
+        media: item.media_proficiencia,
+        n: item.quantidade_com_resultado,
+        total: item.quantidade,
+      })),
+    [comparativoPorRaca]
+  );
+
+  const chartComparativoInse = useMemo(
+    () =>
+      comparativoPorInse.map((item) => ({
+        name: item.label || `Nível ${item.inse_nivel}`,
+        media: item.media_proficiencia,
+        n: item.quantidade_com_resultado,
+        total: item.quantidade,
+        nivel: item.inse_nivel,
+      })),
+    [comparativoPorInse]
+  );
+
+  const cruzamentoPivot = useMemo(() => {
+    const racas = Array.from(new Set(comparativoCruzamento.map((c) => c.raca_cor))).sort((a, b) =>
+      a.localeCompare(b, 'pt-BR')
+    );
+    const niveis = [1, 2, 3, 4, 5, 6, 7, 8] as const;
+    const map = new Map<string, ComparativoRacaXInseItem>();
+    comparativoCruzamento.forEach((c) => {
+      map.set(`${c.raca_cor}::${c.inse_nivel}`, c);
+    });
+    return { racas, niveis, map };
+  }, [comparativoCruzamento]);
   const racaCorCategorias = opcoesRacaCor?.categorias ?? [];
 
   const previewSortedQuestions = useMemo(() => {
@@ -2265,6 +2813,242 @@ const InseAvaliacaoReport = () => {
             </div>
           </div>
           </div>
+
+          {/* Comparativo Raça/Cor × Socioeconômico — dados 100% do backend */}
+          {(comparativoPorRaca.length > 0 || comparativoPorInse.some((i) => i.quantidade > 0)) && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-lg font-semibold">Comparativo por Raça/Cor e Socioeconômico</h2>
+                <p className="text-sm text-muted-foreground">
+                  Médias de proficiência por perfil — calculadas no servidor (escopo completo da
+                  avaliação, independente do filtro de raça da tabela).
+                </p>
+              </div>
+
+              {destaquesComparativo &&
+                (destaquesComparativo.maior_media || destaquesComparativo.menor_media) && (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <Card>
+                      <CardContent className="pt-5">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                          Maior média
+                        </p>
+                        <p className="mt-1 text-lg font-semibold">
+                          {destaquesComparativo.maior_media
+                            ? formatRacaCorLabel(destaquesComparativo.maior_media.grupo)
+                            : '—'}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {destaquesComparativo.maior_media?.valor != null
+                            ? Number(destaquesComparativo.maior_media.valor).toFixed(1)
+                            : '—'}
+                        </p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-5">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                          Menor média
+                        </p>
+                        <p className="mt-1 text-lg font-semibold">
+                          {destaquesComparativo.menor_media
+                            ? formatRacaCorLabel(destaquesComparativo.menor_media.grupo)
+                            : '—'}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {destaquesComparativo.menor_media?.valor != null
+                            ? Number(destaquesComparativo.menor_media.valor).toFixed(1)
+                            : '—'}
+                        </p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-5">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                          Maior gap
+                        </p>
+                        <p className="mt-1 text-lg font-semibold">
+                          {destaquesComparativo.maior_gap != null
+                            ? Number(destaquesComparativo.maior_gap).toFixed(1)
+                            : '—'}
+                        </p>
+                        <p className="text-sm text-muted-foreground">pontos de proficiência</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Média por Raça/Cor</CardTitle>
+                    <CardDescription>Proficiência média dos alunos com resultado</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-72">
+                      {chartComparativoRaca.some((d) => d.media != null) ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={chartComparativoRaca}
+                            margin={{ top: 16, right: 8, left: -8, bottom: 48 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
+                            <XAxis
+                              dataKey="name"
+                              fontSize={11}
+                              tickLine={false}
+                              axisLine={false}
+                              interval={0}
+                              angle={-25}
+                              textAnchor="end"
+                              height={56}
+                            />
+                            <YAxis fontSize={11} tickLine={false} axisLine={false} />
+                            <RechartsTooltip
+                              formatter={(value: number | null, _n, ctx) => [
+                                value != null ? Number(value).toFixed(1) : '—',
+                                `Média (n=${ctx?.payload?.n ?? 0})`,
+                              ]}
+                              contentStyle={{ borderRadius: 8 }}
+                            />
+                            <Bar dataKey="media" fill="#7c3aed" radius={[6, 6, 0, 0]} name="Média">
+                              <LabelList
+                                dataKey="media"
+                                position="top"
+                                fontSize={10}
+                                formatter={(v: number) => (v != null ? Number(v).toFixed(0) : '')}
+                              />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                          Sem dados de desempenho por raça/cor neste escopo.
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Média por Nível INSE</CardTitle>
+                    <CardDescription>Proficiência média por faixa socioeconômica</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-72">
+                      {chartComparativoInse.some((d) => d.media != null) ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={chartComparativoInse}
+                            margin={{ top: 16, right: 8, left: -8, bottom: 8 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
+                            <XAxis dataKey="name" fontSize={11} tickLine={false} axisLine={false} />
+                            <YAxis fontSize={11} tickLine={false} axisLine={false} />
+                            <RechartsTooltip
+                              formatter={(value: number | null, _n, ctx) => [
+                                value != null ? Number(value).toFixed(1) : '—',
+                                `Média (n=${ctx?.payload?.n ?? 0})`,
+                              ]}
+                              contentStyle={{ borderRadius: 8 }}
+                            />
+                            <Bar dataKey="media" radius={[6, 6, 0, 0]} name="Média">
+                              {chartComparativoInse.map((d) => (
+                                <Cell
+                                  key={d.nivel}
+                                  fill={
+                                    ({
+                                      8: '#2e1065',
+                                      7: '#4c1d95',
+                                      6: '#5b21b6',
+                                      5: '#7c3aed',
+                                      4: '#8b5cf6',
+                                      3: '#a78bfa',
+                                      2: '#c4b5fd',
+                                      1: '#ddd6fe',
+                                    } as Record<number, string>)[d.nivel] ?? '#7c3aed'
+                                  }
+                                />
+                              ))}
+                              <LabelList
+                                dataKey="media"
+                                position="top"
+                                fontSize={10}
+                                formatter={(v: number) => (v != null ? Number(v).toFixed(0) : '')}
+                              />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                          Sem dados de desempenho por nível INSE neste escopo.
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {cruzamentoPivot.racas.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Cruzamento Raça/Cor × INSE</CardTitle>
+                    <CardDescription>
+                      Média de proficiência (e n) em cada combinação — valores do backend
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/60">
+                            <TableHead className="font-semibold">Raça/Cor</TableHead>
+                            {cruzamentoPivot.niveis.map((n) => (
+                              <TableHead key={n} className="text-center font-semibold whitespace-nowrap">
+                                {distInse[String(n) as keyof typeof distInse]?.label || `Nível ${n}`}
+                              </TableHead>
+                            ))}
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {cruzamentoPivot.racas.map((raca) => (
+                            <TableRow key={raca}>
+                              <TableCell className="font-medium whitespace-nowrap">
+                                {formatRacaCorLabel(raca)}
+                              </TableCell>
+                              {cruzamentoPivot.niveis.map((n) => {
+                                const cell = cruzamentoPivot.map.get(`${raca}::${n}`);
+                                if (!cell || cell.quantidade_com_resultado === 0) {
+                                  return (
+                                    <TableCell key={n} className="text-center text-muted-foreground">
+                                      —
+                                    </TableCell>
+                                  );
+                                }
+                                return (
+                                  <TableCell key={n} className="text-center text-sm">
+                                    <div className="font-semibold">
+                                      {cell.media_proficiencia != null
+                                        ? Number(cell.media_proficiencia).toFixed(1)
+                                        : '—'}
+                                    </div>
+                                    <div className="text-[11px] text-muted-foreground">
+                                      n={cell.quantidade_com_resultado}
+                                    </div>
+                                  </TableCell>
+                                );
+                              })}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
 
           {/* Tabela INSE x Avaliação */}
           <Card ref={reportTableRef}>
