@@ -296,6 +296,23 @@ export default function AnswerSheetGenerateCards() {
   const [showRegeneratePdfsDialog, setShowRegeneratePdfsDialog] = useState(false);
   const [disciplines, setDisciplines] = useState<{ id: string; name: string }[]>([]);
   const [isLoadingDisciplines, setIsLoadingDisciplines] = useState(false);
+  /** Cartão com correções: só habilidades podem ser editadas */
+  const [structEditHasCorrections, setStructEditHasCorrections] = useState(false);
+  /** Snapshots iniciais para diff / patch cirúrgico de skills */
+  const [structEditInitialNumQuestions, setStructEditInitialNumQuestions] = useState(0);
+  const [structEditInitialBlocks, setStructEditInitialBlocks] = useState<Array<{
+    block_id: number;
+    subject_id: string;
+    subject_name: string;
+    start_question: number;
+    end_question: number;
+    questions_count: number;
+  }>>([]);
+  const [structEditInitialQuestionSkills, setStructEditInitialQuestionSkills] = useState<Record<string, string[]>>({});
+  const [structEditInitialQuestionsOptions, setStructEditInitialQuestionsOptions] = useState<Record<string, string[]>>({});
+  const [structEditInitialCorrectAnswers, setStructEditInitialCorrectAnswers] = useState<Record<string, Alternative | null>>({});
+  const [structEditInitialUseGlobalAlternatives, setStructEditInitialUseGlobalAlternatives] = useState(true);
+  const [structEditInitialGlobalAlternatives, setStructEditInitialGlobalAlternatives] = useState<string[]>(['A', 'B', 'C', 'D']);
   
   // Habilidades
   const [skillSubjectId, setSkillSubjectId] = useState('');
@@ -546,25 +563,18 @@ export default function AnswerSheetGenerateCards() {
     [noEditPermissionIds, resetEditDialogState, toast]
   );
 
-  const checkCanEditStructure = useCallback(async (gabaritoId: string): Promise<boolean> => {
+  const checkCanEditStructure = useCallback(async (gabaritoId: string): Promise<{ canOpen: boolean; hasCorrections: boolean }> => {
     try {
       const res = await api.get(`/answer-sheets/results?gabarito_id=${gabaritoId}&page=1&per_page=1`);
-      if (res.data && res.data.total > 0) {
-        toast({
-          title: 'Não é possível editar',
-          description: 'Este cartão já possui correções registradas. Para fazer alterações, crie um novo cartão.',
-          variant: 'destructive',
-        });
-        return false;
-      }
-      return true;
+      const hasCorrections = Boolean(res.data && res.data.total > 0);
+      return { canOpen: true, hasCorrections };
     } catch {
       toast({
         title: 'Erro',
         description: 'Não foi possível verificar permissões de edição.',
         variant: 'destructive',
       });
-      return false;
+      return { canOpen: false, hasCorrections: false };
     }
   }, [toast]);
 
@@ -581,6 +591,14 @@ export default function AnswerSheetGenerateCards() {
     setStructEditCorrectAnswers({});
     setStructEditWarning(null);
     setShowRegeneratePdfsDialog(false);
+    setStructEditHasCorrections(false);
+    setStructEditInitialNumQuestions(0);
+    setStructEditInitialBlocks([]);
+    setStructEditInitialQuestionSkills({});
+    setStructEditInitialQuestionsOptions({});
+    setStructEditInitialCorrectAnswers({});
+    setStructEditInitialUseGlobalAlternatives(true);
+    setStructEditInitialGlobalAlternatives(['A', 'B', 'C', 'D']);
     setSkillSubjectId('');
     setSkillGradeId('');
     setAvailableSkills([]);
@@ -592,8 +610,8 @@ export default function AnswerSheetGenerateCards() {
   }, []);
 
   const openStructEditDialog = useCallback(async (g: Gabarito) => {
-    const canEdit = await checkCanEditStructure(g.id);
-    if (!canEdit) return;
+    const { canOpen, hasCorrections } = await checkCanEditStructure(g.id);
+    if (!canOpen) return;
 
     setStructEditOpen(true);
     setStructEditLoading(true);
@@ -605,33 +623,42 @@ export default function AnswerSheetGenerateCards() {
     setStructEditQuestionsOptions({});
     setStructEditCorrectAnswers({});
     setStructEditWarning(null);
+    setStructEditHasCorrections(hasCorrections);
+    setStructEditInitialNumQuestions(0);
+    setStructEditInitialBlocks([]);
+    setStructEditInitialQuestionSkills({});
+    setStructEditInitialQuestionsOptions({});
+    setStructEditInitialCorrectAnswers({});
+    setStructEditInitialUseGlobalAlternatives(true);
+    setStructEditInitialGlobalAlternatives(['A', 'B', 'C', 'D']);
 
     try {
       const res = await api.get<GabaritoDetailResponse>(`/answer-sheets/gabarito/${g.id}`);
       const data = res.data;
 
+      const numQuestions = data.num_questions ?? 0;
+      const blocks = data.blocks_config?.blocks ?? [];
+      const questionSkills = data.question_skills ?? {};
+      const correctAnswers = data.correct_answers ?? {};
+
       setStructEditTitle(data.title ?? g.title);
-      setStructEditNumQuestions(data.num_questions ?? 0);
+      setStructEditNumQuestions(numQuestions);
+      setStructEditInitialNumQuestions(numQuestions);
 
-      // Carregar blocos
-      if (data.blocks_config?.blocks) {
-        setStructEditBlocks(data.blocks_config.blocks);
-      }
+      setStructEditBlocks(blocks);
+      setStructEditInitialBlocks(blocks.map((b) => ({ ...b })));
 
-      // Carregar habilidades por questão e construir cache de códigos
-      if (data.question_skills) {
-        setStructEditQuestionSkills(data.question_skills);
-      }
+      setStructEditQuestionSkills(questionSkills);
+      setStructEditInitialQuestionSkills(
+        Object.fromEntries(Object.entries(questionSkills).map(([k, v]) => [k, [...v]]))
+      );
 
-      // Carregar cache de códigos BNCC
       if (data.skill_codes) {
         setSkillCodeCache(data.skill_codes);
       }
 
-      // Carregar respostas corretas
-      if (data.correct_answers) {
-        setStructEditCorrectAnswers(data.correct_answers);
-      }
+      setStructEditCorrectAnswers(correctAnswers);
+      setStructEditInitialCorrectAnswers({ ...correctAnswers });
       
       // Carregar alternativas por questão e detectar se é global ou individual
       if (data.questions_options && Object.keys(data.questions_options).length > 0) {
@@ -642,20 +669,30 @@ export default function AnswerSheetGenerateCards() {
         );
         
         if (isGlobal && allOptions.length > 0) {
-          // Modo global - todas as questões têm as mesmas alternativas
+          const globalAlts = [...allOptions[0]].sort();
           setUseGlobalAlternatives(true);
-          setGlobalAlternatives([...allOptions[0]].sort());
+          setGlobalAlternatives(globalAlts);
           setStructEditQuestionsOptions({});
+          setStructEditInitialUseGlobalAlternatives(true);
+          setStructEditInitialGlobalAlternatives(globalAlts);
+          setStructEditInitialQuestionsOptions({});
         } else {
-          // Modo individual - questões têm alternativas diferentes
+          const individualOpts = data.questions_options;
           setUseGlobalAlternatives(false);
-          setStructEditQuestionsOptions(data.questions_options);
+          setStructEditQuestionsOptions(individualOpts);
+          setStructEditInitialUseGlobalAlternatives(false);
+          setStructEditInitialQuestionsOptions(
+            Object.fromEntries(Object.entries(individualOpts).map(([k, v]) => [k, [...v]]))
+          );
+          setStructEditInitialGlobalAlternatives(['A', 'B', 'C', 'D']);
         }
       } else {
-        // Padrão se backend não retornar: A, B, C, D
         setUseGlobalAlternatives(true);
         setGlobalAlternatives(['A', 'B', 'C', 'D']);
         setStructEditQuestionsOptions({});
+        setStructEditInitialUseGlobalAlternatives(true);
+        setStructEditInitialGlobalAlternatives(['A', 'B', 'C', 'D']);
+        setStructEditInitialQuestionsOptions({});
       }
     } catch (err: unknown) {
       const msg = isAxiosError(err)
@@ -671,7 +708,137 @@ export default function AnswerSheetGenerateCards() {
   const handleSaveStructure = useCallback(async () => {
     if (!structEditGabaritoId) return;
 
-    // Validações
+    const areSkillArraysEqual = (a: string[] | undefined, b: string[] | undefined) => {
+      const aa = [...(a ?? [])].sort();
+      const bb = [...(b ?? [])].sort();
+      if (aa.length !== bb.length) return false;
+      return aa.every((v, i) => v === bb[i]);
+    };
+
+    const buildQuestionSkillsDiff = (
+      initial: Record<string, string[]>,
+      current: Record<string, string[]>
+    ): Record<string, string[]> => {
+      const changed: Record<string, string[]> = {};
+      const keys = new Set([...Object.keys(initial), ...Object.keys(current)]);
+      for (const key of keys) {
+        const curr = current[key] ?? [];
+        const init = initial[key] ?? [];
+        if (!areSkillArraysEqual(init, curr)) {
+          changed[key] = curr;
+        }
+      }
+      return changed;
+    };
+
+    const isStructureDirty = () => {
+      if (structEditNumQuestions !== structEditInitialNumQuestions) return true;
+      if (JSON.stringify(structEditBlocks) !== JSON.stringify(structEditInitialBlocks)) return true;
+      if (JSON.stringify(structEditCorrectAnswers) !== JSON.stringify(structEditInitialCorrectAnswers)) return true;
+      if (useGlobalAlternatives !== structEditInitialUseGlobalAlternatives) return true;
+      if (useGlobalAlternatives) {
+        const curr = [...globalAlternatives].sort();
+        const init = [...structEditInitialGlobalAlternatives].sort();
+        if (JSON.stringify(curr) !== JSON.stringify(init)) return true;
+      } else if (
+        JSON.stringify(structEditQuestionsOptions) !== JSON.stringify(structEditInitialQuestionsOptions)
+      ) {
+        return true;
+      }
+      return false;
+    };
+
+    const skillsDiff = buildQuestionSkillsDiff(structEditInitialQuestionSkills, structEditQuestionSkills);
+    const useSkillsOnlyPatch = structEditHasCorrections || !isStructureDirty();
+
+    if (useSkillsOnlyPatch) {
+      if (Object.keys(skillsDiff).length === 0) {
+        toast({
+          title: 'Nenhuma alteração',
+          description: structEditHasCorrections
+            ? 'Altere as habilidades de pelo menos uma questão antes de salvar.'
+            : 'Não há alterações para salvar.',
+        });
+        return;
+      }
+
+      try {
+        setStructEditSaving(true);
+        setStructEditWarning(null);
+
+        const res = await api.patch(
+          `/answer-sheets/gabarito/${structEditGabaritoId}/structure`,
+          { question_skills: skillsDiff },
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+
+        if (res.status === 200) {
+          const data = res.data as {
+            message?: string;
+            skills_only?: boolean;
+            warning?: string;
+            changes?: { skills_updated?: boolean };
+          };
+
+          toast({
+            title: 'Sucesso',
+            description: data.message || 'Habilidades atualizadas com sucesso.',
+          });
+
+          // Patch só de habilidades: não regenerar PDFs
+          if (data.skills_only || !data.warning) {
+            await fetchGabaritos();
+            resetStructEditDialogState();
+          } else {
+            setStructEditWarning(data.warning);
+            setShowRegeneratePdfsDialog(true);
+          }
+        }
+      } catch (err: unknown) {
+        if (isAxiosError(err)) {
+          const status = err.response?.status;
+          const data = err.response?.data as {
+            error?: string;
+            message?: string;
+            reason?: string;
+            hint?: string;
+          };
+
+          if (status === 422 && data.reason === 'has_corrections') {
+            toast({
+              title: 'Estrutura bloqueada',
+              description:
+                [data.error, data.hint].filter(Boolean).join(' ') ||
+                'Este cartão já possui correções. É permitido editar apenas as habilidades (question_skills).',
+              variant: 'destructive',
+            });
+          } else if (status === 400) {
+            toast({
+              title: 'Erro de validação',
+              description: data.message || data.error || 'Dados inválidos.',
+              variant: 'destructive',
+            });
+          } else {
+            toast({
+              title: 'Erro',
+              description: data.message || data.error || 'Não foi possível salvar as habilidades.',
+              variant: 'destructive',
+            });
+          }
+        } else {
+          toast({
+            title: 'Erro',
+            description: 'Não foi possível salvar as habilidades.',
+            variant: 'destructive',
+          });
+        }
+      } finally {
+        setStructEditSaving(false);
+      }
+      return;
+    }
+
+    // Validações (edição completa de estrutura)
     if (structEditNumQuestions < 1 || structEditNumQuestions > 104) {
       toast({
         title: 'Erro de validação',
@@ -766,14 +933,21 @@ export default function AnswerSheetGenerateCards() {
       );
 
       if (res.status === 200) {
-        const data = res.data;
+        const data = res.data as {
+          message?: string;
+          skills_only?: boolean;
+          warning?: string;
+        };
         toast({
           title: 'Sucesso',
           description: data.message || 'Estrutura atualizada com sucesso.',
         });
 
-        // Se tem warning, mostrar dialog para regenerar PDFs
-        if (data.warning) {
+        // skills_only: sem warning de regenerar PDF
+        if (data.skills_only) {
+          await fetchGabaritos();
+          resetStructEditDialogState();
+        } else if (data.warning) {
           setStructEditWarning(data.warning);
           setShowRegeneratePdfsDialog(true);
         } else {
@@ -784,12 +958,19 @@ export default function AnswerSheetGenerateCards() {
     } catch (err: unknown) {
       if (isAxiosError(err)) {
         const status = err.response?.status;
-        const data = err.response?.data as { error?: string; message?: string; reason?: string };
+        const data = err.response?.data as {
+          error?: string;
+          message?: string;
+          reason?: string;
+          hint?: string;
+        };
 
         if (status === 422 && data.reason === 'has_corrections') {
           toast({
-            title: 'Edição bloqueada',
-            description: data.error || 'Este cartão já possui correções e não pode ser editado.',
+            title: 'Estrutura bloqueada',
+            description:
+              [data.error, data.hint].filter(Boolean).join(' ') ||
+              'Este cartão já possui correções. É permitido editar apenas as habilidades (question_skills).',
             variant: 'destructive',
           });
         } else if (status === 400) {
@@ -821,6 +1002,17 @@ export default function AnswerSheetGenerateCards() {
     structEditBlocks,
     structEditQuestionSkills,
     structEditQuestionsOptions,
+    structEditCorrectAnswers,
+    structEditHasCorrections,
+    structEditInitialNumQuestions,
+    structEditInitialBlocks,
+    structEditInitialQuestionSkills,
+    structEditInitialQuestionsOptions,
+    structEditInitialCorrectAnswers,
+    structEditInitialUseGlobalAlternatives,
+    structEditInitialGlobalAlternatives,
+    useGlobalAlternatives,
+    globalAlternatives,
     resetStructEditDialogState,
     fetchGabaritos,
     toast,
@@ -2696,7 +2888,9 @@ export default function AnswerSheetGenerateCards() {
           <Dialog open={structEditOpen} onOpenChange={(v) => (v ? setStructEditOpen(true) : resetStructEditDialogState())}>
             <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
               <DialogHeader className="shrink-0">
-                <DialogTitle>Editar estrutura do cartão</DialogTitle>
+                <DialogTitle>
+                  {structEditHasCorrections ? 'Editar habilidades do cartão' : 'Editar estrutura do cartão'}
+                </DialogTitle>
                 <DialogDescription>
                   {structEditTitle ? (
                     <>
@@ -2718,6 +2912,22 @@ export default function AnswerSheetGenerateCards() {
               ) : (
                 <div className="flex-1 overflow-y-auto pr-4 min-h-0">
                   <div className="space-y-6 pb-4">
+                    {structEditHasCorrections && (
+                      <div className="rounded-lg border border-amber-500/50 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="font-medium text-amber-900 dark:text-amber-100">
+                              Este cartão já possui correções
+                            </p>
+                            <p className="text-amber-800 dark:text-amber-200 text-xs mt-1">
+                              Só é possível editar as habilidades das questões. Número de questões, blocos e alternativas permanecem bloqueados.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Número de questões */}
                     <div className="space-y-2">
                       <Label htmlFor="num-questions" className="text-base font-semibold">
@@ -2731,7 +2941,7 @@ export default function AnswerSheetGenerateCards() {
                         max="104"
                         value={structEditNumQuestions}
                         onChange={(e) => setStructEditNumQuestions(Math.max(1, Math.min(104, parseInt(e.target.value) || 0)))}
-                        disabled={structEditSaving}
+                        disabled={structEditSaving || structEditHasCorrections}
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                       />
                     </div>
@@ -2747,7 +2957,7 @@ export default function AnswerSheetGenerateCards() {
                           size="sm"
                           variant="outline"
                           onClick={handleAddStructEditBlock}
-                          disabled={structEditBlocks.length >= 4 || structEditSaving}
+                          disabled={structEditBlocks.length >= 4 || structEditSaving || structEditHasCorrections}
                         >
                           Adicionar bloco
                         </Button>
@@ -2769,7 +2979,7 @@ export default function AnswerSheetGenerateCards() {
                                     size="sm"
                                     variant="ghost"
                                     onClick={() => handleRemoveStructEditBlock(block.block_id)}
-                                    disabled={structEditSaving}
+                                    disabled={structEditSaving || structEditHasCorrections}
                                   >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
@@ -2787,7 +2997,7 @@ export default function AnswerSheetGenerateCards() {
                                         updated[idx].subject_name = selectedDiscipline?.name || '';
                                         setStructEditBlocks(updated);
                                       }}
-                                      disabled={structEditSaving || isLoadingDisciplines}
+                                      disabled={structEditSaving || isLoadingDisciplines || structEditHasCorrections}
                                     >
                                       <SelectTrigger className="mt-1">
                                         <SelectValue placeholder={isLoadingDisciplines ? "Carregando disciplinas..." : "Selecione a disciplina..."} />
@@ -2831,7 +3041,7 @@ export default function AnswerSheetGenerateCards() {
                                       if (Number.isNaN(raw)) return;
                                       handleUpdateStructEditBlockQuestions(block.block_id, raw);
                                     }}
-                                    disabled={structEditSaving}
+                                    disabled={structEditSaving || structEditHasCorrections}
                                     className="mt-1 flex h-9 w-24 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                                   />
                                   <div className="text-xs text-muted-foreground">
@@ -2897,8 +3107,8 @@ export default function AnswerSheetGenerateCards() {
                         <div>
                           <p className="text-base font-semibold">Habilidades por questão (opcional)</p>
                           <p className="text-sm text-muted-foreground">
-                            {Object.keys(structEditQuestionSkills).length > 0 
-                              ? `${Object.keys(structEditQuestionSkills).length} questão(ões) com habilidades`
+                            {Object.values(structEditQuestionSkills).filter((ids) => ids.length > 0).length > 0
+                              ? `${Object.values(structEditQuestionSkills).filter((ids) => ids.length > 0).length} questão(ões) com habilidades`
                               : 'Nenhuma habilidade configurada'}
                           </p>
                         </div>
@@ -2996,7 +3206,7 @@ export default function AnswerSheetGenerateCards() {
                           id="use-global-alt"
                           checked={useGlobalAlternatives}
                           onCheckedChange={(c) => setUseGlobalAlternatives(c === true)}
-                          disabled={structEditSaving}
+                          disabled={structEditSaving || structEditHasCorrections}
                         />
                         <Label htmlFor="use-global-alt" className="cursor-pointer">
                           Usar as mesmas alternativas em todas as questões
@@ -3013,7 +3223,11 @@ export default function AnswerSheetGenerateCards() {
                                   id={`global-alt-${alt}`}
                                   checked={globalAlternatives.includes(alt)}
                                   onCheckedChange={(c) => handleToggleGlobalAlternative(alt, c === true)}
-                                  disabled={(!globalAlternatives.includes(alt) && globalAlternatives.length >= 4) || structEditSaving}
+                                  disabled={
+                                    (!globalAlternatives.includes(alt) && globalAlternatives.length >= 4) ||
+                                    structEditSaving ||
+                                    structEditHasCorrections
+                                  }
                                 />
                                 <Label htmlFor={`global-alt-${alt}`} className="text-sm font-medium cursor-pointer">
                                   {alt}
@@ -3031,7 +3245,7 @@ export default function AnswerSheetGenerateCards() {
                               variant="outline"
                               size="sm"
                               onClick={handleApplyGlobalToAll}
-                              disabled={globalAlternatives.length < 2 || structEditSaving}
+                              disabled={globalAlternatives.length < 2 || structEditSaving || structEditHasCorrections}
                             >
                               Usar estas alternativas e configurar por questão
                             </Button>
@@ -3058,7 +3272,7 @@ export default function AnswerSheetGenerateCards() {
                                       size="sm"
                                       className="h-6 px-1.5 text-xs"
                                       onClick={() => setEditingQuestionAlternativesNum(n)}
-                                      disabled={structEditSaving}
+                                      disabled={structEditSaving || structEditHasCorrections}
                                     >
                                       Configurar
                                     </Button>
@@ -3106,7 +3320,7 @@ export default function AnswerSheetGenerateCards() {
                                         ? 'bg-primary text-primary-foreground'
                                         : 'bg-background hover:bg-muted'
                                     }`}
-                                    disabled={structEditSaving}
+                                    disabled={structEditSaving || structEditHasCorrections}
                                   >
                                     {letter}
                                   </button>
@@ -3145,7 +3359,7 @@ export default function AnswerSheetGenerateCards() {
                   ) : (
                     <>
                       <CheckCircle2 className="h-4 w-4 mr-2" />
-                      Salvar estrutura
+                      {structEditHasCorrections ? 'Salvar habilidades' : 'Salvar estrutura'}
                     </>
                   )}
                 </Button>
@@ -3217,7 +3431,7 @@ export default function AnswerSheetGenerateCards() {
                     onChange={(ids) => {
                       setStructEditQuestionSkills((prev) => ({
                         ...prev,
-                        [String(editingQuestionSkillsNum)]: ids.length > 0 ? ids : undefined as any,
+                        [String(editingQuestionSkillsNum)]: ids,
                       }));
                     }}
                     placeholder="Selecione habilidades"

@@ -40,22 +40,23 @@ export function MatrizFrequenciaTable({
     return <p className="text-sm text-muted-foreground">Nenhum dado disponível.</p>;
   }
 
+  const serieHeadClass =
+    'text-center text-primary-foreground font-bold min-w-[7.5rem] px-2 whitespace-nowrap';
+  const serieCellClass = 'text-center tabular-nums font-bold text-base whitespace-nowrap px-2';
+
   return (
-    <div className={cn('overflow-x-auto rounded-md border', className)}>
-      <Table>
+    <div className={cn('w-full min-w-0 overflow-x-auto rounded-md border', className)}>
+      <Table className="w-max min-w-full">
         <TableHeader>
           <TableRow className="bg-primary hover:bg-primary">
-            <TableHead className="w-10 text-center text-primary-foreground">#</TableHead>
-            <TableHead className="min-w-[160px] text-primary-foreground">ESCOLAS</TableHead>
+            <TableHead className="w-10 shrink-0 text-center text-primary-foreground">#</TableHead>
+            <TableHead className="min-w-[12rem] max-w-[18rem] text-primary-foreground">ESCOLAS</TableHead>
             {seriesColunas.map((col) => (
-              <TableHead
-                key={col.serie_id}
-                className="text-center whitespace-nowrap text-primary-foreground font-bold"
-              >
+              <TableHead key={col.serie_id} className={serieHeadClass}>
                 {col.serie_nome.toLocaleUpperCase('pt-BR')}
               </TableHead>
             ))}
-            <TableHead className="text-center font-bold whitespace-nowrap text-primary-foreground">
+            <TableHead className="text-center font-bold whitespace-nowrap text-primary-foreground min-w-[5.5rem] px-2">
               TX. GERAL
             </TableHead>
           </TableRow>
@@ -71,18 +72,20 @@ export function MatrizFrequenciaTable({
             matriz.linhas.map((linha, idx) => (
               <TableRow key={linha.escola_id}>
                 <TableCell className="text-center font-bold tabular-nums text-primary text-base">{idx + 1}</TableCell>
-                <TableCell className="font-bold uppercase text-base">{linha.escola_nome}</TableCell>
+                <TableCell className="font-bold uppercase text-base min-w-[12rem] max-w-[18rem] break-words">
+                  {linha.escola_nome}
+                </TableCell>
                 {linha.valores_por_serie.map((valor, j) => (
                   <TableCell
                     key={`${linha.escola_id}-${j}`}
-                    className="text-center tabular-nums font-bold text-base"
+                    className={serieCellClass}
                     style={getFrequenciaSerieCellStyle(valor)}
                   >
                     {formatCell(valor)}
                   </TableCell>
                 ))}
                 <TableCell
-                  className="text-center tabular-nums font-bold text-base"
+                  className={serieCellClass}
                   style={getFrequenciaTaxaGeralCellStyle()}
                 >
                   {formatCell(linha.taxa_geral_escola)}
@@ -94,18 +97,18 @@ export function MatrizFrequenciaTable({
         <TableFooter>
           <TableRow className="font-semibold">
             <TableCell />
-            <TableCell className="font-bold text-primary">{footerLabel}</TableCell>
+            <TableCell className="font-bold text-primary min-w-[12rem] max-w-[18rem]">{footerLabel}</TableCell>
             {matriz.medias_da_rede.por_serie.map((valor, j) => (
               <TableCell
                 key={`rede-${j}`}
-                className="text-center tabular-nums font-bold text-base"
+                className={serieCellClass}
                 style={getFrequenciaSerieCellStyle(valor)}
               >
                 {formatCell(valor)}
               </TableCell>
             ))}
             <TableCell
-              className="text-center tabular-nums font-bold text-base"
+              className={serieCellClass}
               style={getFrequenciaFooterTaxaGeralCellStyle()}
             >
               {formatCell(matriz.medias_da_rede.taxa_geral)}

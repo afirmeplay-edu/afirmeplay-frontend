@@ -94,18 +94,23 @@ export function MatrizDistribuicaoTable({
         </p>
       )}
 
-      <div className="overflow-x-auto rounded-md border">
-        <Table>
+      <div className="w-full min-w-0 overflow-x-auto rounded-md border">
+        <Table className="w-max min-w-full">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-10 text-center">#</TableHead>
-              <TableHead className="min-w-[140px]">Escolas</TableHead>
+              <TableHead className="w-10 shrink-0 text-center">#</TableHead>
+              <TableHead className="min-w-[12rem] max-w-[18rem]">Escolas</TableHead>
               {seriesColunas.map((col) => (
-                <TableHead key={col.serie_id} className="text-center whitespace-nowrap">
+                <TableHead
+                  key={col.serie_id}
+                  className="text-center min-w-[7.5rem] px-2 whitespace-nowrap"
+                >
                   {col.serie_nome}
                 </TableHead>
               ))}
-              <TableHead className="text-center font-semibold whitespace-nowrap">TX. GERAL</TableHead>
+              <TableHead className="text-center font-semibold whitespace-nowrap min-w-[5.5rem] px-2">
+                TX. GERAL
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -119,13 +124,15 @@ export function MatrizDistribuicaoTable({
               matriz.linhas.map((linha, idx) => (
                 <TableRow key={linha.escola_id}>
                   <TableCell className="text-center text-muted-foreground tabular-nums">{idx + 1}</TableCell>
-                  <TableCell className="font-medium align-top">{linha.escola_nome}</TableCell>
+                  <TableCell className="font-medium align-top min-w-[12rem] max-w-[18rem] break-words">
+                    {linha.escola_nome}
+                  </TableCell>
                   {linha.valores_por_serie.map((celula, j) => (
-                    <TableCell key={`${linha.escola_id}-${j}`} className="align-top">
+                    <TableCell key={`${linha.escola_id}-${j}`} className="align-top px-2">
                       <CelulaDistribuicaoView celula={celula} compact />
                     </TableCell>
                   ))}
-                  <TableCell className="align-top">
+                  <TableCell className="align-top px-2">
                     <CelulaDistribuicaoView celula={linha.taxa_geral_escola} />
                   </TableCell>
                 </TableRow>
@@ -135,13 +142,15 @@ export function MatrizDistribuicaoTable({
           <TableFooter>
             <TableRow className="bg-muted/50">
               <TableCell />
-              <TableCell className="font-semibold align-top">{footerLabel}</TableCell>
+              <TableCell className="font-semibold align-top min-w-[12rem] max-w-[18rem]">
+                {footerLabel}
+              </TableCell>
               {matriz.medias_da_rede.por_serie.map((celula, j) => (
-                <TableCell key={`rede-dist-${j}`} className="align-top">
+                <TableCell key={`rede-dist-${j}`} className="align-top px-2">
                   <CelulaDistribuicaoView celula={celula} />
                 </TableCell>
               ))}
-              <TableCell className="align-top">
+              <TableCell className="align-top px-2">
                 <CelulaDistribuicaoView celula={matriz.medias_da_rede.taxa_geral} />
               </TableCell>
             </TableRow>
