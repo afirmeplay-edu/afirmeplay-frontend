@@ -6,6 +6,7 @@ import { chunkPresentation19SlideQuestionRows } from "@/utils/reports/presentati
 import { comparisonColumnLabel } from "@/utils/reports/presentation19/presentationScope";
 import { formatPctOneDecimalPtBr } from "@/utils/reports/presentation19/formatPctOneDecimalPtBr";
 import {
+  dedupePresentation19DisciplineRows,
   filterPresentation19RealDisciplineRows,
   PRESENTATION19_MUNICIPAL_AVG_LABEL,
   presentation19GradesDisciplineChartTitle,
@@ -167,15 +168,49 @@ function buildLevelsComparisonChartMultiSchool(deckData: Presentation19DeckData)
 }
 
 function buildLevelsChart(deckData: Presentation19DeckData): ExportChart {
-  // Comparativo (ex.: Turma selecionada vs Geral da série): barras empilhadas por nível por escopo.
+  // Comparativo por turma (escopo escola / várias turmas): barras agrupadas por nível (como no municipal).
+  // Exceção: Turma selecionada vs «Geral da série» — mantém empilhado (composição do total).
   if (deckData.comparisonAxis === "turma" && deckData.niveisPorSerie.length > 1) {
     const sorted = [...deckData.niveisPorSerie].sort((a, b) => a.label.localeCompare(b.label, "pt-BR", { sensitivity: "base" }));
-    const rowSum = (r: (typeof sorted)[number]) =>
-      Number(r.abaixoDoBasico ?? 0) + Number(r.basico ?? 0) + Number(r.adequado ?? 0) + Number(r.avancado ?? 0);
-    const rawMax = Math.max(1, ...sorted.map(rowSum));
+    const isTurmaVsSerieCompare = sorted.some((r) => r.label.trim() === TURMA_COMPARE_GERAL_LABEL);
+
+    if (isTurmaVsSerieCompare) {
+      const rowSum = (r: (typeof sorted)[number]) =>
+        Number(r.abaixoDoBasico ?? 0) + Number(r.basico ?? 0) + Number(r.adequado ?? 0) + Number(r.avancado ?? 0);
+      const rawMax = Math.max(1, ...sorted.map(rowSum));
+      const maxRounded = rawMax <= 10 ? 10 : Math.ceil(rawMax / 5) * 5;
+      return {
+        type: "stackedBar",
+        categoryKey: "label",
+        valueKeys: [
+          { key: "abaixo", label: "Abaixo do Básico", color: levelColors.abaixo_do_basico },
+          { key: "basico", label: "Básico", color: levelColors.basico },
+          { key: "adequado", label: "Adequado", color: levelColors.adequado },
+          { key: "avancado", label: "Avançado", color: levelColors.avancado },
+        ],
+        data: sorted.map((r) => ({
+          label: r.label,
+          abaixo: Number(clampToRange(r.abaixoDoBasico, 0, maxRounded)),
+          basico: Number(clampToRange(r.basico, 0, maxRounded)),
+          adequado: Number(clampToRange(r.adequado, 0, maxRounded)),
+          avancado: Number(clampToRange(r.avancado, 0, maxRounded)),
+        })),
+        yAxis: {
+          min: 0,
+          max: maxRounded,
+          ticks: buildLinearTicks(0, maxRounded, 4),
+          scaleLabel: "alunos",
+        },
+      };
+    }
+
+    const rawMax = Math.max(
+      1,
+      ...sorted.flatMap((r) => [r.abaixoDoBasico, r.basico, r.adequado, r.avancado])
+    );
     const maxRounded = rawMax <= 10 ? 10 : Math.ceil(rawMax / 5) * 5;
     return {
-      type: "stackedBar",
+      type: "bar",
       categoryKey: "label",
       valueKeys: [
         { key: "abaixo", label: "Abaixo do Básico", color: levelColors.abaixo_do_basico },
@@ -414,7 +449,7 @@ function normEscolaKey(s: string): string {
 }
 
 function buildDefaultProficiencyByDisciplineCharts(deckData: Presentation19DeckData): Array<{ title: string; chart: ExportChart }> {
-  return filterPresentation19RealDisciplineRows(deckData.proficienciaPorDisciplinaPorTurma)
+  return dedupePresentation19DisciplineRows(filterPresentation19RealDisciplineRows(deckData.proficienciaPorDisciplinaPorTurma))
     .map((disciplina) => {
       const paletteIdx = getSubjectPaletteIndex(disciplina.disciplina, disciplina.disciplina);
       const yMax = getProficiencyTableInfo(deckData.serie, disciplina.disciplina).maxProficiency;
@@ -468,7 +503,7 @@ function municipalProficiencyForDiscipline(deckData: Presentation19DeckData, dis
 function buildProficiencyByDisciplineChartsMunicipalCompare(
   deckData: Presentation19DeckData
 ): Array<{ title: string; chart: ExportChart }> {
-  return filterPresentation19RealDisciplineRows(deckData.proficienciaPorDisciplinaPorTurma)
+  return dedupePresentation19DisciplineRows(filterPresentation19RealDisciplineRows(deckData.proficienciaPorDisciplinaPorTurma))
     .map((disciplina) => {
     const paletteIdx = getSubjectPaletteIndex(disciplina.disciplina, disciplina.disciplina);
     const yMax = getProficiencyTableInfo(deckData.serie, disciplina.disciplina).maxProficiency;

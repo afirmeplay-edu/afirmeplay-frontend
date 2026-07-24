@@ -19,7 +19,9 @@ import { getClassShiftLabel, hasClassShift } from "@/lib/classShift";
 import { getProficiencyLevelDescription, type ProficiencyLevel } from "@/components/evaluations/results/utils/proficiency";
 import { getProficiencyTableInfo } from "@/components/evaluations/results/utils/proficiency";
 import {
+  dedupePresentation19DisciplineRows,
   filterPresentation19RealDisciplineRows,
+  hasPresentation19PerCategoryDisciplineValues,
   hasPresentation19RealDisciplineBreakdown,
 } from "@/utils/reports/presentation19/presentation19Labels";
 import {
@@ -141,6 +143,13 @@ function applyAnswerSheetCanonicalProficiencyGeral(
     if (geralNova.length > 0) return geralNova;
     return current;
   }
+
+  // Escopo escola/série (eixo turma): preservar breakdown por turma quando já montado.
+  // Só colapsar para o GERAL canônico quando não houver categorias úteis.
+  const hasCategoryBreakdown =
+    current.length > 1 ||
+    (current.length === 1 && normalizeText(current[0]?.label ?? "").toLowerCase() !== "geral");
+  if (hasCategoryBreakdown) return current;
 
   if (geralNova.length > 0) return geralNova;
   return current;
@@ -465,7 +474,7 @@ function buildProficiencyByDisciplineByTurmaFromNova(novaRespostaAgregados: Nova
   if (!novaRespostaAgregados) return [];
   // Usar apenas métricas oficiais agregadas por disciplina do backend.
   const disciplinas = novaRespostaAgregados.resultados_por_disciplina ?? [];
-  return disciplinas
+  const rows = disciplinas
     .map((d) => {
       const disciplina = String(d.disciplina ?? "").trim();
       const media = clampToNumber(d.media_proficiencia, NaN);
@@ -476,6 +485,45 @@ function buildProficiencyByDisciplineByTurmaFromNova(novaRespostaAgregados: Nova
       };
     })
     .filter((d): d is ProficiencyByDisciplineByTurmaRow => Boolean(d));
+  return dedupePresentation19DisciplineRows(rows);
+}
+
+/** Proficiência por disciplina × turma a partir de gabaritos/avaliações da Nova. */
+function proficiencyByDisciplinePorTurmaFromNovaAvaliacoes(nova: NovaRespostaAPI | null): ProficiencyByDisciplineByTurmaRow[] {
+  const av = nova?.resultados_detalhados?.avaliacoes;
+  if (!av?.length) return [];
+  const byDisc = new Map<string, Map<string, { sum: number; n: number; label: string }>>();
+  for (const a of av) {
+    if (!deveIncluirLinhaNovaAvaliacao(a)) continue;
+    const turma = String(a.turma ?? "").trim();
+    if (!turma) continue;
+    const mds = a.medias_por_disciplina;
+    if (!mds?.length) continue;
+    for (const md of mds) {
+      const disciplina = String(md.disciplina ?? "").trim();
+      if (!disciplina) continue;
+      const p = clampToNumber(md.media_proficiencia, NaN);
+      if (!Number.isFinite(p)) continue;
+      const dm = byDisc.get(disciplina) ?? new Map();
+      const cur = dm.get(turma) ?? { sum: 0, n: 0, label: turma };
+      cur.sum += p;
+      cur.n += 1;
+      dm.set(turma, cur);
+      byDisc.set(disciplina, dm);
+    }
+  }
+  if (byDisc.size === 0) return [];
+  return dedupePresentation19DisciplineRows(
+    Array.from(byDisc.entries())
+      .map(([disciplina, turmaMap]) => ({
+        disciplina,
+        valuesByTurma: Array.from(turmaMap.values())
+          .map((v) => ({ turma: v.label, proficiencia: v.n > 0 ? v.sum / v.n : 0 }))
+          .sort((x, y) => x.turma.localeCompare(y.turma, "pt-BR", { sensitivity: "base" })),
+      }))
+      .filter((d) => d.valuesByTurma.length > 0)
+      .sort((a, b) => a.disciplina.localeCompare(b.disciplina, "pt-BR", { sensitivity: "base" }))
+  );
 }
 
 function buildNotasByDisciplineByTurma(relatorio: Partial<RelatorioCompleto> | null): NotaByDisciplineByTurmaRow[] {
@@ -1719,7 +1767,8 @@ function niveisFromNovaAvaliacoesEscola(nova: NovaRespostaAPI | null): NiveisByS
 
 /**
  * Proficiência por disciplina real (Português, Matemática, …).
- * Se a Nova só trouxer agregado "Geral", usa `por_escola` do relatório completo.
+ * No eixo turma/série: preferir `por_turma` do relatório (ou gabaritos da Nova) —
+ * a Nova agregada só em GERAL não deve bloquear o breakdown por turma.
  */
 function resolveProficiencyPorDisciplinaPorTurma(
   relatorio: Partial<RelatorioCompleto> | null,
@@ -1727,7 +1776,8 @@ function resolveProficiencyPorDisciplinaPorTurma(
   axis: PresentationComparisonAxis,
   serieFilterLabel?: string
 ): ProficiencyByDisciplineByTurmaRow[] {
-  const filter = filterPresentation19RealDisciplineRows;
+  const filter = (rows: ProficiencyByDisciplineByTurmaRow[]) =>
+    dedupePresentation19DisciplineRows(filterPresentation19RealDisciplineRows(rows));
 
   if (axis === "escola") {
     const fromRel = filter(buildProficiencyByDisciplinePorCategoria(relatorio, "escola"));
@@ -1738,17 +1788,26 @@ function resolveProficiencyPorDisciplinaPorTurma(
   }
 
   if (axis === "serie") {
+    const fromRel = filter(buildProficiencyByDisciplinePorCategoria(relatorio, "serie"));
+    if (fromRel.length > 0 && hasPresentation19PerCategoryDisciplineValues(fromRel)) return fromRel;
     const fromNova = filter(buildProficiencyByDisciplineByTurmaFromNova(nova));
     if (hasPresentation19RealDisciplineBreakdown(fromNova)) return fromNova;
-    const fromRel = filter(buildProficiencyByDisciplinePorCategoria(relatorio, "serie"));
     if (fromRel.length > 0) return fromRel;
     return filter(buildProficiencyByDisciplineByTurma(relatorio));
   }
 
   if (axis === "turma") {
+    const fromRel = filter(buildProficiencyByDisciplinePorCategoria(relatorio, "turma", serieFilterLabel));
+    if (fromRel.length > 0 && hasPresentation19PerCategoryDisciplineValues(fromRel)) return fromRel;
+
+    const fromAvaliacoes = filter(proficiencyByDisciplinePorTurmaFromNovaAvaliacoes(nova));
+    if (fromAvaliacoes.length > 0 && hasPresentation19PerCategoryDisciplineValues(fromAvaliacoes)) {
+      return fromAvaliacoes;
+    }
+
+    // Só então o agregado GERAL da Nova (sem turmas).
     const fromNova = filter(buildProficiencyByDisciplineByTurmaFromNova(nova));
     if (hasPresentation19RealDisciplineBreakdown(fromNova)) return fromNova;
-    const fromRel = filter(buildProficiencyByDisciplinePorCategoria(relatorio, "turma", serieFilterLabel));
     if (fromRel.length > 0) return fromRel;
     return filter(buildProficiencyByDisciplineByTurma(relatorio));
   }
@@ -2159,15 +2218,27 @@ export function buildDeckDataForPresentation19Slides(args: BuildDeckDataArgs): P
     const fromNova = buildProficiencyGeneralByTurmaFromNova(novaRespostaAgregados);
     proficienciaGeralPorTurma = fromNova.length > 0 ? fromNova : buildProficiencyGeneralByTurma(relatorioDetalhado);
   }
-  if (!hasPresentation19RealDisciplineBreakdown(proficienciaPorDisciplinaPorTurma)) {
-    proficienciaPorDisciplinaPorTurma = resolveProficiencyPorDisciplinaPorTurma(
+  if (
+    !hasPresentation19RealDisciplineBreakdown(proficienciaPorDisciplinaPorTurma) ||
+    !hasPresentation19PerCategoryDisciplineValues(proficienciaPorDisciplinaPorTurma)
+  ) {
+    const resolved = resolveProficiencyPorDisciplinaPorTurma(
       relatorioDetalhado,
       novaRespostaAgregados,
       comparisonAxis,
       selectedSerieLabel
     );
+    if (resolved.length > 0) {
+      proficienciaPorDisciplinaPorTurma = resolved;
+    } else {
+      proficienciaPorDisciplinaPorTurma = dedupePresentation19DisciplineRows(
+        filterPresentation19RealDisciplineRows(proficienciaPorDisciplinaPorTurma)
+      );
+    }
   } else {
-    proficienciaPorDisciplinaPorTurma = filterPresentation19RealDisciplineRows(proficienciaPorDisciplinaPorTurma);
+    proficienciaPorDisciplinaPorTurma = dedupePresentation19DisciplineRows(
+      filterPresentation19RealDisciplineRows(proficienciaPorDisciplinaPorTurma)
+    );
   }
 
   let notasPorDisciplinaPorTurma = metrics.notasPorDisciplinaPorTurma;
@@ -2179,11 +2250,17 @@ export function buildDeckDataForPresentation19Slides(args: BuildDeckDataArgs): P
       selectedSerieLabel
     );
   } else {
-    notasPorDisciplinaPorTurma = filterPresentation19RealDisciplineRows(notasPorDisciplinaPorTurma);
+    notasPorDisciplinaPorTurma = dedupePresentation19DisciplineRows(
+      filterPresentation19RealDisciplineRows(notasPorDisciplinaPorTurma)
+    );
   }
 
-  proficienciaPorDisciplinaPorTurma = filterPresentation19RealDisciplineRows(proficienciaPorDisciplinaPorTurma);
-  notasPorDisciplinaPorTurma = filterPresentation19RealDisciplineRows(notasPorDisciplinaPorTurma);
+  proficienciaPorDisciplinaPorTurma = dedupePresentation19DisciplineRows(
+    filterPresentation19RealDisciplineRows(proficienciaPorDisciplinaPorTurma)
+  );
+  notasPorDisciplinaPorTurma = dedupePresentation19DisciplineRows(
+    filterPresentation19RealDisciplineRows(notasPorDisciplinaPorTurma)
+  );
 
   const notasNova = buildNotasFromNova(novaRespostaAgregados);
   const notasRel = buildNotasFromRelatorio(relatorioDetalhado);
@@ -2516,17 +2593,32 @@ export function buildDeckDataForPresentation19Slides(args: BuildDeckDataArgs): P
     questoesPorSerieFinal = [];
   }
 
-  // Escola selecionada (sem turma específica): em notas, mostrar apenas as turmas (notasPorCategoria) + média geral,
-  // removendo linhas por disciplina do gráfico/tabela.
-  const schoolMissingRegisteredTurma =
-    Boolean(selectedSchoolId?.trim()) && !selectedTurmaEffective && turmasParticipantesCapa.length === 0;
-  if (schoolMissingRegisteredTurma) {
+  // Escola selecionada (sem turma específica): gráfico/tabela de notas = média geral + turmas + municipal
+  // (sem barras/linhas por disciplina). Disciplinas repetidas no payload da Nova não entram.
+  const schoolScopeNoTurmaFilter = Boolean(selectedSchoolId?.trim()) && !selectedTurmaEffective;
+  const schoolMissingRegisteredTurma = schoolScopeNoTurmaFilter && turmasParticipantesCapa.length === 0;
+  if (schoolScopeNoTurmaFilter) {
     notasDiscFinal = [];
+    // Proficiência geral: manter turmas e prefixar a média da escola (Nova) quando existir.
+    const mediaProfEscola = clampToNumber(
+      novaRespostaAgregados?.estatisticas_gerais?.media_proficiencia_geral,
+      NaN
+    );
+    const alreadyHasGeral = profGeralFinal.some(
+      (r) => normalizeText(r.label ?? "").toLowerCase() === "geral"
+    );
+    if (Number.isFinite(mediaProfEscola) && !alreadyHasGeral && profGeralFinal.length > 0) {
+      profGeralFinal = [{ label: "GERAL", proficiencia: mediaProfEscola }, ...profGeralFinal];
+    }
+  }
+  if (schoolMissingRegisteredTurma) {
     notasPorDisciplinaPorTurmaFinal = [];
   }
 
-  profDiscFinal = filterPresentation19RealDisciplineRows(profDiscFinal);
-  notasPorDisciplinaPorTurmaFinal = filterPresentation19RealDisciplineRows(notasPorDisciplinaPorTurmaFinal);
+  profDiscFinal = dedupePresentation19DisciplineRows(filterPresentation19RealDisciplineRows(profDiscFinal));
+  notasPorDisciplinaPorTurmaFinal = dedupePresentation19DisciplineRows(
+    filterPresentation19RealDisciplineRows(notasPorDisciplinaPorTurmaFinal)
+  );
 
   const novaEg = novaRespostaAgregados?.estatisticas_gerais;
   const novaPorDisciplinaKeys = disciplineKeysFromNovaPorDisciplina(

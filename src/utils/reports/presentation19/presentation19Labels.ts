@@ -75,6 +75,50 @@ export function filterPresentation19RealDisciplineRows<T extends { disciplina: s
   return rows.filter((r) => !isPresentation19AggregateDiscipline(r.disciplina));
 }
 
+/** Deduplica disciplinas pelo nome normalizado (ex.: duas linhas "Matemática" no array da Nova). */
+export function dedupePresentation19DisciplineRows<
+  T extends { disciplina: string; valuesByTurma: Array<{ turma: string } & Record<string, unknown>> },
+>(rows: T[]): T[] {
+  const map = new Map<string, T>();
+  for (const row of rows) {
+    const key = normDisciplineKey(row.disciplina);
+    if (!key || isPresentation19AggregateDiscipline(row.disciplina)) continue;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, {
+        ...row,
+        valuesByTurma: [...row.valuesByTurma],
+      });
+      continue;
+    }
+    const byTurma = new Map(
+      existing.valuesByTurma.map((v) => [normDisciplineKey(String(v.turma ?? "")), v] as const)
+    );
+    for (const v of row.valuesByTurma) {
+      const tk = normDisciplineKey(String(v.turma ?? ""));
+      if (!tk || byTurma.has(tk)) continue;
+      byTurma.set(tk, v);
+    }
+    existing.valuesByTurma = Array.from(byTurma.values()) as T["valuesByTurma"];
+  }
+  return Array.from(map.values());
+}
+
+/**
+ * True se há pelo menos uma categoria real (turma/escola) além do agregado "GERAL".
+ * Usado para não preferir a Nova colapsada em GERAL quando o relatório tem por_turma.
+ */
+export function hasPresentation19PerCategoryDisciplineValues<
+  T extends { valuesByTurma: Array<{ turma: string }> },
+>(rows: T[]): boolean {
+  return rows.some((d) =>
+    (d.valuesByTurma ?? []).some((v) => {
+      const t = normDisciplineKey(String(v.turma ?? ""));
+      return Boolean(t) && t !== "geral";
+    })
+  );
+}
+
 export function presentation19ProficiencyDisciplineChartTitle(disciplina: string): string {
   const d = String(disciplina ?? "").trim() || "—";
   return `PROFICIÊNCIA — ${d.toUpperCase()}`;
