@@ -51,6 +51,7 @@ import {
   Thermometer,
   Scale,
   Activity,
+  UserCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
@@ -376,6 +377,7 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
             { icon: Presentation, label: "Relatório Apresentação", href: "/app/relatorios/relatorio-apresentacao-19-slides", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
             { icon: Medal, label: "Relatório de ranking", href: "/app/relatorios/ranking", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
             { icon: Layers, label: "Relatório Geral", href: "/app/relatorios/relatorio-geral", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
+            { icon: UserCheck, label: "Relatório de Participação", href: "/app/relatorios/participacao", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
           ]
         },
       ]
