@@ -464,7 +464,8 @@ function fmtPctTable(v: unknown): string {
   if (v === null || v === undefined || v === "") return "—";
   const n = Number(v);
   if (Number.isNaN(n)) return "—";
-  return `${Math.round(n)}%`;
+  // Mesmo padrão da tela (Total de Alunos por Escola/Turma): 1 casa decimal.
+  return formatPercent1PtBr(n, "—");
 }
 
 function addBodyText(
@@ -1567,7 +1568,8 @@ function formatPctRelatorio(v: unknown): string {
   if (v === null || v === undefined || v === "") return "—";
   const n = Number(v);
   if (Number.isNaN(n)) return "—";
-  return `${Math.round(n)}%`;
+  // Alinhado à coluna Percentual da tabela Total de Alunos (1 casa decimal).
+  return formatPercent1PtBr(n, "—");
 }
 
 /**

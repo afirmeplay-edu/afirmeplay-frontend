@@ -127,6 +127,9 @@ type TabelaDetalhadaPorDisciplina = {
       habilidade?: string;
       codigo_habilidade?: string;
       question_id?: string;
+      /** % de acerto da turma na questão (backend / resultados-agregados). */
+      percentual_acertos?: number;
+      porcentagem_acertos?: number;
       /** Cartão-resposta (API agregada): habilidades vêm em `skills` quando não há campos planos. */
       skills?: Array<{ id?: string; code?: string }>;
     }>;
@@ -247,6 +250,32 @@ function formatPeriodoPtBrExtenso(periodoRaw: string): string {
 function formatOneDecimalStable(value: number): string {
   if (!Number.isFinite(value)) return "0.0";
   return Number(value).toFixed(1);
+}
+
+/** % turma por questão — mesma regra da tabela de Resultados (`toFixed(1)`). */
+function formatQuestionTurmaPctLabel(value: number): string {
+  return `${formatOneDecimalStable(value)}%`;
+}
+
+/** Prioriza o % do backend; só recalcula no cliente se a API não enviar o campo. */
+function resolveQuestionTurmaPctLabel(
+  apiPct: number | undefined | null,
+  fallbackPct: number
+): string {
+  if (typeof apiPct === "number" && Number.isFinite(apiPct)) {
+    return formatQuestionTurmaPctLabel(apiPct);
+  }
+  return formatQuestionTurmaPctLabel(fallbackPct);
+}
+
+function readQuestaoPercentualAcertos(q: {
+  percentual_acertos?: unknown;
+  porcentagem_acertos?: unknown;
+}): number | undefined {
+  const raw = q.percentual_acertos ?? q.porcentagem_acertos;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  const asNum = typeof raw === "string" ? Number(raw) : NaN;
+  return Number.isFinite(asNum) ? asNum : undefined;
 }
 
 
@@ -2912,6 +2941,8 @@ export default function AcertoNiveis({
         tipo: 'multipleChoice' | 'open' | 'trueFalse';
         porcentagem_acertos: number;
         porcentagem_erros: number;
+        /** true quando `porcentagem_acertos` veio de `percentual_acertos` da API. */
+        porcentagem_acertos_from_api?: boolean;
       };
       const normalizeReportQuestionTipo = (raw: unknown): QuestaoMinima['tipo'] => {
         const t = String(raw ?? '')
@@ -2922,16 +2953,20 @@ export default function AcertoNiveis({
         if (t === 'open') return 'open';
         return 'multipleChoice';
       };
-      const mapToMinimal = (q: NonNullable<DetailedReport['questoes']>[number]): QuestaoMinima => ({
-        id: q.id,
-        numero: q.numero,
-        dificuldade: q.dificuldade,
-        habilidade: q.habilidade,
-        codigo_habilidade: q.codigo_habilidade,
-        tipo: normalizeReportQuestionTipo(q.tipo),
-        porcentagem_acertos: q.porcentagem_acertos,
-        porcentagem_erros: q.porcentagem_erros
-      });
+      const mapToMinimal = (q: NonNullable<DetailedReport['questoes']>[number]): QuestaoMinima => {
+        const apiPct = readQuestaoPercentualAcertos(q);
+        return {
+          id: q.id,
+          numero: q.numero,
+          dificuldade: q.dificuldade,
+          habilidade: q.habilidade,
+          codigo_habilidade: q.codigo_habilidade,
+          tipo: normalizeReportQuestionTipo(q.tipo),
+          porcentagem_acertos: apiPct ?? q.porcentagem_acertos ?? 0,
+          porcentagem_erros: q.porcentagem_erros,
+          porcentagem_acertos_from_api: apiPct != null,
+        };
+      };
 
       const sortQuestoes = (qs: QuestaoMinima[]) =>
         [...(qs || [])].sort((a, b) => (a?.numero || 0) - (b?.numero || 0));
@@ -2947,6 +2982,7 @@ export default function AcertoNiveis({
           sorted.forEach((q) => {
             globalNumero += 1;
             const rh = resolveTabelaQuestaoHabilidade(q);
+            const apiPct = readQuestaoPercentualAcertos(q);
             const stableId =
               rh.question_id ||
               (typeof q.numero === 'number' ? `${disc.id}-q${q.numero}` : '') ||
@@ -2958,8 +2994,9 @@ export default function AcertoNiveis({
               codigo_habilidade: rh.codigo_habilidade,
               tipo: 'multipleChoice',
               dificuldade: 'Médio',
-              porcentagem_acertos: 0,
-              porcentagem_erros: 0,
+              porcentagem_acertos: apiPct ?? 0,
+              porcentagem_erros: apiPct != null ? Math.max(0, 100 - apiPct) : 0,
+              porcentagem_acertos_from_api: apiPct != null,
             });
           });
         });
@@ -3204,14 +3241,16 @@ export default function AcertoNiveis({
         if (!qs || qs.length === 0) return;
         const completed = studentsToUse.filter((s) => s.status === 'concluida');
         const denom = Math.max(1, completed.length);
-        const counts = qs.map((q) => {
+        const values = qs.map((q) => {
+          if (q.porcentagem_acertos_from_api) {
+            return Math.round(q.porcentagem_acertos);
+          }
           let correct = 0;
           completed.forEach((s) => {
             if (getAnswer(s, q.numero)) correct++;
           });
-          return correct;
+          return Math.round((correct / denom) * 100);
         });
-        const values = counts.map((c) => Math.round((c / denom) * 100));
 
         const pad = 3;
         const titleH = 7;
@@ -3415,7 +3454,13 @@ export default function AcertoNiveis({
             headerRow2.push(generateHabilidadeCode(q, skillsMapping));
             let correct = 0;
             completedStudentsLocal.forEach(s => { if (getAnswer(s, q.numero)) correct++; });
-            headerRow3.push(`${Math.round((correct / denomLocal) * 100)}%`);
+            const fallbackPct = (correct / denomLocal) * 100;
+            headerRow3.push(
+              resolveQuestionTurmaPctLabel(
+                q.porcentagem_acertos_from_api ? q.porcentagem_acertos : undefined,
+                fallbackPct
+              )
+            );
           });
           if (isLastChunk) {
             headerRow1.push("Total de acertos", "Nota", "Proficiência", "Nível");
@@ -3854,7 +3899,10 @@ export default function AcertoNiveis({
                 const r = (s.respostas_por_questao || []).find(rr => rr.questao === q.numero);
                 if (r && r.respondeu && r.acertou) correct++;
               });
-              headerRow3.push(`${Math.round((correct / denomLocal) * 100)}%`);
+              const fallbackPct = (correct / denomLocal) * 100;
+              headerRow3.push(
+                resolveQuestionTurmaPctLabel(readQuestaoPercentualAcertos(q), fallbackPct)
+              );
             });
             if (isLastChunk) {
               headerRow1.push('Total de acertos', 'Nota', 'Proficiência', 'Nível');
