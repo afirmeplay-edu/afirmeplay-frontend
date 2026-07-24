@@ -1305,8 +1305,9 @@ const InseAvaliacaoReport = () => {
               d.nome.toLowerCase().includes(subjectName.toLowerCase())
             );
             const acertos = subjectRows.filter((r) => r.isCorrect === true).length;
-            const notaDisc = disc?.nota ?? '—';
-            const proficiencia = disc?.proficiencia ?? 0;
+            const notaDisc = disc?.nota != null ? formatReportMetric(disc.nota) : '—';
+            const proficiencia =
+              disc?.proficiencia != null ? formatReportMetric(disc.proficiencia) : '—';
             const nivel = disc?.nivel_proficiencia ?? '—';
 
             doc.setFont('helvetica', 'normal');
@@ -1340,9 +1341,12 @@ const InseAvaliacaoReport = () => {
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(10);
           const totalAcertos = rows.filter((r) => r.isCorrect === true).length;
-          const notaGeral = evalData?.grade ?? aluno.nota;
+          const notaGeral =
+            evalData?.grade != null
+              ? formatReportMetric(Number(evalData.grade))
+              : formatReportMetric(aluno.nota);
           doc.text(
-            `TOTAL DE ACERTOS: ${totalAcertos} | NOTA: ${notaGeral} | MÉDIA PROFICIÊNCIA: ${aluno.proficiencia_media}`,
+            `TOTAL DE ACERTOS: ${totalAcertos} | NOTA: ${notaGeral} | MÉDIA PROFICIÊNCIA: ${formatReportMetric(aluno.proficiencia_media)}`,
             margin,
             y
           );
@@ -1656,7 +1660,10 @@ const InseAvaliacaoReport = () => {
       const totalRec = resumo?.total_receberam_formulario ?? totalResp;
       const faltantes = totalRec - totalResp;
       doc.text(String(totalResp), cardX1 + cardPad, y + 28);
-      const profMedia = resumo?.media_proficiencia_escopo != null ? Number(resumo.media_proficiencia_escopo).toFixed(0) : '—';
+      const profMedia =
+        resumo?.media_proficiencia_escopo != null
+          ? Number(resumo.media_proficiencia_escopo).toFixed(1)
+          : '—';
       doc.text(profMedia, cardX2 + cardPad, y + 28);
       const inseMed = resumo?.inse_medio != null ? Number(resumo.inse_medio).toFixed(1) : '—';
       doc.text(inseMed, cardX3 + cardPad, y + 28);
@@ -2097,18 +2104,18 @@ const InseAvaliacaoReport = () => {
               const rowNum = pagination ? (pagination.page - 1) * pagination.limit + idx + 1 : idx + 1;
               const profs = disciplinasAvaliacao.map((d) => {
                 const disc = aluno.disciplinas?.find((x) => x.id === d.id);
-                return disc != null ? Number(disc.proficiencia).toFixed(2) : '—';
+                return disc != null ? formatReportMetric(disc.proficiencia) : '—';
               });
               return [
                 String(rowNum),
                 formatStudentNameForPdf(aluno.nome_completo, 26),
                 ...profs,
-                aluno.proficiencia_media != null ? Number(aluno.proficiencia_media).toFixed(2) : '—',
-                aluno.nota != null ? Number(aluno.nota).toFixed(1) : '—',
+                formatReportMetric(aluno.proficiencia_media),
+                formatReportMetric(aluno.nota),
                 // Texto do nível/INSE desenhado só no badge (didDrawCell) — evita overflow do autoTable
                 '',
                 formatRacaCorLabel(aluno.raca_cor ?? '—'),
-                aluno.inse_valor != null ? Number(aluno.inse_valor).toFixed(2) : '—',
+                formatReportMetric(aluno.inse_valor),
                 '',
               ];
             });

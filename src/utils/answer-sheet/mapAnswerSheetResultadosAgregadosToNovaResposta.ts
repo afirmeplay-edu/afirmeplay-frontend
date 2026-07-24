@@ -107,6 +107,8 @@ export interface AnswerSheetResultadosAgregadosRaw {
         habilidade?: string;
         codigo_habilidade?: string;
         question_id?: string;
+        percentual_acertos?: number;
+        porcentagem_acertos?: number;
       }>;
       alunos?: Array<{
         id: string;
@@ -270,6 +272,11 @@ export function mapAnswerSheetResultadosAgregadosToNovaResposta(
       habilidade: q.habilidade ?? "",
       codigo_habilidade: q.codigo_habilidade ?? "",
       question_id: q.question_id ?? "",
+      ...(typeof q.percentual_acertos === "number" && Number.isFinite(q.percentual_acertos)
+        ? { percentual_acertos: q.percentual_acertos }
+        : typeof q.porcentagem_acertos === "number" && Number.isFinite(q.porcentagem_acertos)
+          ? { percentual_acertos: q.porcentagem_acertos }
+          : {}),
     })),
     alunos: (disc.alunos ?? []).map((a) => ({
       id: a.id,
