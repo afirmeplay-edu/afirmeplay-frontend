@@ -1,5 +1,9 @@
 import { api } from '@/lib/api';
-import type { ComparisonResponse, StudentComparisonResponse } from '@/services/evaluation/evaluationComparisonApi';
+import type {
+  ComparisonResponse,
+  EvolutionCompareScopeFilters,
+  StudentComparisonResponse,
+} from '@/services/evaluation/evaluationComparisonApi';
 import type {
   EvolucaoAlunoItem,
   EvolucaoAlunosFiltersEcho,
@@ -46,9 +50,11 @@ export interface AnswerSheetEvolucaoGabaritosResponse {
   total?: number;
 }
 
-export interface AnswerSheetEvolutionExportPayload {
+export interface AnswerSheetEvolutionExportPayload extends EvolutionCompareScopeFilters {
   gabarito_ids: string[];
+  /** @deprecated Preferir `estado` (mesmo contrato do compare). */
   municipality?: string;
+  /** @deprecated Preferir `municipio`. */
   state?: string;
   department?: string;
 }
@@ -161,18 +167,30 @@ export class AnswerSheetComparisonApiService {
     return response.data ?? { gabaritos: [], total: 0 };
   }
 
+  /**
+   * POST /answer-sheets/compare — body: gabarito_ids + filtros hierárquicos.
+   * Sem escola/serie/turma → média hierárquica municipal.
+   */
   static async compareAnswerSheets(
     gabaritoIds: string[],
-    cityId?: string
+    scopeFilters?: EvolutionCompareScopeFilters
   ): Promise<ComparisonResponse> {
     if (gabaritoIds.length < 2) {
       throw new Error('Mínimo de 2 gabaritos necessário para comparação');
     }
 
-    const requestConfig = cityId ? { meta: { cityId } } : {};
+    const municipio = scopeFilters?.municipio ?? null;
+    const requestConfig = municipio ? { meta: { cityId: municipio } } : {};
     const response = await api.post<ComparisonResponse>(
       '/answer-sheets/compare',
-      { gabarito_ids: gabaritoIds },
+      {
+        gabarito_ids: gabaritoIds,
+        estado: scopeFilters?.estado ?? null,
+        municipio,
+        escola: scopeFilters?.escola ?? null,
+        serie: scopeFilters?.serie ?? null,
+        turma: scopeFilters?.turma ?? null,
+      },
       requestConfig
     );
     return response.data;
@@ -182,11 +200,20 @@ export class AnswerSheetComparisonApiService {
     payload: AnswerSheetEvolutionExportPayload,
     cityId?: string
   ): Promise<{ data: Blob; headers: Record<string, string> }> {
+    const municipio = payload.municipio ?? cityId ?? null;
+    const body = {
+      gabarito_ids: payload.gabarito_ids,
+      estado: payload.estado ?? payload.state ?? null,
+      municipio,
+      escola: payload.escola ?? null,
+      serie: payload.serie ?? null,
+      turma: payload.turma ?? null,
+    };
     const requestConfig = {
       responseType: 'blob' as const,
-      ...(cityId ? { meta: { cityId } } : {}),
+      ...(municipio ? { meta: { cityId: municipio } } : {}),
     };
-    const response = await api.post('/answer-sheets/evolution/export-excel', payload, requestConfig);
+    const response = await api.post('/answer-sheets/evolution/export-excel', body, requestConfig);
     return { data: response.data, headers: response.headers as Record<string, string> };
   }
 

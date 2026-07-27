@@ -153,8 +153,19 @@ export interface ComparisonParticipation {
   };
 }
 
+/** Filtros hierárquicos de comparação/export (turma > serie > escola > municipio). */
+export interface EvolutionCompareScopeFilters {
+  estado?: string | null;
+  municipio?: string | null;
+  escola?: string | null;
+  serie?: string | null;
+  turma?: string | null;
+}
+
 export interface ComparisonResponse {
-  source_type?: 'cartao_resposta' | string;
+  source_type?: 'cartao_resposta' | 'avaliacao_online' | string;
+  nivel_granularidade?: 'municipio' | 'escola' | 'serie' | 'turma' | string;
+  filtros_aplicados?: EvolutionCompareScopeFilters;
   evaluations: EvaluationInfo[];
   total_evaluations: number;
   comparisons: Comparison[];
@@ -237,63 +248,35 @@ export class EvaluationComparisonApiService {
   }
 
   /**
-   * Compara múltiplas avaliações e mostra a evolução sequencial entre elas
-   * @param testIds Array de IDs das avaliações (mínimo 2)
-   * @returns Dados de comparação entre as avaliações
+   * Compara múltiplas avaliações e mostra a evolução sequencial entre elas.
+   * POST /test/compare — body: test_ids + filtros hierárquicos (estado, municipio, escola, serie, turma).
    */
-  static async compareEvaluations(testIds: string[]): Promise<ComparisonResponse> {
+  static async compareEvaluations(
+    testIds: string[],
+    scopeFilters?: EvolutionCompareScopeFilters
+  ): Promise<ComparisonResponse> {
     try {
       if (testIds.length < 2) {
         throw new Error('Mínimo de 2 avaliações necessário para comparação');
       }
 
-      console.log('Enviando IDs para comparação:', testIds);
-      console.log('Payload sendo enviado:', { test_ids: testIds });
+      const payload = {
+        test_ids: testIds,
+        estado: scopeFilters?.estado ?? null,
+        municipio: scopeFilters?.municipio ?? null,
+        escola: scopeFilters?.escola ?? null,
+        serie: scopeFilters?.serie ?? null,
+        turma: scopeFilters?.turma ?? null,
+      };
 
-      // Usar o endpoint /test/compare que existe no backend
-      const response = await api.post('/test/compare', {
-        test_ids: testIds
-      });
+      const requestConfig = scopeFilters?.municipio
+        ? { meta: { cityId: scopeFilters.municipio } }
+        : {};
 
-      // Log detalhado da resposta completa
-      console.log('=== RESPOSTA COMPLETA DA API /test/compare ===');
-      console.log('Resposta completa:', JSON.stringify(response.data, null, 2));
-      console.log('Estrutura da resposta:', {
-        total_evaluations: response.data?.total_evaluations,
-        total_comparisons: response.data?.total_comparisons,
-        evaluations_count: response.data?.evaluations?.length,
-        comparisons_count: response.data?.comparisons?.length,
-      });
-      
-      // Log de cada comparação
-      if (response.data?.comparisons) {
-        response.data.comparisons.forEach((comp: any, index: number) => {
-          console.log(`\n--- Comparação ${index + 1} ---`);
-          console.log(`De: ${comp.from_evaluation?.title} (${comp.from_evaluation?.id})`);
-          console.log(`Para: ${comp.to_evaluation?.title} (${comp.to_evaluation?.id})`);
-          console.log('Geral:', {
-            nota_1: comp.general_comparison?.average_grade?.evaluation_1,
-            nota_2: comp.general_comparison?.average_grade?.evaluation_2,
-            evolucao_percentual: comp.general_comparison?.average_grade?.evolution?.percentage,
-            evolucao_direcao: comp.general_comparison?.average_grade?.evolution?.direction,
-            proficiencia_1: comp.general_comparison?.average_proficiency?.evaluation_1,
-            proficiencia_2: comp.general_comparison?.average_proficiency?.evaluation_2,
-            proficiencia_evolucao: comp.general_comparison?.average_proficiency?.evolution?.percentage,
-          });
-          console.log('Disciplinas:', Object.keys(comp.subject_comparison || {}));
-        });
-      }
-      console.log('=== FIM DA RESPOSTA ===\n');
-
+      const response = await api.post('/test/compare', payload, requestConfig);
       return response.data;
     } catch (error) {
       console.error('Erro ao comparar avaliações:', error);
-      console.error('Detalhes do erro:', {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data,
-        config: error.config
-      });
       throw error;
     }
   }
