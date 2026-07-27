@@ -442,6 +442,24 @@ const mapDetailedStudentsToResults = (alunos: DetailedReport['alunos'] | undefin
 const perQuestionRespostasCount = (r?: Record<string, boolean | null>): number =>
   r ? Object.keys(r).filter((k) => /^q\d+$/i.test(k)).length : 0;
 
+/**
+ * Alinhado à tabela detalhada (DisciplineTables): só conta como participante
+ * quem marcou pelo menos uma questão. Cartão em branco / só status_geral não entra.
+ */
+const alunoMarcouAlgumaQuestao = (
+  respostas?: Array<{ respondeu?: boolean }> | null | unknown
+): boolean =>
+  Array.isArray(respostas) && respostas.some((r) => Boolean(r?.respondeu));
+
+const studentTemRespostaMarcada = (student: StudentResult): boolean => {
+  const map = student.respostas;
+  if (!map) return false;
+  return Object.keys(map).some((k) => {
+    if (!/^q\d+$/i.test(k)) return false;
+    return map[k] === true || map[k] === false;
+  });
+};
+
 const mapUnifiedStudents = (tabela: TabelaDetalhadaPorDisciplina): StudentResult[] => {
   const studentsMap = new Map<string, StudentResult>();
 
@@ -458,16 +476,15 @@ const mapUnifiedStudents = (tabela: TabelaDetalhadaPorDisciplina): StudentResult
     const rowId = alunoRowId(aluno);
     if (!rowId) return;
     const totalQuestoes = aluno.total_questoes_geral ?? aluno.total_respondidas_geral ?? 0;
-    const totalRespondidas = aluno.total_respondidas_geral ?? totalQuestoes;
+    const totalRespondidas =
+      typeof aluno.total_respondidas_geral === "number"
+        ? aluno.total_respondidas_geral
+        : 0;
     const totalAcertos = aluno.total_acertos_geral ?? 0;
     const totalEmBranco = aluno.total_em_branco_geral ?? Math.max(0, totalQuestoes - totalRespondidas);
     const totalErros = Math.max(0, totalRespondidas - totalAcertos - totalEmBranco);
-
-    // Determinar status: verificar se participou (respondeu pelo menos uma questão)
-    // Não apenas confiar em status_geral, mas também verificar se há respostas
-    const statusFromField = (aluno.status_geral ?? "pendente") === "concluida";
-    const participou = totalRespondidas > 0 || totalAcertos > 0 || totalErros > 0;
-    const statusFinal = statusFromField || participou ? "concluida" : "pendente";
+    const participou =
+      alunoMarcouAlgumaQuestao(aluno.respostas_por_questao) || totalRespondidas > 0;
 
     studentsMap.set(rowId, {
       id: rowId,
@@ -480,8 +497,8 @@ const mapUnifiedStudents = (tabela: TabelaDetalhadaPorDisciplina): StudentResult
       classificacao: classifFromRow(aluno),
       acertos: totalAcertos,
       erros: totalErros,
-      questoes_respondidas: totalRespondidas || totalQuestoes,
-      status: statusFinal,
+      questoes_respondidas: totalRespondidas,
+      status: participou ? "concluida" : "pendente",
       respostas: {},
     });
   });
@@ -509,19 +526,17 @@ const mapUnifiedStudents = (tabela: TabelaDetalhadaPorDisciplina): StudentResult
         if (aluno.turma && !student.turma) student.turma = aluno.turma;
       }
 
-      const hasAnsweredAny =
-        Array.isArray(aluno.respostas_por_questao) &&
-        aluno.respostas_por_questao.some((r) => r.respondeu);
-      const summarySemQuestoes =
-        !hasAnsweredAny &&
-        (Number(aluno.nota) > 0 ||
-          Number(aluno.proficiencia) > 0 ||
-          Boolean(aluno.classificacao));
+      const hasAnsweredAny = alunoMarcouAlgumaQuestao(aluno.respostas_por_questao);
 
       if (!student) {
         const totalQuestoesDisciplina =
           aluno.total_questoes_disciplina ?? aluno.respostas_por_questao?.length ?? 0;
-        const totalRespondidas = aluno.total_respondidas ?? totalQuestoesDisciplina;
+        const totalRespondidas =
+          typeof aluno.total_respondidas === "number"
+            ? aluno.total_respondidas
+            : hasAnsweredAny
+              ? totalQuestoesDisciplina
+              : 0;
         const totalAcertos = aluno.total_acertos ?? 0;
         const totalEmBranco = Math.max(0, totalQuestoesDisciplina - totalRespondidas);
         const totalErros = aluno.total_erros ?? Math.max(0, totalRespondidas - totalAcertos - totalEmBranco);
@@ -538,7 +553,7 @@ const mapUnifiedStudents = (tabela: TabelaDetalhadaPorDisciplina): StudentResult
           acertos: totalAcertos,
           erros: totalErros,
           questoes_respondidas: totalRespondidas,
-          status: hasAnsweredAny || summarySemQuestoes ? "concluida" : "pendente",
+          status: hasAnsweredAny ? "concluida" : "pendente",
           respostas: {},
         };
         studentsMap.set(rowId, student);
@@ -566,33 +581,42 @@ const mapUnifiedStudents = (tabela: TabelaDetalhadaPorDisciplina): StudentResult
         }
       });
 
+      if (hasAnsweredAny) {
+        student.status = "concluida";
+      }
+
       if (!geralIds.has(rowId)) {
         const totalQuestoesDisciplina =
           aluno.total_questoes_disciplina ?? aluno.respostas_por_questao?.length ?? 0;
-        const totalRespondidas = aluno.total_respondidas ?? totalQuestoesDisciplina;
+        const totalRespondidas =
+          typeof aluno.total_respondidas === "number"
+            ? aluno.total_respondidas
+            : hasAnsweredAny
+              ? totalQuestoesDisciplina
+              : 0;
         const totalAcertos = aluno.total_acertos ?? 0;
         const totalEmBranco = Math.max(0, totalQuestoesDisciplina - totalRespondidas);
         const totalErros = aluno.total_erros ?? Math.max(0, totalRespondidas - totalAcertos - totalEmBranco);
 
         student.acertos += totalAcertos;
         student.erros += totalErros;
-        student.questoes_respondidas += totalRespondidas || totalQuestoesDisciplina;
-
-        // Marcar como concluida se participou
-        if ((hasAnsweredAny || summarySemQuestoes) && student.status !== "concluida") {
-          student.status = "concluida";
-        }
-      } else {
-        // Aluno está em geral.alunos - verificar se participou mesmo que status_geral não indique
-        // Isso garante que alunos que participaram sejam marcados corretamente
-        if ((hasAnsweredAny || summarySemQuestoes) && student.status !== "concluida") {
-          student.status = "concluida";
-        }
+        student.questoes_respondidas += totalRespondidas;
       }
     });
 
     questionOffset += numQuestoesDisc;
   });
+
+  // Fonte da verdade alinhada à tabela detalhada:
+  // - marcou alguma bolha → concluida
+  // - tem slots de questão mas todos em branco → pendente (ex.: Alice / cartão em branco)
+  for (const student of studentsMap.values()) {
+    if (studentTemRespostaMarcada(student)) {
+      student.status = "concluida";
+    } else if (perQuestionRespostasCount(student.respostas) > 0) {
+      student.status = "pendente";
+    }
+  }
 
   const mappedStudents = Array.from(studentsMap.values()).sort((a, b) =>
     a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" })
@@ -4210,21 +4234,34 @@ export default function AcertoNiveis({
           if (!ids!.has(aluno.id)) {
             ids!.add(aluno.id);
             list.push(aluno);
+            return;
+          }
+          // Já existe: só promove a concluida se esta fonte comprovou marcação real
+          if (aluno.status === "concluida") {
+            const existing = list.find((s) => s.id === aluno.id);
+            if (existing && existing.status !== "concluida") {
+              existing.status = "concluida";
+              if (Object.keys(aluno.respostas || {}).length > 0) {
+                existing.respostas = { ...existing.respostas, ...aluno.respostas };
+              }
+            }
           }
         };
         tabelaParaUsar.geral?.alunos?.forEach(aluno => {
           const rowId = alunoRowId(aluno);
           if (!rowId) return;
           const turmaNorm = normalizeTurmaName(aluno.turma);
-          const totalQuestoes = aluno.total_questoes_geral ?? aluno.total_respondidas_geral ?? 0;
-          const totalRespondidas = aluno.total_respondidas_geral ?? totalQuestoes;
+          const totalQuestoes = aluno.total_questoes_geral ?? 0;
+          const totalRespondidas =
+            typeof aluno.total_respondidas_geral === "number"
+              ? aluno.total_respondidas_geral
+              : 0;
           const totalAcertos = aluno.total_acertos_geral ?? 0;
           const totalEmBranco = aluno.total_em_branco_geral ?? Math.max(0, totalQuestoes - totalRespondidas);
           const totalErros = Math.max(0, totalRespondidas - totalAcertos - totalEmBranco);
+          // Mesma regra da tabela detalhada / mapUnifiedStudents (não usar nota/classificação)
           const participou =
-            totalRespondidas > 0 || totalAcertos > 0 || totalErros > 0 ||
-            Number(aluno.nota_geral) > 0 || Number(aluno.proficiencia_geral) > 0 ||
-            Boolean(aluno.nivel_proficiencia_geral && String(aluno.nivel_proficiencia_geral).trim());
+            alunoMarcouAlgumaQuestao(aluno.respostas_por_questao) || totalRespondidas > 0;
           addToMap(turmaNorm, {
             id: rowId,
             nome: aluno.nome,
@@ -4236,7 +4273,7 @@ export default function AcertoNiveis({
             ),
             acertos: totalAcertos,
             erros: totalErros,
-            questoes_respondidas: totalRespondidas || totalQuestoes,
+            questoes_respondidas: totalRespondidas,
             status: participou ? 'concluida' : 'pendente',
             respostas: {}
           });
@@ -4247,17 +4284,16 @@ export default function AcertoNiveis({
             if (!rowId) return;
             const turmaNorm = normalizeTurmaName(aluno.turma);
             const totalQuestoesDisciplina = aluno.total_questoes_disciplina ?? aluno.respostas_por_questao?.length ?? 0;
-            const totalRespondidas = aluno.total_respondidas ?? totalQuestoesDisciplina;
+            const hasAnsweredAny = alunoMarcouAlgumaQuestao(aluno.respostas_por_questao);
+            const totalRespondidas =
+              typeof aluno.total_respondidas === "number"
+                ? aluno.total_respondidas
+                : hasAnsweredAny
+                  ? totalQuestoesDisciplina
+                  : 0;
             const totalAcertos = aluno.total_acertos ?? 0;
             const totalEmBranco = Math.max(0, totalQuestoesDisciplina - totalRespondidas);
             const totalErros = aluno.total_erros ?? Math.max(0, totalRespondidas - totalAcertos - totalEmBranco);
-            const hasAnsweredAny = Array.isArray(aluno.respostas_por_questao) && aluno.respostas_por_questao.some(r => r.respondeu);
-            const summarySemQuestoes =
-              !hasAnsweredAny &&
-              (Number(aluno.nota) > 0 ||
-                Number(aluno.proficiencia) > 0 ||
-                Boolean(aluno.classificacao));
-            const participou = hasAnsweredAny || summarySemQuestoes;
             addToMap(turmaNorm, {
               id: rowId,
               nome: aluno.nome,
@@ -4270,7 +4306,7 @@ export default function AcertoNiveis({
               acertos: totalAcertos,
               erros: totalErros,
               questoes_respondidas: totalRespondidas,
-              status: participou ? 'concluida' : 'pendente',
+              status: hasAnsweredAny ? 'concluida' : 'pendente',
               respostas: {}
             });
           });
@@ -4482,8 +4518,12 @@ export default function AcertoNiveis({
               const rowId = alunoRowId(aluno);
               if (!rowId || normalizeTurmaName(aluno.turma) !== turmaNormalizada || alunosIdsProcessados.has(rowId)) return;
 
-              const statusGeral = (aluno.status_geral ?? '').toLowerCase();
-              const participou = statusGeral === 'concluida';
+              const totalRespondidas =
+                typeof aluno.total_respondidas_geral === "number"
+                  ? aluno.total_respondidas_geral
+                  : 0;
+              const participou =
+                alunoMarcouAlgumaQuestao(aluno.respostas_por_questao) || totalRespondidas > 0;
 
               if (!participou && aluno.turma) {
                 alunosIdsProcessados.add(rowId);
@@ -4501,8 +4541,7 @@ export default function AcertoNiveis({
                 const rowId = alunoRowId(aluno);
                 if (!rowId || normalizeTurmaName(aluno.turma) !== turmaNormalizada || alunosIdsProcessados.has(rowId)) return;
 
-                const statusDisc = (aluno.status ?? '').toLowerCase();
-                const participou = statusDisc === 'concluida';
+                const participou = alunoMarcouAlgumaQuestao(aluno.respostas_por_questao);
 
                 if (!participou && aluno.turma) {
                   alunosIdsProcessados.add(rowId);
