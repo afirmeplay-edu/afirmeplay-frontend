@@ -492,8 +492,32 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
     [selectedGabaritosForComparison]
   );
 
+  const scopeFilters = useMemo(
+    () => ({
+      estado: selectedState !== 'all' ? selectedState : null,
+      municipio: selectedMunicipality !== 'all' ? selectedMunicipality : null,
+      escola: selectedSchool !== 'all' ? selectedSchool : null,
+      serie: selectedGrade !== 'all' ? selectedGrade : null,
+      turma: selectedClass !== 'all' ? selectedClass : null,
+    }),
+    [selectedState, selectedMunicipality, selectedSchool, selectedGrade, selectedClass]
+  );
+
+  const comparisonRequestKey = useMemo(
+    () =>
+      [
+        selectedIdsKey,
+        scopeFilters.estado ?? '',
+        scopeFilters.municipio ?? '',
+        scopeFilters.escola ?? '',
+        scopeFilters.serie ?? '',
+        scopeFilters.turma ?? '',
+      ].join('|'),
+    [selectedIdsKey, scopeFilters]
+  );
+
   useEffect(() => {
-    selectedIdsRef.current = selectedIdsKey;
+    selectedIdsRef.current = comparisonRequestKey;
 
     const autoCompare = async () => {
       if (selectedGabaritosForComparison.length < 2) {
@@ -504,26 +528,26 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
         return;
       }
 
-      const currentIds = selectedGabaritosForComparison.map((g) => g.id).sort().join(',');
-      if (currentIds !== selectedIdsKey) return;
-      if (currentIds === lastComparisonIdsRef.current) return;
+      if (comparisonRequestKey === lastComparisonIdsRef.current) return;
 
-      lastComparisonIdsRef.current = currentIds;
-      const requestedIds = currentIds;
+      lastComparisonIdsRef.current = comparisonRequestKey;
+      const requestedKey = comparisonRequestKey;
 
       setIsLoadingComparison(true);
       setComparisonError(null);
 
       try {
         const gabaritoIds = Array.from(new Set(selectedGabaritosForComparison.map((g) => g.id)));
-        const cityId = selectedMunicipality !== 'all' ? selectedMunicipality : undefined;
-        const comparison = await AnswerSheetComparisonApiService.compareAnswerSheets(gabaritoIds, cityId);
+        const comparison = await AnswerSheetComparisonApiService.compareAnswerSheets(
+          gabaritoIds,
+          scopeFilters
+        );
 
-        if (selectedIdsRef.current !== requestedIds) return;
+        if (selectedIdsRef.current !== requestedKey) return;
         setComparisonData(comparison);
 
         const processed = processComparisonData(comparison);
-        if (selectedIdsRef.current !== requestedIds) return;
+        if (selectedIdsRef.current !== requestedKey) return;
         setProcessedData(processed);
 
         toast({
@@ -533,7 +557,7 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
       } catch (error: unknown) {
         console.error('Erro na comparação automática:', error);
         const errorMessage = extractApiError(error);
-        if (selectedIdsRef.current !== requestedIds) return;
+        if (selectedIdsRef.current !== requestedKey) return;
         handleComparisonError(errorMessage);
       } finally {
         setIsLoadingComparison(false);
@@ -541,7 +565,13 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
     };
 
     autoCompare();
-  }, [selectedIdsKey, selectedGabaritosForComparison, selectedMunicipality, toast, handleComparisonError]);
+  }, [
+    comparisonRequestKey,
+    selectedGabaritosForComparison,
+    scopeFilters,
+    toast,
+    handleComparisonError,
+  ]);
 
   const handleExportPdf = async () => {
     if (!processedData || !comparisonData) {
@@ -619,21 +649,15 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
     try {
       setIsExportingExcel(true);
       const gabaritoIds = Array.from(new Set(selectedGabaritosForComparison.map((g) => g.id)));
-      const municipalityName =
-        selectedMunicipality !== 'all'
-          ? municipalities.find((m) => m.id === selectedMunicipality)?.name
-          : undefined;
-      const stateName =
-        selectedState !== 'all' ? states.find((s) => s.id === selectedState)?.name : undefined;
 
-      const { data, headers } = await AnswerSheetComparisonApiService.exportEvolutionExcel(
-        {
-          gabarito_ids: gabaritoIds,
-          municipality: municipalityName,
-          state: stateName,
-        },
-        selectedMunicipality !== 'all' ? selectedMunicipality : undefined
-      );
+      const { data, headers } = await AnswerSheetComparisonApiService.exportEvolutionExcel({
+        gabarito_ids: gabaritoIds,
+        estado: scopeFilters.estado,
+        municipio: scopeFilters.municipio,
+        escola: scopeFilters.escola,
+        serie: scopeFilters.serie,
+        turma: scopeFilters.turma,
+      });
 
       const blob = new Blob([data], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

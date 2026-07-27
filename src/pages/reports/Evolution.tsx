@@ -504,6 +504,17 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
   }, [selectedState, selectedMunicipality, selectedSchool, selectedGrade]);
 
   // Função para comparar avaliações
+  const scopeFilters = useMemo(
+    () => ({
+      estado: selectedState !== 'all' ? selectedState : null,
+      municipio: selectedMunicipality !== 'all' ? selectedMunicipality : null,
+      escola: selectedSchool !== 'all' ? selectedSchool : null,
+      serie: selectedGrade !== 'all' ? selectedGrade : null,
+      turma: selectedClass !== 'all' ? selectedClass : null,
+    }),
+    [selectedState, selectedMunicipality, selectedSchool, selectedGrade, selectedClass]
+  );
+
   const handleCompareEvaluations = useCallback(async () => {
     if (selectedEvaluationsForComparison.length < 2) {
       toast({
@@ -522,19 +533,15 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
       const evaluationIds = Array.from(
         new Set(selectedEvaluationsForComparison.map(e => e.id))
       );
-      console.log('IDs finais para comparação:', evaluationIds);
 
-      const comparison = await EvaluationComparisonApiService.compareEvaluations(evaluationIds);
+      const comparison = await EvaluationComparisonApiService.compareEvaluations(
+        evaluationIds,
+        scopeFilters
+      );
       setComparisonData(comparison);
 
       // Processar dados para os gráficos
       const processed = processComparisonData(comparison);
-      console.log('📊 Dados processados:', {
-        totalEvaluations: comparison.total_evaluations,
-        evaluationNames: processed.evaluationNames,
-        evaluationNamesCount: processed.evaluationNames.length,
-        generalData: processed.generalData,
-      });
       setProcessedData(processed);
       // Visibilidade de gráficos agora é controlada localmente em EvolutionCharts
 
@@ -582,17 +589,30 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
     } finally {
       setIsLoadingComparison(false);
     }
-  }, [selectedEvaluationsForComparison, toast]);
+  }, [selectedEvaluationsForComparison, scopeFilters, toast]);
 
-  // Chave estável da seleção atual (qualquer mudança em quais avaliações estão marcadas dispara nova comparação)
+  // Chave estável da seleção atual + escopo (mudança de filtro dispara nova comparação)
   const selectedIdsKey = useMemo(
     () => selectedEvaluationsForComparison.map(e => e.id).sort().join(','),
     [selectedEvaluationsForComparison]
   );
 
-  // Carregar gráficos automaticamente quando a seleção mudar (2+ avaliações); só aplica resultado se ainda for a seleção atual
+  const comparisonRequestKey = useMemo(
+    () =>
+      [
+        selectedIdsKey,
+        scopeFilters.estado ?? '',
+        scopeFilters.municipio ?? '',
+        scopeFilters.escola ?? '',
+        scopeFilters.serie ?? '',
+        scopeFilters.turma ?? '',
+      ].join('|'),
+    [selectedIdsKey, scopeFilters]
+  );
+
+  // Carregar gráficos automaticamente quando a seleção ou o escopo mudarem (2+ avaliações)
   useEffect(() => {
-    selectedIdsRef.current = selectedIdsKey;
+    selectedIdsRef.current = comparisonRequestKey;
 
     const autoCompare = async () => {
       if (selectedEvaluationsForComparison.length < 2) {
@@ -603,28 +623,26 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
         return;
       }
 
-      const currentIds = selectedEvaluationsForComparison
-        .map(e => e.id)
-        .sort()
-        .join(',');
-      if (currentIds !== selectedIdsKey) return;
-      if (currentIds === lastComparisonIdsRef.current) return;
+      if (comparisonRequestKey === lastComparisonIdsRef.current) return;
 
-      lastComparisonIdsRef.current = currentIds;
-      const requestedIds = currentIds;
+      lastComparisonIdsRef.current = comparisonRequestKey;
+      const requestedKey = comparisonRequestKey;
 
       setIsLoadingComparison(true);
       setComparisonError(null);
 
       try {
         const evaluationIds = Array.from(new Set(selectedEvaluationsForComparison.map(e => e.id)));
-        const comparison = await EvaluationComparisonApiService.compareEvaluations(evaluationIds);
+        const comparison = await EvaluationComparisonApiService.compareEvaluations(
+          evaluationIds,
+          scopeFilters
+        );
 
-        if (selectedIdsRef.current !== requestedIds) return;
+        if (selectedIdsRef.current !== requestedKey) return;
         setComparisonData(comparison);
 
         const processed = processComparisonData(comparison);
-        if (selectedIdsRef.current !== requestedIds) return;
+        if (selectedIdsRef.current !== requestedKey) return;
         setProcessedData(processed);
 
         toast({
@@ -643,7 +661,7 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
             errorMessage = error.message;
           }
         }
-        if (selectedIdsRef.current !== requestedIds) return;
+        if (selectedIdsRef.current !== requestedKey) return;
         if (errorMessage.includes('não possui resultados calculados')) {
           setComparisonError('Avaliação sem resultados calculados');
           toast({
@@ -668,7 +686,7 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
     };
 
     autoCompare();
-  }, [selectedIdsKey, selectedEvaluationsForComparison, toast]);
+  }, [comparisonRequestKey, selectedEvaluationsForComparison, scopeFilters, toast]);
 
   // Controles de visibilidade agora são por gráfico, definidos em EvolutionCharts
 
@@ -930,6 +948,11 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
                     
                     const payload = {
                       test_ids: uniqueTestIds,
+                      estado: selectedState !== 'all' ? selectedState : null,
+                      municipio: selectedMunicipality !== 'all' ? selectedMunicipality : null,
+                      escola: selectedSchool !== 'all' ? selectedSchool : null,
+                      serie: selectedGrade !== 'all' ? selectedGrade : null,
+                      turma: selectedClass !== 'all' ? selectedClass : null,
                     };
 
                     // Fazer requisição POST para o backend
