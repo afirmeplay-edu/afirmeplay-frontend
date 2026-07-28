@@ -260,9 +260,10 @@ function formatQuestionTurmaPctLabel(value: number): string {
 /** Prioriza o % do backend; só recalcula no cliente se a API não enviar o campo. */
 function resolveQuestionTurmaPctLabel(
   apiPct: number | undefined | null,
-  fallbackPct: number
+  fallbackPct: number,
+  preferApi: boolean = true
 ): string {
-  if (typeof apiPct === "number" && Number.isFinite(apiPct)) {
+  if (preferApi && typeof apiPct === "number" && Number.isFinite(apiPct)) {
     return formatQuestionTurmaPctLabel(apiPct);
   }
   return formatQuestionTurmaPctLabel(fallbackPct);
@@ -3260,13 +3261,14 @@ export default function AcertoNiveis({
         w: number,
         h: number,
         qs: QuestaoMinima[],
-        studentsToUse: StudentResult[] = students
+        studentsToUse: StudentResult[] = students,
+        preferApiPct: boolean = true
       ) => {
         if (!qs || qs.length === 0) return;
         const completed = studentsToUse.filter((s) => s.status === 'concluida');
         const denom = Math.max(1, completed.length);
         const values = qs.map((q) => {
-          if (q.porcentagem_acertos_from_api) {
+          if (preferApiPct && q.porcentagem_acertos_from_api) {
             return Math.round(q.porcentagem_acertos);
           }
           let correct = 0;
@@ -3482,7 +3484,8 @@ export default function AcertoNiveis({
             headerRow3.push(
               resolveQuestionTurmaPctLabel(
                 q.porcentagem_acertos_from_api ? q.porcentagem_acertos : undefined,
-                fallbackPct
+                fallbackPct,
+                false
               )
             );
           });
@@ -3823,7 +3826,16 @@ export default function AcertoNiveis({
             : null
         );
         const qsAll = sortQuestoes(questoesParaUsar);
-        drawQuestionAccuracyChart(chartsLeft, questionChartStartY, chartsWidth, questionChartH, qsAll, alunosTurma);
+        const preferApiPct = turmaName.toUpperCase().includes("VISÃO GERAL");
+        drawQuestionAccuracyChart(
+          chartsLeft,
+          questionChartStartY,
+          chartsWidth,
+          questionChartH,
+          qsAll,
+          alunosTurma,
+          preferApiPct
+        );
         addFooter(pageCount);
       };
 
@@ -3925,7 +3937,11 @@ export default function AcertoNiveis({
               });
               const fallbackPct = (correct / denomLocal) * 100;
               headerRow3.push(
-                resolveQuestionTurmaPctLabel(readQuestaoPercentualAcertos(q), fallbackPct)
+                resolveQuestionTurmaPctLabel(
+                  readQuestaoPercentualAcertos(q),
+                  fallbackPct,
+                  false
+                )
               );
             });
             if (isLastChunk) {
