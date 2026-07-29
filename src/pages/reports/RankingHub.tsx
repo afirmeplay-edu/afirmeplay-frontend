@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calendar as CalendarIcon, Download, Filter, Loader2, RefreshCw, Trophy, Users } from "lucide-react";
+import { Calendar as CalendarIcon, Download, Filter, Loader2, RefreshCw, School, Trophy, Users } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -13,18 +13,25 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { FormFiltersApiService } from "@/services/formFiltersApi";
 import { EvaluationResultsApiService, REPORT_ENTITY_TYPE_ANSWER_SHEET } from "@/services/evaluation/evaluationResultsApi";
 import { EvaluationInstrumentPicker } from "@/components/filters";
-import { RankingApiService, type RankingFilters, type RankingScope } from "@/services/reports/rankingApi";
+import {
+  RankingApiService,
+  type ClassPeerRankingFilters,
+  type RankingFilters,
+  type RankingScope,
+} from "@/services/reports/rankingApi";
 import { formatRankingDisciplinaLabel, generateRankingReportPdf } from "@/services/reports/rankingPdf";
 import { useToast } from "@/hooks/use-toast";
 import { RankingTeachersPanel } from "@/components/ranking/RankingTeachersPanel";
 import RankingOverviewPanel from "@/components/ranking/RankingOverviewPanel";
 import RankingSchoolClassPanel from "@/components/ranking/RankingSchoolClassPanel";
+import ClassPeerRankingPanel from "@/components/ranking/ClassPeerRankingPanel";
+import { CLASS_SHIFT_OPTIONS } from "@/lib/classShift";
 import { cn } from "@/lib/utils";
 import { format, parse } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { RESULTS_MONTH_NAMES_PT, RESULTS_PERIOD_YEAR_MIN, getResultsPeriodYearMax, normalizeResultsPeriodYm } from "@/utils/resultsPeriod";
 
-type RankingTab = "visao-geral" | "escola-turma" | "professores";
+type RankingTab = "visao-geral" | "escola-turma" | "professores" | "ranking-geral";
 type RankingEntityTab = "avaliacao" | "cartao";
 type FilterOption = { id: string; name: string };
 type RankingItemOption = { id: string; label: string };
@@ -32,6 +39,7 @@ type RankingItemOption = { id: string; label: string };
 function resolveTab(value: string | null): RankingTab {
   if (value === "escola-turma") return "escola-turma";
   if (value === "professores") return "professores";
+  if (value === "ranking-geral") return "ranking-geral";
   return "visao-geral";
 }
 
@@ -98,6 +106,8 @@ export default function RankingHub() {
     }),
     [searchParams]
   );
+  const turnoFilter = normalizeParam(searchParams.get("turno"));
+  const peerPage = Math.max(1, Number(searchParams.get("peer_page") || 1) || 1);
   const hasBaseFilters = Boolean(filters.estado && filters.municipio);
   const hasEntitySelection = Boolean(filters.evaluation_id || filters.answer_sheet_id);
   const hasSchoolFilter = Boolean(filters.escola);
@@ -159,8 +169,8 @@ export default function RankingHub() {
   }, [filters.answer_sheet_id, filters.evaluation_id, rankingEntityTab]);
 
   const setFilters = (
-    updates: Partial<Record<keyof RankingFilters, string>>,
-    clearKeys: (keyof RankingFilters)[] = []
+    updates: Partial<Record<keyof RankingFilters | "turno" | "peer_page", string>>,
+    clearKeys: Array<keyof RankingFilters | "turno" | "peer_page"> = []
   ) => {
     const next = new URLSearchParams(searchParams);
     Object.entries(updates).forEach(([k, v]) => {
@@ -365,6 +375,71 @@ export default function RankingHub() {
     staleTime: 0,
   });
 
+  const turmaNomeFromFilter = useMemo(() => {
+    if (!filters.turma) return "";
+    return turmas.find((item) => item.id === filters.turma)?.name || "";
+  }, [filters.turma, turmas]);
+
+  const peerRequestFilters = useMemo<ClassPeerRankingFilters | null>(() => {
+    if (!filters.evaluation_id || !filters.municipio) return null;
+    const scope = filters.escola ? "escola" : "municipio";
+    if (scope === "escola" && !filters.escola) return null;
+    return {
+      scope,
+      evaluation_id: filters.evaluation_id,
+      municipio: filters.municipio,
+      ...(filters.escola ? { escola: filters.escola } : {}),
+      ...(filters.serie ? { serie: filters.serie } : {}),
+      ...(turmaNomeFromFilter ? { turma_nome: turmaNomeFromFilter } : {}),
+      ...(turnoFilter ? { turno: turnoFilter } : {}),
+    };
+  }, [
+    filters.evaluation_id,
+    filters.municipio,
+    filters.escola,
+    filters.serie,
+    turmaNomeFromFilter,
+    turnoFilter,
+  ]);
+
+  const peerRankingQueryKey = useMemo(
+    () =>
+      [
+        "ranking",
+        "classes-peer",
+        peerRequestFilters?.scope,
+        peerRequestFilters?.municipio,
+        peerRequestFilters?.escola,
+        peerRequestFilters?.serie,
+        peerRequestFilters?.turma_nome,
+        peerRequestFilters?.turno,
+        peerRequestFilters?.evaluation_id,
+        peerPage,
+      ] as const,
+    [peerRequestFilters, peerPage]
+  );
+
+  const peerRankingQuery = useQuery({
+    queryKey: peerRankingQueryKey,
+    queryFn: () =>
+      RankingApiService.getClassesPeerRanking(peerRequestFilters as ClassPeerRankingFilters, peerPage, 20),
+    enabled: tab === "ranking-geral" && Boolean(peerRequestFilters),
+    staleTime: 0,
+  });
+
+  const peerRankingError = peerRankingQuery.error
+    ? getApiError(peerRankingQuery.error, "Erro ao carregar ranking geral de turmas.")
+    : undefined;
+  const peerRankingInitialLoading = peerRankingQuery.isLoading && !peerRankingQuery.data;
+  const peerRankingRefreshing = peerRankingQuery.isFetching && !peerRankingInitialLoading;
+
+  const setPeerPage = (nextPage: number) => {
+    const next = new URLSearchParams(searchParams);
+    if (nextPage <= 1) next.delete("peer_page");
+    else next.set("peer_page", String(nextPage));
+    setSearchParams(next, { replace: true });
+  };
+
   const activeDiscipline = filters.disciplina ?? rankingQuery.data?.selected_discipline ?? "";
   const disciplineDataPending =
     hasEntitySelection &&
@@ -419,7 +494,7 @@ export default function RankingHub() {
     if (!useApiGradeOptions || !filters.serie) return;
     const valid = gradeOptionsFromApi.some((item) => item.id === filters.serie);
     if (!valid) {
-      setFilters({ serie: "" }, ["turma"]);
+      setFilters({ serie: "" }, ["turma", "turno", "peer_page"]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useApiGradeOptions, gradeOptionsFromApi, filters.serie]);
@@ -464,11 +539,13 @@ export default function RankingHub() {
       "escola",
       "serie",
       "turma",
+      "turno",
       "periodo",
       "disciplina",
       "evaluation_id",
       "answer_sheet_id",
       "scope",
+      "peer_page",
     ].forEach((key) => next.delete(key));
     setSearchParams(next, { replace: true });
   };
@@ -794,6 +871,7 @@ export default function RankingHub() {
                   evaluation_id: value === "all" ? "" : value,
                   answer_sheet_id: "",
                   disciplina: "",
+                  peer_page: "",
                 })
               }
               disabled={!filters.municipio}
@@ -835,7 +913,7 @@ export default function RankingHub() {
             <Select
               value={filters.escola || "all"}
               onValueChange={(value) =>
-                setFilters({ escola: value === "all" ? "" : value }, ["serie", "turma"])
+                setFilters({ escola: value === "all" ? "" : value }, ["serie", "turma", "turno", "peer_page"])
               }
               disabled={!filters.municipio || loadingFilters.escolas}
             >
@@ -857,7 +935,9 @@ export default function RankingHub() {
             <Label htmlFor="serie">Série</Label>
             <Select
               value={filters.serie || "all"}
-              onValueChange={(value) => setFilters({ serie: value === "all" ? "" : value }, ["turma"])}
+              onValueChange={(value) =>
+                setFilters({ serie: value === "all" ? "" : value }, ["turma", "turno", "peer_page"])
+              }
               disabled={!serieFilterEnabled || serieFilterLoading}
             >
               <SelectTrigger id="serie">
@@ -886,7 +966,9 @@ export default function RankingHub() {
             <Label htmlFor="turma">Turma</Label>
             <Select
               value={filters.turma || "all"}
-              onValueChange={(value) => setFilters({ turma: value === "all" ? "" : value })}
+              onValueChange={(value) =>
+                setFilters({ turma: value === "all" ? "" : value }, ["peer_page"])
+              }
               disabled={!filters.serie || loadingFilters.turmas}
             >
               <SelectTrigger id="turma">
@@ -897,6 +979,29 @@ export default function RankingHub() {
                 {turmas.map((turma) => (
                   <SelectItem key={turma.id} value={turma.id}>
                     {turma.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="turno">Turno</Label>
+            <Select
+              value={turnoFilter || "all"}
+              onValueChange={(value) =>
+                setFilters({ turno: value === "all" ? "" : value }, ["peer_page"])
+              }
+              disabled={!filters.serie}
+            >
+              <SelectTrigger id="turno">
+                <SelectValue placeholder="Selecione o turno" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os turnos</SelectItem>
+                {CLASS_SHIFT_OPTIONS.map((shift) => (
+                  <SelectItem key={shift.value} value={shift.value}>
+                    {shift.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -935,7 +1040,7 @@ export default function RankingHub() {
         <TabsList
           className={cn(
             "sticky top-2 z-10 grid h-auto w-full gap-1 rounded-xl border border-border bg-background/90 p-1 backdrop-blur",
-            hasSchoolFilter ? "grid-cols-2" : "grid-cols-1 sm:grid-cols-3"
+            hasSchoolFilter ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-2 sm:grid-cols-4"
           )}
         >
           {!hasSchoolFilter ? (
@@ -952,9 +1057,15 @@ export default function RankingHub() {
             <Users className="h-4 w-4" />
             Professores
           </TabsTrigger>
+          <TabsTrigger value="ranking-geral" className="gap-2">
+            <School className="h-4 w-4" />
+            Relatório de ranking geral
+          </TabsTrigger>
         </TabsList>
 
-        {hasEntitySelection && (rankingQuery.data?.discipline_options?.length || 0) > 0 ? (
+        {tab !== "ranking-geral" &&
+        hasEntitySelection &&
+        (rankingQuery.data?.discipline_options?.length || 0) > 0 ? (
           <div className="mt-4 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Disciplina</span>
@@ -981,7 +1092,7 @@ export default function RankingHub() {
           </div>
         ) : null}
 
-        {!hasEntitySelection ? (
+        {!hasEntitySelection && tab !== "ranking-geral" ? (
           <div className="mt-6">
             <Card className="border border-dashed border-border/70">
               <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -989,6 +1100,26 @@ export default function RankingHub() {
               </CardContent>
             </Card>
           </div>
+        ) : tab === "ranking-geral" ? (
+          <TabsContent value="ranking-geral" className="mt-6">
+            {!filters.evaluation_id ? (
+              <Card className="border border-dashed border-border/70">
+                <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                  Selecione uma avaliação online (aba Avaliação) para exibir o relatório de ranking geral.
+                  Cartão-resposta não é suportado nesta aba.
+                </CardContent>
+              </Card>
+            ) : (
+              <ClassPeerRankingPanel
+                data={peerRankingQuery.data}
+                isLoading={peerRankingInitialLoading}
+                isRefreshing={peerRankingRefreshing}
+                errorMessage={peerRankingError}
+                page={peerPage}
+                onPageChange={setPeerPage}
+              />
+            )}
+          </TabsContent>
         ) : (
           <>
             {!hasSchoolFilter ? (

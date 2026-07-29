@@ -331,4 +331,159 @@ export class RankingApiService {
   static getTeacherRanking(filters: RankingFilters, page = 1, perPage = 20) {
     return this.getRanking({ rankingType: "teachers", filters, page, perPage });
   }
+
+  static async getClassesPeerRanking(
+    filters: ClassPeerRankingFilters,
+    page = 1,
+    perPage = 20
+  ): Promise<ClassPeerRankingResponse> {
+    const scope = filters.scope === "escola" ? "escola" : "municipio";
+    const evaluationId = String(filters.evaluation_id || "").trim();
+    if (!evaluationId) {
+      throw new Error("Selecione uma avaliação para consultar o ranking geral de turmas.");
+    }
+    if (scope === "municipio" && !String(filters.municipio || "").trim()) {
+      throw new Error("Selecione o município para consultar o ranking geral.");
+    }
+    if (scope === "escola" && !String(filters.escola || "").trim()) {
+      throw new Error("Selecione a escola para consultar o ranking por escola.");
+    }
+
+    const params: Record<string, string | number> = {
+      scope,
+      evaluation_id: evaluationId,
+      page,
+      per_page: perPage,
+    };
+
+    const optionalKeys: Array<keyof ClassPeerRankingFilters> = [
+      "municipio",
+      "escola",
+      "serie",
+      "turma_nome",
+      "turno",
+    ];
+    for (const key of optionalKeys) {
+      const value = String(filters[key] || "").trim();
+      if (value && value.toLowerCase() !== "all") {
+        params[key] = value;
+      }
+    }
+
+    const response = await api.get<ClassPeerRankingResponse>("/ranking/classes-peer", { params });
+    return response.data;
+  }
+}
+
+export type ClassPeerScope = "municipio" | "escola";
+
+export interface ClassPeerRankingFilters {
+  scope: ClassPeerScope;
+  evaluation_id: string;
+  municipio?: string;
+  escola?: string;
+  serie?: string;
+  turma_nome?: string;
+  turno?: string;
+}
+
+export interface ClassPeerSubjectMetrics {
+  subject_id?: string;
+  subject_name?: string;
+  average_proficiency?: number;
+  average_score?: number;
+  grade?: number;
+  proficiency?: number;
+  classification?: string;
+  correct_answers?: number;
+  total_questions?: number;
+  accuracy_rate?: number;
+}
+
+export interface ClassPeerClassRankingItem {
+  position: number;
+  school_id?: string;
+  school_name?: string;
+  class_id?: string;
+  class_name?: string;
+  shift?: string;
+  average_proficiency?: number;
+  average_score?: number;
+  classification?: string;
+  correct_answers?: number;
+  total_questions?: number;
+  accuracy_rate?: number;
+  participating_students?: number;
+  subjects?: ClassPeerSubjectMetrics[];
+}
+
+export interface ClassPeerStudentRankingItem {
+  position: number;
+  student_id?: string;
+  name?: string;
+  school_id?: string;
+  school_name?: string;
+  class_id?: string;
+  class_name?: string;
+  shift?: string;
+  grade?: number;
+  proficiency?: number;
+  classification?: string;
+  correct_answers?: number;
+  total_questions?: number;
+  accuracy_rate?: number;
+  subjects?: ClassPeerSubjectMetrics[];
+}
+
+export interface ClassPeerGroup {
+  turma_nome: string;
+  shift: string;
+  peer_key: string;
+  class_ranking: ClassPeerClassRankingItem[];
+  student_ranking: ClassPeerStudentRankingItem[];
+  students_pagination: {
+    page: number;
+    per_page: number;
+    total: number;
+    total_pages: number;
+  };
+  totals: {
+    classes_count: number;
+    students_count: number;
+  };
+}
+
+export interface ClassPeerSection {
+  serie_id: string;
+  serie_name: string;
+  peer_groups: ClassPeerGroup[];
+  totals: {
+    peer_groups_count: number;
+    classes_count: number;
+    students_count: number;
+  };
+}
+
+export interface ClassPeerRankingResponse {
+  evaluation_id: string;
+  evaluation_title?: string;
+  scope: ClassPeerScope | string;
+  filters: {
+    municipio?: string | null;
+    escola?: string | null;
+    serie?: string | null;
+    turma_nome?: string | null;
+    turno?: string | null;
+  };
+  resolved_scope?: {
+    scope?: string;
+    city_id?: string | null;
+    school_ids?: string[];
+  };
+  sections: ClassPeerSection[];
+  totals?: {
+    sections_count?: number;
+    peer_groups_count?: number;
+    students_count?: number;
+  };
 }
