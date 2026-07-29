@@ -4,7 +4,10 @@
  */
 import { jsPDF } from 'jspdf';
 import { loadCityBrandingForReportPdf } from '@/utils/pdfCityBranding';
-import type { ParticipationResumo } from '@/types/participation-report';
+import type {
+  ParticipationReportFlow,
+  ParticipationResumo,
+} from '@/types/participation-report';
 
 const C = {
   primary: [124, 62, 237] as [number, number, number],
@@ -97,13 +100,19 @@ async function drawCoverPage(
   doc: jsPDF,
   labels: ParticipationPdfFilterLabels,
   metricas: ParticipationResumo['metricas'],
-  cityId: string | null
+  cityId: string | null,
+  flow: ParticipationReportFlow
 ): Promise<void> {
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const centerX = pageW / 2;
   const BAND_H = 62;
   const dataGeracao = fmtNow();
+  const isCartao = flow === 'cartao';
+  const instrumentLabel = isCartao ? 'CARTÕES RESPOSTA' : 'AVALIAÇÕES';
+  const modeSubtitle = isCartao
+    ? 'CARTÃO-RESPOSTA — MATRÍCULAS, AVALIADOS E TAXA DE PARTICIPAÇÃO'
+    : 'AVALIAÇÃO ONLINE — MATRÍCULAS, AVALIADOS E TAXA DE PARTICIPAÇÃO';
 
   doc.setFillColor(...C.white);
   doc.rect(0, 0, pageW, pageH, 'F');
@@ -130,11 +139,10 @@ async function drawCoverPage(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(17);
   doc.text('RELATÓRIO DE PARTICIPAÇÃO', centerX, titleY, { align: 'center' });
-  doc.setFontSize(10.5);
+  doc.setFontSize(9.5);
   doc.setFont('helvetica', 'normal');
-  doc.text('MATRÍCULAS, AVALIADOS E TAXA DE PARTICIPAÇÃO', centerX, titleY + 7, {
-    align: 'center',
-  });
+  const subLines = doc.splitTextToSize(modeSubtitle, pageW - 40) as string[];
+  doc.text(subLines, centerX, titleY + 7, { align: 'center' });
 
   let y = BAND_H + 14;
   const loc = [labels.estado, labels.municipio]
@@ -168,9 +176,10 @@ async function drawCoverPage(
   y += 18;
 
   const cardLines: Array<{ label: string; value: string }> = [
+    { label: 'MODO', value: isCartao ? 'Cartão-resposta' : 'Avaliação online' },
     { label: 'ESTADO', value: labels.estado || '—' },
     { label: 'MUNICÍPIO', value: labels.municipio || '—' },
-    { label: 'AVALIAÇÕES', value: labels.avaliacoes || 'Todas' },
+    { label: instrumentLabel, value: labels.avaliacoes || 'Todas' },
     { label: 'ESCOLAS', value: labels.escolas || 'Todas' },
     { label: 'SÉRIES', value: labels.series || 'Todas' },
     { label: 'TURMAS', value: labels.turmas || 'Todas' },
@@ -417,18 +426,24 @@ function renderDonutChartImage(
   return canvas.toDataURL('image/png');
 }
 
-function ensureSpace(doc: jsPDF, y: number, needed: number): number {
+function ensureSpace(doc: jsPDF, y: number, needed: number, bandTitle: string): number {
   const pageH = doc.internal.pageSize.getHeight();
   if (y + needed > pageH - 18) {
     doc.addPage();
-    drawTopBand(doc, doc.internal.pageSize.getWidth(), 'Relatório de Participação');
+    drawTopBand(doc, doc.internal.pageSize.getWidth(), bandTitle);
     return TOP_BAND_H + 12;
   }
   return y;
 }
 
-function drawSectionTitle(doc: jsPDF, y: number, pageW: number, title: string): number {
-  y = ensureSpace(doc, y, 16);
+function drawSectionTitle(
+  doc: jsPDF,
+  y: number,
+  pageW: number,
+  title: string,
+  bandTitle: string
+): number {
+  y = ensureSpace(doc, y, 16, bandTitle);
   doc.setFillColor(...C.primary);
   doc.roundedRect(MARGIN, y, pageW - MARGIN * 2, 10, 1.2, 1.2, 'F');
   doc.setFont('helvetica', 'bold');
@@ -442,24 +457,29 @@ export async function generateParticipationReportPdf(opts: {
   report: ParticipationResumo;
   labels: ParticipationPdfFilterLabels;
   cityId: string | null;
+  flow?: ParticipationReportFlow;
 }): Promise<void> {
-  const { report, labels, cityId } = opts;
+  const { report, labels, cityId, flow = 'digital' } = opts;
   const { default: autoTable } = await import('jspdf-autotable');
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const dataGeracao = fmtNow();
+  const bandTitle =
+    flow === 'cartao'
+      ? 'Relatório de Participação — Cartão-resposta'
+      : 'Relatório de Participação — Avaliação online';
 
-  await drawCoverPage(doc, labels, report.metricas, cityId);
+  await drawCoverPage(doc, labels, report.metricas, cityId, flow);
 
   doc.addPage();
-  drawTopBand(doc, pageW, 'Relatório de Participação');
+  drawTopBand(doc, pageW, bandTitle);
   let y = TOP_BAND_H + 12;
 
-  y = drawSectionTitle(doc, y, pageW, 'Indicadores gerais');
+  y = drawSectionTitle(doc, y, pageW, 'Indicadores gerais', bandTitle);
   y = drawKpiCards(doc, y, pageW, report.metricas);
 
-  y = drawSectionTitle(doc, y, pageW, 'Gráficos');
-  y = ensureSpace(doc, y, 78);
+  y = drawSectionTitle(doc, y, pageW, 'Gráficos', bandTitle);
+  y = ensureSpace(doc, y, 78, bandTitle);
 
   const barImg = renderBarChartImage(report.metricas.matriculados, report.metricas.avaliados);
   const donutImg = renderDonutChartImage(
@@ -487,7 +507,7 @@ export async function generateParticipationReportPdf(opts: {
   }
   y += chartH + 10;
 
-  y = drawSectionTitle(doc, y, pageW, 'Por escola');
+  y = drawSectionTitle(doc, y, pageW, 'Por escola', bandTitle);
   autoTable(doc, {
     startY: y,
     head: [['Escola', 'Matriculados', 'Avaliados', 'Turmas', 'Participação']],
@@ -528,8 +548,8 @@ export async function generateParticipationReportPdf(opts: {
   });
   y = tableFinalY(doc, y) + 10;
 
-  y = ensureSpace(doc, y, 30);
-  y = drawSectionTitle(doc, y, pageW, 'Por turma');
+  y = ensureSpace(doc, y, 30, bandTitle);
+  y = drawSectionTitle(doc, y, pageW, 'Por turma', bandTitle);
   autoTable(doc, {
     startY: y,
     head: [['Turma', 'Matriculados', 'Avaliados', 'Participação']],
