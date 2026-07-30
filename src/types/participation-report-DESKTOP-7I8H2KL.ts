@@ -17,10 +17,14 @@ export type ParticipationFilterTurma = {
   label: string;
 };
 
+export type ParticipationReportFlow = 'digital' | 'cartao';
+
 export type ParticipationOpcoesFiltros = {
   estados: ParticipationFilterEntity[];
   municipios?: ParticipationFilterEntity[];
   avaliacoes?: ParticipationFilterAvaliacao[];
+  /** Alias opcional do backend no modo cartão. */
+  gabaritos?: ParticipationFilterAvaliacao[];
   escolas?: ParticipationFilterEntity[];
   series?: ParticipationFilterEntity[];
   turmas?: ParticipationFilterTurma[];
@@ -33,6 +37,8 @@ export type ParticipationOpcoesFiltrosParams = {
   escolas?: string[];
   series?: string[];
   turmas?: string[];
+  /** Quando `answer_sheet`, usa gabaritos/cartão-resposta. Omitido = prova digital. */
+  report_entity_type?: 'answer_sheet';
 };
 
 export type ParticipationResumoParams = {
@@ -42,6 +48,7 @@ export type ParticipationResumoParams = {
   escolas?: string[];
   series?: string[];
   turmas?: string[];
+  report_entity_type?: 'answer_sheet';
 };
 
 export type ParticipationMetricas = {

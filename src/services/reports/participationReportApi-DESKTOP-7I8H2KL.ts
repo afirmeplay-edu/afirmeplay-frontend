@@ -1,10 +1,12 @@
 import { api } from '@/lib/api';
+import { REPORT_ENTITY_TYPE_ANSWER_SHEET } from '@/services/evaluation/evaluationResultsApi';
 import type {
   ParticipationFilterAvaliacao,
   ParticipationFilterEntity,
   ParticipationFilterTurma,
   ParticipationOpcoesFiltros,
   ParticipationOpcoesFiltrosParams,
+  ParticipationReportFlow,
   ParticipationResumo,
   ParticipationResumoParams,
 } from '@/types/participation-report';
@@ -20,8 +22,15 @@ function setCsvParam(q: URLSearchParams, key: string, values?: string[]) {
   q.set(key, values.join(','));
 }
 
+export function reportEntityTypeForFlow(
+  flow?: ParticipationReportFlow
+): 'answer_sheet' | undefined {
+  return flow === 'cartao' ? REPORT_ENTITY_TYPE_ANSWER_SHEET : undefined;
+}
+
 function buildQuery(params: ParticipationOpcoesFiltrosParams | ParticipationResumoParams): string {
   const q = new URLSearchParams();
+  if (params.report_entity_type) q.set('report_entity_type', params.report_entity_type);
   if (params.estado) q.set('estado', params.estado);
   if ('municipio' in params && params.municipio) q.set('municipio', params.municipio);
   setCsvParam(q, 'avaliacoes', params.avaliacoes);
@@ -107,10 +116,14 @@ export class ParticipationReportApiService {
     const url = `/participation-report/opcoes-filtros${buildQuery(params)}`;
     const { data } = await api.get(url, withCityMeta(params.municipio));
 
+    const avaliacoes = normalizeAvaliacoes(
+      data?.avaliacoes?.length ? data.avaliacoes : data?.gabaritos
+    );
+
     return {
       estados: normalizeEntities(data?.estados),
       municipios: normalizeEntities(data?.municipios),
-      avaliacoes: normalizeAvaliacoes(data?.avaliacoes),
+      avaliacoes,
       escolas: normalizeEntities(data?.escolas),
       series: normalizeEntities(data?.series),
       turmas: normalizeTurmas(data?.turmas),

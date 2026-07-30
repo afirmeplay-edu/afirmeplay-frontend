@@ -338,9 +338,18 @@ export class RankingApiService {
     perPage = 20
   ): Promise<ClassPeerRankingResponse> {
     const scope = filters.scope === "escola" ? "escola" : "municipio";
-    const evaluationId = String(filters.evaluation_id || "").trim();
-    if (!evaluationId) {
-      throw new Error("Selecione uma avaliação para consultar o ranking geral de turmas.");
+    const evaluationIds = Array.from(
+      new Set(
+        (filters.evaluation_ids?.length
+          ? filters.evaluation_ids
+          : [filters.evaluation_id]
+        )
+          .map((id) => String(id || "").trim())
+          .filter(Boolean)
+      )
+    );
+    if (evaluationIds.length === 0) {
+      throw new Error("Selecione ao menos uma avaliação para consultar o ranking geral de turmas.");
     }
     if (scope === "municipio" && !String(filters.municipio || "").trim()) {
       throw new Error("Selecione o município para consultar o ranking geral.");
@@ -351,7 +360,8 @@ export class RankingApiService {
 
     const params: Record<string, string | number> = {
       scope,
-      evaluation_id: evaluationId,
+      evaluation_id: evaluationIds[0],
+      evaluation_ids: evaluationIds.join(","),
       page,
       per_page: perPage,
     };
@@ -380,6 +390,7 @@ export type ClassPeerScope = "municipio" | "escola";
 export interface ClassPeerRankingFilters {
   scope: ClassPeerScope;
   evaluation_id: string;
+  evaluation_ids?: string[];
   municipio?: string;
   escola?: string;
   serie?: string;
@@ -466,7 +477,9 @@ export interface ClassPeerSection {
 
 export interface ClassPeerRankingResponse {
   evaluation_id: string;
+  evaluation_ids?: string[];
   evaluation_title?: string;
+  evaluations?: Array<{ id: string; title?: string }>;
   scope: ClassPeerScope | string;
   filters: {
     municipio?: string | null;
