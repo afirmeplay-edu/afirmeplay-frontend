@@ -58,11 +58,13 @@ import {
 import {
   getParticipationApiErrorMessage,
   ParticipationReportApiService,
+  reportEntityTypeForFlow,
 } from '@/services/reports/participationReportApi';
 import { generateParticipationReportPdf } from '@/services/reports/participationReportPdf';
 import type {
   ParticipationFilterEntity,
   ParticipationFilterTurma,
+  ParticipationReportFlow,
   ParticipationResumo,
 } from '@/types/participation-report';
 
@@ -89,10 +91,24 @@ function formatNumber(value: number): string {
   return value.toLocaleString('pt-BR');
 }
 
-export default function RelatorioParticipacao() {
+type RelatorioParticipacaoProps = {
+  flow?: ParticipationReportFlow;
+  hidePageHeading?: boolean;
+};
+
+export default function RelatorioParticipacao({
+  flow = 'digital',
+  hidePageHeading = false,
+}: RelatorioParticipacaoProps) {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user } = useAuth();
+
+  const isCartao = flow === 'cartao';
+  const instrumentLabel = isCartao ? 'Cartões resposta' : 'Avaliações';
+  const instrumentSingular = isCartao ? 'cartão resposta' : 'avaliação';
+  const instrumentPluralLower = isCartao ? 'cartões resposta' : 'avaliações';
+  const reportEntityType = reportEntityTypeForFlow(flow);
 
   const normalizedRole = (user?.role ?? '').toLowerCase();
   const roleRequiresSpecificSchool = ['diretor', 'coordenador', 'professor'].includes(normalizedRole);
@@ -249,7 +265,9 @@ export default function RelatorioParticipacao() {
         if (context.municipality) {
           setSelectedMunicipio(context.municipality.id);
           try {
-            const opcoes = await ParticipationReportApiService.getOpcoesFiltros();
+            const opcoes = await ParticipationReportApiService.getOpcoesFiltros({
+              report_entity_type: reportEntityType,
+            });
             const matched = opcoes.estados.find(
               (s) =>
                 s.id === context.municipality!.state ||
@@ -274,12 +292,12 @@ export default function RelatorioParticipacao() {
       }
     };
     void loadHierarchy();
-  }, [user?.id, user?.role, toast]);
+  }, [user?.id, user?.role, toast, reportEntityType]);
 
   useEffect(() => {
     let cancelled = false;
     setLoadingEstados(true);
-    ParticipationReportApiService.getOpcoesFiltros()
+    ParticipationReportApiService.getOpcoesFiltros({ report_entity_type: reportEntityType })
       .then((data) => {
         if (cancelled) return;
         setEstados(data.estados ?? []);
@@ -293,7 +311,7 @@ export default function RelatorioParticipacao() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reportEntityType]);
 
   useEffect(() => {
     if (selectedEstado === 'all') {
@@ -302,7 +320,10 @@ export default function RelatorioParticipacao() {
     }
     let cancelled = false;
     setLoadingMunicipios(true);
-    ParticipationReportApiService.getOpcoesFiltros({ estado: selectedEstado })
+    ParticipationReportApiService.getOpcoesFiltros({
+      estado: selectedEstado,
+      report_entity_type: reportEntityType,
+    })
       .then((data) => {
         if (cancelled) return;
         setMunicipios(data.municipios ?? []);
@@ -316,7 +337,7 @@ export default function RelatorioParticipacao() {
     return () => {
       cancelled = true;
     };
-  }, [selectedEstado]);
+  }, [selectedEstado, reportEntityType]);
 
   useEffect(() => {
     if (selectedEstado === 'all' || selectedMunicipio === 'all') {
@@ -328,6 +349,7 @@ export default function RelatorioParticipacao() {
     ParticipationReportApiService.getOpcoesFiltros({
       estado: selectedEstado,
       municipio: selectedMunicipio,
+      report_entity_type: reportEntityType,
     })
       .then((data) => {
         if (cancelled) return;
@@ -348,7 +370,7 @@ export default function RelatorioParticipacao() {
     return () => {
       cancelled = true;
     };
-  }, [selectedEstado, selectedMunicipio]);
+  }, [selectedEstado, selectedMunicipio, reportEntityType]);
 
   useEffect(() => {
     if (
@@ -366,6 +388,7 @@ export default function RelatorioParticipacao() {
       estado: selectedEstado,
       municipio: selectedMunicipio,
       avaliacoes: selectedAvaliacoes,
+      report_entity_type: reportEntityType,
     })
       .then((data) => {
         if (cancelled) return;
@@ -400,6 +423,7 @@ export default function RelatorioParticipacao() {
     selectedAvaliacoes,
     roleRequiresSpecificSchool,
     userHierarchyContext?.school?.id,
+    reportEntityType,
   ]);
 
   useEffect(() => {
@@ -421,6 +445,7 @@ export default function RelatorioParticipacao() {
       avaliacoes: selectedAvaliacoes,
       escolas: selectedEscolas.length > 0 ? selectedEscolas : undefined,
       series: selectedSeries.length > 0 ? selectedSeries : undefined,
+      report_entity_type: reportEntityType,
     })
       .then((data) => {
         if (cancelled) return;
@@ -446,6 +471,7 @@ export default function RelatorioParticipacao() {
     selectedAvaliacoes,
     selectedEscolas,
     selectedSeries,
+    reportEntityType,
   ]);
 
   const clearDownstreamFromEstado = useCallback(() => {
@@ -560,6 +586,7 @@ export default function RelatorioParticipacao() {
         escolas: selectedEscolas.length > 0 ? selectedEscolas : undefined,
         series: selectedSeries.length > 0 ? selectedSeries : undefined,
         turmas: selectedTurmas.length > 0 ? selectedTurmas : undefined,
+        report_entity_type: reportEntityType,
       });
       setReport(data);
       if (!data.por_escola?.length && !data.por_turma?.length && data.metricas.matriculados === 0) {
@@ -616,10 +643,11 @@ export default function RelatorioParticipacao() {
         report,
         labels: pdfFilterLabels,
         cityId: selectedMunicipio !== 'all' ? selectedMunicipio : null,
+        flow,
       });
       toast({
         title: 'Relatório baixado',
-        description: 'O PDF do Relatório de Participação foi salvo no seu dispositivo.',
+        description: `O PDF do Relatório de Participação (${isCartao ? 'Cartão-resposta' : 'Avaliação online'}) foi salvo no seu dispositivo.`,
       });
     } catch (error) {
       console.error(error);
@@ -643,15 +671,17 @@ export default function RelatorioParticipacao() {
 
   return (
     <div className="space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-bold tracking-tight">Relatório de Participação</h1>
-        <p className="text-muted-foreground">
-          Acompanhe matriculados, avaliados e o percentual de participação por escola e turma.
-        </p>
-        {user?.role && (
-          <p className="text-sm text-blue-600 dark:text-blue-400">{getRestrictionMessage(user.role)}</p>
-        )}
-      </header>
+      {!hidePageHeading && (
+        <header className="space-y-1">
+          <h1 className="text-2xl font-bold tracking-tight">Relatório de Participação</h1>
+          <p className="text-muted-foreground">
+            Acompanhe matriculados, avaliados e o percentual de participação por escola e turma.
+          </p>
+          {user?.role && (
+            <p className="text-sm text-blue-600 dark:text-blue-400">{getRestrictionMessage(user.role)}</p>
+          )}
+        </header>
+      )}
 
       <Card>
         <CardHeader className="pb-3">
@@ -660,8 +690,9 @@ export default function RelatorioParticipacao() {
             Filtros
           </CardTitle>
           <CardDescription>
-            Estado e município são obrigatórios. Avaliações, escolas, séries e turmas são opcionais
-            (vazio = todas). Escolas e séries só carregam após selecionar ao menos uma avaliação.
+            Estado e município são obrigatórios. {instrumentLabel}, escolas, séries e turmas são
+            opcionais (vazio = todas). Escolas e séries só carregam após selecionar ao menos um{' '}
+            {instrumentSingular}.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -711,7 +742,7 @@ export default function RelatorioParticipacao() {
 
           <div className="grid grid-cols-1 gap-4">
             <RelatorioConsolidadoItensPicker
-              label="Avaliações"
+              label={instrumentLabel}
               items={avaliacoesOpcoes}
               selected={selectedAvaliacoes}
               onChange={handleAvaliacoesChange}
@@ -720,11 +751,11 @@ export default function RelatorioParticipacao() {
               placeholder={
                 selectedMunicipio === 'all'
                   ? 'Selecione o município primeiro'
-                  : 'Todas as avaliações (ou selecione)'
+                  : `Todos os ${instrumentPluralLower} (ou selecione)`
               }
-              modalTitle="Selecionar avaliações"
-              entityLabel="avaliações"
-              emptyMessage="Nenhuma avaliação encontrada para os filtros."
+              modalTitle={`Selecionar ${instrumentPluralLower}`}
+              entityLabel={instrumentPluralLower}
+              emptyMessage={`Nenhum ${instrumentSingular} encontrado para os filtros.`}
             />
           </div>
 
@@ -737,7 +768,7 @@ export default function RelatorioParticipacao() {
                 onChange={handleEscolasChange}
                 placeholder={
                   selectedAvaliacoes.length === 0
-                    ? 'Selecione ao menos uma avaliação'
+                    ? `Selecione ao menos um ${instrumentSingular}`
                     : loadingEscolasSeries
                       ? 'Carregando…'
                       : selectedEscolas.length === 0
@@ -762,7 +793,7 @@ export default function RelatorioParticipacao() {
                 onChange={handleSeriesChange}
                 placeholder={
                   selectedAvaliacoes.length === 0
-                    ? 'Selecione ao menos uma avaliação'
+                    ? `Selecione ao menos um ${instrumentSingular}`
                     : loadingEscolasSeries
                       ? 'Carregando…'
                       : selectedSeries.length === 0
@@ -785,7 +816,7 @@ export default function RelatorioParticipacao() {
                 onChange={handleTurmasChange}
                 placeholder={
                   selectedAvaliacoes.length === 0
-                    ? 'Selecione ao menos uma avaliação'
+                    ? `Selecione ao menos um ${instrumentSingular}`
                     : selectedEscolas.length === 0 && selectedSeries.length === 0
                       ? 'Selecione escolas e/ou séries'
                       : loadingTurmas

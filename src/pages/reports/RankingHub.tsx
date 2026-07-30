@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { FormFiltersApiService } from "@/services/formFiltersApi";
 import { EvaluationResultsApiService, REPORT_ENTITY_TYPE_ANSWER_SHEET } from "@/services/evaluation/evaluationResultsApi";
 import { EvaluationInstrumentPicker } from "@/components/filters";
+import { RelatorioConsolidadoItensPicker } from "@/components/reports/relatorio-geral/RelatorioConsolidadoItensPicker";
 import {
   RankingApiService,
   type ClassPeerRankingFilters,
@@ -51,6 +52,19 @@ function resolveEntityTab(value: string | null): RankingEntityTab {
 function normalizeParam(value: string | null): string {
   const v = (value || "").trim();
   return !v || v.toLowerCase() === "all" ? "" : v;
+}
+
+function parseCsvIds(value: string | null): string[] {
+  if (!value) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of value.split(",")) {
+    const id = part.trim();
+    if (!id || id.toLowerCase() === "all" || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
 }
 
 function deriveScope(filters: RankingFilters): RankingScope {
@@ -106,10 +120,15 @@ export default function RankingHub() {
     }),
     [searchParams]
   );
+  const selectedEvaluationIds = useMemo(() => {
+    const fromMulti = parseCsvIds(searchParams.get("evaluation_ids"));
+    if (fromMulti.length > 0) return fromMulti;
+    return filters.evaluation_id ? [filters.evaluation_id] : [];
+  }, [searchParams, filters.evaluation_id]);
   const turnoFilter = normalizeParam(searchParams.get("turno"));
   const peerPage = Math.max(1, Number(searchParams.get("peer_page") || 1) || 1);
   const hasBaseFilters = Boolean(filters.estado && filters.municipio);
-  const hasEntitySelection = Boolean(filters.evaluation_id || filters.answer_sheet_id);
+  const hasEntitySelection = Boolean(selectedEvaluationIds.length > 0 || filters.answer_sheet_id);
   const hasSchoolFilter = Boolean(filters.escola);
   const derivedScope = deriveScope(filters);
   const requestFilters = useMemo<RankingFilters>(() => ({ ...filters, scope: derivedScope }), [filters, derivedScope]);
@@ -169,8 +188,8 @@ export default function RankingHub() {
   }, [filters.answer_sheet_id, filters.evaluation_id, rankingEntityTab]);
 
   const setFilters = (
-    updates: Partial<Record<keyof RankingFilters | "turno" | "peer_page", string>>,
-    clearKeys: Array<keyof RankingFilters | "turno" | "peer_page"> = []
+    updates: Partial<Record<keyof RankingFilters | "turno" | "peer_page" | "evaluation_ids", string>>,
+    clearKeys: Array<keyof RankingFilters | "turno" | "peer_page" | "evaluation_ids"> = []
   ) => {
     const next = new URLSearchParams(searchParams);
     Object.entries(updates).forEach(([k, v]) => {
@@ -178,6 +197,22 @@ export default function RankingHub() {
       else next.delete(k);
     });
     clearKeys.forEach((k) => next.delete(k));
+    setSearchParams(next, { replace: true });
+  };
+
+  const setSelectedEvaluationIds = (ids: string[]) => {
+    const unique = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+    const next = new URLSearchParams(searchParams);
+    if (unique.length === 0) {
+      next.delete("evaluation_ids");
+      next.delete("evaluation_id");
+    } else {
+      next.set("evaluation_ids", unique.join(","));
+      next.set("evaluation_id", unique[0]);
+    }
+    next.delete("answer_sheet_id");
+    next.delete("disciplina");
+    next.delete("peer_page");
     setSearchParams(next, { replace: true });
   };
 
@@ -381,12 +416,13 @@ export default function RankingHub() {
   }, [filters.turma, turmas]);
 
   const peerRequestFilters = useMemo<ClassPeerRankingFilters | null>(() => {
-    if (!filters.evaluation_id || !filters.municipio) return null;
+    if (selectedEvaluationIds.length === 0 || !filters.municipio) return null;
     const scope = filters.escola ? "escola" : "municipio";
     if (scope === "escola" && !filters.escola) return null;
     return {
       scope,
-      evaluation_id: filters.evaluation_id,
+      evaluation_id: selectedEvaluationIds[0],
+      evaluation_ids: selectedEvaluationIds,
       municipio: filters.municipio,
       ...(filters.escola ? { escola: filters.escola } : {}),
       ...(filters.serie ? { serie: filters.serie } : {}),
@@ -394,7 +430,7 @@ export default function RankingHub() {
       ...(turnoFilter ? { turno: turnoFilter } : {}),
     };
   }, [
-    filters.evaluation_id,
+    selectedEvaluationIds,
     filters.municipio,
     filters.escola,
     filters.serie,
@@ -413,7 +449,9 @@ export default function RankingHub() {
         peerRequestFilters?.serie,
         peerRequestFilters?.turma_nome,
         peerRequestFilters?.turno,
-        peerRequestFilters?.evaluation_id,
+        (peerRequestFilters?.evaluation_ids || [peerRequestFilters?.evaluation_id])
+          .filter(Boolean)
+          .join(","),
         peerPage,
       ] as const,
     [peerRequestFilters, peerPage]
@@ -543,6 +581,7 @@ export default function RankingHub() {
       "periodo",
       "disciplina",
       "evaluation_id",
+      "evaluation_ids",
       "answer_sheet_id",
       "scope",
       "peer_page",
@@ -581,9 +620,12 @@ export default function RankingHub() {
         return;
       }
 
-      const entityTitle = filters.evaluation_id
-        ? evaluationItems.find((item) => item.id === filters.evaluation_id)?.label
-        : answerSheetItems.find((item) => item.id === filters.answer_sheet_id)?.label;
+      const entityTitle =
+        selectedEvaluationIds.length > 0
+          ? selectedEvaluationIds
+              .map((id) => evaluationItems.find((item) => item.id === id)?.label || id)
+              .join(" · ")
+          : answerSheetItems.find((item) => item.id === filters.answer_sheet_id)?.label;
       const disciplinaNome = formatRankingDisciplinaLabel(data, filters);
 
       await generateRankingReportPdf({
@@ -678,7 +720,7 @@ export default function RankingHub() {
               onValueChange={(value) =>
                 setFilters(
                   { estado: value === "all" ? "" : value },
-                  ["municipio", "escola", "serie", "turma", "evaluation_id", "answer_sheet_id", "disciplina"]
+                  ["municipio", "escola", "serie", "turma", "evaluation_id", "evaluation_ids", "answer_sheet_id", "disciplina"]
                 )
               }
             >
@@ -703,7 +745,7 @@ export default function RankingHub() {
               onValueChange={(value) =>
                 setFilters(
                   { municipio: value === "all" ? "" : value },
-                  ["escola", "serie", "turma", "evaluation_id", "answer_sheet_id", "disciplina"]
+                  ["escola", "serie", "turma", "evaluation_id", "evaluation_ids", "answer_sheet_id", "disciplina"]
                 )
               }
               disabled={!filters.estado || loadingFilters.municipios}
@@ -855,31 +897,49 @@ export default function RankingHub() {
           </div>
 
           {rankingEntityTab === "avaliacao" ? (
-            <EvaluationInstrumentPicker
-              id="evaluation_id"
-              label="Avaliação"
-              estado={filters.estado || "all"}
-              municipio={filters.municipio || "all"}
-              escola={filters.escola}
-              periodo={filters.periodo}
-              estadoLabel={estadoNome}
-              municipioLabel={municipioNome}
-              periodoLabel={filters.periodo}
-              value={filters.evaluation_id || "all"}
-              onChange={(value) =>
-                setFilters({
-                  evaluation_id: value === "all" ? "" : value,
-                  answer_sheet_id: "",
-                  disciplina: "",
-                  peer_page: "",
-                })
-              }
-              disabled={!filters.municipio}
-              loading={loadingFilters.avaliacao}
-              allowAll
-              allLabel="Todas as avaliações"
-              placeholder={loadingFilters.avaliacao ? "Carregando avaliações..." : "Selecione a avaliação"}
-            />
+            tab === "ranking-geral" ? (
+              <RelatorioConsolidadoItensPicker
+                label="Avaliações"
+                items={evaluationItems.map((item) => ({ id: item.id, titulo: item.label }))}
+                selected={selectedEvaluationIds}
+                onChange={setSelectedEvaluationIds}
+                disabled={!filters.municipio}
+                loading={loadingFilters.avaliacao}
+                placeholder={
+                  loadingFilters.avaliacao
+                    ? "Carregando avaliações..."
+                    : "Selecione uma ou mais avaliações"
+                }
+                modalTitle="Selecionar avaliações"
+                entityLabel="avaliações"
+                emptyMessage="Nenhuma avaliação encontrada."
+              />
+            ) : (
+              <EvaluationInstrumentPicker
+                id="evaluation_id"
+                label="Avaliação"
+                estado={filters.estado || "all"}
+                municipio={filters.municipio || "all"}
+                escola={filters.escola}
+                periodo={filters.periodo}
+                estadoLabel={estadoNome}
+                municipioLabel={municipioNome}
+                periodoLabel={filters.periodo}
+                value={filters.evaluation_id || "all"}
+                onChange={(value) => {
+                  if (value === "all" || !value) {
+                    setSelectedEvaluationIds([]);
+                    return;
+                  }
+                  setSelectedEvaluationIds([value]);
+                }}
+                disabled={!filters.municipio}
+                loading={loadingFilters.avaliacao}
+                allowAll
+                allLabel="Todas as avaliações"
+                placeholder={loadingFilters.avaliacao ? "Carregando avaliações..." : "Selecione a avaliação"}
+              />
+            )
           ) : (
             <EvaluationInstrumentPicker
               id="answer_sheet_id"
@@ -894,11 +954,14 @@ export default function RankingHub() {
               periodoLabel={filters.periodo}
               value={filters.answer_sheet_id || "all"}
               onChange={(value) =>
-                setFilters({
-                  answer_sheet_id: value === "all" ? "" : value,
-                  evaluation_id: "",
-                  disciplina: "",
-                })
+                setFilters(
+                  {
+                    answer_sheet_id: value === "all" ? "" : value,
+                    evaluation_id: "",
+                    disciplina: "",
+                  },
+                  ["evaluation_ids"]
+                )
               }
               disabled={!filters.municipio}
               loading={loadingFilters.cartao}
@@ -1102,10 +1165,10 @@ export default function RankingHub() {
           </div>
         ) : tab === "ranking-geral" ? (
           <TabsContent value="ranking-geral" className="mt-6">
-            {!filters.evaluation_id ? (
+            {!selectedEvaluationIds.length ? (
               <Card className="border border-dashed border-border/70">
                 <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                  Selecione uma avaliação online (aba Avaliação) para exibir o relatório de ranking geral.
+                  Selecione uma ou mais avaliações online (aba Avaliação) para exibir o relatório de ranking geral.
                   Cartão-resposta não é suportado nesta aba.
                 </CardContent>
               </Card>

@@ -302,9 +302,17 @@ export default function ClassPeerRankingPanel({
   return (
     <RankingContentShell isRefreshing={isRefreshing} refreshingMessage="Atualizando ranking geral...">
       <div className="space-y-6">
-        {data?.evaluation_title ? (
+        {data?.evaluation_title || (data?.evaluations && data.evaluations.length > 0) ? (
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">{data.evaluation_title}</span>
+            <span className="font-medium text-foreground">
+              {data.evaluation_title ||
+                data.evaluations?.map((item) => item.title).filter(Boolean).join(" · ")}
+            </span>
+            {(data.evaluation_ids?.length || data.evaluations?.length || 0) > 1 ? (
+              <Badge variant="secondary" className="text-xs">
+                {data.evaluation_ids?.length || data.evaluations?.length} avaliações
+              </Badge>
+            ) : null}
             <span>·</span>
             <span>
               {data.totals?.sections_count ?? sections.length} série
