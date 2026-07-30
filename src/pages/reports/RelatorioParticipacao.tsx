@@ -82,8 +82,8 @@ type FilterOption = ParticipationFilterEntity;
 
 function formatPercent(value: number): string {
   return `${value.toLocaleString('pt-BR', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
   })}%`;
 }
 
@@ -179,6 +179,44 @@ export default function RelatorioParticipacao({
       { name: 'Participaram', value: avaliados, fill: PIE_COLORS.participaram },
       { name: 'Não participaram', value: naoAvaliados, fill: PIE_COLORS.naoParticiparam },
     ].filter((item) => item.value > 0);
+  }, [report]);
+
+  const turmasAgrupadasPorEscola = useMemo(() => {
+    if (!report) return [];
+
+    const turmasByEscola = new Map<string, typeof report.por_turma>();
+    for (const turma of report.por_turma) {
+      const list = turmasByEscola.get(turma.escola_id);
+      if (list) list.push(turma);
+      else turmasByEscola.set(turma.escola_id, [turma]);
+    }
+
+    const ordered: Array<{
+      escola_id: string;
+      escola_nome: string;
+      turmas: typeof report.por_turma;
+    }> = [];
+
+    for (const escola of report.por_escola) {
+      const turmas = turmasByEscola.get(escola.escola_id);
+      if (!turmas?.length) continue;
+      ordered.push({
+        escola_id: escola.escola_id,
+        escola_nome: escola.escola_nome,
+        turmas,
+      });
+      turmasByEscola.delete(escola.escola_id);
+    }
+
+    for (const [escola_id, turmas] of turmasByEscola) {
+      ordered.push({
+        escola_id,
+        escola_nome: '—',
+        turmas,
+      });
+    }
+
+    return ordered;
   }, [report]);
 
   const pdfFilterLabels = useMemo(() => {
@@ -1105,6 +1143,7 @@ export default function RelatorioParticipacao({
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>Escola</TableHead>
                       <TableHead>Turma</TableHead>
                       <TableHead className="text-right">Matriculados</TableHead>
                       <TableHead className="text-right">Avaliados</TableHead>
@@ -1112,20 +1151,30 @@ export default function RelatorioParticipacao({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {report.por_turma.map((row) => (
-                      <TableRow key={row.turma_id}>
-                        <TableCell className="font-medium">{row.turma_nome}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatNumber(row.matriculados)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatNumber(row.avaliados)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatPercent(row.percentual_participacao)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {turmasAgrupadasPorEscola.flatMap((grupo) =>
+                      grupo.turmas.map((row, idx) => (
+                        <TableRow key={row.turma_id}>
+                          {idx === 0 ? (
+                            <TableCell
+                              className="font-medium align-middle"
+                              rowSpan={grupo.turmas.length}
+                            >
+                              {grupo.escola_nome}
+                            </TableCell>
+                          ) : null}
+                          <TableCell>{row.turma_nome}</TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatNumber(row.matriculados)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatNumber(row.avaliados)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatPercent(row.percentual_participacao)}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
                   </TableBody>
                 </Table>
               )}

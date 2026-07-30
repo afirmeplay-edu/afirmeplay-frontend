@@ -49,8 +49,8 @@ function formatNumber(value: number): string {
 
 function formatPercent(value: number): string {
   return `${Number(value || 0).toLocaleString('pt-BR', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
   })}%`;
 }
 
@@ -550,18 +550,57 @@ export async function generateParticipationReportPdf(opts: {
 
   y = ensureSpace(doc, y, 30, bandTitle);
   y = drawSectionTitle(doc, y, pageW, 'Por turma', bandTitle);
+
+  const turmasByEscola = new Map<string, typeof report.por_turma>();
+  for (const turma of report.por_turma) {
+    const list = turmasByEscola.get(turma.escola_id);
+    if (list) list.push(turma);
+    else turmasByEscola.set(turma.escola_id, [turma]);
+  }
+
+  const turmasAgrupadas: Array<{
+    escola_nome: string;
+    turmas: typeof report.por_turma;
+  }> = [];
+  for (const escola of report.por_escola) {
+    const turmas = turmasByEscola.get(escola.escola_id);
+    if (!turmas?.length) continue;
+    turmasAgrupadas.push({ escola_nome: escola.escola_nome, turmas });
+    turmasByEscola.delete(escola.escola_id);
+  }
+  for (const [, turmas] of turmasByEscola) {
+    turmasAgrupadas.push({ escola_nome: '—', turmas });
+  }
+
+  const turmaBody =
+    report.por_turma.length > 0
+      ? turmasAgrupadas.flatMap((grupo) =>
+          grupo.turmas.map((row, idx) => {
+            const cells: Array<
+              string | { content: string; rowSpan: number; styles?: { valign: string } }
+            > = [];
+            if (idx === 0) {
+              cells.push({
+                content: grupo.escola_nome || '—',
+                rowSpan: grupo.turmas.length,
+                styles: { valign: 'middle' },
+              });
+            }
+            cells.push(
+              row.turma_nome || '—',
+              formatNumber(row.matriculados),
+              formatNumber(row.avaliados),
+              formatPercent(row.percentual_participacao)
+            );
+            return cells;
+          })
+        )
+      : [['Nenhuma turma no escopo', '—', '—', '—', '—']];
+
   autoTable(doc, {
     startY: y,
-    head: [['Turma', 'Matriculados', 'Avaliados', 'Participação']],
-    body:
-      report.por_turma.length > 0
-        ? report.por_turma.map((row) => [
-            row.turma_nome || '—',
-            formatNumber(row.matriculados),
-            formatNumber(row.avaliados),
-            formatPercent(row.percentual_participacao),
-          ])
-        : [['Nenhuma turma no escopo', '—', '—', '—']],
+    head: [['Escola', 'Turma', 'Matriculados', 'Avaliados', 'Participação']],
+    body: turmaBody,
     theme: 'grid',
     margin: { left: MARGIN, right: MARGIN },
     styles: {
@@ -579,10 +618,11 @@ export async function generateParticipationReportPdf(opts: {
       halign: 'center',
     },
     columnStyles: {
-      0: { cellWidth: 100, halign: 'left' },
-      1: { cellWidth: 30, halign: 'right' },
-      2: { cellWidth: 28, halign: 'right' },
-      3: { cellWidth: 28, halign: 'right' },
+      0: { cellWidth: 62, halign: 'left' },
+      1: { cellWidth: 42, halign: 'left' },
+      2: { cellWidth: 26, halign: 'right' },
+      3: { cellWidth: 24, halign: 'right' },
+      4: { cellWidth: 26, halign: 'right' },
     },
     alternateRowStyles: { fillColor: C.bgLight },
   });
