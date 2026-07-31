@@ -332,6 +332,62 @@ export class RankingApiService {
     return this.getRanking({ rankingType: "teachers", filters, page, perPage });
   }
 
+  /**
+   * Busca o ranking peer paginando até reunir todos os alunos de cada grupo.
+   * Usado na exportação PDF (a UI usa páginas menores).
+   */
+  static async getAllClassesPeerRanking(
+    filters: ClassPeerRankingFilters
+  ): Promise<ClassPeerRankingResponse> {
+    const perPage = 100;
+    const first = await this.getClassesPeerRanking(filters, 1, perPage);
+    const maxPages = Math.max(
+      1,
+      ...first.sections.flatMap((section) =>
+        (section.peer_groups || []).map((group) => Number(group.students_pagination?.total_pages || 1))
+      )
+    );
+    if (maxPages <= 1) return first;
+
+    const byPeerKey = new Map<string, ClassPeerStudentRankingItem[]>();
+    for (const section of first.sections) {
+      for (const group of section.peer_groups || []) {
+        byPeerKey.set(group.peer_key, [...(group.student_ranking || [])]);
+      }
+    }
+
+    for (let page = 2; page <= maxPages; page += 1) {
+      const next = await this.getClassesPeerRanking(filters, page, perPage);
+      for (const section of next.sections) {
+        for (const group of section.peer_groups || []) {
+          const current = byPeerKey.get(group.peer_key) || [];
+          byPeerKey.set(group.peer_key, current.concat(group.student_ranking || []));
+        }
+      }
+    }
+
+    return {
+      ...first,
+      sections: first.sections.map((section) => ({
+        ...section,
+        peer_groups: (section.peer_groups || []).map((group) => {
+          const allStudents = byPeerKey.get(group.peer_key) || group.student_ranking || [];
+          const total = Number(group.students_pagination?.total || allStudents.length);
+          return {
+            ...group,
+            student_ranking: allStudents,
+            students_pagination: {
+              page: 1,
+              per_page: Math.max(allStudents.length, 1),
+              total,
+              total_pages: 1,
+            },
+          };
+        }),
+      })),
+    };
+  }
+
   static async getClassesPeerRanking(
     filters: ClassPeerRankingFilters,
     page = 1,

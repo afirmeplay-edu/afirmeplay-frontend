@@ -20,7 +20,7 @@ import {
   type RankingFilters,
   type RankingScope,
 } from "@/services/reports/rankingApi";
-import { formatRankingDisciplinaLabel, generateRankingReportPdf } from "@/services/reports/rankingPdf";
+import { formatRankingDisciplinaLabel, generateClassPeerRankingPdf, generateRankingReportPdf } from "@/services/reports/rankingPdf";
 import { useToast } from "@/hooks/use-toast";
 import { RankingTeachersPanel } from "@/components/ranking/RankingTeachersPanel";
 import RankingOverviewPanel from "@/components/ranking/RankingOverviewPanel";
@@ -591,8 +591,6 @@ export default function RankingHub() {
 
   const handleExportPdf = async () => {
     try {
-      const data = rankingQuery.data;
-
       if (!hasBaseFilters) {
         toast({
           title: "Filtros obrigatórios",
@@ -611,6 +609,50 @@ export default function RankingHub() {
         return;
       }
 
+      const entityTitle =
+        selectedEvaluationIds.length > 0
+          ? selectedEvaluationIds
+              .map((id) => evaluationItems.find((item) => item.id === id)?.label || id)
+              .join(" · ")
+          : answerSheetItems.find((item) => item.id === filters.answer_sheet_id)?.label;
+
+      // Aba ranking-geral: exporta turmas + alunos do peer ranking (mesma fonte da tela).
+      if (tab === "ranking-geral") {
+        if (!peerRequestFilters) {
+          toast({
+            title: "Avaliação obrigatória",
+            description: "Selecione ao menos uma avaliação para exportar o ranking geral de alunos.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const peerData = await RankingApiService.getAllClassesPeerRanking(peerRequestFilters);
+        await generateClassPeerRankingPdf({
+          data: peerData,
+          filterLabels: {
+            estado: estadoNome || "Todos",
+            municipio: municipioNome || "Todos",
+            escola: escolaNome || "Todas",
+            serie: serieNome || "Todas",
+            turma: turmaNome || "Todas",
+            turno: turnoFilter
+              ? CLASS_SHIFT_OPTIONS.find((item) => item.value === turnoFilter)?.label || turnoFilter
+              : "Todos",
+            avaliacao: entityTitle || "—",
+          },
+          cityId: filters.municipio || null,
+          fileNameBase: "ranking-geral-turmas-alunos",
+        });
+        toast({
+          title: "PDF gerado",
+          description: "O relatório de ranking geral (turmas e alunos) foi exportado com sucesso.",
+        });
+        return;
+      }
+
+      const data = rankingQuery.data;
+
       if (!data) {
         toast({
           title: "Sem dados para exportar",
@@ -620,12 +662,6 @@ export default function RankingHub() {
         return;
       }
 
-      const entityTitle =
-        selectedEvaluationIds.length > 0
-          ? selectedEvaluationIds
-              .map((id) => evaluationItems.find((item) => item.id === id)?.label || id)
-              .join(" · ")
-          : answerSheetItems.find((item) => item.id === filters.answer_sheet_id)?.label;
       const disciplinaNome = formatRankingDisciplinaLabel(data, filters);
 
       await generateRankingReportPdf({
@@ -1079,9 +1115,14 @@ export default function RankingHub() {
             <Button
               type="button"
               onClick={handleExportPdf}
-              disabled={!hasEntitySelection || rankingInitialLoading}
+              disabled={
+                !hasEntitySelection ||
+                (tab === "ranking-geral"
+                  ? selectedEvaluationIds.length === 0 || peerRankingInitialLoading
+                  : rankingInitialLoading)
+              }
             >
-              {rankingInitialLoading ? (
+              {(tab === "ranking-geral" ? peerRankingInitialLoading : rankingInitialLoading) ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
               ) : (
                 <Download className="mr-2 h-4 w-4" />
