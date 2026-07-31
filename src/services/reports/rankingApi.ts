@@ -434,6 +434,7 @@ export interface ClassPeerStudentRankingItem {
   name?: string;
   school_id?: string;
   school_name?: string;
+  school_display_name?: string;
   class_id?: string;
   class_name?: string;
   shift?: string;
@@ -441,9 +442,12 @@ export interface ClassPeerStudentRankingItem {
   proficiency?: number;
   classification?: string;
   correct_answers?: number;
+  raw_correct_answers?: number;
   total_questions?: number;
   accuracy_rate?: number;
   subjects?: ClassPeerSubjectMetrics[];
+  source_evaluation_id?: string;
+  course_name?: string;
 }
 
 export interface ClassPeerGroup {
