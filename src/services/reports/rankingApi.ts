@@ -332,6 +332,62 @@ export class RankingApiService {
     return this.getRanking({ rankingType: "teachers", filters, page, perPage });
   }
 
+  /**
+   * Busca o ranking peer paginando até reunir todos os alunos de cada grupo.
+   * Usado na exportação PDF (a UI usa páginas menores).
+   */
+  static async getAllClassesPeerRanking(
+    filters: ClassPeerRankingFilters
+  ): Promise<ClassPeerRankingResponse> {
+    const perPage = 100;
+    const first = await this.getClassesPeerRanking(filters, 1, perPage);
+    const maxPages = Math.max(
+      1,
+      ...first.sections.flatMap((section) =>
+        (section.peer_groups || []).map((group) => Number(group.students_pagination?.total_pages || 1))
+      )
+    );
+    if (maxPages <= 1) return first;
+
+    const byPeerKey = new Map<string, ClassPeerStudentRankingItem[]>();
+    for (const section of first.sections) {
+      for (const group of section.peer_groups || []) {
+        byPeerKey.set(group.peer_key, [...(group.student_ranking || [])]);
+      }
+    }
+
+    for (let page = 2; page <= maxPages; page += 1) {
+      const next = await this.getClassesPeerRanking(filters, page, perPage);
+      for (const section of next.sections) {
+        for (const group of section.peer_groups || []) {
+          const current = byPeerKey.get(group.peer_key) || [];
+          byPeerKey.set(group.peer_key, current.concat(group.student_ranking || []));
+        }
+      }
+    }
+
+    return {
+      ...first,
+      sections: first.sections.map((section) => ({
+        ...section,
+        peer_groups: (section.peer_groups || []).map((group) => {
+          const allStudents = byPeerKey.get(group.peer_key) || group.student_ranking || [];
+          const total = Number(group.students_pagination?.total || allStudents.length);
+          return {
+            ...group,
+            student_ranking: allStudents,
+            students_pagination: {
+              page: 1,
+              per_page: Math.max(allStudents.length, 1),
+              total,
+              total_pages: 1,
+            },
+          };
+        }),
+      })),
+    };
+  }
+
   static async getClassesPeerRanking(
     filters: ClassPeerRankingFilters,
     page = 1,
@@ -382,6 +438,87 @@ export class RankingApiService {
 
     const response = await api.get<ClassPeerRankingResponse>("/ranking/classes-peer", { params });
     return response.data;
+  }
+
+  static async getConsolidatedGeneralRanking(
+    filters: ClassPeerRankingFilters,
+    page = 1,
+    perPage = 20
+  ): Promise<ConsolidatedGeneralRankingResponse> {
+    const scope = filters.scope === "escola" ? "escola" : "municipio";
+    const evaluationIds = Array.from(
+      new Set(
+        (filters.evaluation_ids?.length
+          ? filters.evaluation_ids
+          : [filters.evaluation_id]
+        )
+          .map((id) => String(id || "").trim())
+          .filter(Boolean)
+      )
+    );
+    if (evaluationIds.length === 0) {
+      throw new Error("Selecione ao menos uma avaliação para consultar o ranking geral.");
+    }
+    if (scope === "municipio" && !String(filters.municipio || "").trim()) {
+      throw new Error("Selecione o município para consultar o ranking geral.");
+    }
+    if (scope === "escola" && !String(filters.escola || "").trim()) {
+      throw new Error("Selecione a escola para consultar o ranking por escola.");
+    }
+
+    const params: Record<string, string | number> = {
+      scope,
+      evaluation_id: evaluationIds[0],
+      evaluation_ids: evaluationIds.join(","),
+      page,
+      per_page: perPage,
+    };
+
+    const optionalKeys: Array<keyof ClassPeerRankingFilters> = [
+      "municipio",
+      "escola",
+      "serie",
+      "turma_nome",
+      "turno",
+    ];
+    for (const key of optionalKeys) {
+      const value = String(filters[key] || "").trim();
+      if (value && value.toLowerCase() !== "all") {
+        params[key] = value;
+      }
+    }
+
+    const response = await api.get<ConsolidatedGeneralRankingResponse>("/ranking/geral", { params });
+    return response.data;
+  }
+
+  /** Busca todas as páginas do ranking geral consolidado (exportação PDF). */
+  static async getAllConsolidatedGeneralRanking(
+    filters: ClassPeerRankingFilters
+  ): Promise<ConsolidatedGeneralRankingResponse> {
+    const perPage = 100;
+    const first = await this.getConsolidatedGeneralRanking(filters, 1, perPage);
+    const totalPages = Math.max(1, Number(first.pagination?.total_pages || 1));
+    if (totalPages <= 1) return first;
+
+    const students = [...(first.students || [])];
+    for (let page = 2; page <= totalPages; page += 1) {
+      const next = await this.getConsolidatedGeneralRanking(filters, page, perPage);
+      students.push(...(next.students || []));
+    }
+
+    const total = Number(first.pagination?.total || students.length);
+    return {
+      ...first,
+      students,
+      pagination: {
+        page: 1,
+        per_page: total,
+        total,
+        total_pages: 1,
+      },
+      totals: { students_count: total },
+    };
   }
 }
 
@@ -434,16 +571,23 @@ export interface ClassPeerStudentRankingItem {
   name?: string;
   school_id?: string;
   school_name?: string;
+  school_display_name?: string;
   class_id?: string;
   class_name?: string;
   shift?: string;
+  serie_id?: string;
+  serie_name?: string;
+  category?: string;
   grade?: number;
   proficiency?: number;
   classification?: string;
   correct_answers?: number;
+  raw_correct_answers?: number;
   total_questions?: number;
   accuracy_rate?: number;
   subjects?: ClassPeerSubjectMetrics[];
+  source_evaluation_id?: string;
+  course_name?: string;
 }
 
 export interface ClassPeerGroup {
@@ -497,6 +641,37 @@ export interface ClassPeerRankingResponse {
   totals?: {
     sections_count?: number;
     peer_groups_count?: number;
+    students_count?: number;
+  };
+}
+
+/** Ranking Geral consolidado (lista única de alunos). */
+export interface ConsolidatedGeneralRankingResponse {
+  evaluation_id: string;
+  evaluation_ids?: string[];
+  evaluation_title?: string;
+  evaluations?: Array<{ id: string; title?: string }>;
+  scope: ClassPeerScope | string;
+  filters: {
+    municipio?: string | null;
+    escola?: string | null;
+    serie?: string | null;
+    turma_nome?: string | null;
+    turno?: string | null;
+  };
+  resolved_scope?: {
+    scope?: string;
+    city_id?: string | null;
+    school_ids?: string[];
+  };
+  students: ClassPeerStudentRankingItem[];
+  pagination: {
+    page: number;
+    per_page: number;
+    total: number;
+    total_pages: number;
+  };
+  totals?: {
     students_count?: number;
   };
 }

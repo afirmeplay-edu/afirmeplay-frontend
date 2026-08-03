@@ -55,6 +55,7 @@ const RelatoriosRelatorioEscolarHub = React.lazy(() => import("@/pages/reports/R
 const RelatoriosRelatorioGeralHub = React.lazy(() => import("@/pages/reports/RelatoriosRelatorioGeralHub"));
 const RelatoriosResultadosHub = React.lazy(() => import("@/pages/reports/RelatoriosResultadosHub"));
 const RankingHub = React.lazy(() => import("@/pages/reports/RankingHub"));
+const RankingGeral = React.lazy(() => import("@/pages/reports/RankingGeral"));
 const RelatoriosParticipacaoHub = React.lazy(() => import("@/pages/reports/RelatoriosParticipacaoHub"));
 const RelatorioApresentacao19Slides = React.lazy(() => import("@/pages/reports/RelatorioApresentacao19Slides"));
 const InseAvaliacaoReport = React.lazy(() => import("@/pages/reports/InseAvaliacaoReport"));
@@ -482,6 +483,7 @@ const App = () => {
                 }
               />
               <Route path="/app/relatorios/ranking" element={<PrivateRoute><RankingHub /></PrivateRoute>} />
+              <Route path="/app/relatorios/ranking-geral" element={<PrivateRoute><RankingGeral /></PrivateRoute>} />
               <Route path="/app/relatorios/participacao" element={<PrivateRoute><RelatoriosParticipacaoHub /></PrivateRoute>} />
               <Route
                 path="/app/ranking"

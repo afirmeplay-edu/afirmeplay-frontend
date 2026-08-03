@@ -6,7 +6,13 @@
 import { jsPDF } from 'jspdf';
 import type { UserOptions } from 'jspdf-autotable';
 import { loadCityBrandingForReportPdf } from '@/utils/pdfCityBranding';
-import type { RankingFilters, RankingResponse, RankingType } from '@/services/reports/rankingApi';
+import type {
+  ClassPeerRankingResponse,
+  ConsolidatedGeneralRankingResponse,
+  RankingFilters,
+  RankingResponse,
+  RankingType,
+} from '@/services/reports/rankingApi';
 import {
   normalizeProficiencyLevelLabel,
   type ReportProficiencyLabel,
@@ -1525,6 +1531,79 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
       }
     );
 
+    const studentCourseSections = data.general_rankings?.students_by_course?.sections || [];
+    const showStudentsByCourse = data.general_rankings?.visibility?.students_by_course !== false;
+    const isModernGeneralReport = Boolean(
+      data.overview || data.school_class_ranking || data.teachers_top
+    );
+    if (isModernGeneralReport && showStudentsByCourse) {
+      nextSection('Ranking de alunos', 'Classificação por curso, ordenada por proficiência');
+      if (studentCourseSections.length === 0) {
+        drawSectionTitleKeepingTable('Ranking de alunos', 1);
+        renderTable(
+          [['Pos.', 'Aluno', 'Escola', 'Série', 'Turma', 'Turno', 'Nota', 'Proficiência', 'Nível']],
+          [],
+          {
+            0: { cellWidth: 12, halign: 'center' },
+            1: { cellWidth: 28, halign: 'left' },
+            2: { cellWidth: 44, halign: 'left' },
+            3: { cellWidth: 12, halign: 'left' },
+            4: { cellWidth: 12, halign: 'left' },
+            5: { cellWidth: 14, halign: 'left' },
+            6: { cellWidth: 12, halign: 'right' },
+            7: { cellWidth: 18, halign: 'right' },
+            8: { cellWidth: 22, halign: 'center' },
+          },
+          8,
+          undefined,
+          {
+            caption: 'Tabela — Ranking de alunos',
+            legend: ['Sem alunos participantes para os filtros aplicados.'],
+          }
+        );
+      } else {
+        for (const section of studentCourseSections) {
+          const items = section.items || [];
+          drawSectionTitleKeepingTable(
+            `Ranking de alunos - ${String(section.course_label || 'Curso')}`,
+            Math.min(3, items.length || 1)
+          );
+          const studentsBody = items.map((r) => [
+            Number(r.position || 0),
+            String(r.name || '—'),
+            String(r.school_name || '—'),
+            String(r.serie || '—'),
+            String(r.class_name || '—'),
+            formatShiftCell(r.shift),
+            Number(r.average_score || 0).toFixed(2),
+            Number((r.average_proficiency ?? r.average_score) || 0).toFixed(2),
+            String(r.classification || '—'),
+          ]);
+          renderTable(
+            [['Pos.', 'Aluno', 'Escola', 'Série', 'Turma', 'Turno', 'Nota', 'Proficiência', 'Nível']],
+            studentsBody,
+            {
+              0: { cellWidth: 12, halign: 'center' },
+              1: { cellWidth: 28, halign: 'left' },
+              2: { cellWidth: 44, halign: 'left' },
+              3: { cellWidth: 12, halign: 'left' },
+              4: { cellWidth: 12, halign: 'left' },
+              5: { cellWidth: 14, halign: 'left' },
+              6: { cellWidth: 12, halign: 'right' },
+              7: { cellWidth: 18, halign: 'right' },
+              8: { cellWidth: 22, halign: 'center' },
+            },
+            8,
+            undefined,
+            {
+              caption: `Tabela — Alunos (${String(section.course_label || 'Curso')})`,
+              legend: ['Ordenação por proficiência decrescente dentro do curso.'],
+            }
+          );
+        }
+      }
+    }
+
     if (page2IndexY > 0 && sectionIndexEntries.length > 0) {
       doc.setPage(2);
       drawReportIndex(doc, margin, pageW, page2IndexY, sectionIndexEntries);
@@ -1725,5 +1804,341 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
 
   addFootersAllPages(doc);
   const base = (opts.fileNameBase || `ranking-${rankingType}`).replace(/\s+/g, '-').toLowerCase();
+  doc.save(`${base}-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+export type ClassPeerRankingPdfFilterLabels = {
+  estado?: string;
+  municipio?: string;
+  escola?: string;
+  serie?: string;
+  turma?: string;
+  turno?: string;
+  avaliacao?: string;
+};
+
+/** PDF da aba Relatório de ranking geral (turmas + alunos peer). */
+export async function generateClassPeerRankingPdf(opts: {
+  data: ClassPeerRankingResponse;
+  filterLabels?: ClassPeerRankingPdfFilterLabels;
+  fileNameBase?: string;
+  cityId?: string | null;
+}): Promise<void> {
+  const { data } = opts;
+  const labels = opts.filterLabels || {};
+  const estadoLabel = String(labels.estado || 'Todos');
+  const municipioLabel = String(labels.municipio || 'Todos');
+  const escolaLabel = String(labels.escola || 'Todas');
+  const serieLabel = String(labels.serie || 'Todas');
+  const turmaLabel = String(labels.turma || 'Todas');
+  const turnoLabel = String(labels.turno || 'Todos');
+  const avaliacaoLabel = String(
+    labels.avaliacao || data.evaluation_title || data.evaluation_id || '—'
+  );
+  const allSchoolsReport = isAllSchoolsRankingReport(escolaLabel);
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const cardLines: Array<{ label: string; value: string }> = [
+    { label: 'AVALIAÇÃO', value: avaliacaoLabel },
+    { label: 'TIPO', value: 'Ranking geral de turmas e alunos' },
+    { label: 'ESCOPO', value: String(data.scope || 'municipio') },
+    { label: 'ESTADO', value: estadoLabel },
+    { label: 'MUNICÍPIO', value: municipioLabel },
+    { label: 'ESCOLA', value: escolaLabel },
+  ];
+  if (!allSchoolsReport) {
+    cardLines.push(
+      { label: 'SÉRIE', value: serieLabel },
+      { label: 'TURMA', value: turmaLabel },
+      { label: 'TURNO', value: turnoLabel }
+    );
+  }
+
+  await addRankingCoverPage(
+    doc,
+    'RANKING DE DESEMPENHO',
+    'RELATÓRIO DE RANKING GERAL',
+    'RANKING',
+    'Turmas e alunos por grupo (série/turno)',
+    cardLines,
+    opts.cityId ?? resolveRankingCityId(String(data.filters?.municipio || labels.municipio || ''))
+  );
+
+  doc.addPage();
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 15;
+  let y = 16;
+  y = drawClassificationLegend(doc, margin, pageW, y + 2);
+
+  const autoTable = (await import('jspdf-autotable')).default;
+  const docWithTable = doc as jsPDF & { lastAutoTable?: { finalY?: number } };
+
+  const drawSectionTitle = (title: string) => {
+    y = ensurePageSpace(doc, y, 16, margin);
+    doc.setFontSize(10.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...C.textDark);
+    const lines = doc.splitTextToSize(title, pageW - margin * 2) as string[];
+    doc.text(lines, margin, y);
+    y += lines.length * 4.6 + 2;
+    doc.setDrawColor(...C.borderLight);
+    doc.setLineWidth(0.25);
+    doc.line(margin, y, pageW - margin, y);
+    y += 4;
+  };
+
+  const renderTable = (
+    head: string[][],
+    body: Array<Array<string | number>>,
+    columnStyles: Record<number, unknown>,
+    levelColumnIndex?: number
+  ) => {
+    const emptyBody = [['—', 'Sem dados para os filtros selecionados']];
+    y = ensurePageSpace(doc, y, estimateTableStartHeight(body.length > 0 ? body.length : 1), margin);
+    autoTable(doc, {
+      startY: y,
+      head,
+      body: body.length > 0 ? body : emptyBody,
+      theme: 'striped',
+      margin: { left: margin, right: margin, bottom: 18 },
+      tableWidth: pageW - margin * 2,
+      headStyles: {
+        fillColor: C.primary,
+        textColor: C.white,
+        fontStyle: 'bold',
+        fontSize: 8.2,
+        halign: 'center',
+        cellPadding: { top: 3, bottom: 3, left: 1.8, right: 1.8 },
+      },
+      bodyStyles: {
+        fontSize: 7.4,
+        textColor: C.textDark,
+        lineColor: C.borderLight,
+        lineWidth: 0.12,
+        cellPadding: { top: 2.4, bottom: 2.4, left: 1.8, right: 1.8 },
+      },
+      alternateRowStyles: { fillColor: [253, 252, 254] as [number, number, number] },
+      styles: { overflow: 'linebreak' },
+      didParseCell(hookData) {
+        if (body.length === 0 && hookData.section === 'body') {
+          hookData.cell.styles.fontStyle = 'italic';
+          hookData.cell.styles.textColor = C.textGray;
+        }
+        if (hookData.section !== 'body' || body.length === 0) return;
+        const col = hookData.column.index;
+        if (col === 0) {
+          const pos = Number(hookData.cell.raw ?? 0);
+          const highlight = positionHighlight(pos);
+          if (highlight) {
+            hookData.cell.styles.fillColor = highlight.fill;
+            hookData.cell.styles.textColor = highlight.text;
+            hookData.cell.styles.fontStyle = 'bold';
+            hookData.cell.styles.halign = 'center';
+          }
+        }
+        if (levelColumnIndex === undefined || col !== levelColumnIndex) return;
+        const rawLevel = String(hookData.cell.raw ?? '').trim();
+        if (!['Abaixo do Básico', 'Básico', 'Adequado', 'Avançado'].includes(rawLevel)) return;
+        const level = normalizeProficiencyLevelLabel(rawLevel);
+        const { fill, text } = proficiencyTagStyles(level);
+        hookData.cell.styles.fillColor = fill;
+        hookData.cell.styles.textColor = text;
+        hookData.cell.styles.fontStyle = 'bold';
+      },
+      columnStyles,
+    });
+    y = (docWithTable.lastAutoTable?.finalY || y) + 6;
+  };
+
+  const sections = data.sections || [];
+  if (sections.length === 0) {
+    drawSectionTitle('Ranking geral');
+    renderTable([['Pos.', 'Descrição']], [], { 0: { cellWidth: 14 }, 1: { cellWidth: 150 } });
+  }
+
+  for (const section of sections) {
+    const serieName = String(section.serie_name || 'Série');
+    drawSectionTitle(serieName);
+
+    for (const group of section.peer_groups || []) {
+      const turmaNome = String(group.turma_nome || 'Turma');
+      const shiftLabel = formatShiftCell(group.shift);
+      const groupTitle = `${turmaNome}${shiftLabel && shiftLabel !== '—' ? ` · ${shiftLabel}` : ''}`;
+
+      y = ensureSectionWithTableSpace(doc, y, margin, Math.min(3, (group.class_ranking || []).length || 1));
+      doc.setFontSize(9.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...C.primary);
+      doc.text(`Ranking de turmas — ${groupTitle}`, margin, y);
+      y += 5;
+
+      const classBody = (group.class_ranking || []).map((row) => [
+        Number(row.position || 0),
+        String(row.school_name || '—'),
+        String(row.class_name || group.turma_nome || '—'),
+        formatShiftCell(row.shift || group.shift),
+        fmtPtNum(row.average_proficiency),
+        fmtPtNum(row.average_score),
+        String(Number(row.participating_students || 0)),
+        String(row.classification || '—'),
+      ]);
+      renderTable(
+        [['Pos.', 'Escola', 'Turma', 'Turno', 'Proficiência', 'Nota', 'Alunos', 'Nível']],
+        classBody,
+        {
+          0: { cellWidth: 11, halign: 'center' },
+          1: { cellWidth: 48, halign: 'left' },
+          2: { cellWidth: 18, halign: 'left' },
+          3: { cellWidth: 16, halign: 'left' },
+          4: { cellWidth: 20, halign: 'right' },
+          5: { cellWidth: 14, halign: 'right' },
+          6: { cellWidth: 14, halign: 'center' },
+          7: { cellWidth: 24, halign: 'center' },
+        },
+        7
+      );
+
+      y = ensureSectionWithTableSpace(doc, y, margin, Math.min(3, (group.student_ranking || []).length || 1));
+      doc.setFontSize(9.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...C.primary);
+      doc.text(`Ranking de alunos — ${groupTitle}`, margin, y);
+      y += 5;
+
+      const studentBody = (group.student_ranking || []).map((row) => {
+        const correct = Number(row.correct_answers || 0);
+        const totalQ = Number(row.total_questions || 0);
+        const accuracy =
+          row.accuracy_rate != null
+            ? ` (${fmtPtNum(row.accuracy_rate)}%)`
+            : totalQ > 0
+              ? ` (${fmtPtNum((correct / totalQ) * 100)}%)`
+              : '';
+        return [
+          Number(row.position || 0),
+          String(row.name || '—'),
+          String(row.school_display_name || row.school_name || '—'),
+          `${String(row.class_name || group.turma_nome || '—')}${
+            row.shift ? ` · ${formatShiftCell(row.shift)}` : ''
+          }`,
+          fmtPtNum(row.proficiency),
+          fmtPtNum(row.grade),
+          `${correct}/${totalQ}${accuracy}`,
+          String(row.classification || '—'),
+        ];
+      });
+      renderTable(
+        [['Pos.', 'Aluno', 'Escola', 'Turma', 'Proficiência', 'Nota', 'Acertos', 'Nível']],
+        studentBody,
+        {
+          0: { cellWidth: 11, halign: 'center' },
+          1: { cellWidth: 36, halign: 'left' },
+          2: { cellWidth: 40, halign: 'left' },
+          3: { cellWidth: 22, halign: 'left' },
+          4: { cellWidth: 18, halign: 'right' },
+          5: { cellWidth: 12, halign: 'right' },
+          6: { cellWidth: 22, halign: 'right' },
+          7: { cellWidth: 22, halign: 'center' },
+        },
+        7
+      );
+    }
+  }
+
+  addFootersAllPages(doc);
+  const base = (opts.fileNameBase || 'ranking-geral-turmas-alunos')
+    .replace(/\s+/g, '-')
+    .toLowerCase();
+  doc.save(`${base}-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+/** PDF do Ranking Geral consolidado (lista única de alunos). */
+export async function generateConsolidatedGeneralRankingPdf(opts: {
+  data: ConsolidatedGeneralRankingResponse;
+  filterLabels?: ClassPeerRankingPdfFilterLabels;
+  fileNameBase?: string;
+  cityId?: string | null;
+}): Promise<void> {
+  const { data } = opts;
+  const labels = opts.filterLabels || {};
+  const estadoLabel = String(labels.estado || 'Todos');
+  const municipioLabel = String(labels.municipio || 'Todos');
+  const escolaLabel = String(labels.escola || 'Todas');
+  const serieLabel = String(labels.serie || 'Todas');
+  const turmaLabel = String(labels.turma || 'Todas');
+  const turnoLabel = String(labels.turno || 'Todos');
+  const avaliacaoLabel = String(
+    labels.avaliacao || data.evaluation_title || data.evaluation_id || '—'
+  );
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const cardLines: Array<{ label: string; value: string }> = [
+    { label: 'AVALIAÇÃO', value: avaliacaoLabel },
+    { label: 'TIPO', value: 'Ranking geral consolidado' },
+    { label: 'ESCOPO', value: String(data.scope || 'municipio') },
+    { label: 'ESTADO', value: estadoLabel },
+    { label: 'MUNICÍPIO', value: municipioLabel },
+    { label: 'ESCOLA', value: escolaLabel },
+    { label: 'SÉRIE', value: serieLabel },
+    { label: 'TURMA', value: turmaLabel },
+    { label: 'TURNO', value: turnoLabel },
+  ];
+
+  await addRankingCoverPage(
+    doc,
+    'RANKING DE DESEMPENHO',
+    'RANKING GERAL',
+    'RANKING',
+    'Listagem consolidada de alunos',
+    cardLines,
+    opts.cityId ?? resolveRankingCityId(String(data.filters?.municipio || labels.municipio || ''))
+  );
+
+  doc.addPage();
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 12;
+  let y = 14;
+  y = drawClassificationLegend(doc, margin, pageW, y + 2);
+
+  const autoTable = (await import('jspdf-autotable')).default;
+  const students = data.students || [];
+  const body = students.map((row) => [
+    String(row.position ?? ''),
+    String(row.name || '—'),
+    String(row.school_display_name || row.school_name || '—'),
+    String(row.serie_name || '—'),
+    `${row.class_name || '—'}${row.shift ? ` · ${formatShiftCell(row.shift)}` : ''}`,
+    String(row.category || '—'),
+    fmtPtNum(Number(row.proficiency || 0)),
+    fmtPtNum(Number(row.grade || 0)),
+    `${Number(row.correct_answers || 0)}/${Number(row.total_questions || 0)}`,
+    String(row.classification || '—'),
+  ]);
+
+  y = ensurePageSpace(doc, y, estimateTableStartHeight(body.length > 0 ? body.length : 1), margin);
+  autoTable(doc, {
+    startY: y,
+    head: [['Pos.', 'Aluno', 'Escola', 'Série', 'Turma', 'Categoria', 'Proficiência', 'Nota', 'Acertos', 'Nível']],
+    body: body.length > 0 ? body : [['—', 'Sem dados para os filtros selecionados']],
+    styles: { fontSize: 7.5, cellPadding: 1.4 },
+    headStyles: { fillColor: C.primary, textColor: C.white, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: C.bgLight },
+    columnStyles: {
+      0: { cellWidth: 12, halign: 'center' },
+      1: { cellWidth: 42, halign: 'left' },
+      2: { cellWidth: 40, halign: 'left' },
+      3: { cellWidth: 24, halign: 'left' },
+      4: { cellWidth: 28, halign: 'left' },
+      5: { cellWidth: 28, halign: 'left' },
+      6: { cellWidth: 22, halign: 'right' },
+      7: { cellWidth: 16, halign: 'right' },
+      8: { cellWidth: 20, halign: 'right' },
+      9: { cellWidth: 24, halign: 'center' },
+    },
+    margin: { left: margin, right: margin },
+  });
+
+  addFootersAllPages(doc);
+  const base = (opts.fileNameBase || 'ranking-geral').replace(/\s+/g, '-').toLowerCase();
   doc.save(`${base}-${new Date().toISOString().slice(0, 10)}.pdf`);
 }

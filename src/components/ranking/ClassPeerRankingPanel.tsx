@@ -148,7 +148,9 @@ function StudentRankingTable({
                       <PosBadge position={Number(row.position || 0)} />
                     </td>
                     <td className="px-3 py-2 font-semibold">{row.name || "—"}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{row.school_name || "—"}</td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {row.school_display_name || row.school_name || "—"}
+                    </td>
                     <td className="px-3 py-2 text-muted-foreground">
                       {row.class_name || group.turma_nome}
                       {row.shift ? ` · ${getClassShiftLabel(row.shift)}` : ""}
