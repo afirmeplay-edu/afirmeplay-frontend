@@ -296,9 +296,10 @@ export default function AnswerSheetGenerateCards() {
   const [showRegeneratePdfsDialog, setShowRegeneratePdfsDialog] = useState(false);
   const [disciplines, setDisciplines] = useState<{ id: string; name: string }[]>([]);
   const [isLoadingDisciplines, setIsLoadingDisciplines] = useState(false);
-  /** Cartão com correções: só habilidades podem ser editadas */
+  /** Cartão com correções: só título e habilidades podem ser editados */
   const [structEditHasCorrections, setStructEditHasCorrections] = useState(false);
-  /** Snapshots iniciais para diff / patch cirúrgico de skills */
+  /** Snapshots iniciais para diff / patch cirúrgico de título e skills */
+  const [structEditInitialTitle, setStructEditInitialTitle] = useState('');
   const [structEditInitialNumQuestions, setStructEditInitialNumQuestions] = useState(0);
   const [structEditInitialBlocks, setStructEditInitialBlocks] = useState<Array<{
     block_id: number;
@@ -592,6 +593,7 @@ export default function AnswerSheetGenerateCards() {
     setStructEditWarning(null);
     setShowRegeneratePdfsDialog(false);
     setStructEditHasCorrections(false);
+    setStructEditInitialTitle('');
     setStructEditInitialNumQuestions(0);
     setStructEditInitialBlocks([]);
     setStructEditInitialQuestionSkills({});
@@ -624,6 +626,7 @@ export default function AnswerSheetGenerateCards() {
     setStructEditCorrectAnswers({});
     setStructEditWarning(null);
     setStructEditHasCorrections(hasCorrections);
+    setStructEditInitialTitle(g.title);
     setStructEditInitialNumQuestions(0);
     setStructEditInitialBlocks([]);
     setStructEditInitialQuestionSkills({});
@@ -641,7 +644,9 @@ export default function AnswerSheetGenerateCards() {
       const questionSkills = data.question_skills ?? {};
       const correctAnswers = data.correct_answers ?? {};
 
-      setStructEditTitle(data.title ?? g.title);
+      const loadedTitle = data.title ?? g.title;
+      setStructEditTitle(loadedTitle);
+      setStructEditInitialTitle(loadedTitle);
       setStructEditNumQuestions(numQuestions);
       setStructEditInitialNumQuestions(numQuestions);
 
@@ -749,26 +754,57 @@ export default function AnswerSheetGenerateCards() {
     };
 
     const skillsDiff = buildQuestionSkillsDiff(structEditInitialQuestionSkills, structEditQuestionSkills);
-    const useSkillsOnlyPatch = structEditHasCorrections || !isStructureDirty();
+    const titleTrimmed = structEditTitle.trim();
+    const titleChanged = titleTrimmed !== structEditInitialTitle.trim();
+    const useMetadataOnlyPatch = structEditHasCorrections || !isStructureDirty();
 
-    if (useSkillsOnlyPatch) {
-      if (Object.keys(skillsDiff).length === 0) {
+    const validateTitle = (): boolean => {
+      if (!titleTrimmed) {
+        toast({
+          title: 'Erro de validação',
+          description: 'O título é obrigatório.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+      if (titleTrimmed.length > 200) {
+        toast({
+          title: 'Erro de validação',
+          description: 'O título deve ter no máximo 200 caracteres.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+      return true;
+    };
+
+    if (useMetadataOnlyPatch) {
+      if (!titleChanged && Object.keys(skillsDiff).length === 0) {
         toast({
           title: 'Nenhuma alteração',
           description: structEditHasCorrections
-            ? 'Altere as habilidades de pelo menos uma questão antes de salvar.'
+            ? 'Altere o título ou as habilidades de pelo menos uma questão antes de salvar.'
             : 'Não há alterações para salvar.',
         });
         return;
       }
 
+      if (titleChanged && !validateTitle()) return;
+
       try {
         setStructEditSaving(true);
         setStructEditWarning(null);
 
+        const metadataPayload: {
+          title?: string;
+          question_skills?: Record<string, string[]>;
+        } = {};
+        if (titleChanged) metadataPayload.title = titleTrimmed;
+        if (Object.keys(skillsDiff).length > 0) metadataPayload.question_skills = skillsDiff;
+
         const res = await api.patch(
           `/answer-sheets/gabarito/${structEditGabaritoId}/structure`,
-          { question_skills: skillsDiff },
+          metadataPayload,
           { headers: { 'Content-Type': 'application/json' } }
         );
 
@@ -776,22 +812,28 @@ export default function AnswerSheetGenerateCards() {
           const data = res.data as {
             message?: string;
             skills_only?: boolean;
+            title_only?: boolean;
             warning?: string;
-            changes?: { skills_updated?: boolean };
+            changes?: { skills_updated?: boolean; title?: { old?: string; new?: string } };
           };
 
           toast({
             title: 'Sucesso',
-            description: data.message || 'Habilidades atualizadas com sucesso.',
+            description:
+              data.message ||
+              (data.title_only
+                ? 'Nome do gabarito atualizado com sucesso.'
+                : 'Habilidades atualizadas com sucesso.'),
           });
 
-          // Patch só de habilidades: não regenerar PDFs
-          if (data.skills_only || !data.warning) {
-            await fetchGabaritos();
-            resetStructEditDialogState();
-          } else {
+          await fetchGabaritos();
+
+          // skills_only: PDFs não mudam. título (ou warning sem skills_only): oferecer regeneração
+          if (data.warning && (titleChanged || !data.skills_only)) {
             setStructEditWarning(data.warning);
             setShowRegeneratePdfsDialog(true);
+          } else {
+            resetStructEditDialogState();
           }
         }
       } catch (err: unknown) {
@@ -809,7 +851,7 @@ export default function AnswerSheetGenerateCards() {
               title: 'Estrutura bloqueada',
               description:
                 [data.error, data.hint].filter(Boolean).join(' ') ||
-                'Este cartão já possui correções. É permitido editar apenas as habilidades (question_skills).',
+                'Este cartão já possui correções. É permitido editar apenas o título e as habilidades (question_skills).',
               variant: 'destructive',
             });
           } else if (status === 400) {
@@ -821,14 +863,14 @@ export default function AnswerSheetGenerateCards() {
           } else {
             toast({
               title: 'Erro',
-              description: data.message || data.error || 'Não foi possível salvar as habilidades.',
+              description: data.message || data.error || 'Não foi possível salvar as alterações.',
               variant: 'destructive',
             });
           }
         } else {
           toast({
             title: 'Erro',
-            description: 'Não foi possível salvar as habilidades.',
+            description: 'Não foi possível salvar as alterações.',
             variant: 'destructive',
           });
         }
@@ -839,6 +881,8 @@ export default function AnswerSheetGenerateCards() {
     }
 
     // Validações (edição completa de estrutura)
+    if (titleChanged && !validateTitle()) return;
+
     if (structEditNumQuestions < 1 || structEditNumQuestions > 104) {
       toast({
         title: 'Erro de validação',
@@ -886,12 +930,17 @@ export default function AnswerSheetGenerateCards() {
       setStructEditWarning(null);
 
       const payload: {
+        title?: string;
         num_questions?: number;
         blocks_config?: { blocks: typeof structEditBlocks };
         question_skills?: Record<string, string[]>;
         questions_options?: Record<string, string[]>;
         correct_answers?: Record<string, Alternative | null>;
       } = {};
+
+      if (titleChanged) {
+        payload.title = titleTrimmed;
+      }
 
       // Adicionar apenas campos modificados
       if (structEditNumQuestions > 0) {
@@ -936,6 +985,7 @@ export default function AnswerSheetGenerateCards() {
         const data = res.data as {
           message?: string;
           skills_only?: boolean;
+          title_only?: boolean;
           warning?: string;
         };
         toast({
@@ -943,15 +993,12 @@ export default function AnswerSheetGenerateCards() {
           description: data.message || 'Estrutura atualizada com sucesso.',
         });
 
-        // skills_only: sem warning de regenerar PDF
-        if (data.skills_only) {
-          await fetchGabaritos();
-          resetStructEditDialogState();
-        } else if (data.warning) {
+        await fetchGabaritos();
+
+        if (data.warning && (titleChanged || !data.skills_only)) {
           setStructEditWarning(data.warning);
           setShowRegeneratePdfsDialog(true);
         } else {
-          await fetchGabaritos();
           resetStructEditDialogState();
         }
       }
@@ -970,7 +1017,7 @@ export default function AnswerSheetGenerateCards() {
             title: 'Estrutura bloqueada',
             description:
               [data.error, data.hint].filter(Boolean).join(' ') ||
-              'Este cartão já possui correções. É permitido editar apenas as habilidades (question_skills).',
+              'Este cartão já possui correções. É permitido editar apenas o título e as habilidades (question_skills).',
             variant: 'destructive',
           });
         } else if (status === 400) {
@@ -998,12 +1045,14 @@ export default function AnswerSheetGenerateCards() {
     }
   }, [
     structEditGabaritoId,
+    structEditTitle,
     structEditNumQuestions,
     structEditBlocks,
     structEditQuestionSkills,
     structEditQuestionsOptions,
     structEditCorrectAnswers,
     structEditHasCorrections,
+    structEditInitialTitle,
     structEditInitialNumQuestions,
     structEditInitialBlocks,
     structEditInitialQuestionSkills,
@@ -2764,7 +2813,7 @@ export default function AnswerSheetGenerateCards() {
                   <div>
                     <CardTitle>Editar estrutura dos cartões</CardTitle>
                     <CardDescription>
-                      Edite a estrutura completa do cartão resposta: número de questões, blocos, habilidades e alternativas.
+                      Edite o título e a estrutura do cartão resposta: número de questões, blocos, habilidades e alternativas.
                     </CardDescription>
                   </div>
                 </div>
@@ -2798,9 +2847,9 @@ export default function AnswerSheetGenerateCards() {
                       <div className="space-y-1">
                         <p className="font-medium text-amber-900 dark:text-amber-100">Atenção ao editar a estrutura</p>
                         <ul className="text-amber-800 dark:text-amber-200 space-y-1 text-xs list-disc list-inside">
-                          <li>Cartões com correções registradas <strong>não podem</strong> ser editados</li>
-                          <li>Se os PDFs já foram gerados, será necessário <strong>regenerá-los</strong> após editar</li>
-                          <li>As edições afetam a topologia e coordenadas do cartão</li>
+                          <li>Com correções registradas, só é possível editar o <strong>título</strong> e as <strong>habilidades</strong></li>
+                          <li>Se os PDFs já foram gerados, será necessário <strong>regenerá-los</strong> após editar (inclusive o título)</li>
+                          <li>Alterações estruturais afetam a topologia e coordenadas do cartão</li>
                         </ul>
                       </div>
                     </div>
@@ -2889,16 +2938,12 @@ export default function AnswerSheetGenerateCards() {
             <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
               <DialogHeader className="shrink-0">
                 <DialogTitle>
-                  {structEditHasCorrections ? 'Editar habilidades do cartão' : 'Editar estrutura do cartão'}
+                  {structEditHasCorrections ? 'Editar título e habilidades' : 'Editar estrutura do cartão'}
                 </DialogTitle>
                 <DialogDescription>
-                  {structEditTitle ? (
-                    <>
-                      <span className="font-medium text-foreground">{structEditTitle}</span>
-                    </>
-                  ) : (
-                    'Configure a estrutura completa do cartão resposta.'
-                  )}
+                  {structEditHasCorrections
+                    ? 'Altere o nome do cartão e/ou as habilidades das questões.'
+                    : 'Configure o título e a estrutura completa do cartão resposta.'}
                 </DialogDescription>
               </DialogHeader>
 
@@ -2921,12 +2966,33 @@ export default function AnswerSheetGenerateCards() {
                               Este cartão já possui correções
                             </p>
                             <p className="text-amber-800 dark:text-amber-200 text-xs mt-1">
-                              Só é possível editar as habilidades das questões. Número de questões, blocos e alternativas permanecem bloqueados.
+                              Só é possível editar o título e as habilidades das questões. Número de questões, blocos e alternativas permanecem bloqueados.
                             </p>
                           </div>
                         </div>
                       </div>
                     )}
+
+                    {/* Título */}
+                    <div className="space-y-2">
+                      <Label htmlFor="struct-edit-title" className="text-base font-semibold">
+                        Título do cartão
+                      </Label>
+                      <p className="text-sm text-muted-foreground">Nome exibido na lista e nos cartões (1–200 caracteres)</p>
+                      <input
+                        id="struct-edit-title"
+                        type="text"
+                        maxLength={200}
+                        value={structEditTitle}
+                        onChange={(e) => setStructEditTitle(e.target.value)}
+                        disabled={structEditSaving}
+                        placeholder="Ex.: Avaliação de Matemática - 1º bimestre"
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                      <p className="text-xs text-muted-foreground text-right">
+                        {structEditTitle.trim().length}/200
+                      </p>
+                    </div>
 
                     {/* Número de questões */}
                     <div className="space-y-2">
@@ -3359,7 +3425,7 @@ export default function AnswerSheetGenerateCards() {
                   ) : (
                     <>
                       <CheckCircle2 className="h-4 w-4 mr-2" />
-                      {structEditHasCorrections ? 'Salvar habilidades' : 'Salvar estrutura'}
+                      {structEditHasCorrections ? 'Salvar alterações' : 'Salvar estrutura'}
                     </>
                   )}
                 </Button>
