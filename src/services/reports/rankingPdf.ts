@@ -8,6 +8,7 @@ import type { UserOptions } from 'jspdf-autotable';
 import { loadCityBrandingForReportPdf } from '@/utils/pdfCityBranding';
 import type {
   ClassPeerRankingResponse,
+  ConsolidatedGeneralRankingResponse,
   RankingFilters,
   RankingResponse,
   RankingType,
@@ -2048,5 +2049,96 @@ export async function generateClassPeerRankingPdf(opts: {
   const base = (opts.fileNameBase || 'ranking-geral-turmas-alunos')
     .replace(/\s+/g, '-')
     .toLowerCase();
+  doc.save(`${base}-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+/** PDF do Ranking Geral consolidado (lista única de alunos). */
+export async function generateConsolidatedGeneralRankingPdf(opts: {
+  data: ConsolidatedGeneralRankingResponse;
+  filterLabels?: ClassPeerRankingPdfFilterLabels;
+  fileNameBase?: string;
+  cityId?: string | null;
+}): Promise<void> {
+  const { data } = opts;
+  const labels = opts.filterLabels || {};
+  const estadoLabel = String(labels.estado || 'Todos');
+  const municipioLabel = String(labels.municipio || 'Todos');
+  const escolaLabel = String(labels.escola || 'Todas');
+  const serieLabel = String(labels.serie || 'Todas');
+  const turmaLabel = String(labels.turma || 'Todas');
+  const turnoLabel = String(labels.turno || 'Todos');
+  const avaliacaoLabel = String(
+    labels.avaliacao || data.evaluation_title || data.evaluation_id || '—'
+  );
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const cardLines: Array<{ label: string; value: string }> = [
+    { label: 'AVALIAÇÃO', value: avaliacaoLabel },
+    { label: 'TIPO', value: 'Ranking geral consolidado' },
+    { label: 'ESCOPO', value: String(data.scope || 'municipio') },
+    { label: 'ESTADO', value: estadoLabel },
+    { label: 'MUNICÍPIO', value: municipioLabel },
+    { label: 'ESCOLA', value: escolaLabel },
+    { label: 'SÉRIE', value: serieLabel },
+    { label: 'TURMA', value: turmaLabel },
+    { label: 'TURNO', value: turnoLabel },
+  ];
+
+  await addRankingCoverPage(
+    doc,
+    'RANKING DE DESEMPENHO',
+    'RANKING GERAL',
+    'RANKING',
+    'Listagem consolidada de alunos',
+    cardLines,
+    opts.cityId ?? resolveRankingCityId(String(data.filters?.municipio || labels.municipio || ''))
+  );
+
+  doc.addPage();
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 12;
+  let y = 14;
+  y = drawClassificationLegend(doc, margin, pageW, y + 2);
+
+  const autoTable = (await import('jspdf-autotable')).default;
+  const students = data.students || [];
+  const body = students.map((row) => [
+    String(row.position ?? ''),
+    String(row.name || '—'),
+    String(row.school_display_name || row.school_name || '—'),
+    String(row.serie_name || '—'),
+    `${row.class_name || '—'}${row.shift ? ` · ${formatShiftCell(row.shift)}` : ''}`,
+    String(row.category || '—'),
+    fmtPtNum(Number(row.proficiency || 0)),
+    fmtPtNum(Number(row.grade || 0)),
+    `${Number(row.correct_answers || 0)}/${Number(row.total_questions || 0)}`,
+    String(row.classification || '—'),
+  ]);
+
+  y = ensurePageSpace(doc, y, estimateTableStartHeight(body.length > 0 ? body.length : 1), margin);
+  autoTable(doc, {
+    startY: y,
+    head: [['Pos.', 'Aluno', 'Escola', 'Série', 'Turma', 'Categoria', 'Proficiência', 'Nota', 'Acertos', 'Nível']],
+    body: body.length > 0 ? body : [['—', 'Sem dados para os filtros selecionados']],
+    styles: { fontSize: 7.5, cellPadding: 1.4 },
+    headStyles: { fillColor: C.primary, textColor: C.white, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: C.bgLight },
+    columnStyles: {
+      0: { cellWidth: 12, halign: 'center' },
+      1: { cellWidth: 42, halign: 'left' },
+      2: { cellWidth: 40, halign: 'left' },
+      3: { cellWidth: 24, halign: 'left' },
+      4: { cellWidth: 28, halign: 'left' },
+      5: { cellWidth: 28, halign: 'left' },
+      6: { cellWidth: 22, halign: 'right' },
+      7: { cellWidth: 16, halign: 'right' },
+      8: { cellWidth: 20, halign: 'right' },
+      9: { cellWidth: 24, halign: 'center' },
+    },
+    margin: { left: margin, right: margin },
+  });
+
+  addFootersAllPages(doc);
+  const base = (opts.fileNameBase || 'ranking-geral').replace(/\s+/g, '-').toLowerCase();
   doc.save(`${base}-${new Date().toISOString().slice(0, 10)}.pdf`);
 }

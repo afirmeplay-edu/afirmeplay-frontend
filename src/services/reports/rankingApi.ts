@@ -439,6 +439,87 @@ export class RankingApiService {
     const response = await api.get<ClassPeerRankingResponse>("/ranking/classes-peer", { params });
     return response.data;
   }
+
+  static async getConsolidatedGeneralRanking(
+    filters: ClassPeerRankingFilters,
+    page = 1,
+    perPage = 20
+  ): Promise<ConsolidatedGeneralRankingResponse> {
+    const scope = filters.scope === "escola" ? "escola" : "municipio";
+    const evaluationIds = Array.from(
+      new Set(
+        (filters.evaluation_ids?.length
+          ? filters.evaluation_ids
+          : [filters.evaluation_id]
+        )
+          .map((id) => String(id || "").trim())
+          .filter(Boolean)
+      )
+    );
+    if (evaluationIds.length === 0) {
+      throw new Error("Selecione ao menos uma avaliação para consultar o ranking geral.");
+    }
+    if (scope === "municipio" && !String(filters.municipio || "").trim()) {
+      throw new Error("Selecione o município para consultar o ranking geral.");
+    }
+    if (scope === "escola" && !String(filters.escola || "").trim()) {
+      throw new Error("Selecione a escola para consultar o ranking por escola.");
+    }
+
+    const params: Record<string, string | number> = {
+      scope,
+      evaluation_id: evaluationIds[0],
+      evaluation_ids: evaluationIds.join(","),
+      page,
+      per_page: perPage,
+    };
+
+    const optionalKeys: Array<keyof ClassPeerRankingFilters> = [
+      "municipio",
+      "escola",
+      "serie",
+      "turma_nome",
+      "turno",
+    ];
+    for (const key of optionalKeys) {
+      const value = String(filters[key] || "").trim();
+      if (value && value.toLowerCase() !== "all") {
+        params[key] = value;
+      }
+    }
+
+    const response = await api.get<ConsolidatedGeneralRankingResponse>("/ranking/geral", { params });
+    return response.data;
+  }
+
+  /** Busca todas as páginas do ranking geral consolidado (exportação PDF). */
+  static async getAllConsolidatedGeneralRanking(
+    filters: ClassPeerRankingFilters
+  ): Promise<ConsolidatedGeneralRankingResponse> {
+    const perPage = 100;
+    const first = await this.getConsolidatedGeneralRanking(filters, 1, perPage);
+    const totalPages = Math.max(1, Number(first.pagination?.total_pages || 1));
+    if (totalPages <= 1) return first;
+
+    const students = [...(first.students || [])];
+    for (let page = 2; page <= totalPages; page += 1) {
+      const next = await this.getConsolidatedGeneralRanking(filters, page, perPage);
+      students.push(...(next.students || []));
+    }
+
+    const total = Number(first.pagination?.total || students.length);
+    return {
+      ...first,
+      students,
+      pagination: {
+        page: 1,
+        per_page: total,
+        total,
+        total_pages: 1,
+      },
+      totals: { students_count: total },
+    };
+  }
 }
 
 export type ClassPeerScope = "municipio" | "escola";
@@ -494,6 +575,9 @@ export interface ClassPeerStudentRankingItem {
   class_id?: string;
   class_name?: string;
   shift?: string;
+  serie_id?: string;
+  serie_name?: string;
+  category?: string;
   grade?: number;
   proficiency?: number;
   classification?: string;
@@ -557,6 +641,37 @@ export interface ClassPeerRankingResponse {
   totals?: {
     sections_count?: number;
     peer_groups_count?: number;
+    students_count?: number;
+  };
+}
+
+/** Ranking Geral consolidado (lista única de alunos). */
+export interface ConsolidatedGeneralRankingResponse {
+  evaluation_id: string;
+  evaluation_ids?: string[];
+  evaluation_title?: string;
+  evaluations?: Array<{ id: string; title?: string }>;
+  scope: ClassPeerScope | string;
+  filters: {
+    municipio?: string | null;
+    escola?: string | null;
+    serie?: string | null;
+    turma_nome?: string | null;
+    turno?: string | null;
+  };
+  resolved_scope?: {
+    scope?: string;
+    city_id?: string | null;
+    school_ids?: string[];
+  };
+  students: ClassPeerStudentRankingItem[];
+  pagination: {
+    page: number;
+    per_page: number;
+    total: number;
+    total_pages: number;
+  };
+  totals?: {
     students_count?: number;
   };
 }
