@@ -35,6 +35,7 @@ import { api } from '@/lib/api';
 import { fetchAuthenticatedDownload } from '@/lib/fetch-authenticated-download';
 import {
   formatGenerationScopeSummary,
+  formatGabaritoGradesLabel,
   generationCanDownload,
   generationClassLabelsFromSnapshot,
   gabaritoDownloadLoadingKey,
@@ -98,6 +99,8 @@ export default function AnswerSheetGenerator() {
   const [gabaritoManual, setGabaritoManual] = useState<Record<number, 'A' | 'B' | 'C' | 'D'>>({});
   const [department, setDepartment] = useState<string>('Secretaria Municipal de Educação');
   const [provaTitulo, setProvaTitulo] = useState('');
+  /** Séries do gabarito (persistidas em `grades`); distintas do escopo opcional de geração. */
+  const [cartaoGradeIds, setCartaoGradeIds] = useState<string[]>([]);
   
   // Estados para alternativas personalizadas
   const [questionsOptions, setQuestionsOptions] = useState<Record<number, ('A' | 'B' | 'C' | 'D')[]>>({});
@@ -974,7 +977,7 @@ export default function AnswerSheetGenerator() {
   const isStep1Valid = () => {
     const hasValidFilters = Boolean(selectedFilters.state && selectedFilters.city);
     
-    if (!hasValidFilters || !provaTitulo || !department) {
+    if (!hasValidFilters || !provaTitulo || !department || cartaoGradeIds.length === 0) {
       return false;
     }
 
@@ -1358,6 +1361,7 @@ export default function AnswerSheetGenerator() {
 
       const payload: any = {
         title: provaTitulo,
+        grade_ids: cartaoGradeIds,
         num_questions: totalQuestoes,
         correct_answers: gabaritoManual,
         question_skills,
@@ -1383,7 +1387,6 @@ export default function AnswerSheetGenerator() {
         },
       };
       if (selectedFilters.school_ids?.length) payload.school_ids = selectedFilters.school_ids;
-      if (selectedFilters.grade_ids?.length) payload.grade_ids = selectedFilters.grade_ids;
       if (selectedFilters.class_ids?.length) payload.class_ids = selectedFilters.class_ids;
 
       // Chamar endpoint unificado
@@ -1820,6 +1823,26 @@ export default function AnswerSheetGenerator() {
                   />
                   <p className="text-xs text-muted-foreground">
                     Nome da secretaria ou departamento responsável pela prova.
+                  </p>
+                </div>
+
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Série(s) / Ano(s) do cartão *</Label>
+                  <MultiSelect
+                    options={gradesForSkills.map((g) => ({ id: g.id, name: g.name }))}
+                    selected={cartaoGradeIds}
+                    onChange={(ids) => {
+                      setCartaoGradeIds(ids);
+                      if (ids.length > 0 && !ids.includes(skillGradeId)) {
+                        setSkillGradeId(ids[0]);
+                      }
+                    }}
+                    placeholder="Selecione uma ou mais séries"
+                    mode="popover"
+                    className="w-full"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Obrigatório. Define as séries do gabarito (não é inferido pelo título).
                   </p>
                 </div>
               </div>
@@ -2780,10 +2803,10 @@ export default function AnswerSheetGenerator() {
                                     {gabarito.class_name}
                                   </Badge>
                                 )}
-                                {gabarito.scope_type === 'grade' && gabarito.grade_name && (
+                                {(gabarito.scope_type === 'grade' || formatGabaritoGradesLabel(gabarito)) && (
                                   <Badge variant="secondary" className="flex items-center gap-1 border-blue-500 text-blue-700">
                                     <School className="h-3 w-3" />
-                                    {gabarito.grade_name}
+                                    {formatGabaritoGradesLabel(gabarito) || gabarito.grade_name}
                                   </Badge>
                                 )}
                                 {gabarito.scope_type === 'school' && (gabarito.school_name ?? '') && (

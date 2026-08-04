@@ -66,7 +66,12 @@ import {
 import { descricoesNiveisEscolares, aplicarSerieNaDescricao, type NivelDescricao } from "@/lib/relatorioEscolarDescricoesNiveis";
 import { api } from "@/lib/api";
 import { getClassShiftLabel } from "@/lib/classShift";
-import { mapAnswerSheetResultadosAgregadosToNovaResposta, type AnswerSheetResultadosAgregadosRaw } from "@/utils/answer-sheet/mapAnswerSheetResultadosAgregadosToNovaResposta";
+import {
+  isAnswerSheetMultiSeriePendingFilter,
+  mapAnswerSheetResultadosAgregadosToNovaResposta,
+  type AnswerSheetResultadosAgregadosRaw,
+} from "@/utils/answer-sheet/mapAnswerSheetResultadosAgregadosToNovaResposta";
+import type { GabaritoGradeRef, ResultadoAgregadoPorSerie } from "@/types/answer-sheet";
 import { getReportProficiencyTagClass, normalizeProficiencyLevelLabel } from "@/utils/report/reportTagStyles";
 import {
   filtrarGabaritosOpcoesSomenteComHabilidadesVinculadas,
@@ -1244,6 +1249,11 @@ export default function RelatorioEscolar({
   const [asEscola, setAsEscola] = useState<string>('all');
   const [asSerie, setAsSerie] = useState<string>('all');
   const [asTurma, setAsTurma] = useState<string>('all');
+  /** Multi-série sem filtro `serie=` — breakdown até o usuário escolher uma série. */
+  const [asMultiSeriePending, setAsMultiSeriePending] = useState<{
+    series_do_gabarito: GabaritoGradeRef[];
+    por_serie: ResultadoAgregadoPorSerie[];
+  } | null>(null);
   const [asOpcoes, setAsOpcoes] = useState<{
     estados?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
     municipios?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
@@ -1714,6 +1724,7 @@ export default function RelatorioEscolar({
     setAsSerie('all');
     setAsTurma('all');
     setApiData(null);
+    setAsMultiSeriePending(null);
   }, []);
 
   const setAsMunicipioAndReset = useCallback((v: string) => {
@@ -1723,6 +1734,7 @@ export default function RelatorioEscolar({
     setAsSerie('all');
     setAsTurma('all');
     setApiData(null);
+    setAsMultiSeriePending(null);
   }, []);
 
   const setAsGabaritoAndReset = useCallback((v: string) => {
@@ -1731,6 +1743,7 @@ export default function RelatorioEscolar({
     setAsSerie('all');
     setAsTurma('all');
     setApiData(null);
+    setAsMultiSeriePending(null);
   }, []);
 
   const setAsEscolaAndReset = useCallback((v: string) => {
@@ -1738,12 +1751,14 @@ export default function RelatorioEscolar({
     setAsSerie('all');
     setAsTurma('all');
     setApiData(null);
+    setAsMultiSeriePending(null);
   }, []);
 
   const setAsSerieAndReset = useCallback((v: string) => {
     setAsSerie(v);
     setAsTurma('all');
     setApiData(null);
+    setAsMultiSeriePending(null);
   }, []);
 
   const asPeriodResetInitRef = useRef(false);
@@ -4642,6 +4657,7 @@ export default function RelatorioEscolar({
     const load = async () => {
       if (!allRequiredFiltersSelected) {
         setApiData(null);
+        setAsMultiSeriePending(null);
         setAiErrorMessage(null);
         setAnaliseEscolarIa(null);
         setIaRequestSeq(0);
@@ -4669,6 +4685,17 @@ export default function RelatorioEscolar({
         );
         if (cancelled) return;
 
+        if (isAnswerSheetMultiSeriePendingFilter(res.data, asSerie)) {
+          setAsMultiSeriePending({
+            series_do_gabarito: res.data.series_do_gabarito ?? [],
+            por_serie: res.data.por_serie ?? [],
+          });
+          setApiData(null);
+          setIaRequestSeq(0);
+          return;
+        }
+
+        setAsMultiSeriePending(null);
         const mapped = mapAnswerSheetResultadosAgregadosToNovaResposta(res.data, {
           estado: asEstado,
           municipio: asMunicipio,
@@ -4686,6 +4713,7 @@ export default function RelatorioEscolar({
           variant: 'destructive',
         });
         setApiData(null);
+        setAsMultiSeriePending(null);
         setIaRequestSeq(0);
       } finally {
         if (!cancelled) {
@@ -5489,13 +5517,27 @@ export default function RelatorioEscolar({
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Série</label>
-                <Select value={asSerie} onValueChange={setAsSerieAndReset} disabled={isLoadingFilters || asEscola === 'all'}>
+                <Select
+                  value={asSerie}
+                  onValueChange={setAsSerieAndReset}
+                  disabled={
+                    isLoadingFilters ||
+                    (asEscola === 'all' && !asMultiSeriePending)
+                  }
+                >
                   <SelectTrigger className="w-full min-w-0">
                     <SelectValue placeholder="Selecione a série" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todas</SelectItem>
-                    {(asOpcoes.series ?? []).map((s) => (
+                    {(asOpcoes.series?.length
+                      ? asOpcoes.series
+                      : (asMultiSeriePending?.series_do_gabarito ?? []).map((s) => ({
+                          id: s.id,
+                          nome: s.name,
+                          name: s.name,
+                        }))
+                    ).map((s) => (
                       <SelectItem key={s.id} value={s.id}>
                         {asNorm(s)}
                       </SelectItem>
@@ -5594,6 +5636,42 @@ export default function RelatorioEscolar({
           <CardContent className="flex flex-col items-center justify-center py-12">
             <RefreshCw className="h-8 w-8 animate-spin text-blue-600 dark:text-blue-400 mb-4" />
             <p className="text-muted-foreground">Carregando dados do relatório...</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {isAnswerSheetAgregados && allRequiredFiltersSelected && !isLoadingData && asMultiSeriePending && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Selecione uma série</CardTitle>
+            <CardDescription>
+              Este cartão possui várias séries. Escolha uma série no filtro (ou abaixo) para gerar o relatório
+              na escala correspondente.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {asMultiSeriePending.por_serie.map((row) => {
+                const media = row.estatisticas_gerais?.media_nota_geral;
+                return (
+                  <button
+                    key={row.serie_id}
+                    type="button"
+                    onClick={() => setAsSerieAndReset(row.serie_id)}
+                    className="rounded-lg border bg-background p-4 text-left transition hover:border-primary hover:bg-muted/40"
+                  >
+                    <div className="font-semibold">{row.serie}</div>
+                    {row.course_name ? (
+                      <div className="text-xs text-muted-foreground mt-0.5">{row.course_name}</div>
+                    ) : null}
+                    <div className="mt-2 text-sm text-muted-foreground">Nota média</div>
+                    <div className="text-xl font-bold text-purple-600">
+                      {media != null && Number.isFinite(Number(media)) ? Number(media).toFixed(1) : '—'}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </CardContent>
         </Card>
       )}

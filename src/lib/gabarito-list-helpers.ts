@@ -92,3 +92,13 @@ export function generationCanDownload(gen: GabaritoGeneration): boolean {
 export function gabaritoDownloadLoadingKey(gabaritoId: string, generationId?: string): string {
   return generationId ? `${gabaritoId}__${generationId}` : gabaritoId;
 }
+
+/** Rótulo das séries do gabarito (coluna JSON `grades`, com fallback legado). */
+export function formatGabaritoGradesLabel(
+  g: Pick<Gabarito, 'grades' | 'grade_ids' | 'grade_name'>
+): string {
+  if (Array.isArray(g.grades) && g.grades.length > 0) {
+    return g.grades.map((x) => x.name).filter(Boolean).join(', ');
+  }
+  return (g.grade_name ?? '').trim();
+}

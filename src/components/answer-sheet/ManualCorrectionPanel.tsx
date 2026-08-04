@@ -38,6 +38,7 @@ import {
   gabaritoEntryKindLabel,
   resolveStudentCorrectionStatus,
 } from '@/utils/answer-sheet/cartaoCorrectionStatus';
+import { formatGabaritoGradesLabel } from '@/lib/gabarito-list-helpers';
 import type { ManualCorrectionScope } from '@/services/answer-sheet/answerSheetManualApi';
 import {
   buildAnswerSheetStudentDetailHref,
@@ -676,7 +677,10 @@ export default function ManualCorrectionPanel() {
                         <span className="font-medium">{g.title}</span>
                         <span className="text-xs text-muted-foreground w-full sm:w-auto">
                           {g.num_questions ?? '?'} questões
-                          {g.grade_name ? ` · ${g.grade_name}` : ''}
+                          {(() => {
+                            const gradesLabel = formatGabaritoGradesLabel(g);
+                            return gradesLabel ? ` · ${gradesLabel}` : '';
+                          })()}
                           {g.class_name ? ` · ${g.class_name}` : ''}
                         </span>
                       </div>

@@ -26,6 +26,7 @@ import {
   Target,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { MultiSelect } from '@/components/ui/multi-select';
 import SkillsSelector from '@/components/evaluations/questions/SkillsSelector';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 
@@ -47,6 +48,8 @@ export default function AnswerSheetCreateGabarito() {
   // Step 0: básico
   const [title, setTitle] = useState('');
   const [institution, setInstitution] = useState('');
+  /** Séries do gabarito (coluna JSON `grades`) — nunca inferidas do título. */
+  const [gradeIds, setGradeIds] = useState<string[]>([]);
 
   // Step 1: questões e gabarito
   const [numQuestions, setNumQuestions] = useState(0);
@@ -88,6 +91,7 @@ export default function AnswerSheetCreateGabarito() {
     setStep(0);
     setTitle('');
     setInstitution('');
+    setGradeIds([]);
     setNumQuestions(0);
     setCorrectAnswers({});
     setUseGlobalAlternatives(true);
@@ -359,7 +363,7 @@ export default function AnswerSheetCreateGabarito() {
     return result;
   };
 
-  const canProceedStep0 = title.trim() !== '' && institution.trim() !== '';
+  const canProceedStep0 = title.trim() !== '' && institution.trim() !== '' && gradeIds.length > 0;
   const canProceedStep1 =
     numQuestions >= 1 &&
     numQuestions <= MAX_QUESTIONS_TOTAL &&
@@ -389,6 +393,7 @@ export default function AnswerSheetCreateGabarito() {
 
     const payload: Record<string, unknown> = {
       title: title.trim(),
+      grade_ids: gradeIds,
       num_questions: numQuestions,
       correct_answers: correctAnswers,
       question_skills,
@@ -481,7 +486,7 @@ export default function AnswerSheetCreateGabarito() {
                   </div>
                   <div>
                     <CardTitle>Informações básicas</CardTitle>
-                    <CardDescription>Título da avaliação e secretaria.</CardDescription>
+                    <CardDescription>Título, secretaria e séries do cartão resposta.</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -508,6 +513,27 @@ export default function AnswerSheetCreateGabarito() {
                       className="pl-9"
                     />
                   </div>
+                </div>
+                <div className="space-y-2 max-w-md">
+                  <Label>Série(s) / Ano(s)</Label>
+                  <MultiSelect
+                    options={gradesForSkills.map((g) => ({ id: g.id, name: g.name }))}
+                    selected={gradeIds}
+                    onChange={(ids) => {
+                      setGradeIds(ids);
+                      if (ids.length > 0 && !ids.includes(skillGradeId)) {
+                        setSkillGradeId(ids[0]);
+                      } else if (ids.length === 0) {
+                        setSkillGradeId('');
+                      }
+                    }}
+                    placeholder="Selecione uma ou mais séries"
+                    mode="popover"
+                    className="w-full"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Obrigatório. Define as séries do gabarito (não é inferido pelo título).
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -915,6 +941,14 @@ export default function AnswerSheetCreateGabarito() {
                 <dl className="grid gap-2 text-sm">
                   <div><dt className="text-muted-foreground">Título</dt><dd className="font-medium">{title || '—'}</dd></div>
                   <div><dt className="text-muted-foreground">Secretaria</dt><dd className="font-medium">{institution || '—'}</dd></div>
+                  <div>
+                    <dt className="text-muted-foreground">Séries</dt>
+                    <dd className="font-medium">
+                      {gradeIds.length > 0
+                        ? gradesForSkills.filter((g) => gradeIds.includes(g.id)).map((g) => g.name).join(', ') || `${gradeIds.length} série(s)`
+                        : '—'}
+                    </dd>
+                  </div>
                   <div><dt className="text-muted-foreground">Questões</dt><dd className="font-medium">{numQuestions}</dd></div>
                   {blocksByDiscipline.length > 0 && (
                     <div>
@@ -976,6 +1010,12 @@ export default function AnswerSheetCreateGabarito() {
             <CardContent className="text-sm space-y-2 text-muted-foreground">
               {title && <p><span className="text-foreground font-medium">Título:</span> {title}</p>}
               {institution && <p><span className="text-foreground font-medium">Secretaria:</span> {institution}</p>}
+              {gradeIds.length > 0 && (
+                <p>
+                  <span className="text-foreground font-medium">Séries:</span>{' '}
+                  {gradesForSkills.filter((g) => gradeIds.includes(g.id)).map((g) => g.name).join(', ') || gradeIds.length}
+                </p>
+              )}
               {numQuestions > 0 && <p><span className="text-foreground font-medium">Questões:</span> {numQuestions}</p>}
               {step >= 1 && numQuestions > 0 && (
                 <p>
