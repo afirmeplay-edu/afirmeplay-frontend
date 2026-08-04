@@ -62,7 +62,7 @@ function formatCoverInfoValue(value: string): string {
   return String(value ?? '').trim().toLocaleUpperCase('pt-BR');
 }
 
-/** Disciplina do filtro ativo ou lista de todas as disciplinas do instrumento na avaliação. */
+/** Nome da disciplina do filtro ativo, ou lista das disciplinas do instrumento (média geral). */
 export function formatRankingDisciplinaLabel(
   data: Pick<RankingResponse, 'discipline_options'>,
   filters: Pick<RankingFilters, 'disciplina'>,
@@ -85,7 +85,20 @@ export function formatRankingDisciplinaLabel(
   if (fallback && fallback.toLocaleLowerCase('pt-BR') !== 'geral') {
     return fallback;
   }
-  return 'Geral';
+  return 'Todas';
+}
+
+/** Título do recorte do relatório: "Ranking Geral" ou "Ranking de {disciplina}". */
+export function formatRankingRecorteLabel(
+  data: Pick<RankingResponse, 'discipline_options'>,
+  filters: Pick<RankingFilters, 'disciplina'>,
+  explicitLabel?: string
+): string {
+  const selectedId = String(filters.disciplina || '').trim();
+  if (selectedId) {
+    return `Ranking de ${formatRankingDisciplinaLabel(data, filters, explicitLabel)}`;
+  }
+  return 'Ranking Geral';
 }
 
 function isAllSchoolsRankingReport(escolaLabel: string, escolaFilter?: string): boolean {
@@ -1099,6 +1112,13 @@ type RankingApiPdfOptions = {
     avaliacao?: string;
     disciplina?: string;
   };
+  /** Ex.: "Ranking Geral" ou "Ranking de Língua Portuguesa". */
+  rankingScopeTitle?: string;
+  /**
+   * Relatórios extras por disciplina (ex.: após o Ranking Geral).
+   * Cada item gera o bloco completo de seções com o título informado.
+   */
+  additionalReports?: Array<{ scopeTitle: string; data: RankingResponse }>;
   contextTitle?: string;
   fileNameBase?: string;
 };
@@ -1116,13 +1136,24 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
     labels.avaliacao || opts.contextTitle || filters.evaluation_id || filters.answer_sheet_id || "—"
   );
   const disciplinaLabel = formatRankingDisciplinaLabel(data, filters, labels.disciplina);
+  const rankingScopeTitle =
+    String(opts.rankingScopeTitle || "").trim() ||
+    formatRankingRecorteLabel(data, filters, labels.disciplina);
   const allSchoolsReport = isAllSchoolsRankingReport(escolaLabel, filters.escola);
+  const reportsToRender: Array<{ scopeTitle: string; report: RankingResponse }> = [
+    { scopeTitle: rankingScopeTitle, report: data },
+    ...(opts.additionalReports || []).map((item) => ({
+      scopeTitle: String(item.scopeTitle || "").trim() || "Ranking por disciplina",
+      report: item.data,
+    })),
+  ];
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const subtitleBand = 'RELATÓRIO INSTITUCIONAL DE RANKING';
-  const mainSubtitle = rankingTypeLabel(rankingType);
+  const mainSubtitle = rankingScopeTitle || rankingTypeLabel(rankingType);
   const cardLines: Array<{ label: string; value: string }> = [
     { label: 'TIPO', value: rankingTypeLabel(rankingType) },
+    { label: 'RECORTE', value: rankingScopeTitle },
     { label: 'ESCOPO', value: String(filters.scope || 'municipio') },
     { label: 'ESTADO', value: estadoLabel },
     { label: 'MUNICÍPIO', value: municipioLabel },
@@ -1135,6 +1166,13 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
       : []),
     { label: 'DISCIPLINA', value: disciplinaLabel },
   ];
+
+  if (reportsToRender.length > 1) {
+    cardLines.push({
+      label: 'SEÇÕES',
+      value: reportsToRender.map((item) => item.scopeTitle).join(' · '),
+    });
+  }
 
   if (rankingType === 'specific_evaluation' || (rankingType === 'general' && filters.evaluation_id)) {
     cardLines.unshift({ label: 'AVALIAÇÃO', value: avaliacaoLabel });
@@ -1296,8 +1334,6 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
   };
 
   if (rankingType === 'general') {
-    const teachersItems = data.teachers_top?.items || [];
-    const schoolEntries = Object.entries(data.school_class_ranking?.items_by_school || {});
     let sectionNo = 0;
     const nextSection = (title: string, subtitle: string) => {
       sectionNo += 1;
@@ -1305,155 +1341,126 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
     };
     page2IndexY = y + 4;
 
-    if (data.overview) {
-      nextSection(
-        'Visão geral',
-        'Rankings por participação, nota, Adequado+Avançado e proficiência, por curso'
-      );
-      const summary = data.overview.summary || {};
-      const byCourse = data.overview.by_course || {};
-      y = drawKpiCards(doc, margin, pageW, y, [
-        {
-          label: 'Escolas avaliadas',
-          value: String(Number(summary.total_schools || 0)),
-          tone: 'primary',
-        },
-        {
-          label: 'Participação geral',
-          value: `${fmtPtNum(summary.participation_rate)}%`,
-          hint: `${Number(summary.participating_students || 0)}/${Number(summary.total_students || 0)} alunos`,
-        },
-        {
-          label: 'Destaque do recorte',
-          value: String(summary.top_school?.school_name || '—'),
-          hint: `Nota ${fmtPtNum(summary.top_school?.average_score)}`,
-        },
-      ]);
+    for (const { scopeTitle, report } of reportsToRender) {
+      const teachersItems = report.teachers_top?.items || [];
+      const schoolEntries = Object.entries(report.school_class_ranking?.items_by_school || {});
+      const scopePrefix = scopeTitle;
 
-      Object.entries(byCourse).forEach(([courseLabel, courseData]) => {
-        y = ensureSectionWithTableSpace(doc, y, margin, 2);
-        const typed = courseData as {
-          chart_rows?: Array<Record<string, unknown>>;
-          table_rows?: Array<Record<string, unknown>>;
-          counts_by_status?: Record<string, number>;
-        };
-        drawSectionTitle(`Ranking ${courseLabel}`);
+      if (report.overview) {
+        nextSection(
+          `${scopePrefix} — Visão geral`,
+          'Rankings por participação, nota, Adequado+Avançado e proficiência, por curso'
+        );
+        const summary = report.overview.summary || {};
+        const byCourse = report.overview.by_course || {};
         y = drawKpiCards(doc, margin, pageW, y, [
           {
-            label: 'Destaque',
-            value: String(Number(typed.counts_by_status?.destaque || 0)),
-            hint: 'Níveis Adequado e Avançado',
+            label: 'Escolas avaliadas',
+            value: String(Number(summary.total_schools || 0)),
+            tone: 'primary',
           },
           {
-            label: 'Em desenvolvimento',
-            value: String(Number(typed.counts_by_status?.desenvolvimento || 0)),
-            hint: 'Nível Básico',
+            label: 'Participação geral',
+            value: `${fmtPtNum(summary.participation_rate)}%`,
+            hint: `${Number(summary.participating_students || 0)}/${Number(summary.total_students || 0)} alunos`,
           },
           {
-            label: 'Atenção',
-            value: String(Number(typed.counts_by_status?.atencao || 0)),
-            hint: 'Abaixo do Básico',
-            tone: 'critical',
+            label: 'Destaque do recorte',
+            value: String(summary.top_school?.school_name || '—'),
+            hint: `Nota ${fmtPtNum(summary.top_school?.average_score)}`,
           },
         ]);
-        const sourceRows = (typed.table_rows || []) as SchoolRankingRow[];
-        const tableLegend = [
-          'Pos. = posição no recorte; linhas em vermelho = escolas críticas (Abaixo do Básico).',
-        ];
-        for (const metric of SCHOOL_RANKING_METRICS) {
-          const sorted = sortSchoolRowsByMetric(sourceRows, metric);
-          if (!sorted.length) continue;
 
-          drawSectionTitle(`${metric.sectionTitle} — ${courseLabel}`);
-          const chartRows = toMetricChartRows(sorted, metric);
-          const chartRowCount = Math.min(8, chartRows.length);
-          y = ensurePageSpace(doc, y, 28 + chartRowCount * 14, margin);
-          y = drawTableCaption(
-            doc,
-            margin,
-            pageW,
-            y,
-            `Gráfico — ${metric.chartTitle} (${courseLabel})`,
-            [metric.chartCaption]
-          );
-          y = drawSchoolMetricMiniChart(doc, margin, pageW, y, metric.chartTitle, chartRows, {
-            axisLabel: metric.axisLabel,
-            maxValue: metric.maxChartValue,
-            legendLine: metric.legendChart,
-            formatAxisTick:
-              metric.id === 'participation' || metric.id === 'adeq_avan'
-                ? (v) => `${fmtPtNum(v)}%`
-                : undefined,
-          });
-
-          const tableBody = metric.tableBody(sorted);
-          const criticalRows = buildCriticalRowIndexes(sorted);
-          const tableCaptionH = measureTableCaptionHeight(doc, pageW, margin, tableLegend);
-          y = ensurePageSpace(
-            doc,
-            y,
-            tableCaptionH + estimateTableStartHeight(tableBody.length),
-            margin
-          );
-          renderTable(
-            metric.tableHead,
-            tableBody,
-            municipalMetricTableColumnStyles(metric.id),
-            municipalMetricLevelColumn(metric.id),
-            criticalRows,
+        Object.entries(byCourse).forEach(([courseLabel, courseData]) => {
+          y = ensureSectionWithTableSpace(doc, y, margin, 2);
+          const typed = courseData as {
+            chart_rows?: Array<Record<string, unknown>>;
+            table_rows?: Array<Record<string, unknown>>;
+            counts_by_status?: Record<string, number>;
+          };
+          drawSectionTitle(`${scopePrefix} — Ranking ${courseLabel}`);
+          y = drawKpiCards(doc, margin, pageW, y, [
             {
-              caption: `${metric.tableCaption} (${courseLabel})`,
-              legend: tableLegend,
-              footnote: metric.footnote,
-            }
-          );
-        }
-      });
-    }
+              label: 'Destaque',
+              value: String(Number(typed.counts_by_status?.destaque || 0)),
+              hint: 'Níveis Adequado e Avançado',
+            },
+            {
+              label: 'Em desenvolvimento',
+              value: String(Number(typed.counts_by_status?.desenvolvimento || 0)),
+              hint: 'Nível Básico',
+            },
+            {
+              label: 'Atenção',
+              value: String(Number(typed.counts_by_status?.atencao || 0)),
+              hint: 'Abaixo do Básico',
+              tone: 'critical',
+            },
+          ]);
+          const sourceRows = (typed.table_rows || []) as SchoolRankingRow[];
+          const tableLegend = [
+            'Pos. = posição no recorte; linhas em vermelho = escolas críticas (Abaixo do Básico).',
+          ];
+          for (const metric of SCHOOL_RANKING_METRICS) {
+            const sorted = sortSchoolRowsByMetric(sourceRows, metric);
+            if (!sorted.length) continue;
 
-    nextSection('Ranking por escola/turma', 'Séries, professores e disciplinas por escola');
-    if (schoolEntries.length === 0) {
-      y = ensureSectionWithTableSpace(doc, y, margin, 1);
-      renderTable(
-        [["Pos.", "Série/Turma", "Professor(a)", "Participação", "Proficiência", "Nota", "Nível"]],
-        [],
-        {
-          0: { cellWidth: 10, halign: "center" },
-          1: { cellWidth: 38, halign: "left" },
-          2: { cellWidth: 34, halign: "left" },
-          3: { cellWidth: 24, halign: "center" },
-          4: { cellWidth: 18, halign: "right" },
-          5: { cellWidth: 14, halign: "right" },
-          6: { cellWidth: 22, halign: "center" },
-        },
-        6,
-        undefined,
-        {
-          caption: 'Tabela — Ranking por escola/turma',
-          legend: ['Sem registros para os filtros aplicados.'],
-        }
-      );
-    } else {
-      schoolEntries.forEach(([schoolId, rows]) => {
-        const schoolName =
-          data.school_class_ranking?.school_options?.find((option) => option.id === schoolId)?.name || "Escola";
-        drawSectionTitleKeepingTable(schoolName, Math.min(3, (rows || []).length || 1));
-        const body = (rows || []).map((row) => [
-          Number(row.position || 0),
-          String(row.series_class_name || "—"),
-          String(row.teacher_name || "N/A"),
-          formatParticipation(row.participation_rate, row.participating_students, row.total_students),
-          fmtPtNum(row.average_proficiency),
-          fmtPtNum(row.average_score),
-          String(row.level_tag || "—"),
-        ]);
-        const schoolCriticalRows = new Set<number>();
-        (rows || []).forEach((row, idx) => {
-          if (row.is_critical) schoolCriticalRows.add(idx);
+            drawSectionTitle(`${scopePrefix} — ${metric.sectionTitle} — ${courseLabel}`);
+            const chartRows = toMetricChartRows(sorted, metric);
+            const chartRowCount = Math.min(8, chartRows.length);
+            y = ensurePageSpace(doc, y, 28 + chartRowCount * 14, margin);
+            y = drawTableCaption(
+              doc,
+              margin,
+              pageW,
+              y,
+              `Gráfico — ${metric.chartTitle} (${courseLabel})`,
+              [metric.chartCaption]
+            );
+            y = drawSchoolMetricMiniChart(doc, margin, pageW, y, metric.chartTitle, chartRows, {
+              axisLabel: metric.axisLabel,
+              maxValue: metric.maxChartValue,
+              legendLine: metric.legendChart,
+              formatAxisTick:
+                metric.id === 'participation' || metric.id === 'adeq_avan'
+                  ? (v) => `${fmtPtNum(v)}%`
+                  : undefined,
+            });
+
+            const tableBody = metric.tableBody(sorted);
+            const criticalRows = buildCriticalRowIndexes(sorted);
+            const tableCaptionH = measureTableCaptionHeight(doc, pageW, margin, tableLegend);
+            y = ensurePageSpace(
+              doc,
+              y,
+              tableCaptionH + estimateTableStartHeight(tableBody.length),
+              margin
+            );
+            renderTable(
+              metric.tableHead,
+              tableBody,
+              municipalMetricTableColumnStyles(metric.id),
+              municipalMetricLevelColumn(metric.id),
+              criticalRows,
+              {
+                caption: `${metric.tableCaption} (${courseLabel})`,
+                legend: tableLegend,
+                footnote: metric.footnote,
+              }
+            );
+          }
         });
+      }
+
+      nextSection(
+        `${scopePrefix} — Ranking por escola/turma`,
+        'Séries, professores e disciplinas por escola'
+      );
+      if (schoolEntries.length === 0) {
+        y = ensureSectionWithTableSpace(doc, y, margin, 1);
         renderTable(
           [["Pos.", "Série/Turma", "Professor(a)", "Participação", "Proficiência", "Nota", "Nível"]],
-          body,
+          [],
           {
             0: { cellWidth: 10, halign: "center" },
             1: { cellWidth: 38, halign: "left" },
@@ -1464,124 +1471,128 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
             6: { cellWidth: 22, halign: "center" },
           },
           6,
-          schoolCriticalRows,
-          {
-            caption: `Tabela — ${schoolName}`,
-            legend: [
-              'Uma linha por turma no formato "Série - Turma" vinculada à escola no instrumento selecionado.',
-              'Participação no formato % (participantes/total).',
-            ],
-          }
-        );
-      });
-    }
-
-    nextSection('Ranking de professores', 'Todos com participação na avaliação ou cartão-resposta');
-    y = drawKpiCards(doc, margin, pageW, y, [
-      {
-        label: 'Professores no ranking',
-        value: String(teachersItems.length),
-        tone: 'primary',
-      },
-      {
-        label: 'Melhor proficiência',
-        value: fmtPtNum(teachersItems[0]?.average_proficiency),
-        hint: String(teachersItems[0]?.teacher_name || '—'),
-      },
-      {
-        label: 'Melhor nota',
-        value: fmtPtNum(teachersItems[0]?.average_score),
-        hint: String(teachersItems[0]?.school_name || '—'),
-      },
-    ]);
-    drawSectionTitleKeepingTable('Ranking de professores', Math.min(3, teachersItems.length || 1));
-    const teachersBody = teachersItems.map((row) => [
-      Number(row.position || 0),
-      String(row.teacher_name || "—"),
-      String(row.school_name || "—"),
-      String(row.series_class_name || "—"),
-      fmtPtNum(row.average_proficiency),
-      fmtPtNum(row.average_score),
-      String(row.classification || "—"),
-    ]);
-    const teachersCriticalRows = new Set<number>();
-    teachersItems.forEach((row, idx) => {
-      if (row.is_critical) teachersCriticalRows.add(idx);
-    });
-    renderTable(
-      [["Pos.", "Professor", "Escola", "Turma/Série", "Proficiência", "Nota", "Nível"]],
-      teachersBody,
-      {
-        0: { cellWidth: 11, halign: "center" },
-        1: { cellWidth: 38, halign: "left" },
-        2: { cellWidth: 36, halign: "left" },
-        3: { cellWidth: 28, halign: "left" },
-        4: { cellWidth: 18, halign: "right" },
-        5: { cellWidth: 14, halign: "right" },
-        6: { cellWidth: 25, halign: "center" },
-      },
-      6,
-      teachersCriticalRows,
-      {
-        caption: 'Tabela — Ranking de professores',
-        legend: [
-          'Todos os professores com alunos participantes no instrumento selecionado, ordenados por proficiência.',
-          'Turma/Série lista as séries vinculadas ao professor na avaliação ou cartão-resposta.',
-        ],
-      }
-    );
-
-    const studentCourseSections = data.general_rankings?.students_by_course?.sections || [];
-    const showStudentsByCourse = data.general_rankings?.visibility?.students_by_course !== false;
-    const isModernGeneralReport = Boolean(
-      data.overview || data.school_class_ranking || data.teachers_top
-    );
-    if (isModernGeneralReport && showStudentsByCourse) {
-      nextSection('Ranking de alunos', 'Classificação por curso, ordenada por proficiência');
-      if (studentCourseSections.length === 0) {
-        drawSectionTitleKeepingTable('Ranking de alunos', 1);
-        renderTable(
-          [['Pos.', 'Aluno', 'Escola', 'Série', 'Turma', 'Turno', 'Nota', 'Proficiência', 'Nível']],
-          [],
-          {
-            0: { cellWidth: 12, halign: 'center' },
-            1: { cellWidth: 28, halign: 'left' },
-            2: { cellWidth: 44, halign: 'left' },
-            3: { cellWidth: 12, halign: 'left' },
-            4: { cellWidth: 12, halign: 'left' },
-            5: { cellWidth: 14, halign: 'left' },
-            6: { cellWidth: 12, halign: 'right' },
-            7: { cellWidth: 18, halign: 'right' },
-            8: { cellWidth: 22, halign: 'center' },
-          },
-          8,
           undefined,
           {
-            caption: 'Tabela — Ranking de alunos',
-            legend: ['Sem alunos participantes para os filtros aplicados.'],
+            caption: 'Tabela — Ranking por escola/turma',
+            legend: ['Sem registros para os filtros aplicados.'],
           }
         );
       } else {
-        for (const section of studentCourseSections) {
-          const items = section.items || [];
-          drawSectionTitleKeepingTable(
-            `Ranking de alunos - ${String(section.course_label || 'Curso')}`,
-            Math.min(3, items.length || 1)
-          );
-          const studentsBody = items.map((r) => [
-            Number(r.position || 0),
-            String(r.name || '—'),
-            String(r.school_name || '—'),
-            String(r.serie || '—'),
-            String(r.class_name || '—'),
-            formatShiftCell(r.shift),
-            Number(r.average_score || 0).toFixed(2),
-            Number((r.average_proficiency ?? r.average_score) || 0).toFixed(2),
-            String(r.classification || '—'),
+        schoolEntries.forEach(([schoolId, schoolRows]) => {
+          const schoolName =
+            report.school_class_ranking?.school_options?.find((option) => option.id === schoolId)?.name || "Escola";
+          drawSectionTitleKeepingTable(schoolName, Math.min(3, (schoolRows || []).length || 1));
+          const body = (schoolRows || []).map((row) => [
+            Number(row.position || 0),
+            String(row.series_class_name || "—"),
+            String(row.teacher_name || "N/A"),
+            formatParticipation(row.participation_rate, row.participating_students, row.total_students),
+            fmtPtNum(row.average_proficiency),
+            fmtPtNum(row.average_score),
+            String(row.level_tag || "—"),
           ]);
+          const schoolCriticalRows = new Set<number>();
+          (schoolRows || []).forEach((row, idx) => {
+            if (row.is_critical) schoolCriticalRows.add(idx);
+          });
+          renderTable(
+            [["Pos.", "Série/Turma", "Professor(a)", "Participação", "Proficiência", "Nota", "Nível"]],
+            body,
+            {
+              0: { cellWidth: 10, halign: "center" },
+              1: { cellWidth: 38, halign: "left" },
+              2: { cellWidth: 34, halign: "left" },
+              3: { cellWidth: 24, halign: "center" },
+              4: { cellWidth: 18, halign: "right" },
+              5: { cellWidth: 14, halign: "right" },
+              6: { cellWidth: 22, halign: "center" },
+            },
+            6,
+            schoolCriticalRows,
+            {
+              caption: `Tabela — ${schoolName}`,
+              legend: [
+                'Uma linha por turma no formato "Série - Turma" vinculada à escola no instrumento selecionado.',
+                'Participação no formato % (participantes/total).',
+              ],
+            }
+          );
+        });
+      }
+
+      nextSection(
+        `${scopePrefix} — Ranking de professores`,
+        'Todos com participação na avaliação ou cartão-resposta'
+      );
+      y = drawKpiCards(doc, margin, pageW, y, [
+        {
+          label: 'Professores no ranking',
+          value: String(teachersItems.length),
+          tone: 'primary',
+        },
+        {
+          label: 'Melhor proficiência',
+          value: fmtPtNum(teachersItems[0]?.average_proficiency),
+          hint: String(teachersItems[0]?.teacher_name || '—'),
+        },
+        {
+          label: 'Melhor nota',
+          value: fmtPtNum(teachersItems[0]?.average_score),
+          hint: String(teachersItems[0]?.school_name || '—'),
+        },
+      ]);
+      drawSectionTitleKeepingTable('Ranking de professores', Math.min(3, teachersItems.length || 1));
+      const teachersBody = teachersItems.map((row) => [
+        Number(row.position || 0),
+        String(row.teacher_name || "—"),
+        String(row.school_name || "—"),
+        String(row.series_class_name || "—"),
+        fmtPtNum(row.average_proficiency),
+        fmtPtNum(row.average_score),
+        String(row.classification || "—"),
+      ]);
+      const teachersCriticalRows = new Set<number>();
+      teachersItems.forEach((row, idx) => {
+        if (row.is_critical) teachersCriticalRows.add(idx);
+      });
+      renderTable(
+        [["Pos.", "Professor", "Escola", "Turma/Série", "Proficiência", "Nota", "Nível"]],
+        teachersBody,
+        {
+          0: { cellWidth: 11, halign: "center" },
+          1: { cellWidth: 38, halign: "left" },
+          2: { cellWidth: 36, halign: "left" },
+          3: { cellWidth: 28, halign: "left" },
+          4: { cellWidth: 18, halign: "right" },
+          5: { cellWidth: 14, halign: "right" },
+          6: { cellWidth: 25, halign: "center" },
+        },
+        6,
+        teachersCriticalRows,
+        {
+          caption: 'Tabela — Ranking de professores',
+          legend: [
+            'Todos os professores com alunos participantes no instrumento selecionado, ordenados por proficiência.',
+            'Turma/Série lista as séries vinculadas ao professor na avaliação ou cartão-resposta.',
+          ],
+        }
+      );
+
+      const studentCourseSections = report.general_rankings?.students_by_course?.sections || [];
+      const showStudentsByCourse = report.general_rankings?.visibility?.students_by_course !== false;
+      const isModernGeneralReport = Boolean(
+        report.overview || report.school_class_ranking || report.teachers_top
+      );
+      if (isModernGeneralReport && showStudentsByCourse) {
+        nextSection(
+          `${scopePrefix} — Ranking de alunos`,
+          'Classificação por curso, ordenada por proficiência'
+        );
+        if (studentCourseSections.length === 0) {
+          drawSectionTitleKeepingTable('Ranking de alunos', 1);
           renderTable(
             [['Pos.', 'Aluno', 'Escola', 'Série', 'Turma', 'Turno', 'Nota', 'Proficiência', 'Nível']],
-            studentsBody,
+            [],
             {
               0: { cellWidth: 12, halign: 'center' },
               1: { cellWidth: 28, halign: 'left' },
@@ -1596,10 +1607,50 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
             8,
             undefined,
             {
-              caption: `Tabela — Alunos (${String(section.course_label || 'Curso')})`,
-              legend: ['Ordenação por proficiência decrescente dentro do curso.'],
+              caption: 'Tabela — Ranking de alunos',
+              legend: ['Sem alunos participantes para os filtros aplicados.'],
             }
           );
+        } else {
+          for (const section of studentCourseSections) {
+            const items = section.items || [];
+            drawSectionTitleKeepingTable(
+              `Ranking de alunos - ${String(section.course_label || 'Curso')}`,
+              Math.min(3, items.length || 1)
+            );
+            const studentsBody = items.map((r) => [
+              Number(r.position || 0),
+              String(r.name || '—'),
+              String(r.school_name || '—'),
+              String(r.serie || '—'),
+              String(r.class_name || '—'),
+              formatShiftCell(r.shift),
+              Number(r.average_score || 0).toFixed(2),
+              Number((r.average_proficiency ?? r.average_score) || 0).toFixed(2),
+              String(r.classification || '—'),
+            ]);
+            renderTable(
+              [['Pos.', 'Aluno', 'Escola', 'Série', 'Turma', 'Turno', 'Nota', 'Proficiência', 'Nível']],
+              studentsBody,
+              {
+                0: { cellWidth: 12, halign: 'center' },
+                1: { cellWidth: 28, halign: 'left' },
+                2: { cellWidth: 44, halign: 'left' },
+                3: { cellWidth: 12, halign: 'left' },
+                4: { cellWidth: 12, halign: 'left' },
+                5: { cellWidth: 14, halign: 'left' },
+                6: { cellWidth: 12, halign: 'right' },
+                7: { cellWidth: 18, halign: 'right' },
+                8: { cellWidth: 22, halign: 'center' },
+              },
+              8,
+              undefined,
+              {
+                caption: `Tabela — Alunos (${String(section.course_label || 'Curso')})`,
+                legend: ['Ordenação por proficiência decrescente dentro do curso.'],
+              }
+            );
+          }
         }
       }
     }
@@ -2111,7 +2162,7 @@ export async function generateConsolidatedGeneralRankingPdf(opts: {
     String(row.category || '—'),
     fmtPtNum(Number(row.proficiency || 0)),
     fmtPtNum(Number(row.grade || 0)),
-    `${Number(row.correct_answers || 0)}/${Number(row.total_questions || 0)}`,
+    `${Number(row.raw_correct_answers ?? row.correct_answers ?? 0)}/${Number(row.total_questions || 0)}`,
     String(row.classification || '—'),
   ]);
 
