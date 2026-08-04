@@ -125,6 +125,32 @@ export interface GabaritoGeneration {
   download_url?: string | null;
 }
 
+/** Série vinculada ao gabarito (coluna JSON `grades`). */
+export interface GabaritoGradeRef {
+  id: string;
+  name: string;
+}
+
+/** Breakdown por série em GET /answer-sheets/resultados-agregados (multi-série sem filtro). */
+export interface ResultadoAgregadoPorSerie {
+  serie_id: string;
+  serie: string;
+  course_name?: string;
+  estatisticas_gerais?: {
+    media_nota_geral?: number | null;
+    media_proficiencia_geral?: number | null;
+    total_alunos?: number;
+    alunos_participantes?: number;
+    [key: string]: unknown;
+  };
+  resultados_por_disciplina?: Array<{
+    disciplina: string;
+    media_nota?: number | null;
+    media_proficiencia?: number | null;
+    [key: string]: unknown;
+  }>;
+}
+
 export interface Gabarito {
   id: string;
   test_id: string | null;
@@ -132,6 +158,9 @@ export interface Gabarito {
   class_name?: string | null;
   grade_id?: string | null;
   grade_name?: string;
+  /** Séries do gabarito (coluna JSON); preferir a `grade_id` singular. */
+  grade_ids?: string[];
+  grades?: GabaritoGradeRef[];
   num_questions?: number;
   use_blocks?: boolean;
   title: string;

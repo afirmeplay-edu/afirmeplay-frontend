@@ -14,7 +14,11 @@ import {
   type ReportEntityTypeQuery,
   type NovaRespostaAPI,
 } from "@/services/evaluation/evaluationResultsApi";
-import { mapAnswerSheetResultadosAgregadosToNovaResposta, type AnswerSheetResultadosAgregadosRaw } from "@/utils/answer-sheet/mapAnswerSheetResultadosAgregadosToNovaResposta";
+import {
+  isAnswerSheetMultiSeriePendingFilter,
+  mapAnswerSheetResultadosAgregadosToNovaResposta,
+  type AnswerSheetResultadosAgregadosRaw,
+} from "@/utils/answer-sheet/mapAnswerSheetResultadosAgregadosToNovaResposta";
 import { getUserHierarchyContext, getRestrictionMessage, validateReportAccess, UserHierarchyContext, cityIdQueryParamForAdmin } from "@/utils/userHierarchy";
 import { api } from "@/lib/api";
 import {
@@ -405,6 +409,11 @@ export default function RelatorioApresentacao19Slides() {
         const fetchOne = async (turmaId: string): Promise<NovaRespostaAPI | null> => {
           const params = mkParams(turmaId);
           const res2 = await api.get<AnswerSheetResultadosAgregadosRaw>(`/answer-sheets/resultados-agregados?${params.toString()}`, requestCfg);
+          if (isAnswerSheetMultiSeriePendingFilter(res2.data, asSerie)) {
+            throw new Error(
+              "Este cartão possui várias séries. Selecione uma série no filtro antes de gerar a apresentação."
+            );
+          }
           return mapAnswerSheetResultadosAgregadosToNovaResposta(res2.data, {
             estado: selectedState,
             municipio: selectedMunicipality,
@@ -791,7 +800,10 @@ export default function RelatorioApresentacao19Slides() {
                         setAsTurma("all");
                         clearDeckAndCache();
                       }}
-                      disabled={isLoadingFilters || selectedSchool === "all"}
+                      disabled={
+                        isLoadingFilters ||
+                        (selectedSchool === "all" && !(asOpcoes.series?.length))
+                      }
                     >
                       <SelectTrigger className="w-full min-w-0">
                         <SelectValue placeholder="Todas" />

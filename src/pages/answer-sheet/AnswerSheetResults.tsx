@@ -43,6 +43,8 @@ import {
 } from '@/services/evaluation/evaluationResultsApi';
 import { cityIdQueryParamForAdmin, getUserHierarchyContext, type UserHierarchyContext } from '@/utils/userHierarchy';
 import { buildAnswerSheetStudentDetailHref } from '@/utils/answer-sheet/buildAnswerSheetStudentDetailHref';
+import { isAnswerSheetMultiSeriePendingFilter } from '@/utils/answer-sheet/mapAnswerSheetResultadosAgregadosToNovaResposta';
+import type { GabaritoGradeRef, ResultadoAgregadoPorSerie } from '@/types/answer-sheet';
 import { useToast } from '@/hooks/use-toast';
 import { ResultsCharts } from '@/components/evaluations/results/ResultsCharts';
 import { StudentRanking } from '@/components/evaluations/student/StudentRanking';
@@ -120,8 +122,8 @@ interface EstatisticasGerais {
   alunos_pendentes_detalhe?: AlunoPendenteDetalhe[];
   percentual_comparecimento?: number;
   nivel_classificacao?: string | null;
-  media_nota_geral: number;
-  media_proficiencia_geral: number;
+  media_nota_geral: number | null;
+  media_proficiencia_geral: number | null;
   distribuicao_classificacao_geral?: {
     abaixo_do_basico: number;
     basico: number;
@@ -401,6 +403,9 @@ interface RankingItem {
 interface ResultadosAgregadosResponse {
   nivel_granularidade?: string;
   filtros_aplicados?: Record<string, string>;
+  series_do_gabarito?: GabaritoGradeRef[];
+  requer_filtro_serie?: boolean;
+  por_serie?: ResultadoAgregadoPorSerie[];
   estatisticas_gerais: EstatisticasGerais;
   resultados_por_disciplina?: ResultadoPorDisciplina[];
   resultados_detalhados?: {
@@ -803,10 +808,15 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
 
   const handleBack = () => navigate('/app/cartao-resposta');
 
+  const multiSeriePendingFilter = useMemo(
+    () => isAnswerSheetMultiSeriePendingFilter(apiData, serie),
+    [apiData, serie]
+  );
+
   // Gráficos: usar por_disciplina aninhado em estatisticas_gerais (formato esperado por ResultsCharts).
   // Fallback para resultados_por_disciplina (raiz) caso o backend ainda não envie em estatisticas_gerais.
   const chartsApiData = useMemo(() => {
-    if (!apiData?.estatisticas_gerais) return null;
+    if (multiSeriePendingFilter || !apiData?.estatisticas_gerais) return null;
     const porDisciplinaFromStats = apiData.estatisticas_gerais.por_disciplina;
     const porDisciplina =
       Array.isArray(porDisciplinaFromStats) && porDisciplinaFromStats.length > 0
@@ -827,10 +837,10 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
         por_disciplina: porDisciplinaNormalized,
       },
     };
-  }, [apiData]);
+  }, [apiData, multiSeriePendingFilter]);
 
   const evaluationInfo = useMemo(() => {
-    if (!apiData?.estatisticas_gerais) return null;
+    if (multiSeriePendingFilter || !apiData?.estatisticas_gerais) return null;
     const e = apiData.estatisticas_gerais;
     return {
       id: '',
@@ -847,7 +857,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
       media_nota: e.media_nota_geral ?? 0,
       media_proficiencia: e.media_proficiencia_geral ?? 0,
     };
-  }, [apiData]);
+  }, [apiData, multiSeriePendingFilter]);
 
   const inferStageGroup = useCallback((): 'group1' | 'group2' => 'group2', []);
   const getMaxForDiscipline = useCallback(() => 400, []);
@@ -856,7 +866,23 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   const municipios = opcoes.municipios ?? [];
   const gabaritos = opcoes.gabaritos ?? [];
   const escolas = opcoes.escolas ?? [];
-  const series = opcoes.series ?? [];
+  const series = useMemo(() => {
+    const fromOpcoes = opcoes.series ?? [];
+    const fromGabarito = apiData?.series_do_gabarito ?? [];
+    if (fromOpcoes.length === 0 && fromGabarito.length > 0) {
+      return fromGabarito.map((s) => ({ id: s.id, nome: s.name, name: s.name }));
+    }
+    if (fromGabarito.length === 0) return fromOpcoes;
+    const seen = new Set(fromOpcoes.map((s) => s.id));
+    const merged = [...fromOpcoes];
+    for (const s of fromGabarito) {
+      if (!seen.has(s.id)) {
+        seen.add(s.id);
+        merged.push({ id: s.id, nome: s.name, name: s.name });
+      }
+    }
+    return merged;
+  }, [opcoes.series, apiData?.series_do_gabarito]);
   const turmas = opcoes.turmas ?? [];
 
   const pickerGabaritoItems = useMemo(() => {
@@ -938,12 +964,20 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
       s?.percentual_comparecimento != null && Number.isFinite(Number(s.percentual_comparecimento))
         ? Number(s.percentual_comparecimento)
         : null;
+    const mediaNota =
+      s?.media_nota_geral != null && Number.isFinite(Number(s.media_nota_geral))
+        ? Number(s.media_nota_geral)
+        : null;
+    const mediaProficiencia =
+      s?.media_proficiencia_geral != null && Number.isFinite(Number(s.media_proficiencia_geral))
+        ? Number(s.media_proficiencia_geral)
+        : null;
     return {
       totalAlunos: s?.total_alunos ?? 0,
       participantes: s?.alunos_participantes ?? 0,
       pendentes: s?.alunos_pendentes ?? 0,
-      mediaNota: s?.media_nota_geral ?? 0,
-      mediaProficiencia: s?.media_proficiencia_geral ?? 0,
+      mediaNota,
+      mediaProficiencia,
       percentualComparecimento: pct,
     };
   }, [apiData?.estatisticas_gerais]);
@@ -1162,7 +1196,11 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
       ? (tituloGabaritoFromFilters ?? tituloGabaritoFromApi)
       : (tituloGabaritoFromApi ?? tituloGabaritoFromFilters)
   ) ?? 'Cartão Resposta';
-  const hasNoData = !apiData?.resultados_detalhados?.gabaritos?.length && !geralAlunos.length && !disciplinasTabela.length;
+  const hasNoData =
+    !multiSeriePendingFilter &&
+    !apiData?.resultados_detalhados?.gabaritos?.length &&
+    !geralAlunos.length &&
+    !disciplinasTabela.length;
   const totalQuestionsForCards = geralAlunos.find((a) => (a.total_questoes_geral ?? 0) > 0)?.total_questoes_geral ?? 0;
   const derivedSubjects = useMemo(() => {
     const fromDisciplinas = disciplinasTabela
@@ -1562,7 +1600,14 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Série</label>
-              <Select value={serie} onValueChange={setSerieAndReset} disabled={isLoadingFilters || escola === 'all'}>
+              <Select
+                value={serie}
+                onValueChange={setSerieAndReset}
+                disabled={
+                  isLoadingFilters ||
+                  (escola === 'all' && !multiSeriePendingFilter && !(apiData?.series_do_gabarito?.length))
+                }
+              >
                 <SelectTrigger className="w-full min-w-0">
                   <SelectValue placeholder="Selecione a série" />
                 </SelectTrigger>
@@ -1666,9 +1711,14 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Série</div>
-                  <div className="font-semibold">{apiData.estatisticas_gerais.serie || '—'}</div>
+                  <div className="font-semibold">
+                    {multiSeriePendingFilter
+                      ? (apiData.series_do_gabarito ?? []).map((s) => s.name).join(', ') || 'Várias séries'
+                      : (apiData.estatisticas_gerais.serie || '—')}
+                  </div>
                 </div>
               </div>
+              {!multiSeriePendingFilter && (
               <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Total de alunos</div>
@@ -1703,18 +1753,77 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Nota geral</div>
-                  <div className="text-2xl font-bold text-purple-600">{Number(backendStats.mediaNota).toFixed(1)}</div>
+                  <div className="text-2xl font-bold text-purple-600">
+                    {backendStats.mediaNota != null ? backendStats.mediaNota.toFixed(1) : '—'}
+                  </div>
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Proficiência</div>
-                  <div className="text-2xl font-bold text-orange-600">{Number(backendStats.mediaProficiencia).toFixed(1)}</div>
+                  <div className="text-2xl font-bold text-orange-600">
+                    {backendStats.mediaProficiencia != null ? backendStats.mediaProficiencia.toFixed(1) : '—'}
+                  </div>
                 </div>
               </div>
+              )}
             </CardContent>
           </Card>
 
-          {/* Nenhum dado para exibir */}
-          {hasNoData ? (
+          {multiSeriePendingFilter && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Resultados por série</CardTitle>
+                <CardDescription>
+                  Este cartão possui várias séries. Selecione uma série no filtro acima para ver gráficos,
+                  tabelas e ranking na escala correspondente — ou escolha uma série abaixo.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {(apiData.por_serie ?? []).map((row) => {
+                    const media = row.estatisticas_gerais?.media_nota_geral;
+                    const prof = row.estatisticas_gerais?.media_proficiencia_geral;
+                    return (
+                      <button
+                        key={row.serie_id}
+                        type="button"
+                        onClick={() => setSerieAndReset(row.serie_id)}
+                        className="rounded-lg border bg-background p-4 text-left transition hover:border-primary hover:bg-muted/40"
+                      >
+                        <div className="font-semibold text-foreground">{row.serie}</div>
+                        {row.course_name ? (
+                          <div className="text-xs text-muted-foreground mt-0.5">{row.course_name}</div>
+                        ) : null}
+                        <div className="mt-3 flex gap-4 text-sm">
+                          <div>
+                            <div className="text-muted-foreground">Nota</div>
+                            <div className="text-lg font-bold text-purple-600">
+                              {media != null && Number.isFinite(Number(media)) ? Number(media).toFixed(1) : '—'}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-muted-foreground">Proficiência</div>
+                            <div className="text-lg font-bold text-orange-600">
+                              {prof != null && Number.isFinite(Number(prof)) ? Number(prof).toFixed(1) : '—'}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {!(apiData.por_serie?.length) && (
+                  <Alert className="mt-2">
+                    <AlertDescription>
+                      Selecione uma série no filtro para carregar os resultados detalhados.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Nenhum dado para exibir (detalhe completo só com série filtrada em multi-série) */}
+          {!multiSeriePendingFilter && hasNoData ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16">
                 <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
@@ -1726,7 +1835,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                 </p>
               </CardContent>
             </Card>
-          ) : (
+          ) : !multiSeriePendingFilter ? (
             <Tabs defaultValue="charts" className="w-full">
               <TabsList className="grid w-full grid-cols-4 h-11 bg-muted/50 p-1 rounded-lg">
                 <TabsTrigger value="charts" className="rounded-md data-[state=active]:bg-background data-[state=active]:shadow-sm">Gráficos</TabsTrigger>
@@ -2000,7 +2109,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                 )}
               </TabsContent>
             </Tabs>
-          )}
+          ) : null}
         </>
       )}
 

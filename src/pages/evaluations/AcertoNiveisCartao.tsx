@@ -21,7 +21,11 @@ import type { jsPDF } from "jspdf";
 import type { CellHookData, Styles } from "jspdf-autotable";
 import { normalizeProficiencyLevelLabel } from "@/utils/report/reportTagStyles";
 import type { ReportProficiencyLabel } from "@/utils/report/reportTagStyles";
-import type { AnswerSheetResultadosAgregadosRaw } from "@/utils/answer-sheet/mapAnswerSheetResultadosAgregadosToNovaResposta";
+import {
+  isAnswerSheetMultiSeriePendingFilter,
+  type AnswerSheetResultadosAgregadosRaw,
+} from "@/utils/answer-sheet/mapAnswerSheetResultadosAgregadosToNovaResposta";
+import type { GabaritoGradeRef, ResultadoAgregadoPorSerie } from "@/types/answer-sheet";
 import {
   filtrarGabaritosOpcoesSomenteComHabilidadesVinculadas,
   type GabaritoOpcaoFiltrosResults,
@@ -681,6 +685,10 @@ export default function AcertoNiveis({
   const [asEscola, setAsEscola] = useState<string>("all");
   const [asSerie, setAsSerie] = useState<string>("all");
   const [asTurma, setAsTurma] = useState<string>("all");
+  const [asMultiSeriePending, setAsMultiSeriePending] = useState<{
+    series_do_gabarito: GabaritoGradeRef[];
+    por_serie: ResultadoAgregadoPorSerie[];
+  } | null>(null);
   const [asOpcoes, setAsOpcoes] = useState<{
     estados?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
     municipios?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
@@ -921,6 +929,7 @@ export default function AcertoNiveis({
     setTabelaDetalhada(null);
     setEstatisticasGerais(null);
     setEvaluationInfo(null);
+    setAsMultiSeriePending(null);
   }, []);
 
   const setAsEscolaAndReset = useCallback((v: string) => {
@@ -933,6 +942,7 @@ export default function AcertoNiveis({
     setTabelaDetalhada(null);
     setEstatisticasGerais(null);
     setEvaluationInfo(null);
+    setAsMultiSeriePending(null);
   }, []);
 
   const setAsSerieAndReset = useCallback((v: string) => {
@@ -944,6 +954,7 @@ export default function AcertoNiveis({
     setTabelaDetalhada(null);
     setEstatisticasGerais(null);
     setEvaluationInfo(null);
+    setAsMultiSeriePending(null);
   }, []);
 
   const fetchAsOpcoesFiltros = useCallback(async () => {
@@ -1069,6 +1080,7 @@ export default function AcertoNiveis({
         setEstatisticasGerais(null);
         setDetailedReport(null);
         setEvaluationInfo(null);
+        setAsMultiSeriePending(null);
       }
       return;
     }
@@ -1128,6 +1140,23 @@ export default function AcertoNiveis({
             mapping: newSkillsMapping,
           };
         }
+        if (isAnswerSheetMultiSeriePendingFilter(res.data, asSerie)) {
+          setAsMultiSeriePending({
+            series_do_gabarito: res.data.series_do_gabarito ?? [],
+            por_serie: res.data.por_serie ?? [],
+          });
+          setAllStudents([]);
+          setStudents([]);
+          setAllTabelaDetalhada(null);
+          setTabelaDetalhada(null);
+          setEstatisticasGerais(null);
+          setDetailedReport(null);
+          setEvaluationInfo(null);
+          return;
+        }
+
+        setAsMultiSeriePending(null);
+
         const rawTd = res.data?.tabela_detalhada;
         let tabelaDetalhadaNext: TabelaDetalhadaPorDisciplina | null =
           rawTd && Array.isArray(rawTd.disciplinas)
@@ -1207,6 +1236,7 @@ export default function AcertoNiveis({
         setTabelaDetalhada(null);
         setEstatisticasGerais(null);
         setEvaluationInfo(null);
+        setAsMultiSeriePending(null);
       } finally {
         setIsLoadingAgregadosData(false);
       }
@@ -4997,14 +5027,21 @@ export default function AcertoNiveis({
                 <Select
                   value={asSerie}
                   onValueChange={setAsSerieAndReset}
-                  disabled={isLoadingFiltersAg || asEscola === "all"}
+                  disabled={isLoadingFiltersAg || (asEscola === "all" && !asMultiSeriePending)}
                 >
                   <SelectTrigger className="w-full min-w-0">
                     <SelectValue placeholder="Todas" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todas</SelectItem>
-                    {(asOpcoes.series ?? []).map((s) => (
+                    {(asOpcoes.series?.length
+                      ? asOpcoes.series
+                      : (asMultiSeriePending?.series_do_gabarito ?? []).map((s) => ({
+                          id: s.id,
+                          nome: s.name,
+                          name: s.name,
+                        }))
+                    ).map((s) => (
                       <SelectItem key={s.id} value={s.id}>
                         {asNorm(s)}
                       </SelectItem>
@@ -5204,7 +5241,43 @@ export default function AcertoNiveis({
         </Card>
       )}
 
-      {evaluationInfo && (
+      {isAnswerSheetAgregados && allRequiredAgregadosFilters && !isLoadingAgregadosData && asMultiSeriePending && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Selecione uma série</CardTitle>
+            <CardDescription>
+              Este cartão possui várias séries. Escolha uma série no filtro (ou abaixo) para ver o relatório
+              na escala correspondente.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {asMultiSeriePending.por_serie.map((row) => {
+                const media = row.estatisticas_gerais?.media_nota_geral;
+                return (
+                  <button
+                    key={row.serie_id}
+                    type="button"
+                    onClick={() => setAsSerieAndReset(row.serie_id)}
+                    className="rounded-lg border bg-background p-4 text-left transition hover:border-primary hover:bg-muted/40"
+                  >
+                    <div className="font-semibold">{row.serie}</div>
+                    {row.course_name ? (
+                      <div className="text-xs text-muted-foreground mt-0.5">{row.course_name}</div>
+                    ) : null}
+                    <div className="mt-2 text-sm text-muted-foreground">Nota média</div>
+                    <div className="text-xl font-bold text-purple-600">
+                      {media != null && Number.isFinite(Number(media)) ? Number(media).toFixed(1) : "—"}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {evaluationInfo && !asMultiSeriePending && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

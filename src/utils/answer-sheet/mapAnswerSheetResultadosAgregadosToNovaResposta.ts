@@ -1,9 +1,16 @@
 import type { NovaRespostaAPI, RankingItem } from "@/services/evaluation/evaluationResultsApi";
+import type { GabaritoGradeRef, ResultadoAgregadoPorSerie } from "@/types/answer-sheet";
 
 /** Resposta de GET /answer-sheets/resultados-agregados (mesma forma que `AnswerSheetResults.tsx`). */
 export interface AnswerSheetResultadosAgregadosRaw {
   nivel_granularidade?: string;
   filtros_aplicados?: Record<string, string>;
+  /** Séries vinculadas ao gabarito (multi-série). */
+  series_do_gabarito?: GabaritoGradeRef[];
+  /** True quando o gabarito tem várias séries e nenhum `serie=` foi enviado. */
+  requer_filtro_serie?: boolean;
+  /** Médias por série quando `requer_filtro_serie` (stats top-level costumam vir nulos). */
+  por_serie?: ResultadoAgregadoPorSerie[];
   estatisticas_gerais?: {
     tipo?: string;
     nome?: string;
@@ -28,8 +35,8 @@ export interface AnswerSheetResultadosAgregadosRaw {
     }>;
     percentual_comparecimento?: number;
     nivel_classificacao?: string | null;
-    media_nota_geral?: number;
-    media_proficiencia_geral?: number;
+    media_nota_geral?: number | null;
+    media_proficiencia_geral?: number | null;
     distribuicao_classificacao_geral?: {
       abaixo_do_basico?: number;
       basico?: number;
@@ -195,8 +202,20 @@ const emptyDist = () => ({
 const isGranularity = (v: string): v is NovaRespostaAPI["nivel_granularidade"] =>
   v === "municipio" || v === "escola" || v === "serie" || v === "turma" || v === "avaliacao";
 
+/** Multi-série sem `serie=` — o front deve usar `por_serie[]` (não confiar nas médias top-level). */
+export function isAnswerSheetMultiSeriePendingFilter(
+  raw: Pick<AnswerSheetResultadosAgregadosRaw, "requer_filtro_serie" | "por_serie"> | null | undefined,
+  serieFilter?: string | null
+): boolean {
+  if (serieFilter && serieFilter !== "all") return false;
+  if (raw?.requer_filtro_serie === true) return true;
+  return Array.isArray(raw?.por_serie) && raw.por_serie.length > 1;
+}
+
 /**
  * Converte a resposta de `/answer-sheets/resultados-agregados` para o formato usado pelo Relatório Escolar.
+ * Com multi-série sem filtro, as médias top-level podem ser `null` — o chamador deve checar
+ * `isAnswerSheetMultiSeriePendingFilter` antes de renderizar o relatório completo.
  */
 export function mapAnswerSheetResultadosAgregadosToNovaResposta(
   raw: AnswerSheetResultadosAgregadosRaw,
@@ -428,11 +447,18 @@ export function mapAnswerSheetResultadosAgregadosToNovaResposta(
           id: e.id,
           name: e.name ?? e.nome ?? "",
         })) ?? [],
-      series:
-        raw.opcoes_proximos_filtros?.series?.map((s) => ({
+      series: (() => {
+        const fromOpcoes =
+          raw.opcoes_proximos_filtros?.series?.map((s) => ({
+            id: s.id,
+            name: s.name ?? s.nome ?? "",
+          })) ?? [];
+        if (fromOpcoes.length > 0) return fromOpcoes;
+        return (raw.series_do_gabarito ?? []).map((s) => ({
           id: s.id,
-          name: s.name ?? s.nome ?? "",
-        })) ?? [],
+          name: s.name ?? "",
+        }));
+      })(),
       turmas:
         raw.opcoes_proximos_filtros?.turmas?.map((t) => ({
           id: t.id,
