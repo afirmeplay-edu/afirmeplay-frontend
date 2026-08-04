@@ -258,24 +258,14 @@ export default function AnswerSheetGenerateCards() {
   const [deleteMode, setDeleteMode] = useState<'single' | 'multiple'>('single');
   const [gabaritoToDelete, setGabaritoToDelete] = useState<string | null>(null);
 
-  // Edição de gabarito (correct_answers)
-  const [editOpen, setEditOpen] = useState(false);
-  const [editLoading, setEditLoading] = useState(false);
-  const [editSaving, setEditSaving] = useState(false);
-  const [editGabaritoId, setEditGabaritoId] = useState<string | null>(null);
-  const [editTitle, setEditTitle] = useState<string>('');
-  const [editNumQuestions, setEditNumQuestions] = useState<number>(0);
-  const [editCorrectAnswers, setEditCorrectAnswers] = useState<Record<string, Alternative | null>>({});
-  const [noEditPermissionIds, setNoEditPermissionIds] = useState<Set<string>>(new Set());
-
-  const [recalcJobId, setRecalcJobId] = useState<string | null>(null);
+  // Recálculo após alterar respostas corretas (PATCH structure → 202)
   const [recalcStatus, setRecalcStatus] = useState<'idle' | 'saving' | 'processing' | 'completed' | 'failed'>('idle');
   const [recalcProgressPct, setRecalcProgressPct] = useState<number>(0);
   const [recalcSummary, setRecalcSummary] = useState<{ successful_items?: number; failed_items?: number } | null>(null);
   const [recalcItems, setRecalcItems] = useState<RecalculateJobStatusResponse['items']>(null);
   const [recalcMessage, setRecalcMessage] = useState<string>('');
 
-  // Edição estrutural
+  // Edição do cartão resposta (structure)
   const [structEditOpen, setStructEditOpen] = useState(false);
   const [structEditLoading, setStructEditLoading] = useState(false);
   const [structEditSaving, setStructEditSaving] = useState(false);
@@ -296,9 +286,9 @@ export default function AnswerSheetGenerateCards() {
   const [showRegeneratePdfsDialog, setShowRegeneratePdfsDialog] = useState(false);
   const [disciplines, setDisciplines] = useState<{ id: string; name: string }[]>([]);
   const [isLoadingDisciplines, setIsLoadingDisciplines] = useState(false);
-  /** Cartão com correções: só título e habilidades podem ser editados */
+  /** Com correções: estrutura (questões/blocos/opções) bloqueada; título, skills e respostas liberados */
   const [structEditHasCorrections, setStructEditHasCorrections] = useState(false);
-  /** Snapshots iniciais para diff / patch cirúrgico de título e skills */
+  /** Snapshots iniciais para diff / patch cirúrgico */
   const [structEditInitialTitle, setStructEditInitialTitle] = useState('');
   const [structEditInitialNumQuestions, setStructEditInitialNumQuestions] = useState(0);
   const [structEditInitialBlocks, setStructEditInitialBlocks] = useState<Array<{
@@ -382,16 +372,8 @@ export default function AnswerSheetGenerateCards() {
     }
   }, []);
 
-  const resetEditDialogState = useCallback(() => {
+  const resetRecalcState = useCallback(() => {
     stopRecalcPolling();
-    setEditOpen(false);
-    setEditLoading(false);
-    setEditSaving(false);
-    setEditGabaritoId(null);
-    setEditTitle('');
-    setEditNumQuestions(0);
-    setEditCorrectAnswers({});
-    setRecalcJobId(null);
     setRecalcStatus('idle');
     setRecalcProgressPct(0);
     setRecalcSummary(null);
@@ -452,118 +434,6 @@ export default function AnswerSheetGenerateCards() {
     [fetchGabaritos, stopRecalcPolling, toast]
   );
 
-  const handleSaveEditedGabarito = useCallback(async () => {
-    if (!editGabaritoId) return;
-
-    try {
-      setEditSaving(true);
-      setRecalcStatus('saving');
-      setRecalcMessage('');
-
-      const payload = { correct_answers: editCorrectAnswers };
-      const res = await api.patch(`/answer-sheets/gabaritos/${editGabaritoId}`, payload, {
-        headers: { 'Content-Type': 'application/json' },
-        validateStatus: (s) => s < 500,
-      });
-
-      if (res.status === 403) {
-        setNoEditPermissionIds((prev) => new Set([...Array.from(prev), editGabaritoId]));
-        toast({ title: 'Sem permissão', description: 'Você não tem permissão para editar este gabarito.', variant: 'destructive' });
-        resetEditDialogState();
-        return;
-      }
-
-      if (res.status === 404) {
-        toast({ title: 'Não encontrado', description: 'Gabarito inexistente.', variant: 'destructive' });
-        resetEditDialogState();
-        return;
-      }
-
-      if (res.status === 400) {
-        const msg = (res.data as { message?: string } | undefined)?.message || 'Payload inválido.';
-        toast({ title: 'Erro ao salvar', description: msg, variant: 'destructive' });
-        setRecalcStatus('idle');
-        return;
-      }
-
-      if (res.status !== 202) {
-        toast({ title: 'Resposta inesperada', description: 'Não foi possível iniciar o recálculo.', variant: 'destructive' });
-        setRecalcStatus('idle');
-        return;
-      }
-
-      const data = res.data as { job_id?: string; polling_url?: string; status?: string; message?: string };
-      const nextJobId = (data.job_id ?? '').trim();
-      if (!nextJobId) {
-        toast({ title: 'Erro', description: 'job_id não retornou do servidor.', variant: 'destructive' });
-        setRecalcStatus('idle');
-        return;
-      }
-
-      setRecalcJobId(nextJobId);
-      setRecalcStatus('processing');
-      setRecalcProgressPct(0);
-      setRecalcSummary(null);
-      setRecalcItems(null);
-      setRecalcMessage(data.message ?? '');
-
-      startRecalcPolling(nextJobId);
-    } catch (err: unknown) {
-      const msg = isAxiosError(err)
-        ? (err.response?.data as { message?: string } | undefined)?.message || 'Não foi possível salvar o gabarito.'
-        : 'Não foi possível salvar o gabarito.';
-      toast({ title: 'Erro', description: msg, variant: 'destructive' });
-      setRecalcStatus('idle');
-    } finally {
-      setEditSaving(false);
-    }
-  }, [editCorrectAnswers, editGabaritoId, resetEditDialogState, startRecalcPolling, toast]);
-
-  const openEditDialogForGabarito = useCallback(
-    async (g: Gabarito) => {
-      if (noEditPermissionIds.has(g.id)) return;
-
-      setEditOpen(true);
-      setEditLoading(true);
-      setEditGabaritoId(g.id);
-      setEditTitle(g.title);
-      setEditNumQuestions(g.num_questions ?? 0);
-      setEditCorrectAnswers({});
-      setRecalcJobId(null);
-      setRecalcStatus('idle');
-      setRecalcProgressPct(0);
-      setRecalcSummary(null);
-      setRecalcItems(null);
-      setRecalcMessage('');
-
-      try {
-        const res = await api.get<GabaritoDetailResponse>(`/answer-sheets/gabarito/${g.id}`);
-        const numQuestions = Number(res.data?.num_questions ?? g.num_questions ?? 0) || 0;
-        const raw = (res.data?.correct_answers ?? {}) as Record<string, Alternative | null>;
-
-        const normalized: Record<string, Alternative | null> = {};
-        for (let i = 1; i <= numQuestions; i++) {
-          const k = String(i);
-          const v = raw[k];
-          normalized[k] = v ?? null;
-        }
-
-        setEditTitle(res.data?.title ?? g.title);
-        setEditNumQuestions(numQuestions);
-        setEditCorrectAnswers(normalized);
-      } catch (err: unknown) {
-        const msg = isAxiosError(err)
-          ? (err.response?.data as { message?: string } | undefined)?.message || 'Não foi possível carregar o gabarito.'
-          : 'Não foi possível carregar o gabarito.';
-        toast({ title: 'Erro', description: msg, variant: 'destructive' });
-        resetEditDialogState();
-      } finally {
-        setEditLoading(false);
-      }
-    },
-    [noEditPermissionIds, resetEditDialogState, toast]
-  );
-
   const checkCanEditStructure = useCallback(async (gabaritoId: string): Promise<{ canOpen: boolean; hasCorrections: boolean }> => {
     try {
       const res = await api.get(`/answer-sheets/results?gabarito_id=${gabaritoId}&page=1&per_page=1`);
@@ -580,6 +450,7 @@ export default function AnswerSheetGenerateCards() {
   }, [toast]);
 
   const resetStructEditDialogState = useCallback(() => {
+    resetRecalcState();
     setStructEditOpen(false);
     setStructEditLoading(false);
     setStructEditSaving(false);
@@ -609,12 +480,13 @@ export default function AnswerSheetGenerateCards() {
     setUseGlobalAlternatives(true);
     setGlobalAlternatives(['A', 'B', 'C', 'D']);
     setEditingQuestionAlternativesNum(null);
-  }, []);
+  }, [resetRecalcState]);
 
   const openStructEditDialog = useCallback(async (g: Gabarito) => {
     const { canOpen, hasCorrections } = await checkCanEditStructure(g.id);
     if (!canOpen) return;
 
+    resetRecalcState();
     setStructEditOpen(true);
     setStructEditLoading(true);
     setStructEditGabaritoId(g.id);
@@ -708,7 +580,7 @@ export default function AnswerSheetGenerateCards() {
     } finally {
       setStructEditLoading(false);
     }
-  }, [checkCanEditStructure, resetStructEditDialogState, toast]);
+  }, [checkCanEditStructure, resetRecalcState, resetStructEditDialogState, toast]);
 
   const handleSaveStructure = useCallback(async () => {
     if (!structEditGabaritoId) return;
@@ -736,10 +608,10 @@ export default function AnswerSheetGenerateCards() {
       return changed;
     };
 
-    const isStructureDirty = () => {
+    /** Topologia (422 com correções). Respostas corretas NÃO entram aqui. */
+    const isTopologyDirty = () => {
       if (structEditNumQuestions !== structEditInitialNumQuestions) return true;
       if (JSON.stringify(structEditBlocks) !== JSON.stringify(structEditInitialBlocks)) return true;
-      if (JSON.stringify(structEditCorrectAnswers) !== JSON.stringify(structEditInitialCorrectAnswers)) return true;
       if (useGlobalAlternatives !== structEditInitialUseGlobalAlternatives) return true;
       if (useGlobalAlternatives) {
         const curr = [...globalAlternatives].sort();
@@ -756,7 +628,9 @@ export default function AnswerSheetGenerateCards() {
     const skillsDiff = buildQuestionSkillsDiff(structEditInitialQuestionSkills, structEditQuestionSkills);
     const titleTrimmed = structEditTitle.trim();
     const titleChanged = titleTrimmed !== structEditInitialTitle.trim();
-    const useMetadataOnlyPatch = structEditHasCorrections || !isStructureDirty();
+    const answersChanged =
+      JSON.stringify(structEditCorrectAnswers) !== JSON.stringify(structEditInitialCorrectAnswers);
+    const useSafePatch = structEditHasCorrections || !isTopologyDirty();
 
     const validateTitle = (): boolean => {
       if (!titleTrimmed) {
@@ -778,12 +652,12 @@ export default function AnswerSheetGenerateCards() {
       return true;
     };
 
-    if (useMetadataOnlyPatch) {
-      if (!titleChanged && Object.keys(skillsDiff).length === 0) {
+    if (useSafePatch) {
+      if (!titleChanged && Object.keys(skillsDiff).length === 0 && !answersChanged) {
         toast({
           title: 'Nenhuma alteração',
           description: structEditHasCorrections
-            ? 'Altere o título ou as habilidades de pelo menos uma questão antes de salvar.'
+            ? 'Altere o título, as habilidades ou as respostas corretas antes de salvar.'
             : 'Não há alterações para salvar.',
         });
         return;
@@ -794,25 +668,82 @@ export default function AnswerSheetGenerateCards() {
       try {
         setStructEditSaving(true);
         setStructEditWarning(null);
+        setRecalcStatus(answersChanged ? 'saving' : 'idle');
+        setRecalcMessage('');
 
-        const metadataPayload: {
+        const safePayload: {
           title?: string;
           question_skills?: Record<string, string[]>;
+          correct_answers?: Record<string, Alternative | null>;
         } = {};
-        if (titleChanged) metadataPayload.title = titleTrimmed;
-        if (Object.keys(skillsDiff).length > 0) metadataPayload.question_skills = skillsDiff;
+        if (titleChanged) safePayload.title = titleTrimmed;
+        if (Object.keys(skillsDiff).length > 0) safePayload.question_skills = skillsDiff;
+        if (answersChanged) safePayload.correct_answers = structEditCorrectAnswers;
 
         const res = await api.patch(
           `/answer-sheets/gabarito/${structEditGabaritoId}/structure`,
-          metadataPayload,
+          safePayload,
           { headers: { 'Content-Type': 'application/json' } }
         );
+
+        if (res.status === 202) {
+          const data = res.data as {
+            message?: string;
+            job_id?: string;
+            status?: string;
+            recalculated_sync?: boolean;
+            answers_only?: boolean;
+          };
+
+          toast({
+            title: 'Sucesso',
+            description: data.message || 'Gabarito atualizado; recálculo iniciado.',
+          });
+
+          await fetchGabaritos();
+
+          if (data.recalculated_sync || data.status === 'completed') {
+            setRecalcStatus('completed');
+            setRecalcMessage(data.message ?? '');
+            setStructEditInitialTitle(titleTrimmed);
+            setStructEditInitialCorrectAnswers({ ...structEditCorrectAnswers });
+            setStructEditInitialQuestionSkills(
+              Object.fromEntries(
+                Object.entries(structEditQuestionSkills).map(([k, v]) => [k, [...v]])
+              )
+            );
+            return;
+          }
+
+          const nextJobId = (data.job_id ?? '').trim();
+          if (!nextJobId) {
+            toast({ title: 'Erro', description: 'job_id não retornou do servidor.', variant: 'destructive' });
+            setRecalcStatus('idle');
+            return;
+          }
+
+          setRecalcStatus('processing');
+          setRecalcProgressPct(0);
+          setRecalcSummary(null);
+          setRecalcItems(null);
+          setRecalcMessage(data.message ?? '');
+          setStructEditInitialTitle(titleTrimmed);
+          setStructEditInitialCorrectAnswers({ ...structEditCorrectAnswers });
+          setStructEditInitialQuestionSkills(
+            Object.fromEntries(
+              Object.entries(structEditQuestionSkills).map(([k, v]) => [k, [...v]])
+            )
+          );
+          startRecalcPolling(nextJobId);
+          return;
+        }
 
         if (res.status === 200) {
           const data = res.data as {
             message?: string;
             skills_only?: boolean;
             title_only?: boolean;
+            answers_only?: boolean;
             warning?: string;
             changes?: { skills_updated?: boolean; title?: { old?: string; new?: string } };
           };
@@ -823,7 +754,9 @@ export default function AnswerSheetGenerateCards() {
               data.message ||
               (data.title_only
                 ? 'Nome do gabarito atualizado com sucesso.'
-                : 'Habilidades atualizadas com sucesso.'),
+                : data.answers_only
+                  ? 'Gabarito atualizado com sucesso.'
+                  : 'Habilidades atualizadas com sucesso.'),
           });
 
           await fetchGabaritos();
@@ -837,6 +770,7 @@ export default function AnswerSheetGenerateCards() {
           }
         }
       } catch (err: unknown) {
+        setRecalcStatus('idle');
         if (isAxiosError(err)) {
           const status = err.response?.status;
           const data = err.response?.data as {
@@ -851,7 +785,7 @@ export default function AnswerSheetGenerateCards() {
               title: 'Estrutura bloqueada',
               description:
                 [data.error, data.hint].filter(Boolean).join(' ') ||
-                'Este cartão já possui correções. É permitido editar apenas o título e as habilidades (question_skills).',
+                'Este cartão já possui correções. É permitido editar título, habilidades e respostas corretas.',
               variant: 'destructive',
             });
           } else if (status === 400) {
@@ -981,6 +915,42 @@ export default function AnswerSheetGenerateCards() {
         { headers: { 'Content-Type': 'application/json' } }
       );
 
+      if (res.status === 202) {
+        const data = res.data as {
+          message?: string;
+          job_id?: string;
+          status?: string;
+          recalculated_sync?: boolean;
+        };
+
+        toast({
+          title: 'Sucesso',
+          description: data.message || 'Estrutura atualizada; recálculo iniciado.',
+        });
+
+        await fetchGabaritos();
+
+        if (data.recalculated_sync || data.status === 'completed') {
+          setRecalcStatus('completed');
+          setRecalcMessage(data.message ?? '');
+          return;
+        }
+
+        const nextJobId = (data.job_id ?? '').trim();
+        if (!nextJobId) {
+          toast({ title: 'Erro', description: 'job_id não retornou do servidor.', variant: 'destructive' });
+          return;
+        }
+
+        setRecalcStatus('processing');
+        setRecalcProgressPct(0);
+        setRecalcSummary(null);
+        setRecalcItems(null);
+        setRecalcMessage(data.message ?? '');
+        startRecalcPolling(nextJobId);
+        return;
+      }
+
       if (res.status === 200) {
         const data = res.data as {
           message?: string;
@@ -1003,6 +973,7 @@ export default function AnswerSheetGenerateCards() {
         }
       }
     } catch (err: unknown) {
+      setRecalcStatus('idle');
       if (isAxiosError(err)) {
         const status = err.response?.status;
         const data = err.response?.data as {
@@ -1017,7 +988,7 @@ export default function AnswerSheetGenerateCards() {
             title: 'Estrutura bloqueada',
             description:
               [data.error, data.hint].filter(Boolean).join(' ') ||
-              'Este cartão já possui correções. É permitido editar apenas o título e as habilidades (question_skills).',
+              'Este cartão já possui correções. É permitido editar título, habilidades e respostas corretas.',
             variant: 'destructive',
           });
         } else if (status === 400) {
@@ -1064,6 +1035,7 @@ export default function AnswerSheetGenerateCards() {
     globalAlternatives,
     resetStructEditDialogState,
     fetchGabaritos,
+    startRecalcPolling,
     toast,
   ]);
 
@@ -2560,14 +2532,6 @@ export default function AnswerSheetGenerateCards() {
                             </div>
                           </div>
                           <div className="flex flex-col gap-2 shrink-0">
-                            <Button
-                              variant="outline"
-                              onClick={() => openEditDialogForGabarito(gabarito)}
-                              disabled={isDeleting || isBusyDownloadingForGabarito(gabarito.id) || noEditPermissionIds.has(gabarito.id)}
-                            >
-                              <Pencil className="h-4 w-4 mr-2" />
-                              Editar gabarito
-                            </Button>
                             {!hasGenerationsList && (
                             <Button
                               onClick={() =>
@@ -2614,147 +2578,6 @@ export default function AnswerSheetGenerateCards() {
               )}
             </CardContent>
           </Card>
-
-          <Dialog open={editOpen} onOpenChange={(v) => (v ? setEditOpen(true) : resetEditDialogState())}>
-            <DialogContent className="max-w-3xl">
-              <DialogHeader>
-                <DialogTitle>Editar gabarito</DialogTitle>
-                <DialogDescription>
-                  {editTitle ? (
-                    <>
-                      <span className="font-medium text-foreground">{editTitle}</span>
-                      {editNumQuestions ? <> · {editNumQuestions} questões</> : null}
-                    </>
-                  ) : (
-                    'Edite as respostas corretas do cartão resposta.'
-                  )}
-                </DialogDescription>
-              </DialogHeader>
-
-              {editLoading ? (
-                <div className="space-y-3 py-2">
-                  <Skeleton className="h-6 w-1/2" />
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {recalcStatus === 'saving' && (
-                    <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Salvando…
-                    </div>
-                  )}
-                  {recalcStatus === 'processing' && (
-                    <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                      <div className="text-sm text-muted-foreground flex items-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Recalculando resultados…
-                      </div>
-                      <Progress value={recalcProgressPct} />
-                      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                        <span>{Math.round(recalcProgressPct)}%</span>
-                        {recalcSummary ? (
-                          <>
-                            <span>·</span>
-                            <span>Sucesso: {recalcSummary.successful_items ?? 0}</span>
-                            <span>·</span>
-                            <span>Falhas: {recalcSummary.failed_items ?? 0}</span>
-                          </>
-                        ) : null}
-                      </div>
-                      {recalcMessage ? <div className="text-xs text-muted-foreground">{recalcMessage}</div> : null}
-                    </div>
-                  )}
-                  {recalcStatus === 'completed' && (
-                    <div className="rounded-lg border border-green-200 bg-green-50/60 p-3 text-sm text-green-800 dark:border-green-900/40 dark:bg-green-950/20 dark:text-green-200">
-                      Recalculo concluído.
-                    </div>
-                  )}
-                  {recalcStatus === 'failed' && (
-                    <div className="rounded-lg border border-red-200 bg-red-50/60 p-3 text-sm text-red-800 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-200">
-                      Falha ao recalcular. {recalcMessage || 'Tente novamente.'}
-                    </div>
-                  )}
-
-                  <ScrollArea className="h-[50vh] pr-3">
-                    <div className="grid gap-3">
-                      {Array.from({ length: editNumQuestions }, (_, i) => i + 1).map((n) => {
-                        const key = String(n);
-                        const value = editCorrectAnswers[key] ?? null;
-                        const CLEAR_VALUE = '__CLEAR__';
-                        const selectValue = value ?? CLEAR_VALUE;
-                        return (
-                          <div key={key} className="flex items-center gap-3 rounded-lg border bg-card p-3">
-                            <div className="w-16 shrink-0 text-sm font-semibold text-foreground">Q{n}</div>
-                            <div className="flex-1">
-                              <Select
-                                value={selectValue}
-                                onValueChange={(v) => {
-                                  const next = v === CLEAR_VALUE ? null : (v as Alternative);
-                                  setEditCorrectAnswers((prev) => ({ ...prev, [key]: next }));
-                                }}
-                                disabled={editSaving || recalcStatus === 'processing' || recalcStatus === 'saving'}
-                              >
-                                <SelectTrigger className="w-full">
-                                  <SelectValue placeholder="Limpar" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value={CLEAR_VALUE}>Limpar</SelectItem>
-                                  {(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as Alternative[]).map((alt) => (
-                                    <SelectItem key={alt} value={alt}>
-                                      {alt}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </ScrollArea>
-
-                  {Array.isArray(recalcItems) && recalcItems.some((it) => (it.status ?? '').toLowerCase() === 'error') ? (
-                    <div className="rounded-lg border border-red-200 bg-red-50/60 p-3 dark:border-red-900/40 dark:bg-red-950/20">
-                      <div className="text-sm font-semibold text-red-800 dark:text-red-200">Falhas</div>
-                      <ul className="mt-2 space-y-1 text-xs text-red-800 dark:text-red-200">
-                        {recalcItems
-                          .filter((it) => (it.status ?? '').toLowerCase() === 'error')
-                          .slice(0, 20)
-                          .map((it, idx) => (
-                            <li key={it.id ?? String(idx)} className="break-words">
-                              {it.id ? <span className="font-semibold">{it.id}: </span> : null}
-                              {it.error || it.message || 'Erro'}
-                            </li>
-                          ))}
-                      </ul>
-                    </div>
-                  ) : null}
-
-                  <div className="flex justify-end gap-2 pt-2">
-                    <Button variant="outline" onClick={resetEditDialogState} disabled={editSaving || recalcStatus === 'processing' || recalcStatus === 'saving'}>
-                      Fechar
-                    </Button>
-                    <Button
-                      onClick={handleSaveEditedGabarito}
-                      disabled={!editGabaritoId || editSaving || editLoading || recalcStatus === 'processing' || recalcStatus === 'saving'}
-                    >
-                      {editSaving ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Salvando…
-                        </>
-                      ) : (
-                        'Salvar'
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </DialogContent>
-          </Dialog>
 
           <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
             <DialogContent>
@@ -2811,9 +2634,9 @@ export default function AnswerSheetGenerateCards() {
                     <Pencil className="h-5 w-5 text-primary" />
                   </div>
                   <div>
-                    <CardTitle>Editar estrutura dos cartões</CardTitle>
+                    <CardTitle>Editar cartão resposta</CardTitle>
                     <CardDescription>
-                      Edite o título e a estrutura do cartão resposta: número de questões, blocos, habilidades e alternativas.
+                      Edite o título, as respostas corretas e a estrutura do cartão: número de questões, blocos, habilidades e alternativas.
                     </CardDescription>
                   </div>
                 </div>
@@ -2845,11 +2668,11 @@ export default function AnswerSheetGenerateCards() {
                     <div className="flex gap-2">
                       <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                       <div className="space-y-1">
-                        <p className="font-medium text-amber-900 dark:text-amber-100">Atenção ao editar a estrutura</p>
+                        <p className="font-medium text-amber-900 dark:text-amber-100">Atenção ao editar o cartão</p>
                         <ul className="text-amber-800 dark:text-amber-200 space-y-1 text-xs list-disc list-inside">
-                          <li>Com correções registradas, só é possível editar o <strong>título</strong> e as <strong>habilidades</strong></li>
+                          <li>Com correções registradas, é possível editar <strong>título</strong>, <strong>habilidades</strong> e <strong>respostas corretas</strong> (dispara recálculo)</li>
+                          <li>Número de questões, blocos e alternativas permanecem bloqueados se já houver correções</li>
                           <li>Se os PDFs já foram gerados, será necessário <strong>regenerá-los</strong> após editar (inclusive o título)</li>
-                          <li>Alterações estruturais afetam a topologia e coordenadas do cartão</li>
                         </ul>
                       </div>
                     </div>
@@ -2922,7 +2745,7 @@ export default function AnswerSheetGenerateCards() {
                               disabled={isDeleting || structEditLoading}
                             >
                               <Pencil className="h-4 w-4 mr-2" />
-                              Editar estrutura
+                              Editar Cartão resposta
                             </Button>
                           </div>
                         </div>
@@ -2937,13 +2760,11 @@ export default function AnswerSheetGenerateCards() {
           <Dialog open={structEditOpen} onOpenChange={(v) => (v ? setStructEditOpen(true) : resetStructEditDialogState())}>
             <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
               <DialogHeader className="shrink-0">
-                <DialogTitle>
-                  {structEditHasCorrections ? 'Editar título e habilidades' : 'Editar estrutura do cartão'}
-                </DialogTitle>
+                <DialogTitle>Editar Cartão resposta</DialogTitle>
                 <DialogDescription>
                   {structEditHasCorrections
-                    ? 'Altere o nome do cartão e/ou as habilidades das questões.'
-                    : 'Configure o título e a estrutura completa do cartão resposta.'}
+                    ? 'Altere o título, as respostas corretas e/ou as habilidades. A estrutura permanece bloqueada.'
+                    : 'Configure o título, as respostas corretas e a estrutura completa do cartão resposta.'}
                 </DialogDescription>
               </DialogHeader>
 
@@ -2966,7 +2787,7 @@ export default function AnswerSheetGenerateCards() {
                               Este cartão já possui correções
                             </p>
                             <p className="text-amber-800 dark:text-amber-200 text-xs mt-1">
-                              Só é possível editar o título e as habilidades das questões. Número de questões, blocos e alternativas permanecem bloqueados.
+                              É possível editar o título, as respostas corretas e as habilidades. Alterar o gabarito dispara recálculo dos resultados. Número de questões, blocos e alternativas permanecem bloqueados.
                             </p>
                           </div>
                         </div>
@@ -2985,7 +2806,7 @@ export default function AnswerSheetGenerateCards() {
                         maxLength={200}
                         value={structEditTitle}
                         onChange={(e) => setStructEditTitle(e.target.value)}
-                        disabled={structEditSaving}
+                        disabled={structEditSaving || recalcStatus === 'processing' || recalcStatus === 'saving'}
                         placeholder="Ex.: Avaliação de Matemática - 1º bimestre"
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                       />
@@ -3359,6 +3180,9 @@ export default function AnswerSheetGenerateCards() {
                         <Label className="text-base font-semibold">Respostas corretas (gabarito)</Label>
                         <p className="text-sm text-muted-foreground mt-1">
                           Clique na letra para definir a resposta correta de cada questão
+                          {structEditHasCorrections
+                            ? '. Alterações disparam recálculo dos resultados já corrigidos.'
+                            : '.'}
                         </p>
                       </div>
                       
@@ -3386,7 +3210,7 @@ export default function AnswerSheetGenerateCards() {
                                         ? 'bg-primary text-primary-foreground'
                                         : 'bg-background hover:bg-muted'
                                     }`}
-                                    disabled={structEditSaving || structEditHasCorrections}
+                                    disabled={structEditSaving || recalcStatus === 'processing' || recalcStatus === 'saving'}
                                   >
                                     {letter}
                                   </button>
@@ -3405,30 +3229,92 @@ export default function AnswerSheetGenerateCards() {
                 </div>
               )}
 
-              <div className="shrink-0 flex justify-end gap-2 pt-4 border-t">
-                <Button
-                  variant="outline"
-                  onClick={resetStructEditDialogState}
-                  disabled={structEditSaving || structEditLoading}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  onClick={handleSaveStructure}
-                  disabled={!structEditGabaritoId || structEditSaving || structEditLoading}
-                >
-                  {structEditSaving ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Salvando...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="h-4 w-4 mr-2" />
-                      {structEditHasCorrections ? 'Salvar alterações' : 'Salvar estrutura'}
-                    </>
-                  )}
-                </Button>
+              <div className="shrink-0 space-y-3 pt-4 border-t">
+                {recalcStatus === 'saving' && (
+                  <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Salvando…
+                  </div>
+                )}
+                {recalcStatus === 'processing' && (
+                  <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                    <div className="text-sm text-muted-foreground flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Recalculando resultados…
+                    </div>
+                    <Progress value={recalcProgressPct} />
+                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      <span>{Math.round(recalcProgressPct)}%</span>
+                      {recalcSummary ? (
+                        <>
+                          <span>·</span>
+                          <span>Sucesso: {recalcSummary.successful_items ?? 0}</span>
+                          <span>·</span>
+                          <span>Falhas: {recalcSummary.failed_items ?? 0}</span>
+                        </>
+                      ) : null}
+                    </div>
+                    {recalcMessage ? <div className="text-xs text-muted-foreground">{recalcMessage}</div> : null}
+                  </div>
+                )}
+                {recalcStatus === 'completed' && (
+                  <div className="rounded-lg border border-green-200 bg-green-50/60 p-3 text-sm text-green-800 dark:border-green-900/40 dark:bg-green-950/20 dark:text-green-200">
+                    Recálculo concluído.
+                  </div>
+                )}
+                {recalcStatus === 'failed' && (
+                  <div className="rounded-lg border border-red-200 bg-red-50/60 p-3 text-sm text-red-800 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-200">
+                    Falha ao recalcular. {recalcMessage || 'Tente novamente.'}
+                  </div>
+                )}
+                {Array.isArray(recalcItems) && recalcItems.some((it) => (it.status ?? '').toLowerCase() === 'error') ? (
+                  <div className="rounded-lg border border-red-200 bg-red-50/60 p-3 dark:border-red-900/40 dark:bg-red-950/20">
+                    <div className="text-sm font-semibold text-red-800 dark:text-red-200">Falhas</div>
+                    <ul className="mt-2 space-y-1 text-xs text-red-800 dark:text-red-200">
+                      {recalcItems
+                        .filter((it) => (it.status ?? '').toLowerCase() === 'error')
+                        .slice(0, 20)
+                        .map((it, idx) => (
+                          <li key={it.id ?? String(idx)} className="break-words">
+                            {it.id ? <span className="font-semibold">{it.id}: </span> : null}
+                            {it.error || it.message || 'Erro'}
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={resetStructEditDialogState}
+                    disabled={structEditSaving || structEditLoading || recalcStatus === 'processing' || recalcStatus === 'saving'}
+                  >
+                    {recalcStatus === 'completed' || recalcStatus === 'failed' ? 'Fechar' : 'Cancelar'}
+                  </Button>
+                  <Button
+                    onClick={handleSaveStructure}
+                    disabled={
+                      !structEditGabaritoId ||
+                      structEditSaving ||
+                      structEditLoading ||
+                      recalcStatus === 'processing' ||
+                      recalcStatus === 'saving'
+                    }
+                  >
+                    {structEditSaving || recalcStatus === 'saving' ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Salvando...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="h-4 w-4 mr-2" />
+                        Salvar alterações
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             </DialogContent>
           </Dialog>
