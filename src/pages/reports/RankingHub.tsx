@@ -75,24 +75,6 @@ function getApiError(error: unknown, fallback: string): string {
   return maybe?.response?.data?.error || maybe?.response?.data?.details || maybe?.message || fallback;
 }
 
-/** 1º e 2º ano: provas LP/MAT em dias distintos — precisa multi-instrumento. */
-function isEarlyPrimaryGrade(serieName: string): boolean {
-  const normalized = serieName
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-  if (!normalized) return false;
-  // Aceita "1º Ano", "1o Ano", "1 Ano", "Primeiro Ano" (e equivalentes do 2º).
-  if (/(?:^|[^0-9])1\D{0,3}\s*ano\b/.test(normalized) || /\bprimeiro\s+ano\b/.test(normalized)) {
-    return true;
-  }
-  if (/(?:^|[^0-9])2\D{0,3}\s*ano\b/.test(normalized) || /\bsegundo\s+ano\b/.test(normalized)) {
-    return true;
-  }
-  return false;
-}
-
 export default function RankingHub() {
   const [searchParams, setSearchParams] = useSearchParams();
   const shouldRedirectToRankingGeral = searchParams.get("tipo") === "ranking-geral";
@@ -548,7 +530,7 @@ export default function RankingHub() {
     serieOptions.find((item) => item.id === filters.serie)?.name ||
     rankingQuery.data?.classes_ranking?.grade_name ||
     "";
-  const allowMultiInstruments = isEarlyPrimaryGrade(serieNome);
+  const allowMultiInstruments = tab === "professores";
   const turmaNome = turmas.find((item) => item.id === filters.turma)?.name || "";
   const recorteLabel = [estadoNome, municipioNome].filter(Boolean).join(" / ");
   const periodoLabel =
@@ -896,18 +878,18 @@ export default function RankingHub() {
           {rankingEntityTab === "avaliacao" ? (
             allowMultiInstruments ? (
               <RelatorioConsolidadoItensPicker
-                label="Avaliações (LP + MAT)"
+                label="Avaliações"
                 items={evaluationItems.map((item) => ({ id: item.id, titulo: item.label }))}
                 selected={selectedEvaluationIds}
                 onChange={setSelectedEvaluationIds}
-                disabled={!filters.municipio || !filters.serie}
+                disabled={!filters.municipio}
                 loading={loadingFilters.avaliacao}
                 placeholder={
                   loadingFilters.avaliacao
                     ? "Carregando avaliações..."
-                    : "Selecione LP e Matemática"
+                    : "Selecione uma ou mais avaliações"
                 }
-                modalTitle="Selecionar avaliações (1º/2º ano)"
+                modalTitle="Selecionar avaliações"
                 entityLabel="avaliações"
                 emptyMessage="Nenhuma avaliação encontrada."
               />
@@ -939,16 +921,16 @@ export default function RankingHub() {
             )
           ) : allowMultiInstruments ? (
             <RelatorioConsolidadoItensPicker
-              label="Cartões resposta (LP + MAT)"
+              label="Cartões resposta"
               items={answerSheetItems.map((item) => ({ id: item.id, titulo: item.label }))}
               selected={selectedAnswerSheetIds}
               onChange={setSelectedAnswerSheetIds}
-              disabled={!filters.municipio || !filters.serie}
+              disabled={!filters.municipio}
               loading={loadingFilters.cartao}
               placeholder={
-                loadingFilters.cartao ? "Carregando cartões..." : "Selecione LP e Matemática"
+                loadingFilters.cartao ? "Carregando cartões..." : "Selecione um ou mais cartões"
               }
-              modalTitle="Selecionar cartões (1º/2º ano)"
+              modalTitle="Selecionar cartões resposta"
               entityLabel="cartões"
               emptyMessage="Nenhum cartão encontrado."
             />
