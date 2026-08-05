@@ -124,7 +124,8 @@ export default function ConsolidatedGeneralRankingPanel({
                           {formatPt(Number(row.grade || 0))}
                         </td>
                         <td className="px-3 py-2 text-right text-muted-foreground">
-                          {Number(row.correct_answers || 0)}/{Number(row.total_questions || 0)}
+                          {Number(row.raw_correct_answers ?? row.correct_answers ?? 0)}/
+                          {Number(row.total_questions || 0)}
                           {row.accuracy_rate != null
                             ? ` (${formatPt(Number(row.accuracy_rate))}%)`
                             : ""}
