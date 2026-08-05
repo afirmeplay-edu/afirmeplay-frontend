@@ -17,9 +17,14 @@ import { RelatorioConsolidadoItensPicker } from "@/components/reports/relatorio-
 import {
   RankingApiService,
   type RankingFilters,
+  type RankingResponse,
   type RankingScope,
 } from "@/services/reports/rankingApi";
-import { formatRankingDisciplinaLabel, generateRankingReportPdf } from "@/services/reports/rankingPdf";
+import {
+  formatRankingDisciplinaLabel,
+  formatRankingRecorteLabel,
+  generateRankingReportPdf,
+} from "@/services/reports/rankingPdf";
 import { useToast } from "@/hooks/use-toast";
 import { RankingTeachersPanel } from "@/components/ranking/RankingTeachersPanel";
 import RankingOverviewPanel from "@/components/ranking/RankingOverviewPanel";
@@ -90,6 +95,7 @@ export default function RankingHub() {
   const [evaluationItems, setEvaluationItems] = useState<RankingItemOption[]>([]);
   const [answerSheetItems, setAnswerSheetItems] = useState<RankingItemOption[]>([]);
   const [periodPickerOpen, setPeriodPickerOpen] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [periodDraft, setPeriodDraft] = useState(() => {
     const now = new Date();
     return { y: now.getFullYear(), m: now.getMonth() };
@@ -465,7 +471,7 @@ export default function RankingHub() {
       queryClient.prefetchQuery({
         queryKey: [...rankingQueryKey.slice(0, -1), discipline.id],
         queryFn: () => RankingApiService.getGeneralRanking(disciplineFilters, 1, 200),
-        staleTime: 60 * 1000,
+        staleTime: 0,
       });
     });
   }, [
@@ -579,6 +585,15 @@ export default function RankingHub() {
         return;
       }
 
+      if (disciplineDataPending || rankingQuery.isFetching) {
+        toast({
+          title: "Aguarde a atualização",
+          description: "O ranking ainda está carregando o filtro atual. Espere terminar antes de exportar.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       const entityTitle =
         selectedEvaluationIds.length > 0
           ? selectedEvaluationIds
@@ -586,23 +601,40 @@ export default function RankingHub() {
               .join(" · ")
           : answerSheetItems.find((item) => item.id === filters.answer_sheet_id)?.label;
 
-      const data = rankingQuery.data;
+      setExportingPdf(true);
 
-      if (!data) {
-        toast({
-          title: "Sem dados para exportar",
-          description: "Aplique os filtros e carregue o ranking antes de gerar o PDF.",
-          variant: "destructive",
-        });
-        return;
+      // Sempre busca dados frescos na API (evita PDF com cache/prefetch desatualizado).
+      const data = await RankingApiService.getGeneralRanking(requestFilters, 1, 200);
+      queryClient.setQueryData(rankingQueryKey, data);
+
+      const selectedDisciplineId = String(requestFilters.disciplina || "").trim();
+      const disciplineOptions = data.discipline_options || [];
+      const rankingScopeTitle = formatRankingRecorteLabel(data, requestFilters);
+      const disciplinaNome = formatRankingDisciplinaLabel(data, requestFilters);
+
+      let additionalReports: Array<{ scopeTitle: string; data: RankingResponse }> = [];
+      if (!selectedDisciplineId && disciplineOptions.length > 1) {
+        additionalReports = await Promise.all(
+          disciplineOptions.map(async (discipline) => {
+            const disciplineData = await RankingApiService.getGeneralRanking(
+              { ...requestFilters, disciplina: discipline.id },
+              1,
+              200
+            );
+            return {
+              scopeTitle: `Ranking de ${discipline.name}`,
+              data: disciplineData,
+            };
+          })
+        );
       }
-
-      const disciplinaNome = formatRankingDisciplinaLabel(data, filters);
 
       await generateRankingReportPdf({
         rankingType: "general",
         data,
         filters: requestFilters,
+        rankingScopeTitle,
+        additionalReports,
         contextTitle: entityTitle,
         filterLabels: {
           estado: estadoNome || "Todos",
@@ -618,7 +650,10 @@ export default function RankingHub() {
       });
       toast({
         title: "PDF gerado",
-        description: "O relatório de ranking foi exportado com sucesso.",
+        description:
+          additionalReports.length > 0
+            ? "Relatório exportado com Ranking Geral e seções por disciplina."
+            : "O relatório de ranking foi exportado com sucesso.",
       });
     } catch (error) {
       toast({
@@ -626,6 +661,8 @@ export default function RankingHub() {
         description: error instanceof Error ? error.message : "Falha inesperada ao exportar relatório.",
         variant: "destructive",
       });
+    } finally {
+      setExportingPdf(false);
     }
   };
 
@@ -1070,14 +1107,20 @@ export default function RankingHub() {
             <Button
               type="button"
               onClick={handleExportPdf}
-              disabled={!hasEntitySelection || rankingInitialLoading}
+              disabled={
+                !hasEntitySelection ||
+                rankingInitialLoading ||
+                exportingPdf ||
+                disciplineDataPending ||
+                rankingQuery.isFetching
+              }
             >
-              {rankingInitialLoading ? (
+              {rankingInitialLoading || exportingPdf || disciplineDataPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
               ) : (
                 <Download className="mr-2 h-4 w-4" />
               )}
-              Exportar PDF
+              {exportingPdf ? "Gerando PDF…" : "Exportar PDF"}
             </Button>
           </div>
         </CardContent>
@@ -1114,7 +1157,7 @@ export default function RankingHub() {
         </TabsList>
 
         {hasEntitySelection && (rankingQuery.data?.discipline_options?.length || 0) > 0 ? (
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Disciplina</span>
               <Button
@@ -1137,6 +1180,21 @@ export default function RankingHub() {
                 </Button>
               ))}
             </div>
+            {!activeDiscipline ? (
+              <p className="text-xs text-muted-foreground">
+                Ranking Geral — média combinada de{" "}
+                {(rankingQuery.data?.discipline_options || []).map((d) => d.name).join(" · ") ||
+                  "todas as disciplinas"}
+                . O PDF inclui o Geral e uma seção por disciplina.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Exibindo apenas{" "}
+                {(rankingQuery.data?.discipline_options || []).find((d) => d.id === activeDiscipline)
+                  ?.name || "a disciplina selecionada"}
+                .
+              </p>
+            )}
           </div>
         ) : null}
 
