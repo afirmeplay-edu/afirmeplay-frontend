@@ -17,12 +17,10 @@ import { RelatorioConsolidadoItensPicker } from "@/components/reports/relatorio-
 import {
   RankingApiService,
   type RankingFilters,
-  type RankingResponse,
   type RankingScope,
 } from "@/services/reports/rankingApi";
 import {
   formatRankingDisciplinaLabel,
-  formatRankingRecorteLabel,
   generateRankingReportPdf,
 } from "@/services/reports/rankingPdf";
 import { useToast } from "@/hooks/use-toast";
@@ -604,37 +602,69 @@ export default function RankingHub() {
       setExportingPdf(true);
 
       // Sempre busca dados frescos na API (evita PDF com cache/prefetch desatualizado).
-      const data = await RankingApiService.getGeneralRanking(requestFilters, 1, 200);
-      queryClient.setQueryData(rankingQueryKey, data);
+      const probeData = await RankingApiService.getGeneralRanking(requestFilters, 1, 200);
+      queryClient.setQueryData(rankingQueryKey, probeData);
 
       const selectedDisciplineId = String(requestFilters.disciplina || "").trim();
-      const disciplineOptions = data.discipline_options || [];
-      const rankingScopeTitle = formatRankingRecorteLabel(data, requestFilters);
-      const disciplinaNome = formatRankingDisciplinaLabel(data, requestFilters);
+      const disciplineOptions = probeData.discipline_options || [];
 
-      let additionalReports: Array<{ scopeTitle: string; data: RankingResponse }> = [];
-      if (!selectedDisciplineId && disciplineOptions.length > 1) {
-        additionalReports = await Promise.all(
-          disciplineOptions.map(async (discipline) => {
-            const disciplineData = await RankingApiService.getGeneralRanking(
-              { ...requestFilters, disciplina: discipline.id },
-              1,
-              200
-            );
-            return {
-              scopeTitle: `Ranking de ${discipline.name}`,
-              data: disciplineData,
-            };
-          })
-        );
+      let disciplinesForReport = selectedDisciplineId
+        ? disciplineOptions.filter((item) => item.id === selectedDisciplineId)
+        : [...disciplineOptions];
+
+      if (selectedDisciplineId && disciplinesForReport.length === 0) {
+        disciplinesForReport = [{ id: selectedDisciplineId, name: "Disciplina selecionada" }];
       }
+
+      // N disciplinas + 1 Geral (N+1). Sem opções de disciplina: só Geral.
+      const disciplineSections = await Promise.all(
+        disciplinesForReport.map(async (discipline) => {
+          const disciplineData = await RankingApiService.getGeneralRanking(
+            { ...requestFilters, disciplina: discipline.id },
+            1,
+            200
+          );
+          return {
+            scopeTitle: discipline.name,
+            disciplineLabel: discipline.name,
+            data: disciplineData,
+          };
+        })
+      );
+
+      const geralData = !selectedDisciplineId
+        ? probeData
+        : await RankingApiService.getGeneralRanking(
+            { ...requestFilters, disciplina: "" },
+            1,
+            200
+          );
+
+      const geralDisciplineLabel = formatRankingDisciplinaLabel(geralData, { disciplina: "" });
+      const reportSections =
+        disciplineSections.length > 0
+          ? [
+              ...disciplineSections,
+              {
+                scopeTitle: "Geral",
+                disciplineLabel: geralDisciplineLabel,
+                data: geralData,
+              },
+            ]
+          : [
+              {
+                scopeTitle: "Geral",
+                disciplineLabel: geralDisciplineLabel,
+                data: geralData,
+              },
+            ];
 
       await generateRankingReportPdf({
         rankingType: "general",
-        data,
+        data: geralData,
         filters: requestFilters,
-        rankingScopeTitle,
-        additionalReports,
+        rankingScopeTitle: "Geral",
+        reportSections,
         contextTitle: entityTitle,
         filterLabels: {
           estado: estadoNome || "Todos",
@@ -644,15 +674,15 @@ export default function RankingHub() {
           turma: turmaNome || "Todas",
           periodo: periodoLabel,
           avaliacao: entityTitle || "—",
-          disciplina: disciplinaNome,
+          disciplina: geralDisciplineLabel,
         },
         fileNameBase: "ranking-completo",
       });
       toast({
         title: "PDF gerado",
         description:
-          additionalReports.length > 0
-            ? "Relatório exportado com Ranking Geral e seções por disciplina."
+          reportSections.length > 1
+            ? `Relatório com ${reportSections.length - 1} disciplina(s) e seção Geral ao final.`
             : "O relatório de ranking foi exportado com sucesso.",
       });
     } catch (error) {
@@ -1182,17 +1212,17 @@ export default function RankingHub() {
             </div>
             {!activeDiscipline ? (
               <p className="text-xs text-muted-foreground">
-                Ranking Geral — média combinada de{" "}
+                Ranking Geral na tela (média combinada de{" "}
                 {(rankingQuery.data?.discipline_options || []).map((d) => d.name).join(" · ") ||
                   "todas as disciplinas"}
-                . O PDF inclui o Geral e uma seção por disciplina.
+                ). No PDF: uma capa por disciplina e a capa Geral por último.
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Exibindo apenas{" "}
+                Tela filtrada em{" "}
                 {(rankingQuery.data?.discipline_options || []).find((d) => d.id === activeDiscipline)
                   ?.name || "a disciplina selecionada"}
-                .
+                . No PDF: capa dessa disciplina + capa Geral ao final.
               </p>
             )}
           </div>
