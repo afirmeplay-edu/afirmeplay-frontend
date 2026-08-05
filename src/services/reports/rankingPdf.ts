@@ -1098,6 +1098,14 @@ function rankingTypeLabel(rt: RankingType): string {
   return 'Ranking de professores';
 }
 
+type RankingReportPdfSection = {
+  /** Título da capa / recorte (ex.: "Matemática" ou "Geral"). */
+  scopeTitle: string;
+  /** Valor do campo DISCIPLINA na capa. */
+  disciplineLabel: string;
+  data: RankingResponse;
+};
+
 type RankingApiPdfOptions = {
   rankingType: RankingType;
   data: RankingResponse;
@@ -1112,12 +1120,15 @@ type RankingApiPdfOptions = {
     avaliacao?: string;
     disciplina?: string;
   };
-  /** Ex.: "Ranking Geral" ou "Ranking de Língua Portuguesa". */
+  /** Ex.: "Ranking Geral" ou "Ranking de Língua Portuguesa" (capa única / legado). */
   rankingScopeTitle?: string;
   /**
-   * Relatórios extras por disciplina (ex.: após o Ranking Geral).
-   * Cada item gera o bloco completo de seções com o título informado.
+   * Seções do relatório na ordem de renderização.
+   * Cada item gera capa própria + corpo idêntico.
+   * Esperado: disciplinas primeiro, Geral por último.
    */
+  reportSections?: RankingReportPdfSection[];
+  /** @deprecated Preferir reportSections. Mantido por compatibilidade. */
   additionalReports?: Array<{ scopeTitle: string; data: RankingResponse }>;
   contextTitle?: string;
   fileNameBase?: string;
@@ -1140,61 +1151,91 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
     String(opts.rankingScopeTitle || "").trim() ||
     formatRankingRecorteLabel(data, filters, labels.disciplina);
   const allSchoolsReport = isAllSchoolsRankingReport(escolaLabel, filters.escola);
-  const reportsToRender: Array<{ scopeTitle: string; report: RankingResponse }> = [
-    { scopeTitle: rankingScopeTitle, report: data },
-    ...(opts.additionalReports || []).map((item) => ({
-      scopeTitle: String(item.scopeTitle || "").trim() || "Ranking por disciplina",
-      report: item.data,
-    })),
-  ];
+  const cityId = resolveRankingCityId(filters.municipio);
+  const subtitleBand = 'RELATÓRIO INSTITUCIONAL DE RANKING';
+
+  const reportsToRender: RankingReportPdfSection[] =
+    opts.reportSections && opts.reportSections.length > 0
+      ? opts.reportSections.map((item) => ({
+          scopeTitle: String(item.scopeTitle || "").trim() || "Ranking",
+          disciplineLabel:
+            String(item.disciplineLabel || "").trim() ||
+            formatRankingDisciplinaLabel(item.data, { disciplina: "" }),
+          data: item.data,
+        }))
+      : [
+          ...(opts.additionalReports || []).map((item) => ({
+            scopeTitle: String(item.scopeTitle || "").trim() || "Ranking por disciplina",
+            disciplineLabel: String(item.scopeTitle || "").trim() || "Disciplina",
+            data: item.data,
+          })),
+          {
+            scopeTitle: rankingScopeTitle,
+            disciplineLabel,
+            data,
+          },
+        ];
+
+  const multiVolume = rankingType === "general" && reportsToRender.length > 1;
+
+  const buildCoverCardLines = (section: RankingReportPdfSection): Array<{ label: string; value: string }> => {
+    const lines: Array<{ label: string; value: string }> = [
+      { label: 'TIPO', value: rankingTypeLabel(rankingType) },
+      { label: 'RECORTE', value: section.scopeTitle },
+      { label: 'ESCOPO', value: String(filters.scope || 'municipio') },
+      { label: 'ESTADO', value: estadoLabel },
+      { label: 'MUNICÍPIO', value: municipioLabel },
+      { label: 'ESCOLA', value: escolaLabel },
+      ...(!allSchoolsReport
+        ? [
+            { label: 'SÉRIE', value: serieLabel },
+            { label: 'TURMA', value: turmaLabel },
+          ]
+        : []),
+      { label: 'DISCIPLINA', value: section.disciplineLabel },
+    ];
+    if (multiVolume) {
+      lines.push({
+        label: 'SEÇÕES DO RELATÓRIO',
+        value: reportsToRender.map((item) => item.scopeTitle).join(' · '),
+      });
+    }
+    if (rankingType === 'specific_evaluation' || (rankingType === 'general' && filters.evaluation_id)) {
+      lines.unshift({ label: 'AVALIAÇÃO', value: avaliacaoLabel });
+    } else if (rankingType === 'specific_answer_sheet' || (rankingType === 'general' && filters.answer_sheet_id)) {
+      lines.unshift({ label: 'GABARITO', value: avaliacaoLabel });
+    }
+    return lines;
+  };
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const subtitleBand = 'RELATÓRIO INSTITUCIONAL DE RANKING';
-  const mainSubtitle = rankingScopeTitle || rankingTypeLabel(rankingType);
-  const cardLines: Array<{ label: string; value: string }> = [
-    { label: 'TIPO', value: rankingTypeLabel(rankingType) },
-    { label: 'RECORTE', value: rankingScopeTitle },
-    { label: 'ESCOPO', value: String(filters.scope || 'municipio') },
-    { label: 'ESTADO', value: estadoLabel },
-    { label: 'MUNICÍPIO', value: municipioLabel },
-    { label: 'ESCOLA', value: escolaLabel },
-    ...(!allSchoolsReport
-      ? [
-          { label: 'SÉRIE', value: serieLabel },
-          { label: 'TURMA', value: turmaLabel },
-        ]
-      : []),
-    { label: 'DISCIPLINA', value: disciplinaLabel },
-  ];
 
-  if (reportsToRender.length > 1) {
-    cardLines.push({
-      label: 'SEÇÕES',
-      value: reportsToRender.map((item) => item.scopeTitle).join(' · '),
-    });
+  // Relatório multi-seção (disciplinas + Geral): cada volume começa com a própria capa.
+  // Relatório simples: uma capa única no início (comportamento legado).
+  if (!multiVolume) {
+    const first = reportsToRender[0] || {
+      scopeTitle: rankingScopeTitle,
+      disciplineLabel,
+      data,
+    };
+    await addRankingCoverPage(
+      doc,
+      'RANKING DE DESEMPENHO',
+      subtitleBand,
+      'RANKING',
+      first.scopeTitle || rankingTypeLabel(rankingType),
+      buildCoverCardLines(first),
+      cityId
+    );
+    doc.addPage();
   }
 
-  if (rankingType === 'specific_evaluation' || (rankingType === 'general' && filters.evaluation_id)) {
-    cardLines.unshift({ label: 'AVALIAÇÃO', value: avaliacaoLabel });
-  } else if (rankingType === 'specific_answer_sheet' || (rankingType === 'general' && filters.answer_sheet_id)) {
-    cardLines.unshift({ label: 'GABARITO', value: avaliacaoLabel });
-  }
-
-  await addRankingCoverPage(
-    doc,
-    'RANKING DE DESEMPENHO',
-    subtitleBand,
-    'RANKING',
-    mainSubtitle,
-    cardLines,
-    resolveRankingCityId(filters.municipio)
-  );
-
-  doc.addPage();
   const pageW = doc.internal.pageSize.getWidth();
   const margin = 15;
   let y = 16;
-  y = drawClassificationLegend(doc, margin, pageW, y + 2);
+  if (!multiVolume) {
+    y = drawClassificationLegend(doc, margin, pageW, y + 2);
+  }
 
   const autoTable = (await import('jspdf-autotable')).default;
   const docWithTable = doc as jsPDF & { lastAutoTable?: { finalY?: number } };
@@ -1219,6 +1260,7 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
 
   const sectionIndexEntries: ReportIndexEntry[] = [];
   let page2IndexY = 0;
+  let allowPage2Index = !multiVolume;
 
   const startMajorSection = (
     sectionNumber: number,
@@ -1339,12 +1381,52 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
       sectionNo += 1;
       startMajorSection(sectionNo, title, subtitle);
     };
-    page2IndexY = y + 4;
+    if (!multiVolume) {
+      page2IndexY = y + 4;
+    }
 
-    for (const { scopeTitle, report } of reportsToRender) {
+    for (let volumeIdx = 0; volumeIdx < reportsToRender.length; volumeIdx += 1) {
+      const { scopeTitle, disciplineLabel: volumeDisciplineLabel, data: report } = reportsToRender[volumeIdx];
       const teachersItems = report.teachers_top?.items || [];
       const schoolEntries = Object.entries(report.school_class_ranking?.items_by_school || {});
       const scopePrefix = scopeTitle;
+
+      if (multiVolume) {
+        if (volumeIdx > 0) {
+          doc.addPage();
+        }
+        await addRankingCoverPage(
+          doc,
+          'RANKING DE DESEMPENHO',
+          subtitleBand,
+          'RANKING',
+          scopeTitle,
+          buildCoverCardLines({
+            scopeTitle,
+            disciplineLabel: volumeDisciplineLabel,
+            data: report,
+          }),
+          cityId
+        );
+        // Página de abertura do volume (legenda) antes das seções majores.
+        doc.addPage();
+        y = margin + 2;
+        y = drawClassificationLegend(doc, margin, pageW, y + 2);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(...C.textDark);
+        doc.text(scopeTitle, margin, y + 4);
+        y += 12;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(...C.textGray);
+        const intro = doc.splitTextToSize(
+          `Resultados detalhados do recorte "${scopeTitle}" (disciplina: ${volumeDisciplineLabel}).`,
+          pageW - margin * 2
+        ) as string[];
+        doc.text(intro, margin, y);
+        y += intro.length * 4.2 + 4;
+      }
 
       if (report.overview) {
         nextSection(
@@ -1655,7 +1737,7 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
       }
     }
 
-    if (page2IndexY > 0 && sectionIndexEntries.length > 0) {
+    if (allowPage2Index && page2IndexY > 0 && sectionIndexEntries.length > 0) {
       doc.setPage(2);
       drawReportIndex(doc, margin, pageW, page2IndexY, sectionIndexEntries);
     }
