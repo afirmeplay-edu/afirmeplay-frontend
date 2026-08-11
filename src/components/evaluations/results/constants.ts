@@ -81,9 +81,9 @@ export const PROFICIENCY_TABLES = {
   
   // Educação Infantil, Anos Iniciais, Educação Especial, EJA - Matemática
   ANOS_INICIAIS_MATEMATICA: {
-    abaixo_do_basico: { min: 0, max: 174 },
-    basico: { min: 175, max: 224 },
-    adequado: { min: 225, max: 274 },
+    abaixo_do_basico: { min: 0, max: 174.99 },
+    basico: { min: 175, max: 224.99 },
+    adequado: { min: 225, max: 274.99 },
     avancado: { min: 275, max: 375 }
   },
   
