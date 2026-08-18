@@ -1,12 +1,16 @@
 import { api } from "@/lib/api";
+import type { OmrCorrectionResult, OmrCorrectionStatus } from "@/types/answer-sheet";
 
 export interface BatchCorrectionItem {
   status: 'pending' | 'processing' | 'done' | 'error';
   student_name?: string;
+  student_id?: string;
   correct?: number;
   total?: number;
   percentage?: number;
   error?: string;
+  aluno_ausente?: boolean;
+  saved?: boolean;
 }
 
 export interface BatchCorrectionProgress {
@@ -21,7 +25,7 @@ export interface BatchCorrectionProgress {
   results?: SingleCorrectionResponse[];
 }
 
-export interface SingleCorrectionResponse {
+export interface SingleCorrectionResponse extends OmrCorrectionResult {
   message: string;
   student_id: string;
   student_name: string;
@@ -31,6 +35,9 @@ export interface SingleCorrectionResponse {
   grade?: number;
   proficiency?: number;
   classification?: string;
+  aluno_ausente?: boolean;
+  saved?: boolean;
+  status?: OmrCorrectionStatus;
 }
 
 export interface BatchCorrectionStartResponse {

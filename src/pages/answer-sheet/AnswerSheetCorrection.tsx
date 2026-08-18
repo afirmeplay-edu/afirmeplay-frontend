@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,12 +6,20 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useAnswerSheetCorrection } from '@/hooks/useAnswerSheetCorrection';
 import ManualCorrectionPanel from '@/components/answer-sheet/ManualCorrectionPanel';
+import { OmrCorrectionOutcomeAlert } from '@/components/answer-sheet/OmrCorrectionOutcomeAlert';
+import type { OmrCorrectionResult } from '@/types/answer-sheet';
+import {
+  ALUNO_AUSENTE_LABEL,
+  isBatchItemAlunoAusente,
+  summarizeOmrBatchResults,
+} from '@/utils/omrCorrectionResult';
 import {
   ScanLine,
   Images,
@@ -26,6 +34,7 @@ import {
   Ticket,
   BarChart3,
   ClipboardList,
+  UserX,
 } from 'lucide-react';
 
 const MAX_BATCH_IMAGES = 50;
@@ -40,6 +49,7 @@ export default function AnswerSheetCorrection() {
   const [isProcessingSingle, setIsProcessingSingle] = useState(false);
   const [correctionProgress, setCorrectionProgress] = useState(0);
   const [isDragOverSingle, setIsDragOverSingle] = useState(false);
+  const [lastSingleResult, setLastSingleResult] = useState<OmrCorrectionResult | null>(null);
 
   // Correção em lote
   const [showBatchDialog, setShowBatchDialog] = useState(false);
@@ -60,6 +70,7 @@ export default function AnswerSheetCorrection() {
   const handleSingleFile = useCallback(
     (file: File | null) => {
       if (!file || !file.type.startsWith('image/')) return;
+      setLastSingleResult(null);
       setUploadedImage(file);
       const reader = new FileReader();
       reader.onload = (e) => setPreviewImage(e.target?.result as string);
@@ -104,9 +115,10 @@ export default function AnswerSheetCorrection() {
         reader.onerror = reject;
         reader.readAsDataURL(uploadedImage);
       });
-      await startSingleCorrection(base64);
+      const data = await startSingleCorrection(base64);
       clearInterval(progressInterval);
       setCorrectionProgress(100);
+      setLastSingleResult(data ?? null);
       setUploadedImage(null);
       setPreviewImage(null);
     } catch {
@@ -120,7 +132,18 @@ export default function AnswerSheetCorrection() {
   const clearSingle = () => {
     setUploadedImage(null);
     setPreviewImage(null);
+    setLastSingleResult(null);
   };
+
+  const batchSummary = useMemo(
+    () =>
+      summarizeOmrBatchResults(
+        batchProgress?.results,
+        batchProgress?.successful ?? 0,
+        batchProgress?.failed ?? 0
+      ),
+    [batchProgress?.results, batchProgress?.successful, batchProgress?.failed]
+  );
 
   // ——— Correção em lote ———
   const addBatchFiles = useCallback(
@@ -314,6 +337,9 @@ export default function AnswerSheetCorrection() {
                 )}
               </div>
             )}
+            {lastSingleResult && !previewImage && (
+              <OmrCorrectionOutcomeAlert result={lastSingleResult} />
+            )}
           </CardContent>
         </Card>
 
@@ -461,21 +487,30 @@ export default function AnswerSheetCorrection() {
                       <Progress value={batchProgress.percentage} className="h-2" />
                       <ScrollArea className="h-48 rounded-lg border">
                         <div className="p-2 space-y-1">
-                          {Object.entries(batchProgress.items || {}).map(([idx, item]) => (
+                          {Object.entries(batchProgress.items || {}).map(([idx, item]) => {
+                            const ausente = isBatchItemAlunoAusente(
+                              item,
+                              batchProgress.results,
+                              idx,
+                              isBatchCompleted
+                            );
+                            return (
                             <div
                               key={idx}
                               className={`
                                 flex items-center justify-between p-2 rounded text-sm
                                 ${item.status === 'pending' ? 'bg-muted/50' : ''}
                                 ${item.status === 'processing' ? 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200' : ''}
-                                ${item.status === 'done' ? 'bg-green-50 dark:bg-green-950/30 border border-green-200' : ''}
+                                ${item.status === 'done' && !ausente ? 'bg-green-50 dark:bg-green-950/30 border border-green-200' : ''}
+                                ${item.status === 'done' && ausente ? 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200' : ''}
                                 ${item.status === 'error' ? 'bg-destructive/10 border border-destructive/30' : ''}
                               `}
                             >
                               <span className="flex items-center gap-2 min-w-0">
                                 {item.status === 'pending' && <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />}
                                 {item.status === 'processing' && <Loader2 className="h-4 w-4 shrink-0 animate-spin" />}
-                                {item.status === 'done' && <CheckCircle className="h-4 w-4 shrink-0 text-green-600" />}
+                                {item.status === 'done' && !ausente && <CheckCircle className="h-4 w-4 shrink-0 text-green-600" />}
+                                {item.status === 'done' && ausente && <UserX className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />}
                                 {item.status === 'error' && <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />}
                                 <span className="truncate">
                                   {item.status === 'done' && item.student_name
@@ -486,23 +521,37 @@ export default function AnswerSheetCorrection() {
                                   {item.status === 'error' && item.error && ` — ${item.error}`}
                                 </span>
                               </span>
-                              {item.status === 'done' && (
+                              {item.status === 'done' && ausente && (
+                                <Badge
+                                  variant="secondary"
+                                  className="shrink-0 bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100"
+                                >
+                                  {ALUNO_AUSENTE_LABEL}
+                                </Badge>
+                              )}
+                              {item.status === 'done' && !ausente && (
                                 <span className="shrink-0 text-xs font-medium text-green-700 dark:text-green-400">
                                   {item.correct}/{item.total} ({item.percentage?.toFixed(0)}%)
                                 </span>
                               )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </ScrollArea>
                       {isBatchCompleted && (
                         <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                          <div className="text-sm">
+                          <div className="text-sm flex flex-wrap gap-x-3 gap-y-1">
                             <span className="text-green-600 dark:text-green-400 font-medium">
-                              Sucesso: {batchProgress.successful}
+                              Corrigidos: {batchSummary.corrigidos}
                             </span>
+                            {batchSummary.ausentes > 0 && (
+                              <span className="text-amber-700 dark:text-amber-400 font-medium">
+                                Ausentes: {batchSummary.ausentes}
+                              </span>
+                            )}
                             {batchProgress.failed > 0 && (
-                              <span className="text-destructive ml-2">Falhas: {batchProgress.failed}</span>
+                              <span className="text-destructive">Falhas: {batchProgress.failed}</span>
                             )}
                           </div>
                           <Button onClick={handleCloseBatchDialog}>Fechar</Button>

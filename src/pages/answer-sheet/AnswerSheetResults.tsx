@@ -1251,7 +1251,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
           erros: s.erros,
           em_branco: s.em_branco,
         })),
-        maxRows: 100,
+        maxRows: rankingStudents.length,
         fileNameBase: `ranking-cartao-${tituloGabarito}`,
         respectBackendRankingOrder: true,
       });
@@ -2094,7 +2094,6 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                     </div>
                     <StudentRanking
                       students={rankingStudents}
-                      maxStudents={100}
                       backendRankingOrder
                     />
                   </>

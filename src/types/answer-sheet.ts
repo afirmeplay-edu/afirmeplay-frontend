@@ -394,4 +394,27 @@ export interface ManualCorrectionResponse {
   answer_sheet_result_id?: string;
 }
 
+/** Status do POST de correção OMR (cartão ou prova física). */
+export type OmrCorrectionStatus = 'corrigido' | 'aluno_ausente';
+
+/**
+ * Resposta de POST /answer-sheets/correct-new e do item em results[] do lote.
+ * `score`/`percentage` 0 no ausente não significam nota gravada — use `aluno_ausente`.
+ */
+export interface OmrCorrectionResult {
+  message?: string;
+  student_id?: string;
+  student_name?: string;
+  correct?: number;
+  wrong?: number;
+  blank?: number;
+  total?: number;
+  score?: number;
+  percentage?: number;
+  grade?: number;
+  aluno_ausente?: boolean;
+  saved?: boolean;
+  status?: OmrCorrectionStatus;
+}
+
 
