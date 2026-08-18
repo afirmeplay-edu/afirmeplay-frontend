@@ -1,9 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DisciplineTag } from "@/components/ui/discipline-tag";
 import { Button } from "@/components/ui/button";
-import { Check, X, Minus, Eye, CheckCircle2, Target, Gauge, Award, ChevronLeft, ChevronRight, MoreHorizontal, Coins } from "lucide-react";
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
+import { Check, X, Minus, Eye, CheckCircle2, Target, Gauge, Award, ChevronLeft, ChevronRight, MoreHorizontal, Coins, ChevronDown, ChevronUp } from "lucide-react";
 import { formatCoins } from "@/utils/coins";
 import { TableHeader } from '../results-table/TableHeader';
 import { TableRow } from '../results-table/TableRow';
@@ -15,6 +17,88 @@ import type { DisciplineMetricCell } from '@/types/results-table';
 function isNomeDisciplinaGeral(nome: string): boolean {
   const n = nome.trim().toLowerCase();
   return n === 'geral' || n === 'total' || n === 'consolidado';
+}
+
+const COLLAPSE_HINT_STORAGE_KEY = 'results-tables-collapse-hint-seen';
+
+function readCollapseHintSeen(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSE_HINT_STORAGE_KEY) === '1';
+  } catch {
+    return true;
+  }
+}
+
+function persistCollapseHintSeen(): void {
+  try {
+    localStorage.setItem(COLLAPSE_HINT_STORAGE_KEY, '1');
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function CollapseTableButton({
+  collapsed,
+  onToggle,
+  showHint = false,
+  onDismissHint,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  showHint?: boolean;
+  onDismissHint?: () => void;
+}) {
+  const handleClick = () => {
+    onDismissHint?.();
+    onToggle();
+  };
+
+  const button = (
+    <Button
+      type="button"
+      variant="secondary"
+      size="sm"
+      className="h-8 gap-1.5 shrink-0 bg-white/90 text-slate-800 hover:bg-white dark:bg-white/15 dark:text-white dark:hover:bg-white/25"
+      aria-expanded={!collapsed}
+      aria-label={collapsed ? 'Expandir tabela' : 'Recolher tabela'}
+      onClick={handleClick}
+    >
+      {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+      <span className="hidden sm:inline">{collapsed ? 'Expandir' : 'Recolher'}</span>
+    </Button>
+  );
+
+  if (!showHint) {
+    return button;
+  }
+
+  return (
+    <Popover
+      open
+      onOpenChange={(open) => {
+        if (!open) onDismissHint?.();
+      }}
+    >
+      <PopoverAnchor asChild>{button}</PopoverAnchor>
+      <PopoverContent
+        side="bottom"
+        align="end"
+        className="w-80 space-y-3"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <div className="space-y-1">
+          <p className="text-sm font-semibold">Recolha as tabelas</p>
+          <p className="text-sm text-muted-foreground">
+            Com muitos dados, a tabela fica longa. Use este botão para recolher e ir direto para a
+            próxima, sem rolar a página inteira.
+          </p>
+        </div>
+        <Button type="button" size="sm" className="w-full" onClick={() => onDismissHint?.()}>
+          Entendi
+        </Button>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 interface TabelaDetalhadaQuestao {
@@ -100,6 +184,24 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
   // ✅ NOVO: Estado para gerenciar visualização de muitas questões
   const [currentQuestionWindow, setCurrentQuestionWindow] = useState(0);
   const [currentDisciplineWindow, setCurrentDisciplineWindow] = useState<{[key: string]: number}>({});
+  const [collapsedById, setCollapsedById] = useState<Record<string, boolean>>({});
+  const [hintVisible, setHintVisible] = useState(false);
+
+  useEffect(() => {
+    if (readCollapseHintSeen()) return;
+    const timer = window.setTimeout(() => setHintVisible(true), 600);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const dismissHint = useCallback(() => {
+    setHintVisible(false);
+    persistCollapseHintSeen();
+  }, []);
+
+  const isTableCollapsed = (id: string) => Boolean(collapsedById[id]);
+  const toggleTableCollapsed = (id: string) => {
+    setCollapsedById((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
   
   // ✅ NOVO: Configurações para visualização otimizada
   const QUESTIONS_PER_WINDOW = 15; // Mostrar 15 questões por vez
@@ -367,10 +469,14 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
     );
   };
 
+  const showVisaoGeral = allQuestions.length > 0 && consolidatedStudents.length > 0;
+  const firstTableId = showVisaoGeral ? 'visao-geral' : tabelaDetalhada.disciplinas[0]?.id;
+
   return (
     <div className="space-y-6 lg:space-y-8">
       {/* ✅ NOVO: Visão Geral - Todas as Questões */}
-      {allQuestions.length > 0 && consolidatedStudents.length > 0 && (
+      {showVisaoGeral && (
+        <Collapsible open={!isTableCollapsed('visao-geral')}>
         <Card className="shadow-xl border-2 border-purple-200 dark:border-purple-800 hover:shadow-2xl transition-shadow duration-300 overflow-hidden w-full">
           <CardHeader className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-t-lg px-0">
             <CardTitle className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-4 sm:px-6 gap-3 sm:gap-0">
@@ -390,11 +496,20 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                   </p>
                 </div>
               </div>
-              <Badge variant="secondary" className="bg-white/90 dark:bg-white/10 text-purple-700 dark:text-purple-400 font-bold text-xs sm:text-sm flex-shrink-0">
-                VISÃO GERAL
-              </Badge>
+              <div className="flex items-center gap-2 shrink-0">
+                <Badge variant="secondary" className="bg-white/90 dark:bg-white/10 text-purple-700 dark:text-purple-400 font-bold text-xs sm:text-sm flex-shrink-0">
+                  VISÃO GERAL
+                </Badge>
+                <CollapseTableButton
+                  collapsed={isTableCollapsed('visao-geral')}
+                  onToggle={() => toggleTableCollapsed('visao-geral')}
+                  showHint={hintVisible && firstTableId === 'visao-geral'}
+                  onDismissHint={dismissHint}
+                />
+              </div>
             </CardTitle>
           </CardHeader>
+          <CollapsibleContent>
           <CardContent className="p-0">
             {/* ✅ NOVO: Controles de navegação para muitas questões */}
             {allQuestions.length > MAX_QUESTIONS_FOR_FULL_VIEW && (
@@ -409,7 +524,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                 colorScheme="purple"
               />
             )}
-            <div className="overflow-x-auto max-w-full results-table-scroll">
+            <div className="max-w-full results-table-scroll results-table-body-scroll">
               <table className="min-w-full border border-border text-center text-xs sm:text-sm shadow-md rounded-lg border-separate border-spacing-0 bg-card">
                 <TableHeader
                   totalQuestions={allQuestions.length > MAX_QUESTIONS_FOR_FULL_VIEW 
@@ -531,26 +646,31 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                   ))}
                 </tbody>
               </table>
-              {/* ✅ NOVO: Contador de questões no final */}
+            </div>
               {allQuestions.length > MAX_QUESTIONS_FOR_FULL_VIEW && (
                 <div className="bg-muted border-t border-border px-4 py-2 text-xs text-muted-foreground text-center">
                   Total: {allQuestions.length} questões • {consolidatedStudents.length} alunos • 
                   Janela {currentQuestionWindow + 1} de {getTotalWindows(allQuestions.length)}
                 </div>
               )}
-            </div>
             {/* ✅ NOVO: Legenda após a tabela */}
             <div className="px-4 pb-4">
               <TableLegend />
             </div>
           </CardContent>
+          </CollapsibleContent>
         </Card>
+        </Collapsible>
       )}
 
 
       {/* Tabelas por Disciplina */}
       {tabelaDetalhada.disciplinas.map((disciplina) => (
-        <Card key={disciplina.id} className="shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden w-full">
+        <Collapsible
+          key={disciplina.id}
+          open={!isTableCollapsed(disciplina.id)}
+        >
+        <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden w-full">
           <CardHeader
             className={
               [
@@ -577,13 +697,22 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                   </p>
                 </div>
               </div>
-              <DisciplineTag
-                subjectId={disciplina.id}
-                name={disciplina.nome.toUpperCase()}
-                className="flex-shrink-0 text-xs font-bold sm:text-sm"
-              />
+              <div className="flex items-center gap-2 shrink-0">
+                <DisciplineTag
+                  subjectId={disciplina.id}
+                  name={disciplina.nome.toUpperCase()}
+                  className="flex-shrink-0 text-xs font-bold sm:text-sm"
+                />
+                <CollapseTableButton
+                  collapsed={isTableCollapsed(disciplina.id)}
+                  onToggle={() => toggleTableCollapsed(disciplina.id)}
+                  showHint={hintVisible && firstTableId === disciplina.id}
+                  onDismissHint={dismissHint}
+                />
+              </div>
             </CardTitle>
           </CardHeader>
+          <CollapsibleContent>
           <CardContent className="p-0">
             {/* ✅ NOVO: Controles de navegação para muitas questões */}
             {disciplina.questoes.length > MAX_QUESTIONS_FOR_FULL_VIEW && (
@@ -598,7 +727,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                 colorScheme="blue"
               />
             )}
-            <div className="overflow-x-auto max-w-full results-table-scroll">
+            <div className="max-w-full results-table-scroll results-table-body-scroll">
               <table className="min-w-full border border-border text-center text-xs sm:text-sm shadow-md rounded-lg border-separate border-spacing-0 bg-card">
                 <TableHeader
                   totalQuestions={disciplina.questoes.length > MAX_QUESTIONS_FOR_FULL_VIEW 
@@ -701,20 +830,21 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                   ))}
                 </tbody>
               </table>
-              {/* ✅ NOVO: Contador de questões no final */}
+            </div>
               {disciplina.questoes.length > MAX_QUESTIONS_FOR_FULL_VIEW && (
                 <div className="bg-muted border-t border-border px-4 py-2 text-xs text-muted-foreground text-center">
                   {disciplina.nome}: {disciplina.questoes.length} questões • {disciplina.alunos.length} alunos • 
                   Janela {getCurrentWindowForDiscipline(disciplina.id) + 1} de {getTotalWindows(disciplina.questoes.length)}
                 </div>
               )}
-            </div>
             {/* ✅ NOVO: Legenda após a tabela */}
             <div className="px-4 pb-4">
               <TableLegend />
             </div>
           </CardContent>
+          </CollapsibleContent>
         </Card>
+        </Collapsible>
       ))}
     </div>
   );
