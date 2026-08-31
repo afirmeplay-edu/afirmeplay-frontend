@@ -42,6 +42,7 @@ const HREF_FEATURE_EXACT: Record<string, string> = {
   '/app/questionarios/pneerq': 'socioeconomic_forms',
   '/app/relatorios/acerto-niveis': 'reports',
   '/app/relatorios/mapa-habilidades': 'reports',
+  '/app/relatorios/mapa-questoes': 'reports',
   '/app/relatorios/analise-avaliacoes': 'report_analysis',
   '/app/relatorios/relatorio-escolar': 'reports',
   '/app/relatorios/relatorio-geral': 'reports',

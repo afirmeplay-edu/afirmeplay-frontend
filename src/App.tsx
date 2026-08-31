@@ -57,6 +57,7 @@ const RelatoriosResultadosHub = React.lazy(() => import("@/pages/reports/Relator
 const RankingHub = React.lazy(() => import("@/pages/reports/RankingHub"));
 const RankingGeral = React.lazy(() => import("@/pages/reports/RankingGeral"));
 const RelatoriosParticipacaoHub = React.lazy(() => import("@/pages/reports/RelatoriosParticipacaoHub"));
+const RelatoriosMapaQuestoesHub = React.lazy(() => import("@/pages/reports/RelatoriosMapaQuestoesHub"));
 const RelatorioApresentacao19Slides = React.lazy(() => import("@/pages/reports/RelatorioApresentacao19Slides"));
 const InseAvaliacaoReport = React.lazy(() => import("@/pages/reports/InseAvaliacaoReport"));
 const PneerqReport = React.lazy(() => import("@/pages/reports/PneerqReport"));
@@ -463,6 +464,7 @@ const App = () => {
                 }
               />
               <Route path="/app/relatorios/mapa-habilidades" element={<PrivateRoute><SkillsHeatMapPage /></PrivateRoute>} />
+              <Route path="/app/relatorios/mapa-questoes" element={<PrivateRoute><RelatoriosMapaQuestoesHub /></PrivateRoute>} />
               <Route path="/app/relatorios/relatorio-apresentacao-19-slides" element={<PrivateRoute><RelatorioApresentacao19Slides /></PrivateRoute>} />
               <Route
                 path="/app/relatorios/acerto-niveis-cartao-resposta"
