@@ -44,6 +44,17 @@ import {
   resolveGenerationDownloadUrl,
 } from '@/lib/gabarito-list-helpers';
 import { Gabarito, GabaritosResponse } from '@/types/answer-sheet';
+import { useAuth } from '@/context/authContext';
+import { MunicipalityAvailabilityBadge } from '@/components/municipality-availability/MunicipalityAvailabilityBadge';
+import { MunicipalityAvailabilityControls } from '@/components/municipality-availability/MunicipalityAvailabilityControls';
+import {
+  buildMunicipalityAvailabilityPayload,
+  canControlMunicipalityAvailability,
+  isNotAvailableToMunicipalityError,
+  municipalityAvailabilityErrorMessage,
+  NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE,
+} from '@/lib/municipalityAvailability';
+import { parseISOToDatetimeLocal } from '@/utils/date';
 
 type FilterLevel = 'state' | 'city' | 'school' | 'grade' | 'class';
 
@@ -146,6 +157,9 @@ interface GabaritoDetailResponse {
   question_skills?: Record<string, string[]>;
   questions_options?: Record<string, string[]>;
   skill_codes?: Record<string, string>;
+  available_to_municipality?: boolean;
+  available_from?: string | null;
+  is_available_to_municipality_now?: boolean;
 }
 
 interface RecalculateJobStatusResponse {
@@ -241,6 +255,8 @@ function normalizeOptions(raw: unknown): FilterOption[] {
 
 export default function AnswerSheetGenerateCards() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canControlAvailability = canControlMunicipalityAvailability(user?.role);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recalcPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -304,6 +320,11 @@ export default function AnswerSheetGenerateCards() {
   const [structEditInitialCorrectAnswers, setStructEditInitialCorrectAnswers] = useState<Record<string, Alternative | null>>({});
   const [structEditInitialUseGlobalAlternatives, setStructEditInitialUseGlobalAlternatives] = useState(true);
   const [structEditInitialGlobalAlternatives, setStructEditInitialGlobalAlternatives] = useState<string[]>(['A', 'B', 'C', 'D']);
+  const [structEditAvailableToMunicipality, setStructEditAvailableToMunicipality] = useState(true);
+  const [structEditAvailableFromLocal, setStructEditAvailableFromLocal] = useState('');
+  const [structEditInitialAvailableToMunicipality, setStructEditInitialAvailableToMunicipality] = useState(true);
+  const [structEditInitialAvailableFromLocal, setStructEditInitialAvailableFromLocal] = useState('');
+  const [availabilitySavingId, setAvailabilitySavingId] = useState<string | null>(null);
   
   // Habilidades
   const [skillSubjectId, setSkillSubjectId] = useState('');
@@ -439,10 +460,12 @@ export default function AnswerSheetGenerateCards() {
       const res = await api.get(`/answer-sheets/results?gabarito_id=${gabaritoId}&page=1&per_page=1`);
       const hasCorrections = Boolean(res.data && res.data.total > 0);
       return { canOpen: true, hasCorrections };
-    } catch {
+    } catch (err: unknown) {
       toast({
         title: 'Erro',
-        description: 'Não foi possível verificar permissões de edição.',
+        description: isNotAvailableToMunicipalityError(err)
+          ? municipalityAvailabilityErrorMessage(err, NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE)
+          : 'Não foi possível verificar permissões de edição.',
         variant: 'destructive',
       });
       return { canOpen: false, hasCorrections: false };
@@ -472,6 +495,10 @@ export default function AnswerSheetGenerateCards() {
     setStructEditInitialCorrectAnswers({});
     setStructEditInitialUseGlobalAlternatives(true);
     setStructEditInitialGlobalAlternatives(['A', 'B', 'C', 'D']);
+    setStructEditAvailableToMunicipality(true);
+    setStructEditAvailableFromLocal('');
+    setStructEditInitialAvailableToMunicipality(true);
+    setStructEditInitialAvailableFromLocal('');
     setSkillSubjectId('');
     setSkillGradeId('');
     setAvailableSkills([]);
@@ -506,6 +533,12 @@ export default function AnswerSheetGenerateCards() {
     setStructEditInitialCorrectAnswers({});
     setStructEditInitialUseGlobalAlternatives(true);
     setStructEditInitialGlobalAlternatives(['A', 'B', 'C', 'D']);
+    const listAvailable = g.available_to_municipality !== false;
+    const listFrom = parseISOToDatetimeLocal(g.available_from);
+    setStructEditAvailableToMunicipality(listAvailable);
+    setStructEditAvailableFromLocal(listFrom);
+    setStructEditInitialAvailableToMunicipality(listAvailable);
+    setStructEditInitialAvailableFromLocal(listFrom);
 
     try {
       const res = await api.get<GabaritoDetailResponse>(`/answer-sheets/gabarito/${g.id}`);
@@ -536,6 +569,13 @@ export default function AnswerSheetGenerateCards() {
 
       setStructEditCorrectAnswers(correctAnswers);
       setStructEditInitialCorrectAnswers({ ...correctAnswers });
+
+      const loadedAvailable = data.available_to_municipality !== false;
+      const loadedFrom = parseISOToDatetimeLocal(data.available_from);
+      setStructEditAvailableToMunicipality(loadedAvailable);
+      setStructEditAvailableFromLocal(loadedFrom);
+      setStructEditInitialAvailableToMunicipality(loadedAvailable);
+      setStructEditInitialAvailableFromLocal(loadedFrom);
       
       // Carregar alternativas por questão e detectar se é global ou individual
       if (data.questions_options && Object.keys(data.questions_options).length > 0) {
@@ -572,9 +612,11 @@ export default function AnswerSheetGenerateCards() {
         setStructEditInitialQuestionsOptions({});
       }
     } catch (err: unknown) {
-      const msg = isAxiosError(err)
-        ? (err.response?.data as { message?: string } | undefined)?.message || 'Não foi possível carregar o gabarito.'
-        : 'Não foi possível carregar o gabarito.';
+      const msg = isNotAvailableToMunicipalityError(err)
+        ? municipalityAvailabilityErrorMessage(err, NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE)
+        : isAxiosError(err)
+          ? (err.response?.data as { message?: string } | undefined)?.message || 'Não foi possível carregar o gabarito.'
+          : 'Não foi possível carregar o gabarito.';
       toast({ title: 'Erro', description: msg, variant: 'destructive' });
       resetStructEditDialogState();
     } finally {
@@ -630,6 +672,14 @@ export default function AnswerSheetGenerateCards() {
     const titleChanged = titleTrimmed !== structEditInitialTitle.trim();
     const answersChanged =
       JSON.stringify(structEditCorrectAnswers) !== JSON.stringify(structEditInitialCorrectAnswers);
+    const availabilityPayload = buildMunicipalityAvailabilityPayload(user?.role, {
+      availableToMunicipality: structEditAvailableToMunicipality,
+      availableFromLocal: structEditAvailableFromLocal,
+    });
+    const availabilityChanged =
+      availabilityPayload != null &&
+      (structEditAvailableToMunicipality !== structEditInitialAvailableToMunicipality ||
+        structEditAvailableFromLocal !== structEditInitialAvailableFromLocal);
     const useSafePatch = structEditHasCorrections || !isTopologyDirty();
 
     const validateTitle = (): boolean => {
@@ -653,11 +703,11 @@ export default function AnswerSheetGenerateCards() {
     };
 
     if (useSafePatch) {
-      if (!titleChanged && Object.keys(skillsDiff).length === 0 && !answersChanged) {
+      if (!titleChanged && Object.keys(skillsDiff).length === 0 && !answersChanged && !availabilityChanged) {
         toast({
           title: 'Nenhuma alteração',
           description: structEditHasCorrections
-            ? 'Altere o título, as habilidades ou as respostas corretas antes de salvar.'
+            ? 'Altere o título, as habilidades, as respostas corretas ou a disponibilidade antes de salvar.'
             : 'Não há alterações para salvar.',
         });
         return;
@@ -675,10 +725,13 @@ export default function AnswerSheetGenerateCards() {
           title?: string;
           question_skills?: Record<string, string[]>;
           correct_answers?: Record<string, Alternative | null>;
+          available_to_municipality?: boolean;
+          available_from?: string | null;
         } = {};
         if (titleChanged) safePayload.title = titleTrimmed;
         if (Object.keys(skillsDiff).length > 0) safePayload.question_skills = skillsDiff;
         if (answersChanged) safePayload.correct_answers = structEditCorrectAnswers;
+        if (availabilityChanged && availabilityPayload) Object.assign(safePayload, availabilityPayload);
 
         const res = await api.patch(
           `/answer-sheets/gabarito/${structEditGabaritoId}/structure`,
@@ -707,6 +760,8 @@ export default function AnswerSheetGenerateCards() {
             setRecalcMessage(data.message ?? '');
             setStructEditInitialTitle(titleTrimmed);
             setStructEditInitialCorrectAnswers({ ...structEditCorrectAnswers });
+            setStructEditInitialAvailableToMunicipality(structEditAvailableToMunicipality);
+            setStructEditInitialAvailableFromLocal(structEditAvailableFromLocal);
             setStructEditInitialQuestionSkills(
               Object.fromEntries(
                 Object.entries(structEditQuestionSkills).map(([k, v]) => [k, [...v]])
@@ -870,6 +925,8 @@ export default function AnswerSheetGenerateCards() {
         question_skills?: Record<string, string[]>;
         questions_options?: Record<string, string[]>;
         correct_answers?: Record<string, Alternative | null>;
+        available_to_municipality?: boolean;
+        available_from?: string | null;
       } = {};
 
       if (titleChanged) {
@@ -907,6 +964,9 @@ export default function AnswerSheetGenerateCards() {
       // Adicionar respostas corretas
       if (Object.keys(structEditCorrectAnswers).length > 0) {
         payload.correct_answers = structEditCorrectAnswers;
+      }
+      if (availabilityChanged && availabilityPayload) {
+        Object.assign(payload, availabilityPayload);
       }
 
       const res = await api.patch(
@@ -1033,11 +1093,44 @@ export default function AnswerSheetGenerateCards() {
     structEditInitialGlobalAlternatives,
     useGlobalAlternatives,
     globalAlternatives,
+    structEditAvailableToMunicipality,
+    structEditAvailableFromLocal,
+    structEditInitialAvailableToMunicipality,
+    structEditInitialAvailableFromLocal,
+    user?.role,
     resetStructEditDialogState,
     fetchGabaritos,
     startRecalcPolling,
     toast,
   ]);
+
+  const handleReleaseGabaritoNow = useCallback(
+    async (gabaritoId: string) => {
+      if (!canControlAvailability) return;
+      try {
+        setAvailabilitySavingId(gabaritoId);
+        await api.patch(
+          `/answer-sheets/gabarito/${gabaritoId}/structure`,
+          { available_to_municipality: true, available_from: null },
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+        toast({ title: 'Liberado', description: 'O cartão foi liberado para o município.' });
+        await fetchGabaritos();
+      } catch (err: unknown) {
+        toast({
+          title: 'Erro',
+          description: municipalityAvailabilityErrorMessage(
+            err,
+            'Não foi possível liberar o cartão.'
+          ),
+          variant: 'destructive',
+        });
+      } finally {
+        setAvailabilitySavingId(null);
+      }
+    },
+    [canControlAvailability, fetchGabaritos, toast]
+  );
 
   const handleRegeneratePdfs = useCallback(() => {
     setShowRegeneratePdfsDialog(false);
@@ -1480,7 +1573,11 @@ export default function AnswerSheetGenerateCards() {
       let msg = 'Não foi possível baixar o arquivo.';
       if (status === 404) msg = 'Cartões não encontrados.';
       else if (status === 400 && (err as { response?: { data?: { status?: string } } }).response?.data?.status === 'not_generated') msg = 'Os cartões ainda não foram gerados.';
-      else if (status === 403) msg = 'Sem permissão para acessar este arquivo.';
+      else if (status === 403) {
+        msg = isNotAvailableToMunicipalityError(err)
+          ? municipalityAvailabilityErrorMessage(err, NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE)
+          : 'Sem permissão para acessar este arquivo.';
+      }
       else if (backendError) msg = backendError;
       toast({ title: 'Erro', description: msg, variant: 'destructive' });
     } finally {
@@ -1816,9 +1913,12 @@ export default function AnswerSheetGenerateCards() {
       }
     } catch (err: unknown) {
       setIsGenerating(false);
-      const msg =
-        err && typeof err === 'object' && 'response' in err && typeof (err as { response?: { data?: { message?: string } } }).response?.data?.message === 'string'
-          ? (err as { response: { data: { message: string } } }).response.data.message
+      const msg = isNotAvailableToMunicipalityError(err)
+        ? municipalityAvailabilityErrorMessage(err, NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE)
+        : err && typeof err === 'object' && 'response' in err
+          ? ((err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.error
+            || (err as { response?: { data?: { message?: string } } }).response?.data?.message
+            || 'Não foi possível iniciar a geração.')
           : 'Não foi possível iniciar a geração.';
       toast({ title: 'Erro', description: msg, variant: 'destructive' });
     }
@@ -1896,6 +1996,9 @@ export default function AnswerSheetGenerateCards() {
                               ? ` · ${g.generations_count ?? g.generations?.length} geração(ões)`
                               : ''}
                           </span>
+                          {canControlAvailability ? (
+                            <MunicipalityAvailabilityBadge item={g} className="mt-0.5" />
+                          ) : null}
                         </div>
                       </SelectItem>
                     ))}
@@ -2407,6 +2510,9 @@ export default function AnswerSheetGenerateCards() {
                               {(gabarito.classes_count ?? 0) >= 1 && (
                                 <Badge variant="outline">{gabarito.classes_count} turma(s)</Badge>
                               )}
+                              {canControlAvailability ? (
+                                <MunicipalityAvailabilityBadge item={gabarito} />
+                              ) : null}
                             </div>
                             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground">
                               <div>
@@ -2688,6 +2794,9 @@ export default function AnswerSheetGenerateCards() {
                               <Badge variant="outline" className="text-xs">
                                 {gabarito.num_questions ?? 0} questões
                               </Badge>
+                              {canControlAvailability ? (
+                                <MunicipalityAvailabilityBadge item={gabarito} />
+                              ) : null}
                             </div>
                             
                             <div className="flex flex-wrap gap-2 text-sm">
@@ -2739,6 +2848,20 @@ export default function AnswerSheetGenerateCards() {
                           </div>
 
                           <div className="flex flex-col gap-2 shrink-0">
+                            {canControlAvailability &&
+                            (gabarito.available_to_municipality === false ||
+                              gabarito.is_available_to_municipality_now === false) ? (
+                              <Button
+                                variant="secondary"
+                                onClick={() => void handleReleaseGabaritoNow(gabarito.id)}
+                                disabled={isDeleting || availabilitySavingId === gabarito.id}
+                              >
+                                {availabilitySavingId === gabarito.id ? (
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                ) : null}
+                                Liberar agora
+                              </Button>
+                            ) : null}
                             <Button
                               variant="outline"
                               onClick={() => openStructEditDialog(gabarito)}
@@ -2814,6 +2937,17 @@ export default function AnswerSheetGenerateCards() {
                         {structEditTitle.trim().length}/200
                       </p>
                     </div>
+
+                    {canControlAvailability ? (
+                      <MunicipalityAvailabilityControls
+                        availableToMunicipality={structEditAvailableToMunicipality}
+                        availableFromLocal={structEditAvailableFromLocal}
+                        onAvailableToMunicipalityChange={setStructEditAvailableToMunicipality}
+                        onAvailableFromLocalChange={setStructEditAvailableFromLocal}
+                        disabled={structEditSaving || recalcStatus === 'processing' || recalcStatus === 'saving'}
+                        idPrefix="struct-edit-availability"
+                      />
+                    ) : null}
 
                     {/* Número de questões */}
                     <div className="space-y-2">

@@ -1,14 +1,24 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
+import type { OmrCorrectionResult } from '@/types/answer-sheet';
+import {
+  alunoAusenteMessage,
+  formatOmrBatchSummaryText,
+  isAlunoAusente,
+  summarizeOmrBatchResults,
+} from '@/utils/omrCorrectionResult';
 
 export interface BatchCorrectionItem {
   status: 'pending' | 'processing' | 'done' | 'error';
   student_name?: string;
+  student_id?: string;
   correct?: number;
   total?: number;
   percentage?: number;
   error?: string;
+  aluno_ausente?: boolean;
+  saved?: boolean;
 }
 
 export interface BatchCorrectionProgress {
@@ -20,7 +30,7 @@ export interface BatchCorrectionProgress {
   status: 'processing' | 'completed' | 'error';
   percentage: number;
   items: Record<string, BatchCorrectionItem>;
-  results?: any[];
+  results?: OmrCorrectionResult[];
 }
 
 export interface BatchCorrectionState {
@@ -147,11 +157,19 @@ export function useBatchCorrection() {
           isProcessing: false,
           isCompleted: true,
         }));
-        
-        toast({
-          title: "Correção processada!",
-          description: "A correção foi realizada com sucesso.",
-        });
+
+        const data = response.data as OmrCorrectionResult;
+        if (isAlunoAusente(data)) {
+          toast({
+            title: 'Aluno ausente',
+            description: `${data.student_name ? `${data.student_name}. ` : ''}${alunoAusenteMessage(data)}`,
+          });
+        } else {
+          toast({
+            title: 'Correção processada!',
+            description: 'A correção foi realizada com sucesso.',
+          });
+        }
         
         return null;
       }
@@ -204,9 +222,14 @@ export function useBatchCorrection() {
             intervalRef.current = null;
           }
 
+          const summary = summarizeOmrBatchResults(
+            progressData.results,
+            progressData.successful,
+            progressData.failed
+          );
           toast({
-            title: "Correção concluída!",
-            description: `${progressData.successful} correções bem-sucedidas${progressData.failed > 0 ? `, ${progressData.failed} falhas` : ''}.`,
+            title: 'Correção concluída!',
+            description: formatOmrBatchSummaryText(summary),
           });
         } else if (progressData.status === 'error') {
           setState(prev => ({

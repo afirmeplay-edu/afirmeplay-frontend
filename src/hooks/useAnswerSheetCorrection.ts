@@ -1,6 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
+import type { OmrCorrectionResult } from '@/types/answer-sheet';
+import {
+  alunoAusenteMessage,
+  formatOmrBatchSummaryText,
+  isAlunoAusente,
+  summarizeOmrBatchResults,
+} from '@/utils/omrCorrectionResult';
 
 export interface AnswerSheetCorrectionItem {
   status: 'pending' | 'processing' | 'done' | 'error';
@@ -11,6 +18,8 @@ export interface AnswerSheetCorrectionItem {
   percentage?: number;
   grade?: number;
   error?: string;
+  aluno_ausente?: boolean;
+  saved?: boolean;
 }
 
 export interface AnswerSheetCorrectionProgress {
@@ -22,7 +31,7 @@ export interface AnswerSheetCorrectionProgress {
   status: 'processing' | 'completed' | 'error';
   percentage: number;
   items: Record<string, AnswerSheetCorrectionItem>;
-  results?: any[];
+  results?: OmrCorrectionResult[];
 }
 
 export interface AnswerSheetCorrectionState {
@@ -111,9 +120,10 @@ export function useAnswerSheetCorrection() {
       // Suporta alternativas variáveis
       // Validação rigorosa
       // Grid matemático baseado no JSON
-      const response = await api.post('/answer-sheets/correct-new', {
+      const response = await api.post<OmrCorrectionResult>('/answer-sheets/correct-new', {
         image: image
       });
+      const data = response.data;
 
       // Resposta síncrona - resultado imediato
       setState(prev => ({
@@ -122,12 +132,19 @@ export function useAnswerSheetCorrection() {
         isCompleted: true,
       }));
 
-      toast({
-        title: "Correção processada!",
-        description: `Aluno: ${response.data.student_name || 'N/A'}. Acertos: ${response.data.correct}/${response.data.total} (${response.data.percentage?.toFixed(1)}%)`,
-      });
+      if (isAlunoAusente(data)) {
+        toast({
+          title: 'Aluno ausente',
+          description: `${data.student_name ? `${data.student_name}. ` : ''}${alunoAusenteMessage(data)}`,
+        });
+      } else {
+        toast({
+          title: 'Correção processada!',
+          description: `Aluno: ${data.student_name || 'N/A'}. Acertos: ${data.correct}/${data.total} (${data.percentage?.toFixed(1)}%)`,
+        });
+      }
 
-      return response.data;
+      return data;
     } catch (error: any) {
       console.error("Erro ao processar correção única:", error);
       
@@ -273,9 +290,14 @@ export function useAnswerSheetCorrection() {
             intervalRef.current = null;
           }
 
+          const summary = summarizeOmrBatchResults(
+            progressData.results,
+            progressData.successful,
+            progressData.failed
+          );
           toast({
-            title: "Correção concluída!",
-            description: `${progressData.successful} correções bem-sucedidas${progressData.failed > 0 ? `, ${progressData.failed} falhas` : ''}.`,
+            title: 'Correção concluída!',
+            description: formatOmrBatchSummaryText(summary),
           });
         } else if (progressData.status === 'error') {
           setState(prev => ({

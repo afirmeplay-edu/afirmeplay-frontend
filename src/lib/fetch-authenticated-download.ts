@@ -10,7 +10,10 @@ export type FetchAuthenticatedDownloadOptions = {
 async function messageFromBlobError(blob: Blob): Promise<string> {
   const text = await blob.text();
   try {
-    const j = JSON.parse(text) as { error?: string; message?: string; detail?: string };
+    const j = JSON.parse(text) as { error?: string; message?: string; detail?: string; code?: string };
+    if (j.code === 'NOT_AVAILABLE_TO_MUNICIPALITY') {
+      return j.error || 'Conteúdo ainda não disponível para o município';
+    }
     return j.error || j.message || j.detail || text.slice(0, 300) || 'Erro ao baixar o arquivo.';
   } catch {
     return text.slice(0, 300) || 'Erro ao baixar o arquivo.';
@@ -44,7 +47,10 @@ export async function fetchAuthenticatedDownload(
       throw new Error(await messageFromBlobError(err.response.data));
     }
     if (isAxiosError(err) && err.response?.data && typeof err.response.data === 'object') {
-      const d = err.response.data as { error?: string; message?: string };
+      const d = err.response.data as { error?: string; message?: string; code?: string };
+      if (d.code === 'NOT_AVAILABLE_TO_MUNICIPALITY') {
+        throw new Error(d.error || 'Conteúdo ainda não disponível para o município');
+      }
       throw new Error(d.error || d.message || 'Erro ao baixar o arquivo.');
     }
     throw err;

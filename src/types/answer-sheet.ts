@@ -191,6 +191,12 @@ export interface Gabarito {
   generations_count?: number;
   /** Job da geração mais recente (espelha em geral minio_url/download_url do cartão) */
   latest_generation_job_id?: string | null;
+  /** Se o município (escola/professor/aplicador) pode ver este cartão. */
+  available_to_municipality?: boolean;
+  /** ISO datetime; nulo = imediato quando available_to_municipality é true. */
+  available_from?: string | null;
+  /** Calculado pelo backend: visível agora para o município. */
+  is_available_to_municipality_now?: boolean;
 }
 
 export interface GabaritosResponse {
@@ -392,6 +398,29 @@ export interface ManualCorrectionResponse {
   student_answers?: Record<string, ManualAnswerValue>;
   answer_key?: Record<string, string | null>;
   answer_sheet_result_id?: string;
+}
+
+/** Status do POST de correção OMR (cartão ou prova física). */
+export type OmrCorrectionStatus = 'corrigido' | 'aluno_ausente';
+
+/**
+ * Resposta de POST /answer-sheets/correct-new e do item em results[] do lote.
+ * `score`/`percentage` 0 no ausente não significam nota gravada — use `aluno_ausente`.
+ */
+export interface OmrCorrectionResult {
+  message?: string;
+  student_id?: string;
+  student_name?: string;
+  correct?: number;
+  wrong?: number;
+  blank?: number;
+  total?: number;
+  score?: number;
+  percentage?: number;
+  grade?: number;
+  aluno_ausente?: boolean;
+  saved?: boolean;
+  status?: OmrCorrectionStatus;
 }
 
 

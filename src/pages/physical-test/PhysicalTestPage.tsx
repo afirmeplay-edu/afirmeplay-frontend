@@ -72,12 +72,28 @@ import {
   Loader2,
   AlertTriangle,
   ChevronRight,
+  UserX,
+  ImagePlus,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useBatchCorrection } from "@/hooks/useBatchCorrection";
+import { OmrCorrectionOutcomeAlert } from "@/components/answer-sheet/OmrCorrectionOutcomeAlert";
+import type { OmrCorrectionResult } from "@/types/answer-sheet";
+import {
+  ALUNO_AUSENTE_LABEL,
+  alunoAusenteMessage,
+  isAlunoAusente,
+  isBatchItemAlunoAusente,
+  summarizeOmrBatchResults,
+} from "@/utils/omrCorrectionResult";
 import { api } from "@/lib/api";
 import { fetchAuthenticatedDownload } from "@/lib/fetch-authenticated-download";
 import { useAuth } from "@/context/authContext";
+import {
+  isNotAvailableToMunicipalityError,
+  municipalityAvailabilityErrorMessage,
+  NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE,
+} from "@/lib/municipalityAvailability";
 import { hasCorretorStyleEvalAccess } from "@/utils/restrictedStaffAccess";
 import { MultiSelect } from "@/components/ui/multi-select";
 import {
@@ -554,6 +570,7 @@ export default function PhysicalTestPage() {
   const [uploadedImage, setUploadedImage] = useState<File | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [lastSingleResult, setLastSingleResult] = useState<OmrCorrectionResult | null>(null);
 
   // Estados para correção em lote
   const [showBatchCorrectionDialog, setShowBatchCorrectionDialog] = useState(false);
@@ -567,6 +584,16 @@ export default function PhysicalTestPage() {
     startBatchCorrection,
     reset: resetBatchCorrection,
   } = useBatchCorrection();
+
+  const batchSummary = useMemo(
+    () =>
+      summarizeOmrBatchResults(
+        batchProgress?.results,
+        batchProgress?.successful ?? 0,
+        batchProgress?.failed ?? 0
+      ),
+    [batchProgress?.results, batchProgress?.successful, batchProgress?.failed]
+  );
 
   // Estados para gerenciamento de formulários
   const [formToDelete, setFormToDelete] = useState<string | null>(null);
@@ -776,7 +803,9 @@ export default function PhysicalTestPage() {
       console.error("Erro ao carregar dados:", error);
       toast({
         title: "Erro",
-        description: "Não foi possível carregar os dados da prova física.",
+        description: isNotAvailableToMunicipalityError(error)
+          ? municipalityAvailabilityErrorMessage(error, NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE)
+          : "Não foi possível carregar os dados da prova física.",
         variant: "destructive",
       });
     } finally {
@@ -1029,6 +1058,7 @@ export default function PhysicalTestPage() {
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      setLastSingleResult(null);
       setUploadedImage(file);
 
       const reader = new FileReader();
@@ -1073,10 +1103,20 @@ export default function PhysicalTestPage() {
       clearInterval(progressInterval);
       setCorrectionProgress(100);
 
-      toast({
-        title: "Correção processada!",
-        description: "A correção foi realizada com sucesso.",
-      });
+      const data = response.data as OmrCorrectionResult;
+      setLastSingleResult(data);
+
+      if (isAlunoAusente(data)) {
+        toast({
+          title: "Aluno ausente",
+          description: `${data.student_name ? `${data.student_name}. ` : ""}${alunoAusenteMessage(data)}`,
+        });
+      } else {
+        toast({
+          title: "Correção processada!",
+          description: "A correção foi realizada com sucesso.",
+        });
+      }
 
       setShowCorrectionDialog(false);
       setUploadedImage(null);
@@ -1622,7 +1662,14 @@ export default function PhysicalTestPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>Avaliações Geradas</CardTitle>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => navigate(`/app/avaliacao/${id}/capa`)}
+                  >
+                    <ImagePlus className="h-4 w-4 mr-2" />
+                    Capa da prova
+                  </Button>
                   {generatedForms.length > 0 && (
                     <>
                       <Button
@@ -2159,6 +2206,10 @@ export default function PhysicalTestPage() {
                   )}
                 </div>
               )}
+
+              {lastSingleResult && !previewImage && (
+                <OmrCorrectionOutcomeAlert result={lastSingleResult} />
+              )}
             </CardContent>
           </Card>
 
@@ -2309,11 +2360,19 @@ export default function PhysicalTestPage() {
                         {/* Lista de itens */}
                         <ScrollArea className="h-64 border rounded-lg">
                           <div className="p-2 space-y-1">
-                            {Object.entries(batchProgress.items || {}).map(([index, item]) => (
+                            {Object.entries(batchProgress.items || {}).map(([index, item]) => {
+                              const ausente = isBatchItemAlunoAusente(
+                                item,
+                                batchProgress.results,
+                                index,
+                                isBatchCompleted
+                              );
+                              return (
                               <div
                                 key={index}
                                 className={`flex items-center justify-between p-2 rounded text-sm ${item.status === 'pending' ? 'bg-gray-100' :
                                     item.status === 'processing' ? 'bg-yellow-50 border border-yellow-200' :
+                                      item.status === 'done' && ausente ? 'bg-amber-50 border border-amber-200' :
                                       item.status === 'done' ? 'bg-green-50 border border-green-200' :
                                         'bg-red-50 border border-red-200'
                                   }`}
@@ -2321,7 +2380,8 @@ export default function PhysicalTestPage() {
                                 <span className="flex items-center gap-2">
                                   {item.status === 'pending' && <Clock className="h-4 w-4 text-gray-400" />}
                                   {item.status === 'processing' && <Loader2 className="h-4 w-4 animate-spin text-yellow-500" />}
-                                  {item.status === 'done' && <CheckCircle className="h-4 w-4 text-green-500" />}
+                                  {item.status === 'done' && !ausente && <CheckCircle className="h-4 w-4 text-green-500" />}
+                                  {item.status === 'done' && ausente && <UserX className="h-4 w-4 text-amber-700" />}
                                   {item.status === 'error' && <XCircle className="h-4 w-4 text-red-500" />}
                                   <span>
                                     {item.status === 'pending' && `Prova ${Number(index) + 1} - Aguardando...`}
@@ -2330,7 +2390,12 @@ export default function PhysicalTestPage() {
                                     {item.status === 'error' && `Prova ${Number(index) + 1} - Erro`}
                                   </span>
                                 </span>
-                                {item.status === 'done' && (
+                                {item.status === 'done' && ausente && (
+                                  <Badge variant="secondary" className="bg-amber-100 text-amber-900 border-amber-300">
+                                    {ALUNO_AUSENTE_LABEL}
+                                  </Badge>
+                                )}
+                                {item.status === 'done' && !ausente && (
                                   <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300">
                                     {item.correct}/{item.total} ({item.percentage?.toFixed(0)}%)
                                   </Badge>
@@ -2341,7 +2406,8 @@ export default function PhysicalTestPage() {
                                   </span>
                                 )}
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </ScrollArea>
 
@@ -2350,13 +2416,18 @@ export default function PhysicalTestPage() {
                           <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                             <div className="space-y-1">
                               <p className="text-sm font-medium">Resumo da Correção</p>
-                              <div className="flex gap-4 text-sm">
+                              <div className="flex gap-4 text-sm flex-wrap">
                                 <span className="text-green-600">
-                                  ✅ Sucesso: {batchProgress.successful}
+                                  Corrigidos: {batchSummary.corrigidos}
                                 </span>
+                                {batchSummary.ausentes > 0 && (
+                                  <span className="text-amber-700">
+                                    Ausentes: {batchSummary.ausentes}
+                                  </span>
+                                )}
                                 {batchProgress.failed > 0 && (
                                   <span className="text-red-600">
-                                    ❌ Falhas: {batchProgress.failed}
+                                    Falhas: {batchProgress.failed}
                                   </span>
                                 )}
                               </div>

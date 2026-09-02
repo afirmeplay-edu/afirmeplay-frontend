@@ -122,6 +122,8 @@ export interface EvaluationFormData {
   state?: string;
   municipality?: string;
   selectedSchools?: { id: string; name: string; }[];
+  available_to_municipality?: boolean;
+  available_from?: string | null;
 }
 
 // Define Subject, EducationStage, Grade interfaces if not already

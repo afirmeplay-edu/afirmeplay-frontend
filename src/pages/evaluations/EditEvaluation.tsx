@@ -7,6 +7,11 @@ import { EvaluationFormData, Question as FormQuestion } from "@/components/evalu
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { mapApiQuestionTypeToForm } from "@/utils/questionTypeMapping";
+import {
+    isNotAvailableToMunicipalityError,
+    municipalityAvailabilityErrorMessage,
+    NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE,
+} from "@/lib/municipalityAvailability";
 
 interface Municipality {
     id: string;
@@ -70,6 +75,8 @@ interface Evaluation {
     duration?: number;
     classes?: string[];
     applied_classes?: AppliedClass[];
+    available_to_municipality?: boolean;
+    available_from?: string | null;
 }
 
 const EditEvaluation = () => {
@@ -264,6 +271,8 @@ const EditEvaluation = () => {
                         : evaluation.municipalities?.[0]?.id || "",
                     selectedSchools: schoolsFormatted,
                     selectedClasses: classesFormatted,
+                    available_to_municipality: evaluation.available_to_municipality !== false,
+                    available_from: evaluation.available_from ?? null,
                 };
 
                 // ✅ DEBUG: Log dos dados carregados para edição
@@ -302,9 +311,12 @@ const EditEvaluation = () => {
                 setShowModal(true);
             } catch (error) {
                 console.error("Erro ao buscar avaliação:", error);
+                const description = isNotAvailableToMunicipalityError(error)
+                    ? municipalityAvailabilityErrorMessage(error, NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE)
+                    : "Erro ao carregar avaliação";
                 toast({
                     title: "Erro",
-                    description: "Erro ao carregar avaliação",
+                    description,
                     variant: "destructive",
                 });
                 navigate("/app/avaliacoes");

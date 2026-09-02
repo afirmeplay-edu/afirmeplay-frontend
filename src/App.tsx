@@ -33,6 +33,7 @@ const CreateEvaluation = React.lazy(() => import("@/pages/evaluations/CreateEval
 const EditEvaluation = React.lazy(() => import("@/pages/evaluations/EditEvaluation"));
 const EvaluationCorrection = React.lazy(() => import("@/pages/evaluations/EvaluationCorrection"));
 const ViewEvaluation = React.lazy(() => import("@/pages/evaluations/ViewEvaluation"));
+const CoverTemplatePage = React.lazy(() => import("@/pages/evaluations/CoverTemplatePage"));
 const SkillsHeatMapPage = React.lazy(() => import("@/pages/evaluations/SkillsHeatMapPage"));
 const AnaliseAvaliacoes = React.lazy(() => import("@/pages/evaluations/AnaliseAvaliacoes"));
 const SubjectiveEvaluations = React.lazy(() => import("@/pages/evaluations/subjective/SubjectiveEvaluations"));
@@ -57,6 +58,8 @@ const RelatoriosResultadosHub = React.lazy(() => import("@/pages/reports/Relator
 const RankingHub = React.lazy(() => import("@/pages/reports/RankingHub"));
 const RankingGeral = React.lazy(() => import("@/pages/reports/RankingGeral"));
 const RelatoriosParticipacaoHub = React.lazy(() => import("@/pages/reports/RelatoriosParticipacaoHub"));
+const RelatoriosMapaQuestoesHub = React.lazy(() => import("@/pages/reports/RelatoriosMapaQuestoesHub"));
+const RelatoriosBoletimAlunoHub = React.lazy(() => import("@/pages/reports/RelatoriosBoletimAlunoHub"));
 const RelatorioApresentacao19Slides = React.lazy(() => import("@/pages/reports/RelatorioApresentacao19Slides"));
 const InseAvaliacaoReport = React.lazy(() => import("@/pages/reports/InseAvaliacaoReport"));
 const PneerqReport = React.lazy(() => import("@/pages/reports/PneerqReport"));
@@ -299,6 +302,7 @@ const App = () => {
               <Route path="/app/avaliacao/:id/aluno/:studentId/resultados" element={<PrivateRoute><StudentDetailedResults onBack={() => window.history.back()} /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id" element={<PrivateRoute><ViewEvaluation /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id/editar" element={<PrivateRoute><EditEvaluation /></PrivateRoute>} />
+              <Route path="/app/avaliacao/:id/capa" element={<PrivateRoute><CoverTemplatePage /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id/fisica" element={<PrivateRoute><PhysicalTestPage /></PrivateRoute>} />
               <Route path="/app/provas-fisicas/:id" element={<PrivateRoute><PhysicalTestPage /></PrivateRoute>} />
               <Route path="/app/editar-atalhos" element={<PrivateRoute><EditQuickLinks /></PrivateRoute>} />
@@ -463,6 +467,8 @@ const App = () => {
                 }
               />
               <Route path="/app/relatorios/mapa-habilidades" element={<PrivateRoute><SkillsHeatMapPage /></PrivateRoute>} />
+              <Route path="/app/relatorios/mapa-questoes" element={<PrivateRoute><RelatoriosMapaQuestoesHub /></PrivateRoute>} />
+              <Route path="/app/relatorios/boletim-aluno" element={<PrivateRoute><RelatoriosBoletimAlunoHub /></PrivateRoute>} />
               <Route path="/app/relatorios/relatorio-apresentacao-19-slides" element={<PrivateRoute><RelatorioApresentacao19Slides /></PrivateRoute>} />
               <Route
                 path="/app/relatorios/acerto-niveis-cartao-resposta"

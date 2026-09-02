@@ -71,9 +71,20 @@ import {
   Loader2,
   AlertTriangle,
   ChevronRight,
+  UserX,
+  ImagePlus,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useBatchCorrection } from "@/hooks/useBatchCorrection";
+import { OmrCorrectionOutcomeAlert } from "@/components/answer-sheet/OmrCorrectionOutcomeAlert";
+import type { OmrCorrectionResult } from "@/types/answer-sheet";
+import {
+  ALUNO_AUSENTE_LABEL,
+  alunoAusenteMessage,
+  isAlunoAusente,
+  isBatchItemAlunoAusente,
+  summarizeOmrBatchResults,
+} from "@/utils/omrCorrectionResult";
 import { api } from "@/lib/api";
 import { fetchAuthenticatedDownload } from "@/lib/fetch-authenticated-download";
 import { useAuth } from "@/context/authContext";
@@ -517,6 +528,7 @@ export function PhysicalTestWorkspace({
   const [uploadedImage, setUploadedImage] = useState<File | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [lastSingleResult, setLastSingleResult] = useState<OmrCorrectionResult | null>(null);
 
   // Estados para correção em lote
   const [showBatchCorrectionDialog, setShowBatchCorrectionDialog] = useState(false);
@@ -530,6 +542,16 @@ export function PhysicalTestWorkspace({
     startBatchCorrection,
     reset: resetBatchCorrection,
   } = useBatchCorrection();
+
+  const batchSummary = useMemo(
+    () =>
+      summarizeOmrBatchResults(
+        batchProgress?.results,
+        batchProgress?.successful ?? 0,
+        batchProgress?.failed ?? 0
+      ),
+    [batchProgress?.results, batchProgress?.successful, batchProgress?.failed]
+  );
 
   // Estados para gerenciamento de formulários
   const [formToDelete, setFormToDelete] = useState<string | null>(null);
@@ -1085,6 +1107,7 @@ export function PhysicalTestWorkspace({
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      setLastSingleResult(null);
       setUploadedImage(file);
 
       const reader = new FileReader();
@@ -1129,10 +1152,20 @@ export function PhysicalTestWorkspace({
       clearInterval(progressInterval);
       setCorrectionProgress(100);
 
-      toast({
-        title: "Correção processada!",
-        description: "A correção foi realizada com sucesso.",
-      });
+      const data = response.data as OmrCorrectionResult;
+      setLastSingleResult(data);
+
+      if (isAlunoAusente(data)) {
+        toast({
+          title: "Aluno ausente",
+          description: `${data.student_name ? `${data.student_name}. ` : ""}${alunoAusenteMessage(data)}`,
+        });
+      } else {
+        toast({
+          title: "Correção processada!",
+          description: "A correção foi realizada com sucesso.",
+        });
+      }
 
       setShowCorrectionDialog(false);
       setUploadedImage(null);
@@ -1626,7 +1659,14 @@ export function PhysicalTestWorkspace({
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>Avaliações Geradas</CardTitle>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => navigate(`/app/avaliacao/${id}/capa`)}
+                  >
+                    <ImagePlus className="h-4 w-4 mr-2" />
+                    Capa da prova
+                  </Button>
                   {generatedForms.length > 0 && (
                     <>
                       <Button
@@ -2233,6 +2273,10 @@ export function PhysicalTestWorkspace({
                   )}
                 </div>
               )}
+
+              {lastSingleResult && !previewImage && (
+                <OmrCorrectionOutcomeAlert result={lastSingleResult} />
+              )}
             </CardContent>
           </Card>
 
@@ -2385,7 +2429,14 @@ export function PhysicalTestWorkspace({
                         {/* Lista de itens */}
                         <ScrollArea className="h-64 border rounded-lg">
                           <div className="p-2 space-y-1">
-                            {Object.entries(batchProgress.items || {}).map(([index, item]) => (
+                            {Object.entries(batchProgress.items || {}).map(([index, item]) => {
+                              const ausente = isBatchItemAlunoAusente(
+                                item,
+                                batchProgress.results,
+                                index,
+                                isBatchCompleted
+                              );
+                              return (
                               <div
                                 key={index}
                                 className={`flex items-center justify-between rounded p-2 text-sm ${
@@ -2393,6 +2444,8 @@ export function PhysicalTestWorkspace({
                                     ? "bg-gray-100 dark:bg-muted/60"
                                     : item.status === "processing"
                                       ? "border border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/30"
+                                      : item.status === "done" && ausente
+                                        ? "border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30"
                                       : item.status === "done"
                                         ? "border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30"
                                         : "border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30"
@@ -2405,8 +2458,11 @@ export function PhysicalTestWorkspace({
                                   {item.status === "processing" && (
                                     <Loader2 className="h-4 w-4 animate-spin text-yellow-500 dark:text-yellow-400" />
                                   )}
-                                  {item.status === "done" && (
+                                  {item.status === "done" && !ausente && (
                                     <CheckCircle className="h-4 w-4 text-green-500 dark:text-green-400" />
+                                  )}
+                                  {item.status === "done" && ausente && (
+                                    <UserX className="h-4 w-4 text-amber-700 dark:text-amber-400" />
                                   )}
                                   {item.status === "error" && (
                                     <XCircle className="h-4 w-4 text-red-500 dark:text-red-400" />
@@ -2418,7 +2474,15 @@ export function PhysicalTestWorkspace({
                                     {item.status === 'error' && `Prova ${Number(index) + 1} - Erro`}
                                   </span>
                                 </span>
-                                {item.status === 'done' && (
+                                {item.status === 'done' && ausente && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+                                  >
+                                    {ALUNO_AUSENTE_LABEL}
+                                  </Badge>
+                                )}
+                                {item.status === 'done' && !ausente && (
                                   <Badge
                                     variant="outline"
                                     className="border-green-300 bg-green-100 text-green-700 dark:border-green-800 dark:bg-green-950/40 dark:text-green-300"
@@ -2432,7 +2496,8 @@ export function PhysicalTestWorkspace({
                                   </span>
                                 )}
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </ScrollArea>
 
@@ -2441,13 +2506,18 @@ export function PhysicalTestWorkspace({
                           <div className="flex items-center justify-between rounded-lg bg-gray-50 p-4 dark:bg-muted/40">
                             <div className="space-y-1">
                               <p className="text-sm font-medium">Resumo da Correção</p>
-                              <div className="flex gap-4 text-sm">
+                              <div className="flex flex-wrap gap-4 text-sm">
                                 <span className="text-green-600 dark:text-green-400">
-                                  ✅ Sucesso: {batchProgress.successful}
+                                  Corrigidos: {batchSummary.corrigidos}
                                 </span>
+                                {batchSummary.ausentes > 0 && (
+                                  <span className="text-amber-700 dark:text-amber-400">
+                                    Ausentes: {batchSummary.ausentes}
+                                  </span>
+                                )}
                                 {batchProgress.failed > 0 && (
                                   <span className="text-red-600 dark:text-red-400">
-                                    ❌ Falhas: {batchProgress.failed}
+                                    Falhas: {batchProgress.failed}
                                   </span>
                                 )}
                               </div>

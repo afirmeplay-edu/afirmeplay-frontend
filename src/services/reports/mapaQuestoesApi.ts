@@ -1,15 +1,16 @@
 import { api } from '@/lib/api';
 import { REPORT_ENTITY_TYPE_ANSWER_SHEET } from '@/services/evaluation/evaluationResultsApi';
+import { getClassShiftLabel, hasClassShift } from '@/lib/classShift';
 import type {
-  ParticipationFilterAvaliacao,
-  ParticipationFilterEntity,
-  ParticipationFilterTurma,
-  ParticipationOpcoesFiltros,
-  ParticipationOpcoesFiltrosParams,
-  ParticipationReportFlow,
-  ParticipationResumo,
-  ParticipationResumoParams,
-} from '@/types/participation-report';
+  MapaQuestoesFilterAvaliacao,
+  MapaQuestoesFilterEntity,
+  MapaQuestoesFilterTurma,
+  MapaQuestoesOpcoesFiltros,
+  MapaQuestoesOpcoesFiltrosParams,
+  MapaQuestoesReportFlow,
+  MapaQuestoesResumo,
+  MapaQuestoesResumoParams,
+} from '@/types/mapa-questoes';
 
 function withCityMeta(municipio?: string) {
   return municipio
@@ -17,33 +18,33 @@ function withCityMeta(municipio?: string) {
     : {};
 }
 
-function setCsvParam(q: URLSearchParams, key: string, values?: string[]) {
-  if (!values || values.length === 0) return;
-  q.set(key, values.join(','));
-}
-
 export function reportEntityTypeForFlow(
-  flow?: ParticipationReportFlow
+  flow?: MapaQuestoesReportFlow
 ): 'answer_sheet' | undefined {
   return flow === 'cartao' ? REPORT_ENTITY_TYPE_ANSWER_SHEET : undefined;
 }
 
-function buildQuery(params: ParticipationOpcoesFiltrosParams | ParticipationResumoParams): string {
+function setOptionalParam(q: URLSearchParams, key: string, value?: string) {
+  if (!value || value === 'all') return;
+  q.set(key, value);
+}
+
+function buildQuery(params: MapaQuestoesOpcoesFiltrosParams | MapaQuestoesResumoParams): string {
   const q = new URLSearchParams();
   if (params.report_entity_type) q.set('report_entity_type', params.report_entity_type);
-  if (params.estado) q.set('estado', params.estado);
-  if ('municipio' in params && params.municipio) q.set('municipio', params.municipio);
-  setCsvParam(q, 'avaliacoes', params.avaliacoes);
-  setCsvParam(q, 'escolas', params.escolas);
-  setCsvParam(q, 'series', params.series);
-  setCsvParam(q, 'turmas', params.turmas);
+  setOptionalParam(q, 'estado', params.estado);
+  setOptionalParam(q, 'municipio', params.municipio);
+  setOptionalParam(q, 'avaliacao', params.avaliacao);
+  setOptionalParam(q, 'escola', params.escola);
+  setOptionalParam(q, 'serie', params.serie);
+  setOptionalParam(q, 'turma', params.turma);
   const s = q.toString();
   return s ? `?${s}` : '';
 }
 
 function normalizeEntities(
   items: Array<{ id?: string; nome?: string; name?: string }> | undefined
-): ParticipationFilterEntity[] {
+): MapaQuestoesFilterEntity[] {
   if (!Array.isArray(items)) return [];
   return items
     .map((item) => ({
@@ -54,8 +55,8 @@ function normalizeEntities(
 }
 
 function normalizeAvaliacoes(
-  items: Array<ParticipationFilterAvaliacao & { nome?: string; name?: string; title?: string }> | undefined
-): ParticipationFilterAvaliacao[] {
+  items: Array<MapaQuestoesFilterAvaliacao & { nome?: string; name?: string; title?: string }> | undefined
+): MapaQuestoesFilterAvaliacao[] {
   if (!Array.isArray(items)) return [];
   return items
     .map((item) => {
@@ -76,15 +77,21 @@ function normalizeAvaliacoes(
 }
 
 function normalizeTurmas(
-  items: ParticipationFilterTurma[] | undefined
-): ParticipationFilterTurma[] {
+  items: Array<{
+    id?: string;
+    nome?: string;
+    name?: string;
+    shift?: string;
+    label?: string;
+  }> | undefined
+): MapaQuestoesFilterTurma[] {
   if (!Array.isArray(items)) return [];
   return items
     .map((item) => {
-      const nome = item.nome ?? '';
+      const nome = item.nome ?? item.name ?? '';
       const label =
         item.label ||
-        (item.shift ? `${nome} (${item.shift})` : nome);
+        (hasClassShift(item.shift) ? `${nome} (${getClassShiftLabel(item.shift)})` : nome);
       return {
         id: String(item.id ?? ''),
         nome,
@@ -95,7 +102,7 @@ function normalizeTurmas(
     .filter((item) => item.id);
 }
 
-export function getParticipationApiErrorMessage(error: unknown, fallback: string): string {
+export function getMapaQuestoesApiErrorMessage(error: unknown, fallback: string): string {
   const maybe = error as {
     message?: string;
     response?: { data?: { error?: string; details?: string; message?: string }; status?: number };
@@ -109,11 +116,11 @@ export function getParticipationApiErrorMessage(error: unknown, fallback: string
   );
 }
 
-export class ParticipationReportApiService {
+export class MapaQuestoesApiService {
   static async getOpcoesFiltros(
-    params: ParticipationOpcoesFiltrosParams = {}
-  ): Promise<ParticipationOpcoesFiltros> {
-    const url = `/participation-report/opcoes-filtros${buildQuery(params)}`;
+    params: MapaQuestoesOpcoesFiltrosParams = {}
+  ): Promise<MapaQuestoesOpcoesFiltros> {
+    const url = `/mapa-questoes/opcoes-filtros${buildQuery(params)}`;
     const { data } = await api.get(url, withCityMeta(params.municipio));
 
     const avaliacoes = normalizeAvaliacoes(
@@ -130,13 +137,13 @@ export class ParticipationReportApiService {
     };
   }
 
-  static async getResumo(params: ParticipationResumoParams): Promise<ParticipationResumo> {
-    if (!params.estado || !params.municipio) {
-      throw new Error('Estado e município são obrigatórios.');
+  static async getResumo(params: MapaQuestoesResumoParams): Promise<MapaQuestoesResumo> {
+    if (!params.estado || !params.municipio || !params.avaliacao) {
+      throw new Error('Estado, município e avaliação são obrigatórios.');
     }
 
-    const url = `/participation-report/resumo${buildQuery(params)}`;
-    const { data } = await api.get<ParticipationResumo>(url, withCityMeta(params.municipio));
+    const url = `/mapa-questoes/resumo${buildQuery(params)}`;
+    const { data } = await api.get<MapaQuestoesResumo>(url, withCityMeta(params.municipio));
     return data;
   }
 }

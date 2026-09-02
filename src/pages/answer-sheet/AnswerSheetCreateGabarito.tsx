@@ -29,6 +29,15 @@ import { api } from '@/lib/api';
 import { MultiSelect } from '@/components/ui/multi-select';
 import SkillsSelector from '@/components/evaluations/questions/SkillsSelector';
 import { useSkillsStore } from '@/stores/useSkillsStore';
+import { useAuth } from '@/context/authContext';
+import { MunicipalityAvailabilityControls } from '@/components/municipality-availability/MunicipalityAvailabilityControls';
+import {
+  buildMunicipalityAvailabilityPayload,
+  canControlMunicipalityAvailability,
+  isNotAvailableToMunicipalityError,
+  municipalityAvailabilityErrorMessage,
+  municipalityAvailabilitySummary,
+} from '@/lib/municipalityAvailability';
 
 const STEPS = ['Informações', 'Questões', 'Blocos', 'Habilidades', 'Revisar'];
 
@@ -44,12 +53,16 @@ type BlockByDiscipline = {
 export default function AnswerSheetCreateGabarito() {
   const [step, setStep] = useState(0);
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canControlAvailability = canControlMunicipalityAvailability(user?.role);
 
   // Step 0: básico
   const [title, setTitle] = useState('');
   const [institution, setInstitution] = useState('');
   /** Séries do gabarito (coluna JSON `grades`) — nunca inferidas do título. */
   const [gradeIds, setGradeIds] = useState<string[]>([]);
+  const [availableToMunicipality, setAvailableToMunicipality] = useState(true);
+  const [availableFromLocal, setAvailableFromLocal] = useState('');
 
   // Step 1: questões e gabarito
   const [numQuestions, setNumQuestions] = useState(0);
@@ -92,6 +105,8 @@ export default function AnswerSheetCreateGabarito() {
     setTitle('');
     setInstitution('');
     setGradeIds([]);
+    setAvailableToMunicipality(true);
+    setAvailableFromLocal('');
     setNumQuestions(0);
     setCorrectAnswers({});
     setUseGlobalAlternatives(true);
@@ -401,6 +416,10 @@ export default function AnswerSheetCreateGabarito() {
       separate_by_subject: hasDisciplineBlocks,
       questions_options: buildQuestionsOptions() || {},
       test_data: { institution: institution.trim(), title: title.trim() },
+      ...(buildMunicipalityAvailabilityPayload(user?.role, {
+        availableToMunicipality,
+        availableFromLocal,
+      }) ?? {}),
     };
     if (hasDisciplineBlocks) {
       payload.blocks_config = {
@@ -431,9 +450,13 @@ export default function AnswerSheetCreateGabarito() {
         toast({ title: 'Resposta inesperada', description: 'Tente novamente.', variant: 'destructive' });
       }
     } catch (err: unknown) {
-      const msg = err && typeof err === 'object' && 'response' in err && typeof (err as { response?: { data?: { message?: string } } }).response?.data?.message === 'string'
-        ? (err as { response: { data: { message: string } } }).response.data.message
-        : 'Não foi possível criar o gabarito.';
+      const msg = isNotAvailableToMunicipalityError(err)
+        ? municipalityAvailabilityErrorMessage(err, 'Não foi possível criar o gabarito.')
+        : err && typeof err === 'object' && 'response' in err && typeof (err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.error === 'string'
+          ? (err as { response: { data: { error: string } } }).response.data.error
+          : err && typeof err === 'object' && 'response' in err && typeof (err as { response?: { data?: { message?: string } } }).response?.data?.message === 'string'
+            ? (err as { response: { data: { message: string } } }).response.data.message
+            : 'Não foi possível criar o gabarito.';
       toast({ title: 'Erro', description: msg, variant: 'destructive' });
     } finally {
       setIsSubmitting(false);
@@ -535,6 +558,16 @@ export default function AnswerSheetCreateGabarito() {
                     Obrigatório. Define as séries do gabarito (não é inferido pelo título).
                   </p>
                 </div>
+                {canControlAvailability ? (
+                  <MunicipalityAvailabilityControls
+                    availableToMunicipality={availableToMunicipality}
+                    availableFromLocal={availableFromLocal}
+                    onAvailableToMunicipalityChange={setAvailableToMunicipality}
+                    onAvailableFromLocalChange={setAvailableFromLocal}
+                    disabled={isSubmitting}
+                    idPrefix="gabarito-availability"
+                  />
+                ) : null}
               </CardContent>
             </Card>
           )}
@@ -950,6 +983,14 @@ export default function AnswerSheetCreateGabarito() {
                     </dd>
                   </div>
                   <div><dt className="text-muted-foreground">Questões</dt><dd className="font-medium">{numQuestions}</dd></div>
+                  {canControlAvailability ? (
+                    <div>
+                      <dt className="text-muted-foreground">Disponibilidade</dt>
+                      <dd className="font-medium">
+                        {municipalityAvailabilitySummary(availableToMunicipality, availableFromLocal)}
+                      </dd>
+                    </div>
+                  ) : null}
                   {blocksByDiscipline.length > 0 && (
                     <div>
                       <dt className="text-muted-foreground">Blocos por disciplina</dt>
