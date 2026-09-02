@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useQueries } from "@tanstack/react-query";
 import { Calendar as CalendarIcon, Download, Filter, Loader2, RefreshCw, Trophy, Users } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,7 @@ import { FormFiltersApiService } from "@/services/formFiltersApi";
 import { EvaluationResultsApiService, REPORT_ENTITY_TYPE_ANSWER_SHEET } from "@/services/evaluation/evaluationResultsApi";
 import { EvaluationInstrumentPicker } from "@/components/filters";
 import { RelatorioConsolidadoItensPicker } from "@/components/reports/relatorio-geral/RelatorioConsolidadoItensPicker";
+import { FormMultiSelect } from "@/components/ui/form-multi-select";
 import {
   RankingApiService,
   type RankingFilters,
@@ -65,6 +66,18 @@ function parseCsvIds(value: string | null): string[] {
     out.push(id);
   }
   return out;
+}
+
+/** 1º/2º ano do EF. Exclui Ensino Médio (ex.: "1º Ano EM"). */
+function isEnsinoFundamental1ou2(serieName: string): boolean {
+  const raw = (serieName || "").trim();
+  if (!raw) return false;
+  const n = raw
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  if (/\bem\b/.test(n) || n.includes("medio")) return false;
+  return /(?:^|[\s])[12][ºo°]?\s*ano\b/.test(` ${n}`);
 }
 
 function deriveScope(filters: RankingFilters): RankingScope {
@@ -132,15 +145,42 @@ export default function RankingHub() {
     if (fromMulti.length > 0) return fromMulti;
     return filters.answer_sheet_id ? [filters.answer_sheet_id] : [];
   }, [searchParams, filters.answer_sheet_id]);
+  const selectedSchoolIds = useMemo(() => {
+    const fromMulti = parseCsvIds(searchParams.get("escolas"));
+    if (fromMulti.length > 0) return fromMulti;
+    return filters.escola ? [filters.escola] : [];
+  }, [searchParams, filters.escola]);
+  const schoolIdForOtherTabs = selectedSchoolIds.length === 1 ? selectedSchoolIds[0] : "";
+  const selectedDisciplineIds = useMemo(() => {
+    const fromMulti = parseCsvIds(searchParams.get("disciplinas"));
+    if (fromMulti.length > 0) return fromMulti;
+    return filters.disciplina ? [filters.disciplina] : [];
+  }, [searchParams, filters.disciplina]);
+  const disciplinaForSharedQuery =
+    selectedDisciplineIds.length === 1 ? selectedDisciplineIds[0] : "";
   const turnoFilter = normalizeParam(searchParams.get("turno"));
   const hasBaseFilters = Boolean(filters.estado && filters.municipio);
   const hasEntitySelection = Boolean(
     selectedEvaluationIds.length > 0 || selectedAnswerSheetIds.length > 0
   );
-  const hasSchoolFilter = Boolean(filters.escola);
-  const derivedScope = deriveScope(filters);
+  /** Uma escola: abas Escola/turma e Professores seguem o recorte atual. */
+  const hasSchoolFilter = Boolean(schoolIdForOtherTabs);
+  const derivedScope = deriveScope({ ...filters, escola: schoolIdForOtherTabs });
   const requestFilters = useMemo<RankingFilters>(() => {
     const base: RankingFilters = { ...filters, scope: derivedScope };
+    // Visão geral: overview municipal (todas as escolas) e recorte no cliente.
+    // O backend só aceita `escola` como um ID (`school_id ==`); CSV quebraria o filtro.
+    if (tab === "visao-geral") {
+      base.scope = filters.turma ? "turma" : "municipio";
+      delete base.escola;
+    } else if (schoolIdForOtherTabs) {
+      base.escola = schoolIdForOtherTabs;
+      base.scope = filters.turma ? "turma" : "escola";
+    } else {
+      delete base.escola;
+      base.scope = filters.turma ? "turma" : "municipio";
+    }
+    // CSV unifica as duas partes da prova (1º/2º) — mesmo contrato da aba Professores.
     if (selectedEvaluationIds.length > 0) {
       base.evaluation_id = selectedEvaluationIds[0];
       if (selectedEvaluationIds.length > 1) {
@@ -157,8 +197,21 @@ export default function RankingHub() {
         delete base.answer_sheet_ids;
       }
     }
+    if (disciplinaForSharedQuery) {
+      base.disciplina = disciplinaForSharedQuery;
+    } else {
+      delete base.disciplina;
+    }
     return base;
-  }, [filters, derivedScope, selectedEvaluationIds, selectedAnswerSheetIds]);
+  }, [
+    filters,
+    derivedScope,
+    selectedEvaluationIds,
+    selectedAnswerSheetIds,
+    tab,
+    schoolIdForOtherTabs,
+    disciplinaForSharedQuery,
+  ]);
   const rankingQueryKey = useMemo(
     () =>
       [
@@ -166,26 +219,27 @@ export default function RankingHub() {
         "model",
         filters.estado,
         filters.municipio,
-        filters.escola,
+        tab === "visao-geral" ? "" : schoolIdForOtherTabs,
         filters.serie,
         filters.turma,
         filters.periodo,
         selectedEvaluationIds.join(","),
         selectedAnswerSheetIds.join(","),
-        derivedScope,
-        filters.disciplina || "",
+        requestFilters.scope || "",
+        disciplinaForSharedQuery,
       ] as const,
     [
       filters.estado,
       filters.municipio,
-      filters.escola,
+      tab,
+      schoolIdForOtherTabs,
       filters.serie,
       filters.turma,
       filters.periodo,
       selectedEvaluationIds,
       selectedAnswerSheetIds,
-      filters.disciplina,
-      derivedScope,
+      disciplinaForSharedQuery,
+      requestFilters.scope,
     ]
   );
   const normalizedSelectedPeriod = useMemo(
@@ -216,9 +270,14 @@ export default function RankingHub() {
 
   const setFilters = (
     updates: Partial<
-      Record<keyof RankingFilters | "turno" | "evaluation_ids" | "answer_sheet_ids", string>
+      Record<
+        keyof RankingFilters | "turno" | "evaluation_ids" | "answer_sheet_ids" | "escolas" | "disciplinas",
+        string
+      >
     >,
-    clearKeys: Array<keyof RankingFilters | "turno" | "evaluation_ids" | "answer_sheet_ids"> = []
+    clearKeys: Array<
+      keyof RankingFilters | "turno" | "evaluation_ids" | "answer_sheet_ids" | "escolas" | "disciplinas"
+    > = []
   ) => {
     const next = new URLSearchParams(searchParams);
     Object.entries(updates).forEach(([k, v]) => {
@@ -242,6 +301,7 @@ export default function RankingHub() {
     next.delete("answer_sheet_id");
     next.delete("answer_sheet_ids");
     next.delete("disciplina");
+    next.delete("disciplinas");
     setSearchParams(next, { replace: true });
   };
 
@@ -258,6 +318,38 @@ export default function RankingHub() {
     next.delete("evaluation_id");
     next.delete("evaluation_ids");
     next.delete("disciplina");
+    next.delete("disciplinas");
+    setSearchParams(next, { replace: true });
+  };
+
+  const setSelectedSchoolIds = (ids: string[]) => {
+    const unique = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+    const next = new URLSearchParams(searchParams);
+    if (unique.length === 0) {
+      next.delete("escolas");
+      next.delete("escola");
+    } else {
+      next.set("escolas", unique.join(","));
+      if (unique.length === 1) next.set("escola", unique[0]);
+      else next.delete("escola");
+    }
+    next.delete("serie");
+    next.delete("turma");
+    next.delete("turno");
+    setSearchParams(next, { replace: true });
+  };
+
+  const setSelectedDisciplineIds = (ids: string[]) => {
+    const unique = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+    const next = new URLSearchParams(searchParams);
+    if (unique.length === 0) {
+      next.delete("disciplinas");
+      next.delete("disciplina");
+    } else {
+      next.set("disciplinas", unique.join(","));
+      if (unique.length === 1) next.set("disciplina", unique[0]);
+      else next.delete("disciplina");
+    }
     setSearchParams(next, { replace: true });
   };
 
@@ -450,11 +542,27 @@ export default function RankingHub() {
     staleTime: 0,
   });
 
-  const activeDiscipline = filters.disciplina ?? rankingQuery.data?.selected_discipline ?? "";
+  const showSplitDisciplineOverviews = tab === "visao-geral" && selectedDisciplineIds.length > 1;
+  const extraDisciplineQueries = useQueries({
+    queries:
+      showSplitDisciplineOverviews && hasBaseFilters && hasEntitySelection
+        ? selectedDisciplineIds.map((id) => ({
+            queryKey: [...rankingQueryKey.slice(0, -1), id],
+            queryFn: () =>
+              RankingApiService.getGeneralRanking({ ...requestFilters, disciplina: id }, 1, 200),
+            staleTime: 0,
+          }))
+        : [],
+  });
+
+  const extraDisciplinePending = extraDisciplineQueries.some(
+    (query) => query.isFetching || (query.isLoading && !query.data)
+  );
   const disciplineDataPending =
-    hasEntitySelection &&
-    rankingQuery.isFetching &&
-    (filters.disciplina || "") !== (rankingQuery.data?.selected_discipline ?? "");
+    extraDisciplinePending ||
+    (hasEntitySelection &&
+      rankingQuery.isFetching &&
+      disciplinaForSharedQuery !== (rankingQuery.data?.selected_discipline ?? ""));
 
   useEffect(() => {
     if (!hasBaseFilters || !hasEntitySelection) return;
@@ -509,19 +617,11 @@ export default function RankingHub() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useApiGradeOptions, gradeOptionsFromApi, filters.serie]);
 
-  useEffect(() => {
-    if (!hasSchoolFilter) return;
-    if (tab === "visao-geral") {
-      const next = new URLSearchParams(searchParams);
-      next.set("tipo", "escola-turma");
-      setSearchParams(next, { replace: true });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasSchoolFilter, tab]);
-
   const currentCount =
     tab === "visao-geral"
-      ? Number(rankingQuery.data?.overview?.summary?.total_schools || 0)
+      ? selectedSchoolIds.length > 0
+        ? selectedSchoolIds.length
+        : Number(rankingQuery.data?.overview?.summary?.total_schools || 0)
       : tab === "escola-turma"
           ? filters.serie
             ? Number(rankingQuery.data?.classes_ranking?.items?.length || 0)
@@ -529,13 +629,32 @@ export default function RankingHub() {
           : Number(rankingQuery.data?.teachers_top?.totals?.count || 0);
   const estadoNome = estados.find((item) => item.id === filters.estado)?.name || "";
   const municipioNome = municipios.find((item) => item.id === filters.municipio)?.name || "";
-  const escolaNome = schools.find((item) => item.id === filters.escola)?.name || "";
+  const escolaNome =
+    selectedSchoolIds.length === 0
+      ? ""
+      : selectedSchoolIds.map((id) => schools.find((item) => item.id === id)?.name || id).join(" · ");
   const serieNome =
     serieOptions.find((item) => item.id === filters.serie)?.name ||
+    series.find((item) => item.id === filters.serie)?.name ||
     rankingQuery.data?.classes_ranking?.grade_name ||
     "";
-  const allowMultiInstruments = tab === "professores";
+  const isSerie1ou2Ano = isEnsinoFundamental1ou2(serieNome);
+  const allowMultiInstruments =
+    tab === "professores" || (tab === "visao-geral" && isSerie1ou2Ano);
   const turmaNome = turmas.find((item) => item.id === filters.turma)?.name || "";
+
+  useEffect(() => {
+    if (tab !== "visao-geral") return;
+    if (filters.serie && !serieNome) return;
+    if (isSerie1ou2Ano) return;
+    if (selectedEvaluationIds.length > 1) {
+      setSelectedEvaluationIds(selectedEvaluationIds.slice(0, 1));
+    }
+    if (selectedAnswerSheetIds.length > 1) {
+      setSelectedAnswerSheetIds(selectedAnswerSheetIds.slice(0, 1));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, filters.serie, serieNome, isSerie1ou2Ano, selectedEvaluationIds.length, selectedAnswerSheetIds.length]);
   const recorteLabel = [estadoNome, municipioNome].filter(Boolean).join(" / ");
   const periodoLabel =
     normalizedSelectedPeriod !== "all" && periodCalendarSelected
@@ -548,11 +667,13 @@ export default function RankingHub() {
       "estado",
       "municipio",
       "escola",
+      "escolas",
       "serie",
       "turma",
       "turno",
       "periodo",
       "disciplina",
+      "disciplinas",
       "evaluation_id",
       "evaluation_ids",
       "answer_sheet_id",
@@ -605,15 +726,14 @@ export default function RankingHub() {
       const probeData = await RankingApiService.getGeneralRanking(requestFilters, 1, 200);
       queryClient.setQueryData(rankingQueryKey, probeData);
 
-      const selectedDisciplineId = String(requestFilters.disciplina || "").trim();
       const disciplineOptions = probeData.discipline_options || [];
+      let disciplinesForReport =
+        selectedDisciplineIds.length > 0
+          ? disciplineOptions.filter((item) => selectedDisciplineIds.includes(item.id))
+          : [...disciplineOptions];
 
-      let disciplinesForReport = selectedDisciplineId
-        ? disciplineOptions.filter((item) => item.id === selectedDisciplineId)
-        : [...disciplineOptions];
-
-      if (selectedDisciplineId && disciplinesForReport.length === 0) {
-        disciplinesForReport = [{ id: selectedDisciplineId, name: "Disciplina selecionada" }];
+      if (selectedDisciplineIds.length > 0 && disciplinesForReport.length === 0) {
+        disciplinesForReport = selectedDisciplineIds.map((id) => ({ id, name: "Disciplina selecionada" }));
       }
 
       // N disciplinas + 1 Geral (N+1). Sem opções de disciplina: só Geral.
@@ -632,7 +752,7 @@ export default function RankingHub() {
         })
       );
 
-      const geralData = !selectedDisciplineId
+      const geralData = !disciplinaForSharedQuery
         ? probeData
         : await RankingApiService.getGeneralRanking(
             { ...requestFilters, disciplina: "" },
@@ -766,7 +886,7 @@ export default function RankingHub() {
               onValueChange={(value) =>
                 setFilters(
                   { estado: value === "all" ? "" : value },
-                  ["municipio", "escola", "serie", "turma", "evaluation_id", "evaluation_ids", "answer_sheet_id", "disciplina"]
+                  ["municipio", "escola", "escolas", "serie", "turma", "evaluation_id", "evaluation_ids", "answer_sheet_id", "disciplina", "disciplinas"]
                 )
               }
             >
@@ -791,7 +911,7 @@ export default function RankingHub() {
               onValueChange={(value) =>
                 setFilters(
                   { municipio: value === "all" ? "" : value },
-                  ["escola", "serie", "turma", "evaluation_id", "evaluation_ids", "answer_sheet_id", "disciplina"]
+                  ["escola", "escolas", "serie", "turma", "evaluation_id", "evaluation_ids", "answer_sheet_id", "disciplina", "disciplinas"]
                 )
               }
               disabled={!filters.estado || loadingFilters.municipios}
@@ -954,7 +1074,9 @@ export default function RankingHub() {
                 placeholder={
                   loadingFilters.avaliacao
                     ? "Carregando avaliações..."
-                    : "Selecione uma ou mais avaliações"
+                    : tab === "visao-geral"
+                      ? "Selecione as duas partes da prova (1º/2º ano)"
+                      : "Selecione uma ou mais avaliações"
                 }
                 modalTitle="Selecionar avaliações"
                 entityLabel="avaliações"
@@ -966,7 +1088,7 @@ export default function RankingHub() {
                 label="Avaliação"
                 estado={filters.estado || "all"}
                 municipio={filters.municipio || "all"}
-                escola={filters.escola}
+                escola={schoolIdForOtherTabs}
                 periodo={filters.periodo}
                 estadoLabel={estadoNome}
                 municipioLabel={municipioNome}
@@ -995,7 +1117,11 @@ export default function RankingHub() {
               disabled={!filters.municipio}
               loading={loadingFilters.cartao}
               placeholder={
-                loadingFilters.cartao ? "Carregando cartões..." : "Selecione um ou mais cartões"
+                loadingFilters.cartao
+                  ? "Carregando cartões..."
+                  : tab === "visao-geral"
+                    ? "Selecione as duas partes da prova (1º/2º ano)"
+                    : "Selecione um ou mais cartões"
               }
               modalTitle="Selecionar cartões resposta"
               entityLabel="cartões"
@@ -1007,7 +1133,7 @@ export default function RankingHub() {
               label="Cartão resposta"
               estado={filters.estado || "all"}
               municipio={filters.municipio || "all"}
-              escola={filters.escola}
+              escola={schoolIdForOtherTabs}
               periodo={filters.periodo}
               reportEntityType={REPORT_ENTITY_TYPE_ANSWER_SHEET}
               estadoLabel={estadoNome}
@@ -1030,26 +1156,20 @@ export default function RankingHub() {
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="escola">Escola</Label>
-            <Select
-              value={filters.escola || "all"}
-              onValueChange={(value) =>
-                setFilters({ escola: value === "all" ? "" : value }, ["serie", "turma", "turno"])
+            <Label>Escola</Label>
+            <FormMultiSelect
+              options={schools}
+              selected={selectedSchoolIds}
+              onChange={setSelectedSchoolIds}
+              placeholder={
+                loadingFilters.escolas
+                  ? "Carregando escolas..."
+                  : selectedSchoolIds.length === 0
+                    ? "Todas as escolas"
+                    : `${selectedSchoolIds.length} selecionada(s)`
               }
-              disabled={!filters.municipio || loadingFilters.escolas}
-            >
-              <SelectTrigger id="escola">
-                <SelectValue placeholder={loadingFilters.escolas ? "Carregando escolas..." : "Selecione a escola"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as escolas</SelectItem>
-                {schools.map((school) => (
-                  <SelectItem key={school.id} value={school.id}>
-                    {school.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className={!filters.municipio || loadingFilters.escolas ? "pointer-events-none opacity-60" : undefined}
+            />
           </div>
 
           <div className="space-y-1.5">
@@ -1165,17 +1285,12 @@ export default function RankingHub() {
         }}
       >
         <TabsList
-          className={cn(
-            "sticky top-2 z-10 grid h-auto w-full gap-1 rounded-xl border border-border bg-background/90 p-1 backdrop-blur",
-            hasSchoolFilter ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3"
-          )}
+          className="sticky top-2 z-10 grid h-auto w-full grid-cols-2 gap-1 rounded-xl border border-border bg-background/90 p-1 backdrop-blur sm:grid-cols-3"
         >
-          {!hasSchoolFilter ? (
-            <TabsTrigger value="visao-geral" className="gap-2">
-              <Trophy className="h-4 w-4" />
-              Visão geral
-            </TabsTrigger>
-          ) : null}
+          <TabsTrigger value="visao-geral" className="gap-2">
+            <Trophy className="h-4 w-4" />
+            Visão geral
+          </TabsTrigger>
           <TabsTrigger value="escola-turma" className="gap-2">
             <Filter className="h-4 w-4" />
             {filters.serie ? "Ranking de turmas" : "Por escola/série"}
@@ -1193,24 +1308,33 @@ export default function RankingHub() {
               <Button
                 type="button"
                 size="sm"
-                variant={!activeDiscipline ? "default" : "outline"}
-                onClick={() => setFilters({ disciplina: "" })}
+                variant={selectedDisciplineIds.length === 0 ? "default" : "outline"}
+                onClick={() => setSelectedDisciplineIds([])}
               >
                 Geral
               </Button>
-              {(rankingQuery.data?.discipline_options || []).map((discipline) => (
-                <Button
-                  key={discipline.id}
-                  type="button"
-                  size="sm"
-                  variant={activeDiscipline === discipline.id ? "default" : "outline"}
-                  onClick={() => setFilters({ disciplina: discipline.id })}
-                >
-                  {discipline.name}
-                </Button>
-              ))}
+              {(rankingQuery.data?.discipline_options || []).map((discipline) => {
+                const isOn = selectedDisciplineIds.includes(discipline.id);
+                return (
+                  <Button
+                    key={discipline.id}
+                    type="button"
+                    size="sm"
+                    variant={isOn ? "default" : "outline"}
+                    onClick={() => {
+                      if (isOn) {
+                        setSelectedDisciplineIds(selectedDisciplineIds.filter((id) => id !== discipline.id));
+                        return;
+                      }
+                      setSelectedDisciplineIds([...selectedDisciplineIds, discipline.id]);
+                    }}
+                  >
+                    {discipline.name}
+                  </Button>
+                );
+              })}
             </div>
-            {!activeDiscipline ? (
+            {selectedDisciplineIds.length === 0 ? (
               <p className="text-xs text-muted-foreground">
                 Ranking Geral na tela (média combinada de{" "}
                 {(rankingQuery.data?.discipline_options || []).map((d) => d.name).join(" · ") ||
@@ -1219,10 +1343,13 @@ export default function RankingHub() {
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Tela filtrada em{" "}
-                {(rankingQuery.data?.discipline_options || []).find((d) => d.id === activeDiscipline)
-                  ?.name || "a disciplina selecionada"}
-                . No PDF: capa dessa disciplina + capa Geral ao final.
+                Tela com{" "}
+                {(rankingQuery.data?.discipline_options || [])
+                  .filter((d) => selectedDisciplineIds.includes(d.id))
+                  .map((d) => d.name)
+                  .join(" · ") || "disciplinas selecionadas"}
+                {selectedDisciplineIds.length > 1 ? " lado a lado" : ""}. No PDF: capa de cada disciplina
+                selecionada + capa Geral ao final.
               </p>
             )}
           </div>
@@ -1238,16 +1365,37 @@ export default function RankingHub() {
           </div>
         ) : (
           <>
-            {!hasSchoolFilter ? (
-              <TabsContent value="visao-geral" className="mt-6">
-                <RankingOverviewPanel
-                  data={rankingQuery.data}
-                  isLoading={rankingInitialLoading}
-                  isRefreshing={rankingRefreshing}
-                  errorMessage={rankingError}
-                />
+            <TabsContent value="visao-geral" className="mt-6 space-y-8">
+                {showSplitDisciplineOverviews ? (
+                  extraDisciplineQueries.map((query, index) => {
+                    const disciplineId = selectedDisciplineIds[index];
+                    const disciplineName =
+                      rankingQuery.data?.discipline_options?.find((item) => item.id === disciplineId)?.name ||
+                      disciplineId;
+                    return (
+                      <RankingOverviewPanel
+                        key={disciplineId}
+                        data={query.data}
+                        isLoading={query.isLoading && !query.data}
+                        isRefreshing={query.isFetching && !(query.isLoading && !query.data)}
+                        errorMessage={
+                          query.error ? getApiError(query.error, "Erro ao carregar ranking geral.") : undefined
+                        }
+                        visibleSchoolIds={selectedSchoolIds}
+                        sectionTitle={disciplineName}
+                      />
+                    );
+                  })
+                ) : (
+                  <RankingOverviewPanel
+                    data={rankingQuery.data}
+                    isLoading={rankingInitialLoading}
+                    isRefreshing={rankingRefreshing}
+                    errorMessage={rankingError}
+                    visibleSchoolIds={selectedSchoolIds}
+                  />
+                )}
               </TabsContent>
-            ) : null}
 
             <TabsContent value="escola-turma" className="mt-6">
               <RankingSchoolClassPanel
@@ -1255,9 +1403,13 @@ export default function RankingHub() {
                 isLoading={rankingInitialLoading}
                 isRefreshing={rankingRefreshing}
                 errorMessage={rankingError}
-                filterSchoolId={filters.escola}
+                filterSchoolId={schoolIdForOtherTabs}
                 filterSerieId={filters.serie}
-                filterSchoolName={escolaNome}
+                filterSchoolName={
+                  schoolIdForOtherTabs
+                    ? schools.find((item) => item.id === schoolIdForOtherTabs)?.name || ""
+                    : ""
+                }
                 filterSerieName={serieNome}
               />
             </TabsContent>
