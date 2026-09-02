@@ -255,6 +255,12 @@ export interface Evaluation {
     is_active?: boolean;
     archived?: boolean;
     deleted_at?: string | null;
+    /** Se o município (escola/professor/aplicador) pode ver este conteúdo. */
+    available_to_municipality?: boolean;
+    /** ISO datetime; nulo = imediato quando available_to_municipality é true. */
+    available_from?: string | null;
+    /** Calculado pelo backend: visível agora para o município. */
+    is_available_to_municipality_now?: boolean;
 }
 
 /**

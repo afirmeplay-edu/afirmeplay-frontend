@@ -280,6 +280,7 @@ export const ERROR_MESSAGES = {
   EVALUATION_ALREADY_COMPLETED: 'Esta avaliação já foi concluída.',
   EVALUATION_EXPIRED: 'Esta avaliação expirou.',
   EVALUATION_NOT_AVAILABLE: 'Avaliação não disponível no momento.',
+  NOT_AVAILABLE_TO_MUNICIPALITY: 'Conteúdo ainda não disponível para o município',
   RETRY_FAILED: 'Não foi possível conectar após várias tentativas. Verifique sua conexão.',
   VALIDATION_REQUIRED_FIELD: 'Campo obrigatório não preenchido',
   VALIDATION_INVALID_FORMAT: 'Formato inválido',

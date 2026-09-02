@@ -47,9 +47,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Evaluation, Subject, Grade, getEvaluationSubjects, getEvaluationSubjectsCount } from "@/types/evaluation-types";
 import { EvaluationsCardGrid } from "./EvaluationsCardGrid";
-import { formatEvaluationQuestionCount } from "./evaluationListUtils";
+import { formatEvaluationQuestionCount, isEvaluationApplied } from "./evaluationListUtils";
 import { cn } from "@/lib/utils";
 import ViewEvaluation from "@/pages/evaluations/ViewEvaluation";
+import { MunicipalityAvailabilityBadge } from "@/components/municipality-availability/MunicipalityAvailabilityBadge";
+import {
+  canControlMunicipalityAvailability,
+  isNotAvailableToMunicipalityError,
+  municipalityAvailabilityErrorMessage,
+  NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE,
+} from "@/lib/municipalityAvailability";
 
 interface ReadyEvaluationsProps {
   onUseEvaluation?: (evaluation: Evaluation) => void;
@@ -77,22 +84,6 @@ interface FiltersData {
 }
 
 function isEligibleForPhysicalCorrection(evaluation: Evaluation): boolean {
-  const status = String(evaluation.status || "")
-    .trim()
-    .toLowerCase();
-
-  const hasAppliedFlag = Boolean(evaluation.is_applied);
-  const hasAppliedClassesCount = Number(evaluation.applied_classes_count || 0) > 0;
-  const hasAppliedClassesList = Array.isArray(evaluation.applied_classes) && evaluation.applied_classes.length > 0;
-  const hasAppliedLikeStatus = [
-    "applied",
-    "completed",
-    "finalizada",
-    "concluida",
-    "realizada",
-    "corrigida",
-  ].some((token) => status.includes(token));
-
   const physicalHints = evaluation as Evaluation & {
     has_physical_forms?: boolean;
     has_answer_sheet_data?: boolean;
@@ -108,32 +99,11 @@ function isEligibleForPhysicalCorrection(evaluation: Evaluation): boolean {
     Boolean(physicalHints.has_physical_test) ||
     Boolean(physicalHints.is_physical_ready);
 
-  return (
-    hasAppliedFlag ||
-    hasAppliedClassesCount ||
-    hasAppliedClassesList ||
-    hasAppliedLikeStatus ||
-    hasPhysicalGenerated
-  );
+  return isEvaluationApplied(evaluation) || hasPhysicalGenerated;
 }
 
 function isEligibleForPhysicalTransform(evaluation: Evaluation): boolean {
-  const status = String(evaluation.status || "")
-    .trim()
-    .toLowerCase();
-
-  const hasAppliedFlag = Boolean(evaluation.is_applied);
-  const hasAppliedClassesCount = Number(evaluation.applied_classes_count || 0) > 0;
-  const hasAppliedClassesList = Array.isArray(evaluation.applied_classes) && evaluation.applied_classes.length > 0;
-  const hasAppliedLikeStatus = [
-    "applied",
-    "completed",
-    "finalizada",
-    "concluida",
-    "realizada",
-  ].some((token) => status.includes(token));
-
-  return hasAppliedFlag || hasAppliedClassesCount || hasAppliedClassesList || hasAppliedLikeStatus;
+  return isEvaluationApplied(evaluation);
 }
 
 // Componente separado para listar disciplinas
@@ -287,6 +257,9 @@ const EvaluationsTable = ({
     if (!dateString) return "—";
     return new Date(dateString).toLocaleDateString("pt-BR");
   };
+
+  const { user } = useAuth();
+  const showAvailability = canControlMunicipalityAvailability(user?.role);
 
   const getTypeColor = (type: string) => {
     switch (type?.toUpperCase()) {
@@ -558,6 +531,11 @@ const EvaluationsTable = ({
                                 {evaluation.description}
                               </div>
                             )}
+                            {showAvailability ? (
+                              <div className="mt-1">
+                                <MunicipalityAvailabilityBadge item={evaluation} />
+                              </div>
+                            ) : null}
                           </div>
                         </TableCell>
                         <TableCell className="table-cell">
@@ -1279,7 +1257,9 @@ export function ReadyEvaluations({
         // Quando o usuário é professor, o backend pode retornar quais turmas não têm vínculo
         const classesNaoVinculadas = apiError.response.data?.classes_nao_vinculadas ?? [];
         const backendMsg = apiError.response.data?.error;
-        if (backendMsg && classesNaoVinculadas.length > 0) {
+        if (isNotAvailableToMunicipalityError(error)) {
+          errorMessage = municipalityAvailabilityErrorMessage(error, NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE);
+        } else if (backendMsg && classesNaoVinculadas.length > 0) {
           errorMessage = `${backendMsg}. Turmas: ${classesNaoVinculadas.join(", ")}`;
         } else if (backendMsg) {
           errorMessage = backendMsg;

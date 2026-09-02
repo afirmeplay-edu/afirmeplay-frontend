@@ -26,10 +26,16 @@ function parseValidDate(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function isEvaluationApplied(evaluation: Evaluation): boolean {
+/**
+ * Aplicada = existe ClassTest (`is_applied`) ou o status já saiu de pendente.
+ * Não usar `applied_classes` / `applied_classes_count`: o backend preenche isso
+ * com turmas da escola mesmo sem apply (`application: null`).
+ */
+export function isEvaluationApplied(evaluation: Evaluation): boolean {
   if (evaluation.is_applied) return true;
-  if (Number(evaluation.applied_classes_count || 0) > 0) return true;
-  return Array.isArray(evaluation.applied_classes) && evaluation.applied_classes.length > 0;
+  const status = String(evaluation.status || "").trim().toLowerCase();
+  if (status && status !== "pendente") return true;
+  return (evaluation.applied_classes ?? []).some((item) => Boolean(item.application));
 }
 
 function pickMinDateIso(dates: string[]): string | null {

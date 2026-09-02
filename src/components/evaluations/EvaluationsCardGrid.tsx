@@ -30,6 +30,9 @@ import {
   getEvaluationCreatedAt,
 } from "./evaluationListUtils";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/context/authContext";
+import { canControlMunicipalityAvailability } from "@/lib/municipalityAvailability";
+import { MunicipalityAvailabilityBadge } from "@/components/municipality-availability/MunicipalityAvailabilityBadge";
 
 type VariantMode = "default" | "transformTab" | "correctionTab";
 
@@ -65,6 +68,8 @@ export function EvaluationsCardGrid({
   getModelColor,
   SubjectsList,
 }: EvaluationsCardGridProps) {
+  const { user } = useAuth();
+  const showAvailability = canControlMunicipalityAvailability(user?.role);
   const showSelection = variant !== "transformTab" && variant !== "correctionTab";
 
   if (isLoading) {
@@ -180,6 +185,9 @@ export function EvaluationsCardGrid({
                     >
                       {evaluation.grade.name}
                     </Badge>
+                  ) : null}
+                  {showAvailability ? (
+                    <MunicipalityAvailabilityBadge item={evaluation} />
                   ) : null}
                 </div>
                 <div className="space-y-1.5 border-t border-border/60 pt-2 text-xs text-muted-foreground">

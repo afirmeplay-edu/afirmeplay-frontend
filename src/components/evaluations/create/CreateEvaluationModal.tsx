@@ -25,6 +25,12 @@ import { useNavigate } from 'react-router-dom';
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../results/constants';
 import { mapEvaluationQuestionOptions } from '@/utils/questionOptionImages';
 import { mapApiQuestionTypeToForm, getQuestionTypeLabel } from '@/utils/questionTypeMapping';
+import { MunicipalityAvailabilityControls } from '@/components/municipality-availability/MunicipalityAvailabilityControls';
+import {
+  buildMunicipalityAvailabilityPayload,
+  canControlMunicipalityAvailability,
+} from '@/lib/municipalityAvailability';
+import { parseISOToDatetimeLocal } from '@/utils/date';
 
 interface CreateEvaluationModalProps {
   isOpen: boolean;
@@ -111,6 +117,9 @@ export function CreateEvaluationModal({
   const [duration, setDuration] = useState('60');
   const [type, setType] = useState<'AVALIACAO' | 'SIMULADO'>('AVALIACAO');
   const [model, setModel] = useState<'SAEB' | 'PROVA' | 'AVALIE'>('SAEB');
+  const [availableToMunicipality, setAvailableToMunicipality] = useState(true);
+  const [availableFromLocal, setAvailableFromLocal] = useState('');
+  const canControlAvailability = canControlMunicipalityAvailability(user?.role);
   
   // Seleções
   const [course, setCourse] = useState('');
@@ -185,6 +194,8 @@ export function CreateEvaluationModal({
         } else {
           clearQuestions();
           setQuestionsLoaded(false);
+          setAvailableToMunicipality(true);
+          setAvailableFromLocal('');
         }
       } catch (error) {
         toast({
@@ -232,6 +243,8 @@ export function CreateEvaluationModal({
         setDuration(data.duration || '60');
         setType(data.type || 'AVALIACAO');
         setModel(data.model || 'SAEB');
+        setAvailableToMunicipality(data.available_to_municipality !== false);
+        setAvailableFromLocal(parseISOToDatetimeLocal(data.available_from));
         setCourse(data.course || '');
         setGrade(data.grade || '');
         setState(data.state || '');
@@ -922,6 +935,10 @@ export function CreateEvaluationModal({
           weight: Math.round(100 / selectedSubjects.length)
         })),
         created_by: user?.id || "",
+        ...(buildMunicipalityAvailabilityPayload(user?.role, {
+          availableToMunicipality,
+          availableFromLocal,
+        }) ?? {}),
         questions: allQuestions.map((question, index) => {
           // ✅ CORREÇÃO: Garantir que subjectId seja sempre definido
           const questionSubjectId = question.subjectId || 
@@ -1889,6 +1906,17 @@ export function CreateEvaluationModal({
                     </SelectContent>
                   </Select>
                 </div>
+
+                {canControlAvailability ? (
+                  <MunicipalityAvailabilityControls
+                    availableToMunicipality={availableToMunicipality}
+                    availableFromLocal={availableFromLocal}
+                    onAvailableToMunicipalityChange={setAvailableToMunicipality}
+                    onAvailableFromLocalChange={setAvailableFromLocal}
+                    disabled={loading}
+                    idPrefix="eval-availability"
+                  />
+                ) : null}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">

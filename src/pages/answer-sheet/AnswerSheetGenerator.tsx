@@ -1139,7 +1139,7 @@ export default function AnswerSheetGenerator() {
         });
         return;
       }
-      const err = error as { response?: { status?: number; data?: { status?: string; error?: string } } };
+      const err = error as { response?: { status?: number; data?: { status?: string; error?: string; code?: string } } };
       let errorMessage = 'Não foi possível baixar o arquivo. Tente novamente.';
       const status = err.response?.status;
       const backendError = err.response?.data?.error;
@@ -1149,7 +1149,10 @@ export default function AnswerSheetGenerator() {
       } else if (status === 400 && err.response?.data?.status === 'not_generated') {
         errorMessage = 'Os cartões ainda não foram gerados. Complete a geração primeiro.';
       } else if (status === 403) {
-        errorMessage = 'Você não tem permissão para acessar este arquivo.';
+        errorMessage = err.response?.data?.code === 'NOT_AVAILABLE_TO_MUNICIPALITY' ||
+          (backendError && backendError.includes('ainda não disponível'))
+          ? (backendError || 'Conteúdo ainda não disponível para o município')
+          : 'Você não tem permissão para acessar este arquivo.';
       } else if (backendError) {
         errorMessage = backendError;
       }

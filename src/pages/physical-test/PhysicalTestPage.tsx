@@ -88,6 +88,11 @@ import {
 import { api } from "@/lib/api";
 import { fetchAuthenticatedDownload } from "@/lib/fetch-authenticated-download";
 import { useAuth } from "@/context/authContext";
+import {
+  isNotAvailableToMunicipalityError,
+  municipalityAvailabilityErrorMessage,
+  NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE,
+} from "@/lib/municipalityAvailability";
 import { hasCorretorStyleEvalAccess } from "@/utils/restrictedStaffAccess";
 import { MultiSelect } from "@/components/ui/multi-select";
 import {
@@ -797,7 +802,9 @@ export default function PhysicalTestPage() {
       console.error("Erro ao carregar dados:", error);
       toast({
         title: "Erro",
-        description: "Não foi possível carregar os dados da prova física.",
+        description: isNotAvailableToMunicipalityError(error)
+          ? municipalityAvailabilityErrorMessage(error, NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE)
+          : "Não foi possível carregar os dados da prova física.",
         variant: "destructive",
       });
     } finally {

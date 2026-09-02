@@ -28,6 +28,11 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { convertDateTimeLocalToISO } from "@/utils/date";
 import { Evaluation, Subject, getEvaluationSubjects } from "@/types/evaluation-types";
+import {
+  isNotAvailableToMunicipalityError,
+  municipalityAvailabilityErrorMessage,
+  NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE,
+} from "@/lib/municipalityAvailability";
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from "./results/constants";
 
 // Schema de validação melhorado
@@ -189,9 +194,11 @@ export default function StartEvaluationModal({
         }
       }
       
-      // 2. Coletar classes já aplicadas (para permitir reaplicação)
+      // 2. Coletar classes já aplicadas de verdade (ClassTest com application)
+      // applied_classes sem application é fallback do backend (todas as turmas da escola)
       if (evaluation.applied_classes && Array.isArray(evaluation.applied_classes) && evaluation.applied_classes.length > 0) {
         const appliedClassIds = evaluation.applied_classes
+          .filter((ac: { application?: string | null }) => Boolean(ac.application))
           .map((ac: { class?: { id?: string | number } }) => ac.class?.id)
           .filter((id: string | number | undefined): id is string | number => id !== undefined)
           .map((id: string | number) => String(id));
@@ -249,7 +256,11 @@ export default function StartEvaluationModal({
       if (errorResponse.response?.status === 404) {
         setError("Esta avaliação ainda não foi aplicada para nenhuma turma. Para aplicar, primeiro você precisa configurar as turmas no processo de criação da avaliação.");
       } else if (errorResponse.response?.status === 403) {
-        setError("Você não tem permissão para visualizar as turmas desta avaliação.");
+        setError(
+          isNotAvailableToMunicipalityError(error)
+            ? municipalityAvailabilityErrorMessage(error, NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE)
+            : "Você não tem permissão para visualizar as turmas desta avaliação."
+        );
       } else if (errorResponse.response?.status === 401) {
         setError("Sua sessão expirou. Faça login novamente.");
       } else {

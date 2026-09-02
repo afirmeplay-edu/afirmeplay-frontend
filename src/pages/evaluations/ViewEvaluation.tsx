@@ -33,12 +33,22 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import StartEvaluationModal from "@/components/evaluations/StartEvaluationModal";
-import { convertDateTimeLocalToISO } from "@/utils/date";
+import { convertDateTimeLocalToISO, parseISOToDatetimeLocal } from "@/utils/date";
 import { Evaluation, Subject, Grade, Municipality, SchoolInfo, AppliedClass, Author, Question, getEvaluationSubjects, getEvaluationSubjectsCount } from "@/types/evaluation-types";
 import QuestionPreview from "@/components/evaluations/questions/QuestionPreview";
 import type { Question as EvaluationQuestion } from "@/components/evaluations/types";
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from "@/components/evaluations/results/constants";
 import { useEvaluations } from "@/hooks/use-cache";
+import { useAuth } from "@/context/authContext";
+import { MunicipalityAvailabilityControls } from "@/components/municipality-availability/MunicipalityAvailabilityControls";
+import { MunicipalityAvailabilityBadge } from "@/components/municipality-availability/MunicipalityAvailabilityBadge";
+import {
+  buildMunicipalityAvailabilityPayload,
+  canControlMunicipalityAvailability,
+  isNotAvailableToMunicipalityError,
+  municipalityAvailabilityErrorMessage,
+  NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE,
+} from "@/lib/municipalityAvailability";
 
 // Interfaces locais para questões (estendem a interface base)
 interface QuestionOption {
@@ -70,8 +80,14 @@ export default function ViewEvaluation({
   const id = evaluationId ?? routeId;
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canControlAvailability = canControlMunicipalityAvailability(user?.role);
   const { invalidateAfterCRUD } = useEvaluations();
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
+  const [loadBlocked, setLoadBlocked] = useState(false);
+  const [availableToMunicipality, setAvailableToMunicipality] = useState(true);
+  const [availableFromLocal, setAvailableFromLocal] = useState("");
+  const [isSavingAvailability, setIsSavingAvailability] = useState(false);
   /** Turmas da avaliação via GET /test/:id/classes (fonte única; evita applied_classes com turmas erradas) */
   const [testClasses, setTestClasses] = useState<AppliedClass[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -126,6 +142,9 @@ export default function ViewEvaluation({
           }))
         );
         setEvaluation(data);
+        setLoadBlocked(false);
+        setAvailableToMunicipality(data.available_to_municipality !== false);
+        setAvailableFromLocal(parseISOToDatetimeLocal(data.available_from));
 
         // Buscar turmas da avaliação via GET /test/:id/classes (fonte única; retorna test.classes ou aplicadas)
         try {
@@ -368,11 +387,20 @@ export default function ViewEvaluation({
         }
       } catch (error) {
         console.error("Erro ao buscar avaliação:", error);
-        toast({
-          title: "Erro",
-          description: ERROR_MESSAGES.EVALUATION_LOAD_FAILED,
-          variant: "destructive",
-        });
+        if (isNotAvailableToMunicipalityError(error)) {
+          setLoadBlocked(true);
+          toast({
+            title: "Indisponível",
+            description: municipalityAvailabilityErrorMessage(error, NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE),
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Erro",
+            description: ERROR_MESSAGES.EVALUATION_LOAD_FAILED,
+            variant: "destructive",
+          });
+        }
       } finally {
         setIsLoading(false);
       }
@@ -404,6 +432,51 @@ export default function ViewEvaluation({
   const handleEdit = () => {
     // Para olimpíadas, ainda usar a rota de edição de avaliação (mesma estrutura)
     navigate(`/app/avaliacao/${id}/editar`);
+  };
+
+  const handleSaveAvailability = async (override?: {
+    availableToMunicipality: boolean;
+    availableFromLocal: string;
+  }) => {
+    if (!id || !canControlAvailability) return;
+    const values = override ?? { availableToMunicipality, availableFromLocal };
+    const payload = buildMunicipalityAvailabilityPayload(user?.role, values);
+    if (!payload) return;
+
+    try {
+      setIsSavingAvailability(true);
+      const res = await api.put(`/test/${id}`, payload);
+      const nextAvailable = res.data?.available_to_municipality ?? payload.available_to_municipality;
+      const nextFrom = res.data?.available_from ?? payload.available_from;
+      setAvailableToMunicipality(nextAvailable !== false);
+      setAvailableFromLocal(parseISOToDatetimeLocal(nextFrom));
+      setEvaluation((prev) =>
+        prev
+          ? {
+              ...prev,
+              available_to_municipality: nextAvailable,
+              available_from: nextFrom,
+              is_available_to_municipality_now: res.data?.is_available_to_municipality_now,
+            }
+          : prev
+      );
+      await invalidateAfterCRUD();
+      toast({
+        title: "Disponibilidade atualizada",
+        description: "A liberação para o município foi salva.",
+      });
+    } catch (error: unknown) {
+      toast({
+        title: "Erro",
+        description: municipalityAvailabilityErrorMessage(
+          error,
+          "Não foi possível atualizar a disponibilidade."
+        ),
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingAvailability(false);
+    }
   };
 
   const handleDelete = () => {
@@ -451,7 +524,9 @@ export default function ViewEvaluation({
       if (apiError.response?.status === 404) {
         errorMessage = ERROR_MESSAGES.DATA_NOT_FOUND;
       } else if (apiError.response?.status === 403) {
-        errorMessage = ERROR_MESSAGES.FORBIDDEN;
+        errorMessage = isNotAvailableToMunicipalityError(error)
+          ? municipalityAvailabilityErrorMessage(error, NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE)
+          : ERROR_MESSAGES.FORBIDDEN;
       } else if (apiError.response?.status === 401) {
         errorMessage = ERROR_MESSAGES.UNAUTHORIZED;
       } else if (apiError.response?.status === 500) {
@@ -620,7 +695,9 @@ export default function ViewEvaluation({
       } else if (apiError.response?.status === 403) {
         const classesNaoVinculadas = apiError.response.data?.classes_nao_vinculadas ?? [];
         const backendMsg = apiError.response.data?.error;
-        if (backendMsg && classesNaoVinculadas.length > 0) {
+        if (isNotAvailableToMunicipalityError(error)) {
+          errorMessage = municipalityAvailabilityErrorMessage(error, NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE);
+        } else if (backendMsg && classesNaoVinculadas.length > 0) {
           errorMessage = `${backendMsg}. Turmas: ${classesNaoVinculadas.join(", ")}`;
         } else if (backendMsg) {
           errorMessage = backendMsg;
@@ -829,8 +906,21 @@ export default function ViewEvaluation({
     return (
       <div className="container mx-auto px-2 md:px-4 py-4 md:py-6">
         <div className="text-center py-12">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">{entityNameCapitalized} não encontrada</h2>
-          <p className="text-gray-600 dark:text-gray-400 mb-4">A {entityName} que você está procurando não foi encontrada.</p>
+          {loadBlocked ? (
+            <>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+                Conteúdo ainda não disponível
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                {NOT_AVAILABLE_TO_MUNICIPALITY_MESSAGE}.
+              </p>
+            </>
+          ) : (
+            <>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">{entityNameCapitalized} não encontrada</h2>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">A {entityName} que você está procurando não foi encontrada.</p>
+            </>
+          )}
           <Button onClick={handleBack}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Voltar para {entityNamePlural}
@@ -892,6 +982,11 @@ export default function ViewEvaluation({
               </Button>
             </div>
             <h1 className="text-xl md:text-2xl font-bold dark:text-gray-100">{evaluation.title}</h1>
+            {canControlAvailability ? (
+              <div className="pt-1">
+                <MunicipalityAvailabilityBadge item={evaluation} />
+              </div>
+            ) : null}
             <p className="text-muted-foreground">
               Visualize os detalhes e questões da {entityName}
             </p>
@@ -953,6 +1048,52 @@ export default function ViewEvaluation({
           </div>
         </div>
       </div>
+
+      {canControlAvailability ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium">Liberação para o município</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <MunicipalityAvailabilityControls
+              availableToMunicipality={availableToMunicipality}
+              availableFromLocal={availableFromLocal}
+              onAvailableToMunicipalityChange={setAvailableToMunicipality}
+              onAvailableFromLocalChange={setAvailableFromLocal}
+              disabled={isSavingAvailability}
+              idPrefix="view-eval-availability"
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                onClick={() => void handleSaveAvailability()}
+                disabled={isSavingAvailability}
+              >
+                {isSavingAvailability ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : null}
+                Salvar disponibilidade
+              </Button>
+              {evaluation.available_to_municipality === false ||
+              evaluation.is_available_to_municipality_now === false ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    void handleSaveAvailability({
+                      availableToMunicipality: true,
+                      availableFromLocal: "",
+                    })
+                  }
+                  disabled={isSavingAvailability}
+                >
+                  Liberar agora
+                </Button>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Statistics Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
