@@ -11,6 +11,7 @@ import {
   loadCityBrandingForReportPdf,
 } from '@/utils/pdfCityBranding';
 import type { Question } from '@/types/evaluation-types';
+import { CoverTemplatesApi } from '@/services/evaluation/coverTemplatesApi';
 
 const COLORS = {
   primary: [124, 62, 237] as [number, number, number],
@@ -196,19 +197,48 @@ function drawCoverPage(
   pdf.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, pageWidth / 2, y, { align: 'center' });
 }
 
-function addFooters(pdf: import('jspdf').jsPDF, title: string): void {
+function addFooters(pdf: import('jspdf').jsPDF, title: string, startPage = 1): void {
   const pageCount = pdf.getNumberOfPages();
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const shortTitle = title.length > 60 ? `${title.slice(0, 57)}…` : title;
 
-  for (let i = 1; i <= pageCount; i++) {
+  for (let i = startPage; i <= pageCount; i++) {
     pdf.setPage(i);
     pdf.setFontSize(8);
     pdf.setTextColor(...COLORS.textGray);
     pdf.text(shortTitle, 14, pageHeight - 8);
     pdf.text(`Página ${i} de ${pageCount}`, pageWidth - 14, pageHeight - 8, { align: 'right' });
     pdf.setTextColor(0, 0, 0);
+  }
+}
+
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('Falha ao ler a capa.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function fetchGenericCoverImage(
+  testId: string,
+  title: string,
+  gradeName: string | undefined,
+  subjects: ExamPdfSubjectBlock[]
+): Promise<string | null> {
+  try {
+    const blob = await CoverTemplatesApi.previewGenericExamCoverPng(testId, {
+      title,
+      grade_name: gradeName || '',
+      subjects_info: subjects.map((block) => ({ name: block.subject.name })),
+    });
+    if (!blob) return null;
+    return blobToDataUrl(blob);
+  } catch (error) {
+    console.warn('Capa personalizada indisponível; usando capa padrão.', error);
+    return null;
   }
 }
 
@@ -219,6 +249,7 @@ export async function generateEvaluationExamPdf(opts: {
   gradeName?: string;
   courseName?: string;
   cityId?: string | null;
+  testId?: string;
 }): Promise<void> {
   const allRawQuestions = opts.subjects.flatMap((s) => s.questions as Array<Question & Record<string, unknown>>);
   const loadedQuestions = await preloadExamPdfQuestions(allRawQuestions, opts.includeGabarito);
@@ -273,15 +304,25 @@ export async function generateEvaluationExamPdf(opts: {
   const marginLeft = 14;
   const marginRight = 14;
 
-  const { logo } = await loadCityBrandingForReportPdf(opts.cityId ?? null);
-  drawCoverPage(pdf, {
-    title: opts.title,
-    gradeName: opts.gradeName,
-    courseName: opts.courseName,
-    totalQuestions,
-    includeGabarito: opts.includeGabarito,
-    logo,
-  });
+  const customCover =
+    opts.testId
+      ? await fetchGenericCoverImage(opts.testId, opts.title, opts.gradeName, subjects)
+      : null;
+
+  if (customCover) {
+    const format = customCover.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
+    pdf.addImage(customCover, format, 0, 0, imgWidth, pageHeight);
+  } else {
+    const { logo } = await loadCityBrandingForReportPdf(opts.cityId ?? null);
+    drawCoverPage(pdf, {
+      title: opts.title,
+      gradeName: opts.gradeName,
+      courseName: opts.courseName,
+      totalQuestions,
+      includeGabarito: opts.includeGabarito,
+      logo,
+    });
+  }
 
   pdf.addPage();
   let currentY = marginTop;
@@ -311,7 +352,7 @@ export async function generateEvaluationExamPdf(opts: {
   root.unmount();
   document.body.removeChild(container);
 
-  addFooters(pdf, opts.title);
+  addFooters(pdf, opts.title, customCover ? 2 : 1);
 
   const safeName = opts.title
     .normalize('NFD')

@@ -33,6 +33,7 @@ const CreateEvaluation = React.lazy(() => import("@/pages/evaluations/CreateEval
 const EditEvaluation = React.lazy(() => import("@/pages/evaluations/EditEvaluation"));
 const EvaluationCorrection = React.lazy(() => import("@/pages/evaluations/EvaluationCorrection"));
 const ViewEvaluation = React.lazy(() => import("@/pages/evaluations/ViewEvaluation"));
+const CoverTemplatePage = React.lazy(() => import("@/pages/evaluations/CoverTemplatePage"));
 const SkillsHeatMapPage = React.lazy(() => import("@/pages/evaluations/SkillsHeatMapPage"));
 const AnaliseAvaliacoes = React.lazy(() => import("@/pages/evaluations/AnaliseAvaliacoes"));
 const SubjectiveEvaluations = React.lazy(() => import("@/pages/evaluations/subjective/SubjectiveEvaluations"));
@@ -301,6 +302,7 @@ const App = () => {
               <Route path="/app/avaliacao/:id/aluno/:studentId/resultados" element={<PrivateRoute><StudentDetailedResults onBack={() => window.history.back()} /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id" element={<PrivateRoute><ViewEvaluation /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id/editar" element={<PrivateRoute><EditEvaluation /></PrivateRoute>} />
+              <Route path="/app/avaliacao/:id/capa" element={<PrivateRoute><CoverTemplatePage /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id/fisica" element={<PrivateRoute><PhysicalTestPage /></PrivateRoute>} />
               <Route path="/app/provas-fisicas/:id" element={<PrivateRoute><PhysicalTestPage /></PrivateRoute>} />
               <Route path="/app/editar-atalhos" element={<PrivateRoute><EditQuickLinks /></PrivateRoute>} />

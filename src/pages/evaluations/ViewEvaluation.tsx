@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Pencil, Trash2, ArrowLeft, Eye, Users, BookOpen, FileText, Calendar, User, MapPin, School, Play, Download, Loader2 } from "lucide-react";
+import { Pencil, Trash2, ArrowLeft, Eye, Users, BookOpen, FileText, Calendar, User, MapPin, School, Play, Download, Loader2, ImagePlus } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { generateEvaluationExamPdf } from "@/services/reports/evaluationExamPdf";
@@ -588,6 +588,7 @@ export default function ViewEvaluation({
       const cityId = evaluation.municipalities?.[0]?.id ?? null;
 
       await generateEvaluationExamPdf({
+        testId: evaluation.id,
         title: evaluation.title,
         gradeName: evaluation.grade?.name,
         courseName: evaluation.course?.name,
@@ -1029,6 +1030,14 @@ export default function ViewEvaluation({
             >
               <Play className="h-4 w-4 mr-2" />
               {isOlimpiadaType ? 'Aplicar Olimpíada' : 'Aplicar Avaliação'}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate(`/app/avaliacao/${id}/capa`)}
+            >
+              <ImagePlus className="h-4 w-4 mr-2" />
+              Capa da prova
             </Button>
             <Button variant="outline" size="sm" onClick={handleEdit}>
               <Pencil className="h-4 w-4 mr-2" />

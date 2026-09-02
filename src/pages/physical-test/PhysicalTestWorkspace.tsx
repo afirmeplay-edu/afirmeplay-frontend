@@ -72,6 +72,7 @@ import {
   AlertTriangle,
   ChevronRight,
   UserX,
+  ImagePlus,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useBatchCorrection } from "@/hooks/useBatchCorrection";
@@ -1658,7 +1659,14 @@ export function PhysicalTestWorkspace({
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>Avaliações Geradas</CardTitle>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => navigate(`/app/avaliacao/${id}/capa`)}
+                  >
+                    <ImagePlus className="h-4 w-4 mr-2" />
+                    Capa da prova
+                  </Button>
                   {generatedForms.length > 0 && (
                     <>
                       <Button
