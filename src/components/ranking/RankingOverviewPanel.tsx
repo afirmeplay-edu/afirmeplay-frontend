@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { AlertCircle, Trophy } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,10 +31,15 @@ type Props = {
   isLoading: boolean;
   isRefreshing?: boolean;
   errorMessage?: string;
+  /** Recorte client-side: IDs das escolas a exibir. Vazio = todas. */
+  visibleSchoolIds?: string[];
+  /** Título extra (ex.: disciplina) acima do overview. */
+  sectionTitle?: string;
 };
 
 type ChartRow = {
   school_name?: string;
+  chart_key?: string;
   average_score?: number;
   average_proficiency?: number;
   participation_rate?: number;
@@ -236,12 +242,82 @@ function makeChartTooltip(descriptor: ChartMetricDescriptor) {
   };
 }
 
-export default function RankingOverviewPanel({ data, isLoading, isRefreshing, errorMessage }: Props) {
+function schoolRowId(row: Record<string, unknown>): string {
+  return String(row.school_id || "").trim();
+}
+
+function filterRowsBySchoolIds(
+  rows: Array<Record<string, unknown>>,
+  visibleSchoolIds: string[]
+): Array<Record<string, unknown>> {
+  if (visibleSchoolIds.length === 0) return rows;
+  const allowed = new Set(visibleSchoolIds);
+  return rows.filter((row) => allowed.has(schoolRowId(row)));
+}
+
+export default function RankingOverviewPanel({
+  data,
+  isLoading,
+  isRefreshing,
+  errorMessage,
+  visibleSchoolIds = [],
+  sectionTitle,
+}: Props) {
   const { sortBy, sortDir, setSortBy, setSortDir, sortRows } = useRankingSort();
   const overview = data?.overview;
-  const summary = overview?.summary;
   const byCourse = overview?.by_course || {};
-  const courseEntries = Object.entries(byCourse);
+
+  const filteredByCourse = useMemo(() => {
+    const entries = Object.entries(byCourse) as Array<
+      [
+        string,
+        {
+          table_rows?: Array<Record<string, unknown>>;
+          chart_rows?: Array<Record<string, unknown>>;
+          counts_by_status?: Record<string, number>;
+        },
+      ]
+    >;
+    return entries.map(([courseLabel, courseData]) => {
+      const tableRows = filterRowsBySchoolIds(courseData.table_rows || [], visibleSchoolIds);
+      const chartRows = filterRowsBySchoolIds(courseData.chart_rows || [], visibleSchoolIds);
+      const counts = { destaque: 0, desenvolvimento: 0, atencao: 0 };
+      for (const row of tableRows) {
+        const status = String(row.status || "");
+        if (status === "destaque" || status === "desenvolvimento" || status === "atencao") {
+          counts[status] += 1;
+        }
+      }
+      return { courseLabel, tableRows, chartRows, counts };
+    });
+  }, [byCourse, visibleSchoolIds]);
+
+  const filteredSummary = useMemo(() => {
+    const allRows = filteredByCourse.flatMap((c) => c.tableRows);
+    if (visibleSchoolIds.length === 0 && overview?.summary) {
+      return overview.summary;
+    }
+    const seen = new Set<string>();
+    let participating = 0;
+    let totalStudents = 0;
+    let top: Record<string, unknown> | null = null;
+    for (const row of allRows) {
+      const id = schoolRowId(row) || String(row.school_name || "");
+      if (id) seen.add(id);
+      participating += Number(row.participating_students || 0);
+      totalStudents += Number(row.total_students || 0);
+      const score = Number(row.average_score || 0);
+      if (!top || score > Number(top.average_score || 0)) top = row;
+    }
+    const participationRate = totalStudents > 0 ? (participating / totalStudents) * 100 : 0;
+    return {
+      total_schools: seen.size || allRows.length,
+      participating_students: participating,
+      total_students: totalStudents,
+      participation_rate: participationRate,
+      top_school: top,
+    };
+  }, [filteredByCourse, visibleSchoolIds, overview?.summary]);
 
   if (isLoading) {
     return <RankingLoadingState message="Carregando visão geral..." variant="overview" />;
@@ -256,7 +332,7 @@ export default function RankingOverviewPanel({ data, isLoading, isRefreshing, er
     );
   }
 
-  if (!summary && courseEntries.length === 0) {
+  if (!filteredSummary && filteredByCourse.length === 0) {
     return (
       <Card>
         <CardContent className="py-8 text-sm text-muted-foreground">
@@ -266,9 +342,15 @@ export default function RankingOverviewPanel({ data, isLoading, isRefreshing, er
     );
   }
 
+  const summary = filteredSummary;
+  const topSchool = summary?.top_school as { school_name?: unknown; average_score?: unknown } | undefined;
+
   return (
     <RankingContentShell isRefreshing={isRefreshing} refreshingMessage="Atualizando visão geral...">
     <div className="space-y-6">
+      {sectionTitle ? (
+        <h2 className="text-lg font-semibold tracking-tight">{sectionTitle}</h2>
+      ) : null}
       <RankingSortControls
         sortBy={sortBy}
         sortDir={sortDir}
@@ -284,33 +366,29 @@ export default function RankingOverviewPanel({ data, isLoading, isRefreshing, er
         />
         <SummaryCard
           label="Destaque do recorte"
-          value={String(summary?.top_school?.school_name || "—")}
+          value={String(topSchool?.school_name || "—")}
           valueClassName="text-base font-semibold leading-tight whitespace-normal break-words"
-          hint={`Nota ${formatPt(Number(summary?.top_school?.average_score || 0))}`}
+          hint={`Nota ${formatPt(Number(topSchool?.average_score || 0))}`}
         />
       </div>
 
-      {courseEntries.map(([courseLabel, courseData]) => {
-        const typedCourseData = courseData as {
-          table_rows?: Array<Record<string, unknown>>;
-          chart_rows?: Array<Record<string, unknown>>;
-          counts_by_status?: Record<string, number>;
-        };
+      {filteredByCourse.map(({ courseLabel, tableRows, chartRows: rawChartRows, counts }) => {
         const rows = sortRows(
-          (typedCourseData.table_rows || []).map((row) => ({
+          tableRows.map((row) => ({
             ...row,
             level_tag: String(row.level_tag || "N/A"),
             is_critical: Boolean(row.is_critical),
           }))
         );
         const metricDescriptor = CHART_METRIC_BY_SORT[sortBy];
-        const chartRows = sortRows((typedCourseData.chart_rows || []) as Array<Record<string, unknown>>).map(
-          (row, idx) => ({
-            ...row,
-            metric_value: getRankingSortValue(row, sortBy),
-            barColor: rankingSchoolBarFill(idx),
-          })
-        );
+        const chartRows = sortRows(rawChartRows).map((row, idx) => ({
+          ...row,
+          chart_key: String(row.school_id || `school-${idx}`),
+          school_name: normalizeSchoolName(row.school_name),
+          metric_value: getRankingSortValue(row, sortBy),
+          barColor: rankingSchoolBarFill(idx),
+        }));
+        const nameByKey = new Map(chartRows.map((row) => [String(row.chart_key), String(row.school_name || "—")]));
         const chartMaxValue = Math.max(
           metricDescriptor.isPercentage ? 100 : 1,
           ...chartRows.map((row) => Number(row.metric_value || 0))
@@ -336,17 +414,17 @@ export default function RankingOverviewPanel({ data, isLoading, isRefreshing, er
               <div className="grid gap-3 md:grid-cols-3">
                 <SummaryCard
                   label="Destaque"
-                  value={String(Number(typedCourseData.counts_by_status?.destaque || 0))}
+                  value={String(Number(counts.destaque || 0))}
                   hint="Níveis Adequado e Avançado"
                 />
                 <SummaryCard
                   label="Em desenvolvimento"
-                  value={String(Number(typedCourseData.counts_by_status?.desenvolvimento || 0))}
+                  value={String(Number(counts.desenvolvimento || 0))}
                   hint="Nível Básico"
                 />
                 <SummaryCard
                   label="Atenção"
-                  value={String(Number(typedCourseData.counts_by_status?.atencao || 0))}
+                  value={String(Number(counts.atencao || 0))}
                   hint="Abaixo do Básico"
                 />
               </div>
@@ -354,6 +432,9 @@ export default function RankingOverviewPanel({ data, isLoading, isRefreshing, er
               <div className="rounded-xl border border-border/70 bg-card p-4">
                 <p className="text-sm font-semibold text-foreground">Desempenho por escola</p>
                 <p className="mt-0.5 mb-3 text-xs text-muted-foreground">{metricDescriptor.legend}</p>
+                {chartRows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nenhuma escola no recorte selecionado.</p>
+                ) : (
                 <div className="w-full" style={{ height: chartHeight }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
@@ -379,10 +460,17 @@ export default function RankingOverviewPanel({ data, isLoading, isRefreshing, er
                         }}
                       />
                       <YAxis
-                        dataKey="school_name"
+                        dataKey="chart_key"
                         type="category"
                         width={yAxisWidth}
-                        tick={<SchoolNameYAxisTick />}
+                        tick={(tickProps) => (
+                          <SchoolNameYAxisTick
+                            {...tickProps}
+                            payload={{
+                              value: nameByKey.get(String(tickProps.payload?.value)) || String(tickProps.payload?.value || ""),
+                            }}
+                          />
+                        )}
                         interval={0}
                       />
                       <Tooltip content={<MetricChartTooltip />} cursor={{ fill: "hsl(var(--muted) / 0.35)" }} />
@@ -394,7 +482,7 @@ export default function RankingOverviewPanel({ data, isLoading, isRefreshing, er
                       >
                         {chartRows.map((row, idx) => (
                           <Cell
-                            key={`${String(row.school_name || idx)}-${idx}`}
+                            key={String(row.chart_key || idx)}
                             fill={String(row.barColor || rankingSchoolBarFill(idx))}
                           />
                         ))}
@@ -403,6 +491,7 @@ export default function RankingOverviewPanel({ data, isLoading, isRefreshing, er
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
+                )}
               </div>
 
               <div className={RANKING_TABLE_SCROLL_CLASS}>
@@ -411,10 +500,10 @@ export default function RankingOverviewPanel({ data, isLoading, isRefreshing, er
                     <RankingMetricsTableHead nameHeader="Escola" />
                   </thead>
                   <tbody>
-                    {rows.map((row) => (
+                    {rows.map((row, rowIdx) => (
                       <RankingMetricsTableRow
-                        key={`${courseLabel}-${String(row.school_id || row.position)}`}
-                        rowKey={`${courseLabel}-${String(row.school_id || row.position)}`}
+                        key={`${courseLabel}-${String(row.school_id || row.position)}-${rowIdx}`}
+                        rowKey={`${courseLabel}-${String(row.school_id || row.position)}-${rowIdx}`}
                         row={row}
                         nameCell={String(row.school_name || "Escola")}
                       />
