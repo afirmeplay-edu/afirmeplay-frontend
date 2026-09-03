@@ -23,10 +23,13 @@ const MARGIN = 12;
 const ROW_H = 6.2;
 const TABLE_TITLE_H = 6;
 const TABLE_HEADER_H = 6;
-const TABLE_GAP = 6;
+const TABLE_COLUMN_COUNT = 4;
+const TABLE_GAP = 4;
 const COL_W_NUM = 14;
 const COL_W_GAB = 18;
 const CONTENT_BOTTOM_GAP = 14;
+const CARDS_HEIGHT = 18;
+const CARDS_GAP = 5;
 
 export type BoletimAlunoPdfLabels = {
   estado: string;
@@ -169,7 +172,7 @@ function drawCards(doc: jsPDF, y: number, item: BoletimAlunoItem): number {
   const pageW = doc.internal.pageSize.getWidth();
   const gap = 4;
   const w = (pageW - MARGIN * 2 - gap * 3) / 4;
-  const h = 18;
+  const h = CARDS_HEIGHT;
   const cards = [
     {
       title: 'ACERTOS TOTAIS',
@@ -212,7 +215,9 @@ async function drawStudentBoletim(
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const contentBottom = pageH - CONTENT_BOTTOM_GAP;
-  const slotWidth = (pageW - MARGIN * 2 - TABLE_GAP) / 2;
+  const slotWidth =
+    (pageW - MARGIN * 2 - TABLE_GAP * (TABLE_COLUMN_COUNT - 1)) /
+    TABLE_COLUMN_COUNT;
   const headerTop = 10;
   let logoWidth = 0;
   let logoBottom = headerTop;
@@ -236,7 +241,7 @@ async function drawStudentBoletim(
   doc.setFontSize(11);
   doc.setTextColor(...C.primary);
   const titleY = headerTop + 6;
-  doc.text('BOLETIM DIAGNÓSTICO DO ALUNO', MARGIN, titleY);
+  doc.text('BOLETIM DO ALUNO', MARGIN, titleY);
 
   const lines = [
     ['AVALIAÇÃO', avaliacaoNome || labels.avaliacao],
@@ -277,7 +282,7 @@ async function drawStudentBoletim(
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
     doc.setTextColor(...C.primary);
-    doc.text('BOLETIM DIAGNÓSTICO DO ALUNO — CONTINUAÇÃO', MARGIN, top);
+    doc.text('BOLETIM DO ALUNO — CONTINUAÇÃO', MARGIN, top);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...C.textDark);
@@ -298,27 +303,55 @@ async function drawStudentBoletim(
   let currentSlot = 0;
   let needsNewPage =
     contentTop + TABLE_TITLE_H + TABLE_HEADER_H + ROW_H > contentBottom;
-  let slotBottoms: [number, number] = [contentTop, contentTop];
+  let slotBottoms: number[] = Array(TABLE_COLUMN_COUNT).fill(contentTop);
+  let pageReservesCards = false;
 
   const ensureSlotPage = (): void => {
     if (!needsNewPage) return;
     doc.addPage();
     contentTop = drawContinuationHeader();
-    slotBottoms = [contentTop, contentTop];
+    currentSlot = 0;
+    slotBottoms = Array(TABLE_COLUMN_COUNT).fill(contentTop);
+    pageReservesCards = false;
     needsNewPage = false;
   };
 
   const finishSlot = (bottom: number): void => {
     slotBottoms[currentSlot] = bottom;
-    if (currentSlot === 0) {
-      currentSlot = 1;
-    } else {
+    if (currentSlot === TABLE_COLUMN_COUNT - 1) {
       currentSlot = 0;
       needsNewPage = true;
+    } else {
+      currentSlot += 1;
     }
   };
 
-  for (const bloco of item.por_disciplina ?? []) {
+  const disciplineBlocks = item.por_disciplina ?? [];
+  const cardsTableBottom = contentBottom - CARDS_HEIGHT - CARDS_GAP;
+
+  const countRemainingSlots = (
+    startBlockIndex: number,
+    startQuestionIndex: number,
+    rowsPerSlot: number
+  ): number => {
+    let slots = 0;
+    for (
+      let index = startBlockIndex;
+      index < disciplineBlocks.length;
+      index += 1
+    ) {
+      const totalRows = disciplineBlocks[index].questoes?.length ?? 0;
+      const remainingRows =
+        index === startBlockIndex
+          ? Math.max(0, totalRows - startQuestionIndex)
+          : totalRows;
+      slots += Math.max(1, Math.ceil(remainingRows / rowsPerSlot));
+    }
+    return slots;
+  };
+
+  for (let blockIndex = 0; blockIndex < disciplineBlocks.length; blockIndex += 1) {
+    const bloco = disciplineBlocks[blockIndex];
     const questions = bloco.questoes ?? [];
     const letters = questionAlternativeLetters(questions);
     let questionIndex = 0;
@@ -326,7 +359,38 @@ async function drawStudentBoletim(
 
     while (questionIndex < questions.length || !renderedEmptyDiscipline) {
       ensureSlotPage();
-      const availableHeight = contentBottom - contentTop;
+      const rowsPerReservedSlot = Math.max(
+        1,
+        Math.floor(
+          (cardsTableBottom - contentTop - TABLE_TITLE_H - TABLE_HEADER_H) /
+            ROW_H
+        )
+      );
+      const remainingReservedSlots = countRemainingSlots(
+        blockIndex,
+        questionIndex,
+        rowsPerReservedSlot
+      );
+
+      // Assim que todo o conteúdo restante couber numa página com a faixa
+      // inferior reservada, essa passa a ser a página final. Se a página
+      // atual já usou a altura integral, o sufixo começa na próxima página.
+      if (
+        !pageReservesCards &&
+        currentSlot > 0 &&
+        remainingReservedSlots <= TABLE_COLUMN_COUNT
+      ) {
+        needsNewPage = true;
+        ensureSlotPage();
+        continue;
+      }
+
+      if (currentSlot === 0) {
+        pageReservesCards = remainingReservedSlots <= TABLE_COLUMN_COUNT;
+      }
+
+      const tableBottom = pageReservesCards ? cardsTableBottom : contentBottom;
+      const availableHeight = tableBottom - contentTop;
       const rowsThatFit = Math.max(
         1,
         Math.floor(
@@ -337,10 +401,7 @@ async function drawStudentBoletim(
         questions.length > 0
           ? questions.slice(questionIndex, questionIndex + rowsThatFit)
           : [];
-      const x =
-        currentSlot === 0
-          ? MARGIN
-          : MARGIN + slotWidth + TABLE_GAP;
+      const x = MARGIN + currentSlot * (slotWidth + TABLE_GAP);
       const bottom = drawQuestionTable(
         doc,
         x,
@@ -361,11 +422,12 @@ async function drawStudentBoletim(
     }
   }
 
-  const cardsHeight = 18;
-  const cardsY = Math.max(...slotBottoms) + 5;
-  if (cardsY + cardsHeight <= contentBottom) {
+  const cardsY = Math.max(...slotBottoms) + CARDS_GAP;
+  if (cardsY + CARDS_HEIGHT <= contentBottom) {
     drawCards(doc, cardsY, item);
   } else {
+    // Defesa para dados fora do contrato (por exemplo, cabeçalho maior que a
+    // área útil). No fluxo normal, a reserva dinâmica acima evita este caso.
     doc.addPage();
     const continuationTop = drawContinuationHeader();
     drawCards(doc, continuationTop + 2, item);
