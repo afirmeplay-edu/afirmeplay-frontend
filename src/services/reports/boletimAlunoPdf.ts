@@ -20,11 +20,13 @@ const C = {
 };
 
 const MARGIN = 12;
-const ROWS_PER_COL = 14;
 const ROW_H = 6.2;
-const COL_W_NUM = 11;
-const COL_W_ALT = 9;
-const COL_W_GAB = 12;
+const TABLE_TITLE_H = 6;
+const TABLE_HEADER_H = 6;
+const TABLE_GAP = 6;
+const COL_W_NUM = 14;
+const COL_W_GAB = 18;
+const CONTENT_BOTTOM_GAP = 14;
 
 export type BoletimAlunoPdfLabels = {
   estado: string;
@@ -51,16 +53,6 @@ function scaledSize(iw: number, ih: number, desiredW: number): { w: number; h: n
   return { w: desiredW, h: (ih * desiredW) / iw };
 }
 
-function chunk<T>(items: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
-}
-
-function tableWidth(letters: string[]): number {
-  return COL_W_NUM + letters.length * COL_W_ALT + COL_W_GAB;
-}
-
 function addFooters(doc: jsPDF, dataGeracao: string): void {
   const n = doc.getNumberOfPages();
   for (let i = 1; i <= n; i++) {
@@ -77,13 +69,6 @@ function addFooters(doc: jsPDF, dataGeracao: string): void {
     doc.text(`Página ${i} de ${n}`, pageW / 2, pageH - 5.5, { align: 'center' });
     doc.text(`Gerado em ${dataGeracao}`, pageW - MARGIN, pageH - 5.5, { align: 'right' });
   }
-}
-
-function ensureSpace(doc: jsPDF, y: number, needed: number): number {
-  const pageH = doc.internal.pageSize.getHeight();
-  if (y + needed <= pageH - 14) return y;
-  doc.addPage();
-  return 16;
 }
 
 function drawCircle(
@@ -112,30 +97,34 @@ function drawQuestionTable(
   doc: jsPDF,
   x: number,
   y: number,
+  width: number,
   title: string,
   questoes: BoletimAlunoQuestao[],
   letters: string[]
 ): number {
-  const w = tableWidth(letters);
-  const headerH = 10;
-
   doc.setFillColor(...C.primary);
-  doc.roundedRect(x, y, w, 6, 0.6, 0.6, 'F');
+  doc.roundedRect(x, y, width, TABLE_TITLE_H, 0.6, 0.6, 'F');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7);
   doc.setTextColor(...C.white);
-  const titleText = doc.splitTextToSize(title.toUpperCase(), w - 3) as string[];
-  doc.text(titleText[0] || title, x + w / 2, y + 4, { align: 'center' });
+  const titleText = doc.splitTextToSize(title.toUpperCase(), width - 3) as string[];
+  doc.text(titleText[0] || title, x + width / 2, y + 4, { align: 'center' });
 
-  let cy = y + 6;
+  let cy = y + TABLE_TITLE_H;
   doc.setFillColor(...C.bgHeader);
-  doc.rect(x, cy, w, headerH - 4, 'F');
+  doc.rect(x, cy, width, TABLE_HEADER_H, 'F');
   doc.setDrawColor(...C.border);
   doc.setLineWidth(0.2);
-  doc.rect(x, cy, w, headerH - 4);
+  doc.rect(x, cy, width, TABLE_HEADER_H);
 
   const headers = ['#', ...letters, 'GAB'];
-  const widths = [COL_W_NUM, ...letters.map(() => COL_W_ALT), COL_W_GAB];
+  const alternativesWidth = Math.max(1, width - COL_W_NUM - COL_W_GAB);
+  const alternativeColumnWidth = alternativesWidth / Math.max(1, letters.length);
+  const widths = [
+    COL_W_NUM,
+    ...letters.map(() => alternativeColumnWidth),
+    COL_W_GAB,
+  ];
   let hx = x;
   doc.setFontSize(6.5);
   doc.setTextColor(...C.textDark);
@@ -143,12 +132,12 @@ function drawQuestionTable(
     doc.text(headers[i], hx + widths[i] / 2, cy + 4, { align: 'center' });
     hx += widths[i];
   }
-  cy += headerH - 4;
+  cy += TABLE_HEADER_H;
 
   for (const q of questoes) {
     doc.setDrawColor(...C.border);
     doc.setFillColor(...C.white);
-    doc.rect(x, cy, w, ROW_H, 'FD');
+    doc.rect(x, cy, width, ROW_H, 'FD');
     let cx = x;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7);
@@ -158,8 +147,8 @@ function drawQuestionTable(
 
     for (const letter of letters) {
       const status = getBoletimMarkStatus(q, letter);
-      drawCircle(doc, cx + COL_W_ALT / 2, cy + ROW_H / 2, 1.7, status);
-      cx += COL_W_ALT;
+      drawCircle(doc, cx + alternativeColumnWidth / 2, cy + ROW_H / 2, 1.7, status);
+      cx += alternativeColumnWidth;
     }
 
     doc.setFillColor(...C.green);
@@ -221,6 +210,9 @@ async function drawStudentBoletim(
 ): Promise<void> {
   if (!isFirstPage) doc.addPage();
   const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const contentBottom = pageH - CONTENT_BOTTOM_GAP;
+  const slotWidth = (pageW - MARGIN * 2 - TABLE_GAP) / 2;
   let y = 10;
 
   const { logo } = await loadCityBrandingForReportPdf(cityId);
@@ -265,37 +257,104 @@ async function drawStudentBoletim(
 
   y += 3;
 
-  for (const bloco of item.por_disciplina ?? []) {
-    const letters = questionAlternativeLetters(bloco.questoes);
-    const columns = chunk(bloco.questoes ?? [], ROWS_PER_COL);
-    const colW = tableWidth(letters);
-    const gap = 4;
-    const blockH = 6 + 6 + columns[0]?.length * ROW_H + 4;
-    y = ensureSpace(doc, y, Math.min(blockH, 40));
-
-    let x = MARGIN;
-    let rowBottom = y;
-    columns.forEach((col, idx) => {
-      if (x + colW > pageW - MARGIN) {
-        x = MARGIN;
-        y = rowBottom + 4;
-        y = ensureSpace(doc, y, 20);
-      }
-      const bottom = drawQuestionTable(doc, x, y, bloco.disciplina, col, letters);
-      rowBottom = Math.max(rowBottom, bottom);
-      x += colW + gap;
-      if (idx === columns.length - 1) y = rowBottom + 5;
+  const drawContinuationHeader = (): number => {
+    const top = 10;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...C.primary);
+    doc.text('BOLETIM DIAGNÓSTICO DO ALUNO — CONTINUAÇÃO', MARGIN, top);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...C.textDark);
+    const studentLabel = doc.splitTextToSize(
+      `${item.aluno.nome} | ${avaliacaoNome || labels.avaliacao}`,
+      pageW - MARGIN * 2
+    ) as string[];
+    doc.text(studentLabel[0] || item.aluno.nome, pageW - MARGIN, top, {
+      align: 'right',
     });
-    if (columns.length === 0) {
-      doc.setFontSize(8);
-      doc.setTextColor(...C.textGray);
-      doc.text(`Nenhuma questão em ${bloco.disciplina}.`, MARGIN, y);
-      y += 6;
+    doc.setDrawColor(...C.border);
+    doc.setLineWidth(0.25);
+    doc.line(MARGIN, top + 4, pageW - MARGIN, top + 4);
+    return top + 8;
+  };
+
+  let contentTop = y;
+  let currentSlot = 0;
+  let needsNewPage =
+    contentTop + TABLE_TITLE_H + TABLE_HEADER_H + ROW_H > contentBottom;
+  let slotBottoms: [number, number] = [contentTop, contentTop];
+
+  const ensureSlotPage = (): void => {
+    if (!needsNewPage) return;
+    doc.addPage();
+    contentTop = drawContinuationHeader();
+    slotBottoms = [contentTop, contentTop];
+    needsNewPage = false;
+  };
+
+  const finishSlot = (bottom: number): void => {
+    slotBottoms[currentSlot] = bottom;
+    if (currentSlot === 0) {
+      currentSlot = 1;
+    } else {
+      currentSlot = 0;
+      needsNewPage = true;
+    }
+  };
+
+  for (const bloco of item.por_disciplina ?? []) {
+    const questions = bloco.questoes ?? [];
+    const letters = questionAlternativeLetters(questions);
+    let questionIndex = 0;
+    let renderedEmptyDiscipline = false;
+
+    while (questionIndex < questions.length || !renderedEmptyDiscipline) {
+      ensureSlotPage();
+      const availableHeight = contentBottom - contentTop;
+      const rowsThatFit = Math.max(
+        1,
+        Math.floor(
+          (availableHeight - TABLE_TITLE_H - TABLE_HEADER_H) / ROW_H
+        )
+      );
+      const rows =
+        questions.length > 0
+          ? questions.slice(questionIndex, questionIndex + rowsThatFit)
+          : [];
+      const x =
+        currentSlot === 0
+          ? MARGIN
+          : MARGIN + slotWidth + TABLE_GAP;
+      const bottom = drawQuestionTable(
+        doc,
+        x,
+        contentTop,
+        slotWidth,
+        bloco.disciplina,
+        rows,
+        letters
+      );
+
+      questionIndex += rows.length;
+      renderedEmptyDiscipline = true;
+      finishSlot(bottom);
+
+      if (questions.length === 0 || questionIndex >= questions.length) {
+        break;
+      }
     }
   }
 
-  y = ensureSpace(doc, y + 2, 22);
-  drawCards(doc, y, item);
+  const cardsHeight = 18;
+  const cardsY = Math.max(...slotBottoms) + 5;
+  if (cardsY + cardsHeight <= contentBottom) {
+    drawCards(doc, cardsY, item);
+  } else {
+    doc.addPage();
+    const continuationTop = drawContinuationHeader();
+    drawCards(doc, continuationTop + 2, item);
+  }
 }
 
 export async function generateBoletimAlunoPdf(options: {
