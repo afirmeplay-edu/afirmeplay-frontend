@@ -215,7 +215,7 @@ export function StudentRanking({
                           <span className="font-medium">Proficiência:</span>
                           <span className="font-semibold text-foreground">{Number(student.proficiencia || 0).toFixed(1)}</span>
                           <span className="text-xs text-muted-foreground">
-                            {`(Proeficiência máx. do ${student.serie || 'série'}: ${Number(
+                            {`(Proficiência máx. do ${student.serie || 'série'}: ${Number(
                               maxProficiencyBySerie[String(student.serie || '').trim() || 'Sem série'] || 0
                             ).toFixed(1)})`}
                           </span>

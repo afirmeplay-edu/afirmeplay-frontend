@@ -286,20 +286,17 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
       try {
         const shouldFetchDisciplineStats = !hasInitialStats;
 
-        const promises: Promise<unknown>[] = [
+        const settled = await Promise.allSettled([
           EvaluationApiService.getTestData(testId),
-          EvaluationResultsApiService.getStudentDetailedResults(testId, studentId, true)
-        ];
-
-        if (shouldFetchDisciplineStats) {
-          promises.push(EvaluationResultsApiService.getEvaluationsList(1, 1, { avaliacao: testId }));
-        }
-
-        const settled = await Promise.allSettled(promises);
+          EvaluationResultsApiService.getStudentDetailedResults(testId, studentId, true),
+          shouldFetchDisciplineStats
+            ? EvaluationResultsApiService.getEvaluationsList(1, 1, { avaliacao: testId })
+            : Promise.resolve(null)
+        ] as const);
 
         const questionsData = settled[0];
         const answersData = settled[1];
-        const tabelaDetalhadaData = shouldFetchDisciplineStats ? settled[2] : undefined;
+        const tabelaDetalhadaData = settled[2];
 
         setLoadingState({ questions: false, answers: false });
 
@@ -468,11 +465,10 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
   const normalizeDisciplineName = (name: string): string => {
     return name
       .normalize('NFD')
-      .replace(/[  -]/g, '')
       .replace(/[\u0300-\u036f]/g, '')
-      .trim()
       .toLowerCase()
-      .replace(/\s+/g, ' ');
+      .replace(/[\s_-]+/g, ' ')
+      .trim();
   };
 
   // Função para encontrar estatísticas de uma disciplina
@@ -483,6 +479,7 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
 
     const normalized = normalizeDisciplineName(subjectName);
     const statsEntry = Object.entries(disciplineStats).find(([key]) => {
+      if (key.toUpperCase() === 'GERAL') return false;
       const keyNormalized = normalizeDisciplineName(key);
       if (keyNormalized === normalized) return true;
       if (keyNormalized.includes(normalized)) return true;
@@ -560,9 +557,10 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
 
       // Ocultar controles e header no clone
       const clonedHeader = clonedCard.querySelector('[data-pdf-header]') as HTMLElement | null;
-      const clonedControls = clonedCard.querySelector('[data-pdf-controls]') as HTMLElement | null;
       if (clonedHeader) clonedHeader.style.display = 'none';
-      if (clonedControls) clonedControls.style.display = 'none';
+      clonedCard.querySelectorAll<HTMLElement>('[data-pdf-controls]').forEach((controls) => {
+        controls.style.display = 'none';
+      });
 
       // Expandir áreas roláveis no clone
       const clonedScrollArea = clonedCard.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null;
@@ -619,16 +617,33 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
       });
       clonedCard.querySelectorAll<HTMLElement>('.question-option-text').forEach((el) => {
         el.style.color = 'inherit';
+        el.style.overflowWrap = 'anywhere';
       });
+      // O cabeçalho da disciplina precisa poder quebrar em linhas quando
+      // renderizado na largura reduzida de uma coluna.
+      clonedCard.querySelectorAll<HTMLElement>('[data-section-header]').forEach((header) => {
+        header.style.flexWrap = 'wrap';
+        header.style.columnGap = '8px';
+        header.style.rowGap = '4px';
+      });
+      // Condensa as estatísticas da disciplina (largura/espaçamento, não a fonte).
+      clonedCard.querySelectorAll<HTMLElement>('[data-pdf-subject-stats]').forEach((stats) => {
+        stats.style.marginLeft = '4px';
+        stats.style.gap = '6px';
+      });
+      // Imagens de alternativas nunca podem estourar a largura da coluna.
       clonedCard.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
         img.loading = 'eager';
         img.decoding = 'sync';
+        img.style.width = 'auto';
+        img.style.maxWidth = '100%';
+        img.style.height = 'auto';
       });
 
       const canvasOptions = {
         scale: 2,
         useCORS: true,
-        allowTaint: true,
+        allowTaint: false,
         backgroundColor: '#ffffff',
         logging: false,
         removeContainer: true,
@@ -660,25 +675,30 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
 
       const captureElementCanvas = async (
         element: HTMLElement,
-        label: string
+        label: string,
+        widthPx: number,
+        heightPx: number
       ): Promise<HTMLCanvasElement> => {
-        const width = Math.max(element.scrollWidth, element.offsetWidth, referenceWidth);
-        const height = Math.max(element.scrollHeight, element.offsetHeight);
+        let timerId = 0;
 
-        return Promise.race([
-          html2canvas(element, {
-            ...canvasOptions,
-            width,
-            height,
-            windowWidth: width,
-            windowHeight: height,
-          }),
-          new Promise<never>((_, reject) => {
-            window.setTimeout(() => {
-              reject(new Error(`Tempo excedido ao capturar ${label}.`));
-            }, 15000);
-          }),
-        ]);
+        try {
+          return await Promise.race([
+            html2canvas(element, {
+              ...canvasOptions,
+              width: widthPx,
+              height: heightPx,
+              windowWidth: widthPx,
+              windowHeight: heightPx,
+            }),
+            new Promise<never>((_, reject) => {
+              timerId = window.setTimeout(() => {
+                reject(new Error(`Tempo excedido ao capturar ${label}.`));
+              }, 15000);
+            }),
+          ]);
+        } finally {
+          window.clearTimeout(timerId);
+        }
       };
 
       const canvasToImage = (
@@ -687,68 +707,12 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
         try {
           return { data: canvas.toDataURL('image/png'), format: 'PNG' };
         } catch {
-          return { data: canvas.toDataURL('image/jpeg', 0.92), format: 'JPEG' };
-        }
-      };
-
-      const addCanvasPaginated = (
-        canvas: HTMLCanvasElement,
-        startY: number,
-        redrawHeader: () => number
-      ): number => {
-        const mmPerPx = usableWidth / canvas.width;
-        let currentY = startY;
-        let offsetY = 0;
-
-        while (offsetY < canvas.height) {
-          const availableHeightMm = pageHeight - margin - currentY;
-          if (availableHeightMm <= 2) {
-            pdf.addPage();
-            currentY = redrawHeader();
-            continue;
-          }
-
-          const maxChunkHeightPx = Math.max(1, Math.floor(availableHeightMm / mmPerPx));
-          const chunkHeightPx = Math.min(maxChunkHeightPx, canvas.height - offsetY);
-          const chunkCanvas = document.createElement('canvas');
-          chunkCanvas.width = canvas.width;
-          chunkCanvas.height = chunkHeightPx;
-
-          const ctx = chunkCanvas.getContext('2d');
-          if (!ctx) {
-            throw new Error('Não foi possível montar as páginas do PDF.');
-          }
-
-          ctx.drawImage(
-            canvas,
-            0,
-            offsetY,
-            canvas.width,
-            chunkHeightPx,
-            0,
-            0,
-            canvas.width,
-            chunkHeightPx
+          // Canvas contaminado por imagem sem CORS: o JPEG também falharia,
+          // então o erro é propagado com uma mensagem acionável.
+          throw new Error(
+            'Não foi possível gerar o PDF porque uma imagem da avaliação bloqueou a captura.'
           );
-
-          const chunkHeightMm = chunkHeightPx * mmPerPx;
-          const image = canvasToImage(chunkCanvas);
-          pdf.addImage(image.data, image.format, margin, currentY, usableWidth, chunkHeightMm);
-
-          offsetY += chunkHeightPx;
-          currentY += chunkHeightMm + 2;
-          chunkCanvas.width = 0;
-          chunkCanvas.height = 0;
-
-          if (offsetY < canvas.height) {
-            pdf.addPage();
-            currentY = redrawHeader();
-          }
         }
-
-        canvas.width = 0;
-        canvas.height = 0;
-        return currentY;
       };
 
       // Seções no clone
@@ -756,11 +720,22 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
         clonedCard.querySelectorAll('[data-subject-section]')
       ) as HTMLElement[];
 
-      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdf = new jsPDF('l', 'mm', 'a4');
       const margin = 10;
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       const usableWidth = pageWidth - margin * 2;
+
+      // Geometria das duas colunas desenhadas diretamente no jsPDF.
+      const HEADER_BAND_H = 20;
+      const CONTENT_TOP_Y = HEADER_BAND_H + 10;
+      const CONTENT_TITLE = 'BOLETIM DO ALUNO';
+      const PX_PER_MM = 4;
+      const COLUMN_GAP_MM = 6;
+
+      const usableHeightMm = pageHeight - margin - CONTENT_TOP_Y;
+      const columnWidthMm = (usableWidth - COLUMN_GAP_MM) / 2;
+      const columnWidthPx = Math.round(columnWidthMm * PX_PER_MM);
 
       await waitForImages(clonedCard);
 
@@ -783,7 +758,7 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
       };
 
       const drawCompactHeader = (title: string): number => {
-        const BAND_H = 20;
+        const BAND_H = HEADER_BAND_H;
         pdf.setFillColor(...COLORS.primary);
         pdf.rect(0, 0, pageWidth, BAND_H, 'F');
         if (icoAsset?.dataUrl && icoAsset.iw > 0 && icoAsset.ih > 0) {
@@ -800,7 +775,7 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
         pdf.setFontSize(11);
         pdf.setTextColor(...COLORS.white);
         pdf.text(title, pageWidth - margin, BAND_H / 2 + 2, { align: 'right' });
-        return BAND_H + 10;
+        return CONTENT_TOP_Y;
       };
 
       if (bulletinBranding.logo) {
@@ -844,7 +819,9 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
       pdf.text(coverTitle, centerX, hasLetterhead ? 66 : BAND_H - 17, { align: 'center' });
 
       let coverY = hasLetterhead ? 80 : BAND_H + 18;
-      const cardWidth = pageWidth - 40;
+      // Em paisagem a folha é bem mais larga, então o cartão é limitado para
+      // não ficar desproporcional.
+      const cardWidth = Math.min(pageWidth - 40, 170);
       const cardX = (pageWidth - cardWidth) / 2;
       const ACCENT_W = 4;
       const inset = 10;
@@ -888,31 +865,190 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
         cardY += ROW_H;
       });
 
-      // Conteúdo
-      pdf.addPage();
+      // ===== Conteúdo: duas capturas independentes por página =====
+      // html2canvas não decide a posição das colunas. Cada disciplina é
+      // capturada isoladamente na largura de uma coluna e o jsPDF posiciona
+      // os bitmaps nas coordenadas esquerda/direita.
+      let currentColumnIndex = 0;
+      let hasOpenContentPage = false;
 
-      if (subjectSections.length > 0) {
-        for (let s = 0; s < subjectSections.length; s += 1) {
-          if (s > 0) {
-            pdf.addPage();
-          }
+      const ensureContentPage = (): void => {
+        if (hasOpenContentPage) return;
+        pdf.addPage('a4', 'landscape');
+        drawCompactHeader(CONTENT_TITLE);
+        hasOpenContentPage = true;
+      };
 
-          const sectionElement = subjectSections[s];
-          let currentY = drawCompactHeader('BOLETIM DO ALUNO');
-          const sectionCanvas = await captureElementCanvas(
-            sectionElement,
-            `a seção ${s + 1} do boletim`
-          );
-          currentY = addCanvasPaginated(sectionCanvas, currentY, () =>
-            drawCompactHeader('BOLETIM DO ALUNO')
+      const advanceColumn = (): void => {
+        if (currentColumnIndex === 0) {
+          currentColumnIndex = 1;
+        } else {
+          currentColumnIndex = 0;
+          hasOpenContentPage = false;
+        }
+      };
+
+      const createCanvasSlice = (
+        source: HTMLCanvasElement,
+        sourceStartPx: number,
+        sourceEndPx: number,
+        repeatedHeaderHeightPx: number
+      ): HTMLCanvasElement => {
+        const bodyHeightPx = Math.max(1, sourceEndPx - sourceStartPx);
+        const slice = document.createElement('canvas');
+        slice.width = source.width;
+        slice.height = repeatedHeaderHeightPx + bodyHeightPx;
+
+        const context = slice.getContext('2d');
+        if (!context) {
+          throw new Error('Não foi possível montar as colunas do PDF.');
+        }
+
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, slice.width, slice.height);
+
+        if (repeatedHeaderHeightPx > 0) {
+          context.drawImage(
+            source,
+            0,
+            0,
+            source.width,
+            repeatedHeaderHeightPx,
+            0,
+            0,
+            source.width,
+            repeatedHeaderHeightPx
           );
         }
-      } else {
-        const currentY = drawCompactHeader('BOLETIM DO ALUNO');
-        const fallbackCanvas = await captureElementCanvas(clonedCard, 'o boletim');
-        addCanvasPaginated(fallbackCanvas, currentY, () =>
-          drawCompactHeader('BOLETIM DO ALUNO')
+
+        context.drawImage(
+          source,
+          0,
+          sourceStartPx,
+          source.width,
+          bodyHeightPx,
+          0,
+          repeatedHeaderHeightPx,
+          source.width,
+          bodyHeightPx
         );
+        return slice;
+      };
+
+      const sectionsToCapture = subjectSections.length > 0 ? subjectSections : [clonedCard];
+
+      for (let sectionIndex = 0; sectionIndex < sectionsToCapture.length; sectionIndex += 1) {
+        const section = sectionsToCapture[sectionIndex];
+        section.style.width = `${columnWidthPx}px`;
+        section.style.maxWidth = `${columnWidthPx}px`;
+        section.style.boxSizing = 'border-box';
+        section.style.overflow = 'hidden';
+
+        section.querySelectorAll<HTMLElement>('[data-pdf-table-wrapper]').forEach((wrapper) => {
+          wrapper.style.width = '100%';
+          wrapper.style.maxWidth = '100%';
+          wrapper.style.overflow = 'hidden';
+        });
+        section.querySelectorAll<HTMLTableElement>('table').forEach((table) => {
+          table.style.width = '100%';
+          table.style.maxWidth = '100%';
+          table.style.tableLayout = 'fixed';
+        });
+        section.querySelectorAll<HTMLTableCellElement>('th, td').forEach((cell) => {
+          cell.style.overflowWrap = 'anywhere';
+          cell.style.wordBreak = 'break-word';
+        });
+
+        // Força o navegador a concluir o reflow antes das medições.
+        void section.offsetHeight;
+        await waitForImages(section);
+        void section.offsetHeight;
+
+        const sectionRect = section.getBoundingClientRect();
+        const sectionHeightPx = Math.max(
+          1,
+          Math.ceil(section.scrollHeight),
+          Math.ceil(sectionRect.height)
+        );
+        const firstRow = section.querySelector<HTMLElement>('[data-pdf-question-row]');
+        const bodyStartCssPx = firstRow
+          ? Math.max(0, firstRow.getBoundingClientRect().top - sectionRect.top)
+          : 0;
+        const rowBottomsCssPx = Array.from(
+          section.querySelectorAll<HTMLElement>('[data-pdf-question-row]')
+        ).map((row) => row.getBoundingClientRect().bottom - sectionRect.top);
+
+        const sectionCanvas = await captureElementCanvas(
+          section,
+          `a disciplina ${sectionIndex + 1}`,
+          columnWidthPx,
+          sectionHeightPx
+        );
+        const canvasScale = sectionCanvas.width / columnWidthPx;
+        const bodyStartCanvasPx = Math.round(bodyStartCssPx * canvasScale);
+        const rowBottomsCanvasPx = rowBottomsCssPx.map((bottom) =>
+          Math.round(bottom * canvasScale)
+        );
+        const mmPerCanvasPx = columnWidthMm / sectionCanvas.width;
+        const maxColumnHeightCanvasPx = Math.max(
+          1,
+          Math.floor(usableHeightMm / mmPerCanvasPx)
+        );
+
+        let sourceStartPx = 0;
+        let isFirstSlice = true;
+
+        while (sourceStartPx < sectionCanvas.height) {
+          const repeatedHeaderHeightPx = isFirstSlice ? 0 : bodyStartCanvasPx;
+          const availableBodyHeightPx = Math.max(
+            1,
+            maxColumnHeightCanvasPx - repeatedHeaderHeightPx
+          );
+          const hardEndPx = Math.min(
+            sectionCanvas.height,
+            sourceStartPx + availableBodyHeightPx
+          );
+
+          // Sempre que possível, encerra a coluna entre duas questões.
+          const alignedEndPx = rowBottomsCanvasPx
+            .filter((bottom) => bottom > sourceStartPx && bottom <= hardEndPx)
+            .at(-1);
+          const sourceEndPx =
+            alignedEndPx ?? Math.min(sectionCanvas.height, sourceStartPx + availableBodyHeightPx);
+
+          const sliceCanvas = createCanvasSlice(
+            sectionCanvas,
+            sourceStartPx,
+            sourceEndPx,
+            repeatedHeaderHeightPx
+          );
+          const sliceHeightMm = Math.min(
+            usableHeightMm,
+            sliceCanvas.height * mmPerCanvasPx
+          );
+
+          ensureContentPage();
+          const columnX =
+            margin + currentColumnIndex * (columnWidthMm + COLUMN_GAP_MM);
+          const image = canvasToImage(sliceCanvas);
+          pdf.addImage(
+            image.data,
+            image.format,
+            columnX,
+            CONTENT_TOP_Y,
+            columnWidthMm,
+            sliceHeightMm
+          );
+
+          sliceCanvas.width = 0;
+          sliceCanvas.height = 0;
+          sourceStartPx = sourceEndPx;
+          isFirstSlice = false;
+          advanceColumn();
+        }
+
+        sectionCanvas.width = 0;
+        sectionCanvas.height = 0;
       }
 
       const sanitizeFileName = (text: string | null): string => {
@@ -1148,7 +1284,7 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
                     const stats = getDisciplineStats(subjectName);
                     if (stats) {
                       return (
-                        <div className="flex items-center gap-3 ml-3 text-xs">
+                        <div data-pdf-subject-stats className="flex items-center gap-3 ml-3 text-xs">
                           <span className="text-muted-foreground">
                             Nota: <span className="font-semibold text-foreground">{stats.nota.toFixed(1)}</span>
                           </span>
@@ -1168,7 +1304,7 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
                 </div>
 
                 {/* Tabela de Questões */}
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto" data-pdf-table-wrapper>
                   <table className="w-full border-collapse">
                     <thead>
                       <tr className="border-b border-border bg-primary">
@@ -1184,6 +1320,7 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
                           <tr
                             key={`${question.id}-${index}`}
                             id={`question-${bulletinQuestion.questionNumber}`}
+                            data-pdf-question-row
                             className="border-b border-border hover:bg-muted transition-colors"
                           >
                             {/* Coluna Questão */}

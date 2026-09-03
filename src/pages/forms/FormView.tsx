@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { 
   ArrowLeft, 
   Users, 
@@ -78,11 +79,18 @@ const FormView = () => {
             {question.tipo === 'selecao_unica' && (
               <div className="space-y-2">
                 {question.opcoes?.map((option: string, optIndex: number) => (
-                  <label key={optIndex} className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-gray-100 transition-colors duration-200">
+                  <label key={optIndex} className="flex flex-wrap items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-gray-100 transition-colors duration-200">
                     <span className="flex items-center justify-center w-6 h-6 bg-gray-100 rounded-full text-xs font-medium text-gray-600">
                       {String.fromCharCode(65 + optIndex)}
                     </span>
                     <span className="text-sm text-gray-700">{option}</span>
+                    {option === 'Outro' && (
+                      <Input
+                        disabled
+                        className="basis-full ml-9 bg-white"
+                        placeholder="Campo de escrita exibido ao selecionar Outro"
+                      />
+                    )}
                   </label>
                 ))}
               </div>
@@ -160,9 +168,9 @@ const FormView = () => {
   const IconComponent = getFormIcon(formData.type);
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto px-3 py-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
         <Button 
           variant="outline" 
           size="sm"
@@ -178,7 +186,7 @@ const FormView = () => {
           </h1>
           <p className="text-muted-foreground text-sm sm:text-base">{formData.description}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
           <Badge variant={formData.isActive ? "default" : "secondary"}>
             {formData.isActive ? 'Ativo' : 'Inativo'}
           </Badge>
@@ -241,7 +249,7 @@ const FormView = () => {
       </Card>
 
       {/* Actions */}
-      <div className="flex justify-end gap-4">
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-4">
         <Button variant="outline">
           Duplicar Questionário
         </Button>

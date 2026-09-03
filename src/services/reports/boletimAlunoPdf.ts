@@ -20,11 +20,16 @@ const C = {
 };
 
 const MARGIN = 12;
-const ROWS_PER_COL = 14;
 const ROW_H = 6.2;
-const COL_W_NUM = 11;
-const COL_W_ALT = 9;
-const COL_W_GAB = 12;
+const TABLE_TITLE_H = 6;
+const TABLE_HEADER_H = 6;
+const TABLE_COLUMN_COUNT = 4;
+const TABLE_GAP = 4;
+const COL_W_NUM = 14;
+const COL_W_GAB = 18;
+const CONTENT_BOTTOM_GAP = 14;
+const CARDS_HEIGHT = 18;
+const CARDS_GAP = 5;
 
 export type BoletimAlunoPdfLabels = {
   estado: string;
@@ -51,16 +56,6 @@ function scaledSize(iw: number, ih: number, desiredW: number): { w: number; h: n
   return { w: desiredW, h: (ih * desiredW) / iw };
 }
 
-function chunk<T>(items: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
-}
-
-function tableWidth(letters: string[]): number {
-  return COL_W_NUM + letters.length * COL_W_ALT + COL_W_GAB;
-}
-
 function addFooters(doc: jsPDF, dataGeracao: string): void {
   const n = doc.getNumberOfPages();
   for (let i = 1; i <= n; i++) {
@@ -77,13 +72,6 @@ function addFooters(doc: jsPDF, dataGeracao: string): void {
     doc.text(`Página ${i} de ${n}`, pageW / 2, pageH - 5.5, { align: 'center' });
     doc.text(`Gerado em ${dataGeracao}`, pageW - MARGIN, pageH - 5.5, { align: 'right' });
   }
-}
-
-function ensureSpace(doc: jsPDF, y: number, needed: number): number {
-  const pageH = doc.internal.pageSize.getHeight();
-  if (y + needed <= pageH - 14) return y;
-  doc.addPage();
-  return 16;
 }
 
 function drawCircle(
@@ -112,30 +100,34 @@ function drawQuestionTable(
   doc: jsPDF,
   x: number,
   y: number,
+  width: number,
   title: string,
   questoes: BoletimAlunoQuestao[],
   letters: string[]
 ): number {
-  const w = tableWidth(letters);
-  const headerH = 10;
-
   doc.setFillColor(...C.primary);
-  doc.roundedRect(x, y, w, 6, 0.6, 0.6, 'F');
+  doc.roundedRect(x, y, width, TABLE_TITLE_H, 0.6, 0.6, 'F');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7);
   doc.setTextColor(...C.white);
-  const titleText = doc.splitTextToSize(title.toUpperCase(), w - 3) as string[];
-  doc.text(titleText[0] || title, x + w / 2, y + 4, { align: 'center' });
+  const titleText = doc.splitTextToSize(title.toUpperCase(), width - 3) as string[];
+  doc.text(titleText[0] || title, x + width / 2, y + 4, { align: 'center' });
 
-  let cy = y + 6;
+  let cy = y + TABLE_TITLE_H;
   doc.setFillColor(...C.bgHeader);
-  doc.rect(x, cy, w, headerH - 4, 'F');
+  doc.rect(x, cy, width, TABLE_HEADER_H, 'F');
   doc.setDrawColor(...C.border);
   doc.setLineWidth(0.2);
-  doc.rect(x, cy, w, headerH - 4);
+  doc.rect(x, cy, width, TABLE_HEADER_H);
 
   const headers = ['#', ...letters, 'GAB'];
-  const widths = [COL_W_NUM, ...letters.map(() => COL_W_ALT), COL_W_GAB];
+  const alternativesWidth = Math.max(1, width - COL_W_NUM - COL_W_GAB);
+  const alternativeColumnWidth = alternativesWidth / Math.max(1, letters.length);
+  const widths = [
+    COL_W_NUM,
+    ...letters.map(() => alternativeColumnWidth),
+    COL_W_GAB,
+  ];
   let hx = x;
   doc.setFontSize(6.5);
   doc.setTextColor(...C.textDark);
@@ -143,12 +135,12 @@ function drawQuestionTable(
     doc.text(headers[i], hx + widths[i] / 2, cy + 4, { align: 'center' });
     hx += widths[i];
   }
-  cy += headerH - 4;
+  cy += TABLE_HEADER_H;
 
   for (const q of questoes) {
     doc.setDrawColor(...C.border);
     doc.setFillColor(...C.white);
-    doc.rect(x, cy, w, ROW_H, 'FD');
+    doc.rect(x, cy, width, ROW_H, 'FD');
     let cx = x;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7);
@@ -158,8 +150,8 @@ function drawQuestionTable(
 
     for (const letter of letters) {
       const status = getBoletimMarkStatus(q, letter);
-      drawCircle(doc, cx + COL_W_ALT / 2, cy + ROW_H / 2, 1.7, status);
-      cx += COL_W_ALT;
+      drawCircle(doc, cx + alternativeColumnWidth / 2, cy + ROW_H / 2, 1.7, status);
+      cx += alternativeColumnWidth;
     }
 
     doc.setFillColor(...C.green);
@@ -180,7 +172,7 @@ function drawCards(doc: jsPDF, y: number, item: BoletimAlunoItem): number {
   const pageW = doc.internal.pageSize.getWidth();
   const gap = 4;
   const w = (pageW - MARGIN * 2 - gap * 3) / 4;
-  const h = 18;
+  const h = CARDS_HEIGHT;
   const cards = [
     {
       title: 'ACERTOS TOTAIS',
@@ -221,20 +213,35 @@ async function drawStudentBoletim(
 ): Promise<void> {
   if (!isFirstPage) doc.addPage();
   const pageW = doc.internal.pageSize.getWidth();
-  let y = 10;
+  const pageH = doc.internal.pageSize.getHeight();
+  const contentBottom = pageH - CONTENT_BOTTOM_GAP;
+  const slotWidth =
+    (pageW - MARGIN * 2 - TABLE_GAP * (TABLE_COLUMN_COUNT - 1)) /
+    TABLE_COLUMN_COUNT;
+  const headerTop = 10;
+  let logoWidth = 0;
+  let logoBottom = headerTop;
 
   const { logo } = await loadCityBrandingForReportPdf(cityId);
   if (logo?.dataUrl && logo.iw > 0 && logo.ih > 0) {
     const { w, h } = scaledSize(logo.iw, logo.ih, 22);
-    doc.addImage(logo.dataUrl, 'PNG', pageW / 2 - w / 2, y, w, h);
-    y += h + 4;
+    logoWidth = w;
+    logoBottom = headerTop + h;
+    doc.addImage(
+      logo.dataUrl,
+      'PNG',
+      pageW - MARGIN - w,
+      headerTop,
+      w,
+      h
+    );
   }
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(...C.primary);
-  doc.text('BOLETIM DIAGNÓSTICO DO ALUNO', pageW / 2, y, { align: 'center' });
-  y += 6;
+  const titleY = headerTop + 6;
+  doc.text('BOLETIM DO ALUNO', MARGIN, titleY);
 
   const lines = [
     ['AVALIAÇÃO', avaliacaoNome || labels.avaliacao],
@@ -249,6 +256,8 @@ async function drawStudentBoletim(
   ];
   if (item.aluno.matricula) lines.push(['MATRÍCULA', item.aluno.matricula]);
 
+  let y = titleY + 7;
+  const detailsWidth = pageW - MARGIN * 2 - (logoWidth > 0 ? logoWidth + 8 : 0);
   doc.setFontSize(8);
   for (const [k, v] of lines) {
     doc.setFont('helvetica', 'bold');
@@ -256,46 +265,173 @@ async function drawStudentBoletim(
     const label = `${k}: `;
     const lw = doc.getTextWidth(label);
     doc.setTextColor(...C.textDark);
-    doc.text(label, pageW / 2 - 70, y);
+    doc.text(label, MARGIN, y);
     doc.setFont('helvetica', 'normal');
-    const value = doc.splitTextToSize(String(v || '—').toUpperCase(), 140) as string[];
-    doc.text(value[0] || '—', pageW / 2 - 70 + lw, y);
+    const value = doc.splitTextToSize(
+      String(v || '—').toUpperCase(),
+      Math.max(40, detailsWidth - lw)
+    ) as string[];
+    doc.text(value[0] || '—', MARGIN + lw, y);
     y += 4.4;
   }
 
-  y += 3;
+  y = Math.max(y + 3, logoBottom + 4);
 
-  for (const bloco of item.por_disciplina ?? []) {
-    const letters = questionAlternativeLetters(bloco.questoes);
-    const columns = chunk(bloco.questoes ?? [], ROWS_PER_COL);
-    const colW = tableWidth(letters);
-    const gap = 4;
-    const blockH = 6 + 6 + columns[0]?.length * ROW_H + 4;
-    y = ensureSpace(doc, y, Math.min(blockH, 40));
-
-    let x = MARGIN;
-    let rowBottom = y;
-    columns.forEach((col, idx) => {
-      if (x + colW > pageW - MARGIN) {
-        x = MARGIN;
-        y = rowBottom + 4;
-        y = ensureSpace(doc, y, 20);
-      }
-      const bottom = drawQuestionTable(doc, x, y, bloco.disciplina, col, letters);
-      rowBottom = Math.max(rowBottom, bottom);
-      x += colW + gap;
-      if (idx === columns.length - 1) y = rowBottom + 5;
+  const drawContinuationHeader = (): number => {
+    const top = 10;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...C.primary);
+    doc.text('BOLETIM DO ALUNO — CONTINUAÇÃO', MARGIN, top);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...C.textDark);
+    const studentLabel = doc.splitTextToSize(
+      `${item.aluno.nome} | ${avaliacaoNome || labels.avaliacao}`,
+      pageW - MARGIN * 2
+    ) as string[];
+    doc.text(studentLabel[0] || item.aluno.nome, pageW - MARGIN, top, {
+      align: 'right',
     });
-    if (columns.length === 0) {
-      doc.setFontSize(8);
-      doc.setTextColor(...C.textGray);
-      doc.text(`Nenhuma questão em ${bloco.disciplina}.`, MARGIN, y);
-      y += 6;
+    doc.setDrawColor(...C.border);
+    doc.setLineWidth(0.25);
+    doc.line(MARGIN, top + 4, pageW - MARGIN, top + 4);
+    return top + 8;
+  };
+
+  let contentTop = y;
+  let currentSlot = 0;
+  let needsNewPage =
+    contentTop + TABLE_TITLE_H + TABLE_HEADER_H + ROW_H > contentBottom;
+  let slotBottoms: number[] = Array(TABLE_COLUMN_COUNT).fill(contentTop);
+  let pageReservesCards = false;
+
+  const ensureSlotPage = (): void => {
+    if (!needsNewPage) return;
+    doc.addPage();
+    contentTop = drawContinuationHeader();
+    currentSlot = 0;
+    slotBottoms = Array(TABLE_COLUMN_COUNT).fill(contentTop);
+    pageReservesCards = false;
+    needsNewPage = false;
+  };
+
+  const finishSlot = (bottom: number): void => {
+    slotBottoms[currentSlot] = bottom;
+    if (currentSlot === TABLE_COLUMN_COUNT - 1) {
+      currentSlot = 0;
+      needsNewPage = true;
+    } else {
+      currentSlot += 1;
+    }
+  };
+
+  const disciplineBlocks = item.por_disciplina ?? [];
+  const cardsTableBottom = contentBottom - CARDS_HEIGHT - CARDS_GAP;
+
+  const countRemainingSlots = (
+    startBlockIndex: number,
+    startQuestionIndex: number,
+    rowsPerSlot: number
+  ): number => {
+    let slots = 0;
+    for (
+      let index = startBlockIndex;
+      index < disciplineBlocks.length;
+      index += 1
+    ) {
+      const totalRows = disciplineBlocks[index].questoes?.length ?? 0;
+      const remainingRows =
+        index === startBlockIndex
+          ? Math.max(0, totalRows - startQuestionIndex)
+          : totalRows;
+      slots += Math.max(1, Math.ceil(remainingRows / rowsPerSlot));
+    }
+    return slots;
+  };
+
+  for (let blockIndex = 0; blockIndex < disciplineBlocks.length; blockIndex += 1) {
+    const bloco = disciplineBlocks[blockIndex];
+    const questions = bloco.questoes ?? [];
+    const letters = questionAlternativeLetters(questions);
+    let questionIndex = 0;
+    let renderedEmptyDiscipline = false;
+
+    while (questionIndex < questions.length || !renderedEmptyDiscipline) {
+      ensureSlotPage();
+      const rowsPerReservedSlot = Math.max(
+        1,
+        Math.floor(
+          (cardsTableBottom - contentTop - TABLE_TITLE_H - TABLE_HEADER_H) /
+            ROW_H
+        )
+      );
+      const remainingReservedSlots = countRemainingSlots(
+        blockIndex,
+        questionIndex,
+        rowsPerReservedSlot
+      );
+
+      // Assim que todo o conteúdo restante couber numa página com a faixa
+      // inferior reservada, essa passa a ser a página final. Se a página
+      // atual já usou a altura integral, o sufixo começa na próxima página.
+      if (
+        !pageReservesCards &&
+        currentSlot > 0 &&
+        remainingReservedSlots <= TABLE_COLUMN_COUNT
+      ) {
+        needsNewPage = true;
+        ensureSlotPage();
+        continue;
+      }
+
+      if (currentSlot === 0) {
+        pageReservesCards = remainingReservedSlots <= TABLE_COLUMN_COUNT;
+      }
+
+      const tableBottom = pageReservesCards ? cardsTableBottom : contentBottom;
+      const availableHeight = tableBottom - contentTop;
+      const rowsThatFit = Math.max(
+        1,
+        Math.floor(
+          (availableHeight - TABLE_TITLE_H - TABLE_HEADER_H) / ROW_H
+        )
+      );
+      const rows =
+        questions.length > 0
+          ? questions.slice(questionIndex, questionIndex + rowsThatFit)
+          : [];
+      const x = MARGIN + currentSlot * (slotWidth + TABLE_GAP);
+      const bottom = drawQuestionTable(
+        doc,
+        x,
+        contentTop,
+        slotWidth,
+        bloco.disciplina,
+        rows,
+        letters
+      );
+
+      questionIndex += rows.length;
+      renderedEmptyDiscipline = true;
+      finishSlot(bottom);
+
+      if (questions.length === 0 || questionIndex >= questions.length) {
+        break;
+      }
     }
   }
 
-  y = ensureSpace(doc, y + 2, 22);
-  drawCards(doc, y, item);
+  const cardsY = Math.max(...slotBottoms) + CARDS_GAP;
+  if (cardsY + CARDS_HEIGHT <= contentBottom) {
+    drawCards(doc, cardsY, item);
+  } else {
+    // Defesa para dados fora do contrato (por exemplo, cabeçalho maior que a
+    // área útil). No fluxo normal, a reserva dinâmica acima evita este caso.
+    doc.addPage();
+    const continuationTop = drawContinuationHeader();
+    drawCards(doc, continuationTop + 2, item);
+  }
 }
 
 export async function generateBoletimAlunoPdf(options: {
