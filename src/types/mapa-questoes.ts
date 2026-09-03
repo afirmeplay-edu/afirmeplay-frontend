@@ -69,6 +69,8 @@ export type MapaQuestoesQuestao = {
   gabarito: string;
   taxa_acertos: MapaQuestoesTaxaAcertos;
   marcacoes: MapaQuestoesMarcacao[];
+  /** Presente só na prova digital — enunciado via GET /questions/batch. */
+  question_id?: string | null;
 };
 
 export type MapaQuestoesPorDisciplina = {

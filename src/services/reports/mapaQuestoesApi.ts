@@ -1,6 +1,8 @@
 import { api } from '@/lib/api';
 import { REPORT_ENTITY_TYPE_ANSWER_SHEET } from '@/services/evaluation/evaluationResultsApi';
 import { getClassShiftLabel, hasClassShift } from '@/lib/classShift';
+import type { Question } from '@/components/evaluations/types';
+import { mapApiQuestionTypeToForm } from '@/utils/questionTypeMapping';
 import type {
   MapaQuestoesFilterAvaliacao,
   MapaQuestoesFilterEntity,
@@ -11,6 +13,8 @@ import type {
   MapaQuestoesResumo,
   MapaQuestoesResumoParams,
 } from '@/types/mapa-questoes';
+
+const QUESTIONS_BATCH_MAX = 100;
 
 function withCityMeta(municipio?: string) {
   return municipio
@@ -146,4 +150,72 @@ export class MapaQuestoesApiService {
     const { data } = await api.get<MapaQuestoesResumo>(url, withCityMeta(params.municipio));
     return data;
   }
+
+  /**
+   * Enunciado/alternativas em lote (máx. 100 IDs por request no backend).
+   * Usado pelo modal "Ver questão" do mapa (prova digital).
+   */
+  static async getQuestionsBatch(
+    ids: string[],
+    municipio?: string
+  ): Promise<Map<string, Question>> {
+    const unique = [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))];
+    const byId = new Map<string, Question>();
+    if (!unique.length) return byId;
+
+    for (let i = 0; i < unique.length; i += QUESTIONS_BATCH_MAX) {
+      const chunk = unique.slice(i, i + QUESTIONS_BATCH_MAX);
+      const { data } = await api.get<unknown[]>(`/questions/batch?ids=${chunk.join(',')}`, withCityMeta(municipio));
+      const rows = Array.isArray(data) ? data : [];
+      for (const raw of rows) {
+        const mapped = mapBatchQuestion(raw);
+        if (mapped) byId.set(mapped.id, mapped);
+      }
+    }
+    return byId;
+  }
+}
+
+function mapBatchQuestion(raw: unknown): Question | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const q = raw as Record<string, unknown>;
+  const id = String(q.id ?? '').trim();
+  if (!id) return null;
+
+  const optionsRaw = (q.options ?? q.alternatives) as Question['options'] | undefined;
+  const options = Array.isArray(optionsRaw) ? optionsRaw : [];
+  const subject =
+    q.subject && typeof q.subject === 'object'
+      ? (q.subject as { id?: string; name?: string })
+      : undefined;
+  const createdBy = q.createdBy as { id?: string } | string | undefined;
+  const created_by =
+    typeof createdBy === 'string' ? createdBy : createdBy?.id ? String(createdBy.id) : '';
+
+  let skills: string[] = [];
+  if (Array.isArray(q.skills)) {
+    skills = q.skills.map((s) => (typeof s === 'string' ? s : String((s as { id?: string })?.id ?? s)));
+  } else if (typeof q.skills === 'string' && q.skills.trim()) {
+    skills = q.skills.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+
+  const formattedText = String(q.formattedText ?? q.text ?? '');
+
+  return {
+    id,
+    title: String(q.title ?? ''),
+    text: String(q.text ?? ''),
+    formattedText,
+    type: mapApiQuestionTypeToForm(String(q.type ?? 'multipleChoice')),
+    subjectId: subject?.id || '',
+    subject: subject?.id ? { id: String(subject.id), name: String(subject.name ?? '') } : undefined,
+    difficulty: String(q.difficulty ?? ''),
+    value: Number(q.value ?? 1),
+    solution: String(q.solution ?? q.correct_answer ?? ''),
+    formattedSolution: String(q.formattedSolution ?? ''),
+    options,
+    secondStatement: String(q.secondStatement ?? ''),
+    skills,
+    created_by,
+  };
 }
