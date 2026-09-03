@@ -99,13 +99,6 @@ export interface CoverPreviewPayload {
   test_data?: Record<string, unknown>;
 }
 
-/** Campos preenchidos no PDF genérico da ficha (sem aluno / sem cartão-resposta). */
-export const GENERIC_EXAM_COVER_FIELD_KEYS = [
-  "avaliacao.titulo",
-  "disciplinas.nomes",
-  "serie.nome",
-] as const;
-
 export const COVER_GROUP_LABELS: Record<string, string> = {
   aluno: "Aluno",
   avaliacao: "Avaliação",

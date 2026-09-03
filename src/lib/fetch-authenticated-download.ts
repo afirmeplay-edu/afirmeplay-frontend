@@ -5,6 +5,11 @@ import { normalizeDownloadUrlForApi } from '@/lib/normalize-api-download-url';
 export type FetchAuthenticatedDownloadOptions = {
   /** Query params (axios); não use junto com query string duplicada na URL. */
   params?: Record<string, string>;
+  method?: 'GET' | 'POST';
+  data?: unknown;
+  timeout?: number;
+  /** Contexto de município para o interceptor enviar X-City-ID. */
+  cityId?: string;
 };
 
 async function messageFromBlobError(blob: Blob): Promise<string> {
@@ -17,8 +22,37 @@ async function messageFromBlobError(blob: Blob): Promise<string> {
   }
 }
 
+function filenameFromContentDisposition(header: unknown, fallback: string): string {
+  if (typeof header !== 'string' || !header) return fallback;
+  const star = /filename\*=(?:UTF-8'')?([^;]+)/i.exec(header);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].replace(/['"]/g, '').trim());
+    } catch {
+      return star[1].replace(/['"]/g, '').trim() || fallback;
+    }
+  }
+  const plain = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i.exec(header);
+  if (plain?.[1]) {
+    return plain[1].replace(/['"]/g, '').trim() || fallback;
+  }
+  return fallback;
+}
+
+function triggerBlobDownload(blob: Blob, filename: string): void {
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 60_000);
+}
+
 /**
- * GET autenticado (Bearer + headers do `api`) com `responseType: blob` e download na mesma página.
+ * Download autenticado (Bearer + headers do `api`) com `responseType: blob`.
+ * GET por padrão; use `method: 'POST'` para rotas como `/test/:id/exam-pdf`.
  */
 export async function fetchAuthenticatedDownload(
   url: string,
@@ -30,15 +64,23 @@ export async function fetchAuthenticatedDownload(
     throw new Error('URL de download inválida.');
   }
 
+  const method = options?.method ?? 'GET';
+  const requestConfig = {
+    responseType: 'blob' as const,
+    params: options?.params,
+    timeout: options?.timeout,
+    headers: {
+      Accept: '*/*',
+    },
+    ...(options?.cityId ? { meta: { cityId: options.cityId } } : {}),
+  };
+
   let res;
   try {
-    res = await api.get(pathOrUrl, {
-      responseType: 'blob',
-      params: options?.params,
-      headers: {
-        Accept: '*/*',
-      },
-    });
+    res =
+      method === 'POST'
+        ? await api.post(pathOrUrl, options?.data ?? {}, requestConfig)
+        : await api.get(pathOrUrl, requestConfig);
   } catch (err) {
     if (isAxiosError(err) && err.response?.data instanceof Blob) {
       throw new Error(await messageFromBlobError(err.response.data));
@@ -53,37 +95,11 @@ export async function fetchAuthenticatedDownload(
   const blob = res.data as Blob;
 
   if (blob.type?.includes('application/json')) {
-    const text = await blob.text();
-    try {
-      const j = JSON.parse(text) as { error?: string; message?: string };
-      throw new Error(j.error || j.message || 'Erro ao baixar o arquivo.');
-    } catch (e) {
-      if (e instanceof Error && e.message !== 'Unexpected end of JSON input') {
-        throw e;
-      }
-      throw new Error('Resposta inválida do servidor.');
-    }
+    throw new Error(await messageFromBlobError(blob));
   }
 
-  let filename = fallbackFilename;
-  const cd = res.headers['content-disposition'];
-  if (cd && typeof cd === 'string') {
-    const m = /filename\*?=(?:UTF-8'')?["']?([^";\n]+)["']?/i.exec(cd);
-    if (m) {
-      try {
-        filename = decodeURIComponent(m[1].replace(/['"]/g, ''));
-      } catch {
-        filename = m[1].replace(/['"]/g, '');
-      }
-    }
-  }
-
-  const href = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = href;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(href), 60_000);
+  triggerBlobDownload(
+    blob,
+    filenameFromContentDisposition(res.headers['content-disposition'], fallbackFilename)
+  );
 }

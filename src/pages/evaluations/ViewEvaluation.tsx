@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Pencil, Trash2, ArrowLeft, Eye, Users, BookOpen, FileText, Calendar, User, MapPin, School, Play, Download, Loader2, ImagePlus } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { generateEvaluationExamPdf } from "@/services/reports/evaluationExamPdf";
+import { downloadEvaluationExamPdf } from "@/services/reports/evaluationExamPdf";
 import { api } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -505,21 +505,11 @@ export default function ViewEvaluation({
 
     setIsGeneratingPdf(true);
     try {
-      const grouped = groupQuestionsBySubject();
-      const subjects = Object.values(grouped).map(({ subject, questions }) => ({
-        subject,
-        questions,
-      }));
-      const cityId = evaluation.municipalities?.[0]?.id ?? null;
-
-      await generateEvaluationExamPdf({
+      await downloadEvaluationExamPdf({
         testId: evaluation.id,
-        title: evaluation.title,
-        gradeName: evaluation.grade?.name,
-        courseName: evaluation.course?.name,
-        subjects,
         includeGabarito,
-        cityId,
+        cityId: evaluation.municipalities?.[0]?.id ?? null,
+        title: evaluation.title,
       });
 
       toast({
@@ -532,7 +522,10 @@ export default function ViewEvaluation({
       console.error("Erro ao gerar PDF da prova:", error);
       toast({
         title: "Erro ao gerar PDF",
-        description: "Não foi possível gerar o PDF da prova. Tente novamente.",
+        description:
+          error instanceof Error && error.message
+            ? error.message
+            : "Não foi possível gerar o PDF da prova. Tente novamente.",
         variant: "destructive",
       });
     } finally {
