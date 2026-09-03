@@ -6,7 +6,7 @@
 import { Question, FormSection } from '../types/forms';
 
 export const questionsAlunoJovem: Question[] = [
-            { id: 'q1', texto: 'Qual é o seu sexo?', tipo: 'selecao_unica', opcoes: ['Masculino', 'Feminino', 'Não quero declarar'], obrigatoria: true },
+            { id: 'q1', texto: 'Qual é o seu sexo?', tipo: 'selecao_unica', opcoes: ['Masculino', 'Feminino', 'Não quero declarar', 'Outro'], obrigatoria: true },
             { id: 'q2', texto: 'Qual é a sua idade?', tipo: 'selecao_unica', opcoes: ['9 anos ou menos', '10 anos', '11 anos', '12 anos', '13 anos', '14 anos ou mais'], obrigatoria: true },
             { id: 'q3', texto: 'Qual a língua que seus pais falam com mais frequência em casa?', tipo: 'selecao_unica', opcoes: ['Português', 'Espanhol', 'Língua de Sinais (Libras, etc.)', 'Outra língua'], obrigatoria: true },
             { id: 'q4', texto: 'Qual é a sua cor ou raça?', tipo: 'selecao_unica', opcoes: ['Branca', 'Preta', 'Parda', 'Amarela', 'Indígena', 'Não quero declarar'], obrigatoria: true },
@@ -32,7 +32,7 @@ export const questionsAlunoJovem: Question[] = [
         ];
 
 export const questionsAlunoVelho: Question[] = [
-            { id: 'q1', texto: 'Qual é o seu sexo?', tipo: 'selecao_unica', opcoes: ['Masculino', 'Feminino', 'Não quero declarar'], obrigatoria: true },
+            { id: 'q1', texto: 'Qual é o seu sexo?', tipo: 'selecao_unica', opcoes: ['Masculino', 'Feminino', 'Não quero declarar', 'Outro'], obrigatoria: true },
             { id: 'q2', texto: 'Qual é a sua idade?', tipo: 'selecao_unica', opcoes: ['13 anos ou menos', '14 anos', '15 anos', '16 anos', '17 anos', '18 anos ou mais'], obrigatoria: true },
             { id: 'q3', texto: 'Qual a língua que seus pais falam com mais frequência em casa?', tipo: 'selecao_unica', opcoes: ['Português', 'Espanhol', 'Língua de Sinais (Libras, etc.)', 'Outra língua'], obrigatoria: true },
             { id: 'q4', texto: 'Qual é a sua cor ou raça?', tipo: 'selecao_unica', opcoes: ['Branca', 'Preta', 'Parda', 'Amarela', 'Indígena', 'Não quero declarar'], obrigatoria: true },

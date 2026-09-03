@@ -179,7 +179,7 @@ const QuestionarioList = () => {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto p-6 min-h-screen">
+      <div className="container mx-auto min-h-screen px-3 py-4 sm:p-6">
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -191,7 +191,7 @@ const QuestionarioList = () => {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6 min-h-screen">
+    <div className="container mx-auto min-h-screen space-y-4 px-3 py-4 sm:space-y-6 sm:p-6">
       {/* Header — gamificado (padrão Resultados) */}
       <div className="animate-fade-in-up space-y-1.5">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex flex-wrap items-center gap-2 sm:gap-3" id="questionarios-page-title">
@@ -206,7 +206,7 @@ const QuestionarioList = () => {
       </div>
 
       {/* Filtros */}
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
         <Button
           variant={filterStatus === 'all' ? 'default' : 'outline'}
           size="sm"
@@ -271,7 +271,7 @@ const QuestionarioList = () => {
                     : 'border-violet-200/60 dark:border-violet-500/30 bg-gradient-to-br from-violet-500/10 to-transparent hover:shadow-violet-500/20'
                 }`}
               >
-                <CardHeader className="pb-3">
+                <CardHeader className="p-4 pb-3 sm:p-6 sm:pb-3">
                   <div className="flex items-start justify-between mb-2">
                     <div className={`p-2 rounded-lg ${iconColor}`}>
                       <IconComponent className="h-5 w-5 text-white" />
@@ -286,7 +286,7 @@ const QuestionarioList = () => {
                   </CardDescription>
                 </CardHeader>
 
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-4 p-4 pt-0 sm:p-6 sm:pt-0">
                   {/* Tipo e Total de Questões */}
                   <div className="flex items-center justify-between text-sm">
                     <Badge variant="secondary" className="text-xs">
