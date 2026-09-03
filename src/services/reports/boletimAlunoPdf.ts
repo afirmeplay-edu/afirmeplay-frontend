@@ -213,20 +213,30 @@ async function drawStudentBoletim(
   const pageH = doc.internal.pageSize.getHeight();
   const contentBottom = pageH - CONTENT_BOTTOM_GAP;
   const slotWidth = (pageW - MARGIN * 2 - TABLE_GAP) / 2;
-  let y = 10;
+  const headerTop = 10;
+  let logoWidth = 0;
+  let logoBottom = headerTop;
 
   const { logo } = await loadCityBrandingForReportPdf(cityId);
   if (logo?.dataUrl && logo.iw > 0 && logo.ih > 0) {
     const { w, h } = scaledSize(logo.iw, logo.ih, 22);
-    doc.addImage(logo.dataUrl, 'PNG', pageW / 2 - w / 2, y, w, h);
-    y += h + 4;
+    logoWidth = w;
+    logoBottom = headerTop + h;
+    doc.addImage(
+      logo.dataUrl,
+      'PNG',
+      pageW - MARGIN - w,
+      headerTop,
+      w,
+      h
+    );
   }
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(...C.primary);
-  doc.text('BOLETIM DIAGNÓSTICO DO ALUNO', pageW / 2, y, { align: 'center' });
-  y += 6;
+  const titleY = headerTop + 6;
+  doc.text('BOLETIM DIAGNÓSTICO DO ALUNO', MARGIN, titleY);
 
   const lines = [
     ['AVALIAÇÃO', avaliacaoNome || labels.avaliacao],
@@ -241,6 +251,8 @@ async function drawStudentBoletim(
   ];
   if (item.aluno.matricula) lines.push(['MATRÍCULA', item.aluno.matricula]);
 
+  let y = titleY + 7;
+  const detailsWidth = pageW - MARGIN * 2 - (logoWidth > 0 ? logoWidth + 8 : 0);
   doc.setFontSize(8);
   for (const [k, v] of lines) {
     doc.setFont('helvetica', 'bold');
@@ -248,14 +260,17 @@ async function drawStudentBoletim(
     const label = `${k}: `;
     const lw = doc.getTextWidth(label);
     doc.setTextColor(...C.textDark);
-    doc.text(label, pageW / 2 - 70, y);
+    doc.text(label, MARGIN, y);
     doc.setFont('helvetica', 'normal');
-    const value = doc.splitTextToSize(String(v || '—').toUpperCase(), 140) as string[];
-    doc.text(value[0] || '—', pageW / 2 - 70 + lw, y);
+    const value = doc.splitTextToSize(
+      String(v || '—').toUpperCase(),
+      Math.max(40, detailsWidth - lw)
+    ) as string[];
+    doc.text(value[0] || '—', MARGIN + lw, y);
     y += 4.4;
   }
 
-  y += 3;
+  y = Math.max(y + 3, logoBottom + 4);
 
   const drawContinuationHeader = (): number => {
     const top = 10;
