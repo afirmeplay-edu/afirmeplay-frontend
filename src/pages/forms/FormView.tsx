@@ -3,6 +3,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { 
   ArrowLeft, 
   Users, 
@@ -22,12 +24,14 @@ import { Question, SubQuestion } from '@/types/forms';
 const FormView = () => {
   const navigate = useNavigate();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const [formTitle, setFormTitle] = useState('');
+  const [formDescription, setFormDescription] = useState('');
 
   // Dados mockados do questionário selecionado
   const formData = {
     id: '1',
-    title: 'Questionário Socioeconômico - Alunos Jovens 2024',
-    description: 'Questionário para coleta de dados socioeconômicos dos estudantes dos anos iniciais',
+    title: formTitle,
+    description: formDescription,
     type: 'aluno-jovem',
     isActive: true,
     createdAt: new Date('2024-01-15'),
@@ -79,18 +83,11 @@ const FormView = () => {
             {question.tipo === 'selecao_unica' && (
               <div className="space-y-2">
                 {question.opcoes?.map((option: string, optIndex: number) => (
-                  <label key={optIndex} className="flex flex-wrap items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-gray-100 transition-colors duration-200">
+                  <label key={optIndex} className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-gray-100 transition-colors duration-200">
                     <span className="flex items-center justify-center w-6 h-6 bg-gray-100 rounded-full text-xs font-medium text-gray-600">
                       {String.fromCharCode(65 + optIndex)}
                     </span>
                     <span className="text-sm text-gray-700">{option}</span>
-                    {option === 'Outro' && (
-                      <Input
-                        disabled
-                        className="basis-full ml-9 bg-white"
-                        placeholder="Campo de escrita exibido ao selecionar Outro"
-                      />
-                    )}
                   </label>
                 ))}
               </div>
@@ -182,9 +179,11 @@ const FormView = () => {
         <div className="flex-1 space-y-1.5">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex flex-wrap items-center gap-2 sm:gap-3">
             <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-primary shrink-0" />
-            {formData.title}
+            Visualizar Questionário
           </h1>
-          <p className="text-muted-foreground text-sm sm:text-base">{formData.description}</p>
+          <p className="text-muted-foreground text-sm sm:text-base">
+            Preencha o título e a descrição do questionário
+          </p>
         </div>
         <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
           <Badge variant={formData.isActive ? "default" : "secondary"}>
@@ -212,6 +211,27 @@ const FormView = () => {
           </div>
         </CardHeader>
         <CardContent>
+          <div className="space-y-4 mb-4">
+            <div className="space-y-2">
+              <Label htmlFor="form-view-title">Título do Formulário</Label>
+              <Input
+                id="form-view-title"
+                placeholder="Digite o título do formulário"
+                value={formTitle}
+                onChange={(e) => setFormTitle(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="form-view-description">Descrição</Label>
+              <Textarea
+                id="form-view-description"
+                placeholder="Digite a descrição do formulário (opcional)"
+                value={formDescription}
+                onChange={(e) => setFormDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <h4 className="font-medium text-foreground">Tipo</h4>

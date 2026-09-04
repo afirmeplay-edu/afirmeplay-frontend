@@ -28,17 +28,6 @@ import { Question, SubQuestion } from '@/types/forms';
 type FormResponseValue = string | number | boolean | null | undefined | FormResponses;
 type FormResponses = Record<string, FormResponseValue>;
 
-const OTHER_OPTION = 'Outro';
-const OTHER_RESPONSE_PREFIX = `${OTHER_OPTION}: `;
-
-const isOtherResponse = (value: FormResponseValue): value is string =>
-  typeof value === 'string' && (value === OTHER_OPTION || value.startsWith(OTHER_RESPONSE_PREFIX));
-
-const getOtherResponseText = (value: FormResponseValue): string =>
-  isOtherResponse(value) && value.startsWith(OTHER_RESPONSE_PREFIX)
-    ? value.slice(OTHER_RESPONSE_PREFIX.length)
-    : '';
-
 interface QuestionarioData {
   formId: string;
   title: string;
@@ -153,12 +142,7 @@ const QuestionarioRespond = () => {
     const subQuestions = question.subQuestions || question.subPerguntas || [];
     const hasSubQuestions = subQuestions.length > 0;
     
-    if (
-      response === undefined
-      || response === null
-      || response === ''
-      || (response === OTHER_OPTION && (question.options || question.opcoes || []).includes(OTHER_OPTION))
-    ) {
+    if (response === undefined || response === null || response === '') {
       return false;
     }
     
@@ -793,7 +777,6 @@ const QuestionarioRespond = () => {
           // Para questões com subperguntas, verificar se todas foram respondidas
           isEmpty = !areAllSubQuestionsAnswered(question);
         } else {
-          // Mantém a mesma regra da navegação, inclusive o texto obrigatório de "Outro".
           isEmpty = !isQuestionAnswered(question);
         }
         
@@ -1093,8 +1076,6 @@ const QuestionarioRespond = () => {
     const hasError = !!validationErrors[questionId];
 
     const currentResponse = responses[questionId];
-    const hasOtherOption = options.includes(OTHER_OPTION);
-    const selectedSingleValue = isOtherResponse(currentResponse) ? OTHER_OPTION : currentResponse;
     const sliderValue = sliderValues[questionId] ?? (question.min !== undefined ? question.min : 0);
     const optionCardClass = (isSelected: boolean) => cn(
       'flex items-start gap-3 sm:gap-4 cursor-pointer rounded-lg sm:rounded-xl border-2 p-4 sm:p-5 md:p-6 transition-all touch-manipulation',
@@ -1142,21 +1123,19 @@ const QuestionarioRespond = () => {
             {/* Seleção Única */}
             {(questionType === 'selecao_unica') && (
               <RadioGroup
-                value={typeof selectedSingleValue === 'string' ? selectedSingleValue : ''}
-                onValueChange={(value) => handleResponseChange(questionId, value, { autoAdvance: value !== OTHER_OPTION })}
+                value={typeof currentResponse === 'string' ? currentResponse : ''}
+                onValueChange={(value) => handleResponseChange(questionId, value, { autoAdvance: true })}
                 className="space-y-3 mt-6"
               >
                 {options.map((option: string, optIndex: number) => {
-                  const isSelected = option === OTHER_OPTION
-                    ? isOtherResponse(currentResponse)
-                    : currentResponse === option;
+                  const isSelected = currentResponse === option;
                   const optionId = `${questionId}-${optIndex}`;
 
                   return (
                     <div
                       key={`${option}-${optIndex}`}
-                      className={cn(optionCardClass(isSelected), option === OTHER_OPTION && 'flex-wrap')}
-                      onClick={() => handleResponseChange(questionId, option, { autoAdvance: option !== OTHER_OPTION })}
+                      className={optionCardClass(isSelected)}
+                      onClick={() => handleResponseChange(questionId, option, { autoAdvance: true })}
                     >
                       <RadioGroupItem
                         value={option}
@@ -1172,31 +1151,6 @@ const QuestionarioRespond = () => {
                       >
                         {option}
                       </Label>
-                      {option === OTHER_OPTION && isSelected && hasOtherOption && (
-                        <div
-                          className="basis-full pl-8 sm:pl-9"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <Textarea
-                            value={getOtherResponseText(currentResponse)}
-                            onChange={(event) => {
-                              const text = event.target.value;
-                              handleResponseChange(
-                                questionId,
-                                text.trim() ? `${OTHER_RESPONSE_PREFIX}${text}` : OTHER_OPTION
-                              );
-                            }}
-                            rows={3}
-                            autoFocus
-                            className="mt-2 min-h-[88px] resize-y bg-background"
-                            placeholder="Escreva como você se identifica"
-                            aria-label="Especifique a opção Outro"
-                          />
-                          <p className="mt-1.5 text-xs text-muted-foreground">
-                            Este campo é obrigatório ao selecionar Outro.
-                          </p>
-                        </div>
-                      )}
                     </div>
                   );
                 })}
