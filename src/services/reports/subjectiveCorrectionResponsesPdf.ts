@@ -4,8 +4,10 @@
  */
 import type {
   SubjectiveCorrectionMatrixResponse,
-  SubjectiveRubricValue,
+  SubjectiveRubricMark,
 } from "@/services/evaluation/subjectiveTestApi";
+import { loadCityBrandingForReportPdf } from "@/utils/pdfCityBranding";
+import { DEFAULT_RUBRIC_MARKS, rubricShortLabel } from "@/lib/subjectiveRubric";
 
 const C = {
   primary: [124, 62, 237] as [number, number, number],
@@ -17,12 +19,18 @@ const C = {
   white: [255, 255, 255] as [number, number, number],
 };
 
-const RUBRIC_SHORT: Record<SubjectiveRubricValue, string> = {
-  SIM: "S",
-  PARCIAL: "P",
-  NAO: "N",
-  BRANCO: "B",
+export type SubjectiveCorrectionPdfMeta = {
+  municipio?: string;
+  municipioId?: string | null;
+  escola?: string;
 };
+
+function prefeituraTitle(municipio: string | undefined): string {
+  const raw = String(municipio || "MUNICÍPIO").trim().toLocaleUpperCase("pt-BR");
+  if (!raw || raw === "ALL" || raw === "TODAS" || raw === "TODOS") return "PREFEITURA MUNICIPAL";
+  if (raw.startsWith("PREFEITURA")) return raw;
+  return `PREFEITURA DE ${raw}`;
+}
 
 const MARGIN = 10;
 const TOP_BAND_H = 14;
@@ -82,13 +90,20 @@ function addFooters(doc: import("jspdf").jsPDF, dataGeracao: string): void {
  * Gera e baixa PDF landscape com a tabelinha aluno × questão (S/P/N/B).
  */
 export async function generateSubjectiveCorrectionResponsesPdf(
-  matrix: SubjectiveCorrectionMatrixResponse
+  matrix: SubjectiveCorrectionMatrixResponse,
+  meta: SubjectiveCorrectionPdfMeta = {}
 ): Promise<void> {
   const { jsPDF } = await import("jspdf");
   const dataGeracao = fmtNow();
   const title = "Relatório de respostas — Avaliação subjetiva";
   const avaliacaoTitulo = matrix.subjective_test?.title || "Avaliação subjetiva";
   const turmaNome = matrix.class?.name || "Turma";
+  const marks: SubjectiveRubricMark[] =
+    matrix.rubric_marks && matrix.rubric_marks.length > 0
+      ? matrix.rubric_marks
+      : DEFAULT_RUBRIC_MARKS;
+  const shortByCode = Object.fromEntries(marks.map((m) => [m.code, rubricShortLabel(m)]));
+  const branding = await loadCityBrandingForReportPdf(meta.municipioId || null);
 
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -98,7 +113,29 @@ export async function generateSubjectiveCorrectionResponsesPdf(
   doc.rect(0, 0, pageWidth, pageHeight, "F");
   drawTopBand(doc, pageWidth, title);
 
-  let y = MARGIN + TOP_BAND_H + 4;
+  let y = MARGIN + TOP_BAND_H + 3;
+
+  if (branding.logo?.dataUrl) {
+    let logoW = 22;
+    let logoH = (branding.logo.ih * logoW) / Math.max(branding.logo.iw, 1);
+    if (logoH > 14) {
+      logoH = 14;
+      logoW = (branding.logo.iw * logoH) / Math.max(branding.logo.ih, 1);
+    }
+    doc.addImage(branding.logo.dataUrl, "PNG", (pageWidth - logoW) / 2, y, logoW, logoH);
+    y += logoH + 4;
+  }
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  doc.setTextColor(...C.textDark);
+  doc.text(prefeituraTitle(meta.municipio), pageWidth / 2, y, { align: "center" });
+  y += 4;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(...C.textGray);
+  doc.text("SECRETARIA MUNICIPAL DE EDUCAÇÃO", pageWidth / 2, y, { align: "center" });
+  y += 6;
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
@@ -109,13 +146,17 @@ export async function generateSubjectiveCorrectionResponsesPdf(
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(...C.textGray);
-  doc.text(
-    `Turma: ${turmaNome}  ·  ${matrix.students.length} aluno(s)  ·  ${matrix.questions.length} questão(ões)`,
-    MARGIN,
-    y
-  );
+  const locBits = [
+    meta.municipio ? `Município: ${meta.municipio}` : null,
+    meta.escola ? `Escola: ${meta.escola}` : null,
+    `Turma: ${turmaNome}`,
+    `${matrix.students.length} aluno(s)`,
+    `${matrix.questions.length} questão(ões)`,
+  ].filter(Boolean);
+  doc.text(locBits.join("  ·  "), MARGIN, y);
   y += 4;
-  doc.text("Legenda: S = Sim · P = Parcial · N = Não · B = Branco · — = sem lançamento", MARGIN, y);
+  const legend = marks.map((m) => `${rubricShortLabel(m)} = ${m.label}`).join(" · ");
+  doc.text(`Legenda: ${legend} · — = sem lançamento`, MARGIN, y);
   y += 6;
 
   const questions = matrix.questions || [];
@@ -207,8 +248,8 @@ export async function generateSubjectiveCorrectionResponsesPdf(
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8);
     questions.forEach((q) => {
-      const raw = student.results?.[q.id] as SubjectiveRubricValue | undefined;
-      const cell = raw ? RUBRIC_SHORT[raw] || raw : "—";
+      const raw = student.results?.[q.id];
+      const cell = raw ? shortByCode[raw] || String(raw).slice(0, 2) : "—";
       doc.setTextColor(...(raw ? C.textDark : C.textGray));
       doc.text(cell, x + qColW / 2, y + 4.5, { align: "center" });
       x += qColW;

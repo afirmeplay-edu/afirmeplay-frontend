@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, ChevronRight, School, Users } from "lucide-react";
+import { SubjectiveStatusBadge } from "@/components/evaluations/subjective/SubjectiveStatusBadge";
+import { Progress } from "@/components/ui/progress";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -106,48 +108,73 @@ const SubjectiveCorrectionPage = () => {
         <div>
           <h1 className="text-xl font-bold md:text-2xl">Correção — {test.title}</h1>
           <p className="text-sm text-muted-foreground">
-            Lance a rubrica de cada aluno (SIM / PARCIAL / NÃO / BRANCO) e finalize a turma.
+            Lance as marcações de cada aluno na grade. Turmas concluídas aparecem com o selo verde.
           </p>
         </div>
       </div>
 
       {classId ? (
-        <SubjectiveCorrectionMatrix testId={id} classId={classId} />
+        <SubjectiveCorrectionMatrix
+          testId={id}
+          classId={classId}
+          municipalityName={test.municipalities?.[0]?.name}
+          municipalityId={test.municipalities?.[0]?.id}
+          schoolName={test.schools?.[0]?.name}
+        />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-          {(test.classes || []).length === 0 ? (
+            {(test.class_progress || test.classes || []).length === 0 ? (
             <Card>
               <CardContent className="py-8 text-center text-sm text-muted-foreground">
                 Nenhuma turma vinculada a esta avaliação.
               </CardContent>
             </Card>
           ) : (
-            (test.classes || []).map((cls) => (
+            {(test.class_progress || test.classes || []).map((cls) => {
+              const progress = "status" in cls ? cls : undefined;
+              return (
               <Card
                 key={cls.id}
                 className="cursor-pointer transition-shadow hover:shadow-md"
                 onClick={() => navigate(`/app/avaliacoes-subjetivas/${id}/correcao/${cls.id}`)}
               >
                 <CardHeader className="pb-2">
-                  <CardTitle className="flex items-center justify-between text-base">
+                  <CardTitle className="flex items-center justify-between gap-2 text-base">
                     <span>{cls.name}</span>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    <div className="flex items-center gap-2">
+                      <SubjectiveStatusBadge status={progress?.status || "pendente"} />
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                  <span className="inline-flex items-center gap-1.5">
-                    <School className="h-4 w-4" />
-                    {cls.school?.name || "Escola não informada"}
-                  </span>
-                  {typeof cls.students_count === "number" && (
+                <CardContent className="space-y-3 text-sm text-muted-foreground">
+                  <div className="flex flex-wrap gap-4">
                     <span className="inline-flex items-center gap-1.5">
-                      <Users className="h-4 w-4" />
-                      {cls.students_count} alunos
+                      <School className="h-4 w-4" />
+                      {("school" in cls && cls.school?.name) || "Escola não informada"}
                     </span>
+                    {typeof cls.students_count === "number" && (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Users className="h-4 w-4" />
+                        {cls.students_count} alunos
+                      </span>
+                    )}
+                  </div>
+                  {typeof progress?.pct === "number" && (
+                    <div>
+                      <div className="mb-1 flex justify-between text-[11px]">
+                        <span>Marcações lançadas</span>
+                        <span>
+                          {progress.filled_cells}/{progress.expected_cells} ({progress.pct}%)
+                        </span>
+                      </div>
+                      <Progress value={progress.pct} className="h-2" />
+                    </div>
                   )}
                 </CardContent>
               </Card>
-            ))
+              );
+            })}
           )}
         </div>
       )}

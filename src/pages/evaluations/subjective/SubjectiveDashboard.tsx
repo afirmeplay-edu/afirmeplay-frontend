@@ -7,6 +7,15 @@ import {
   Cell,
   LabelList,
   Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -34,16 +43,10 @@ import {
 import { generateSubjectiveDashboardPdf } from "@/services/reports/subjectiveDashboardPdf";
 import { generateSubjectiveCorrectionResponsesPdf } from "@/services/reports/subjectiveCorrectionResponsesPdf";
 import { RUBRIC_COLORS, SAEB_LEVELS, saebFromLevel } from "@/lib/subjectiveSaeb";
+import { DEFAULT_RUBRIC_MARKS } from "@/lib/subjectiveRubric";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip as UiTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-
-const DISTRIBUTION_LABEL: Record<string, string> = {
-  SIM: "SIM",
-  PARCIAL: "PARCIAL",
-  NAO: "NÃO",
-  BRANCO: "BRANCO",
-};
 
 function toPickerItems(evaluations: SubjectiveFilterEvaluation[]): InstrumentPickerItem[] {
   return evaluations.map((e) => {
@@ -377,6 +380,11 @@ const SubjectiveDashboard = () => {
                 }
               : null,
         })),
+        rubric_marks: dash.rubric_marks,
+      }, {
+        municipio: municipalities.find((m) => m.id === selectedMunicipality)?.nome,
+        municipioId: selectedMunicipality !== "all" ? selectedMunicipality : null,
+        escola: selectedSchool !== "all" ? schools.find((s) => s.id === selectedSchool)?.nome : undefined,
       });
       toast({
         title: "Respostas exportadas",
@@ -394,40 +402,60 @@ const SubjectiveDashboard = () => {
     }
   };
 
+  const activeMarks = dash?.rubric_marks?.length ? dash.rubric_marks : DEFAULT_RUBRIC_MARKS;
+
   const distData = useMemo(() => {
-    if (!dash?.distribution?.length) {
-      const totals = dash?.totals;
-      if (!totals) return [];
-      const total = Object.values(totals).reduce((a, b) => a + b, 0) || 1;
-      return (["SIM", "PARCIAL", "NAO", "BRANCO"] as const).map((name) => ({
-        name: DISTRIBUTION_LABEL[name],
-        key: name,
-        value: totals[name] || 0,
-        pct: Math.round(((totals[name] || 0) / total) * 100),
-        color: RUBRIC_COLORS[name],
-      }));
-    }
-    return dash.distribution.map((d) => {
-      const key = (d.name || "").toUpperCase().replace("NÃO", "NAO") as keyof typeof RUBRIC_COLORS;
-      return {
-        name: DISTRIBUTION_LABEL[key] || d.name,
-        key,
+    if (dash?.distribution?.length) {
+      return dash.distribution.map((d) => ({
+        name: d.label || d.name,
+        key: d.code || d.name,
         value: d.value,
         pct: d.pct,
-        color: RUBRIC_COLORS[key] || "#94a3b8",
-      };
-    });
-  }, [dash]);
+        color: d.color || "#94a3b8",
+      }));
+    }
+    const totals = dash?.totals;
+    if (!totals) return [];
+    const total = Object.values(totals).reduce((a, b) => a + b, 0) || 1;
+    return activeMarks.map((m) => ({
+      name: m.label,
+      key: m.code,
+      value: totals[m.code] || 0,
+      pct: Math.round(((totals[m.code] || 0) / total) * 100),
+      color: m.color,
+    }));
+  }, [dash, activeMarks]);
 
   const chartByQuestion = useMemo(
     () =>
+      (dash?.per_question || []).map((q) => {
+        const row: Record<string, string | number> = { codigo: q.code || `Q${q.number}` };
+        for (const m of activeMarks) {
+          row[m.code] = q.counts?.[m.code] ?? (q as Record<string, number>)[m.code] ?? 0;
+        }
+        return row;
+      }),
+    [dash, activeMarks]
+  );
+
+  const radarData = useMemo(
+    () =>
       (dash?.per_question || []).map((q) => ({
-        codigo: q.code || `Q${q.number}`,
-        SIM: q.SIM,
-        PARCIAL: q.PARCIAL,
-        NAO: q.NAO,
-        BRANCO: q.BRANCO,
+        skill: q.code || `Q${q.number}`,
+        desempenho: q.hit_rate_pct,
       })),
+    [dash]
+  );
+
+  const lineData = useMemo(
+    () =>
+      (dash?.students || [])
+        .filter((s) => s.present && s.score_percentage != null)
+        .map((s, i) => ({
+          ordem: i + 1,
+          nome: s.name,
+          percentual: s.score_percentage as number,
+        })),
     [dash]
   );
 
@@ -864,11 +892,87 @@ const SubjectiveDashboard = () => {
                         <YAxis fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
                         <Tooltip contentStyle={{ borderRadius: 8 }} />
                         <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-                        <Bar dataKey="SIM" fill={RUBRIC_COLORS.SIM} radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="PARCIAL" fill={RUBRIC_COLORS.PARCIAL} radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="NAO" name="NÃO" fill={RUBRIC_COLORS.NAO} radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="BRANCO" fill={RUBRIC_COLORS.BRANCO} radius={[4, 4, 0, 0]} />
+                        {activeMarks.map((m) => (
+                          <Bar key={m.code} dataKey={m.code} name={m.label} fill={m.color} radius={[4, 4, 0, 0]} />
+                        ))}
                       </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <EmptyChart />
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-muted-foreground">Distribuição das marcações</CardTitle>
+                <p className="text-xs text-muted-foreground/80">Pizza por critério da rubrica</p>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  {distData.some((d) => d.value > 0) ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={distData} dataKey="value" nameKey="name" innerRadius={48} outerRadius={78} paddingAngle={2}>
+                          {distData.map((d) => (
+                            <Cell key={d.key} fill={d.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(v: number, n) => [`${v}`, String(n)]} />
+                        <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <EmptyChart />
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-muted-foreground">Perfil por questão</CardTitle>
+                <p className="text-xs text-muted-foreground/80">Radar do índice de acerto</p>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  {radarData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadarChart data={radarData}>
+                        <PolarGrid />
+                        <PolarAngleAxis dataKey="skill" tick={{ fontSize: 10 }} />
+                        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 10 }} />
+                        <Radar dataKey="desempenho" stroke="#7c3aed" fill="#7c3aed" fillOpacity={0.35} />
+                        <Tooltip />
+                      </RadarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <EmptyChart />
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-muted-foreground">Desempenho por aluno</CardTitle>
+                <p className="text-xs text-muted-foreground/80">Linha do percentual nesta avaliação</p>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  {lineData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={lineData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
+                        <XAxis dataKey="ordem" fontSize={11} tickLine={false} axisLine={false} />
+                        <YAxis domain={[0, 100]} fontSize={11} tickLine={false} axisLine={false} />
+                        <Tooltip
+                          formatter={(v: number) => [`${v}%`, "Índice"]}
+                          labelFormatter={(_, payload) => payload?.[0]?.payload?.nome || ""}
+                        />
+                        <Line type="monotone" dataKey="percentual" stroke="#7c3aed" strokeWidth={2} dot={{ r: 3 }} />
+                      </LineChart>
                     </ResponsiveContainer>
                   ) : (
                     <EmptyChart />
@@ -913,28 +1017,23 @@ const SubjectiveDashboard = () => {
                       </div>
                     </div>
                     <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-muted">
-                      {(["SIM", "PARCIAL", "NAO", "BRANCO"] as const).map((k) => {
-                        const pct = ((q[k] || 0) / total) * 100;
-                        return <div key={k} style={{ width: `${pct}%`, background: RUBRIC_COLORS[k] }} />;
+                      {activeMarks.map((m) => {
+                        const count = q.counts?.[m.code] ?? (q as Record<string, number>)[m.code] ?? 0;
+                        const pct = (count / total) * 100;
+                        return <div key={m.code} style={{ width: `${pct}%`, background: m.color }} />;
                       })}
                     </div>
                     <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-                      <Chip
-                        color={RUBRIC_COLORS.SIM}
-                        label={`Sim ${q.SIM} (${Math.round((q.SIM / total) * 100)}%)`}
-                      />
-                      <Chip
-                        color={RUBRIC_COLORS.PARCIAL}
-                        label={`Parcial ${q.PARCIAL} (${Math.round((q.PARCIAL / total) * 100)}%)`}
-                      />
-                      <Chip
-                        color={RUBRIC_COLORS.NAO}
-                        label={`Não ${q.NAO} (${Math.round((q.NAO / total) * 100)}%)`}
-                      />
-                      <Chip
-                        color={RUBRIC_COLORS.BRANCO}
-                        label={`Branco ${q.BRANCO} (${Math.round((q.BRANCO / total) * 100)}%)`}
-                      />
+                      {activeMarks.map((m) => {
+                        const count = q.counts?.[m.code] ?? (q as Record<string, number>)[m.code] ?? 0;
+                        return (
+                          <Chip
+                            key={m.code}
+                            color={m.color}
+                            label={`${m.label} ${count} (${Math.round((count / total) * 100)}%)`}
+                          />
+                        );
+                      })}
                     </div>
                   </div>
                 );
