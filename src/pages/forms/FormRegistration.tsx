@@ -211,9 +211,7 @@ const FormRegistration = () => {
 
   const [selectedFormType, setSelectedFormType] = useState<string | null>(null);
 
-  // Estados para informações do formulário (editáveis pelo usuário)
-  const [formTitle, setFormTitle] = useState<string>('');
-  const [formDescription, setFormDescription] = useState<string>('');
+  // Informações adicionais do formulário
   const [formInstructions, setFormInstructions] = useState<string>('');
   const [formDeadline, setFormDeadline] = useState<string>('');
 
@@ -608,21 +606,13 @@ const FormRegistration = () => {
     loadClasses();
   }, [selectedGrades, selectedSchools, selectedState, selectedMunicipality]);
 
-  // Preencher campos com valores sugeridos quando um tipo de formulário é selecionado
+  // Limpar informações adicionais quando o tipo de formulário é desmarcado
   useEffect(() => {
-    if (selectedFormType) {
-      const formData = getFormData(selectedFormType);
-      if (formData) {
-        setFormTitle(prev => prev.trim() ? prev : formData.name);
-        setFormDescription(prev => prev.trim() ? prev : (formData.description || ''));
-      }
-    } else {
-      setFormTitle('');
-      setFormDescription('');
+    if (!selectedFormType) {
       setFormInstructions('');
       setFormDeadline('');
     }
-  }, [selectedFormType, getFormData]);
+  }, [selectedFormType]);
 
   // Função para abrir editor de perguntas
   const handleOpenQuestionEditor = (formType: string) => {
@@ -773,16 +763,6 @@ const FormRegistration = () => {
       return baseQuestion;
     });
 
-    // Validar título (obrigatório)
-    if (!formTitle.trim()) {
-      toast({
-        title: "Erro",
-        description: "O título do formulário é obrigatório.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     // Validar data de expiração (obrigatória)
     if (!formDeadline.trim()) {
       toast({
@@ -803,8 +783,8 @@ const FormRegistration = () => {
 
     if (selectedGrades.length > 0) payload.selectedGrades = selectedGrades;
     if (selectedClasses.length > 0) payload.selectedClasses = selectedClasses;
-    if (formTitle.trim()) payload.title = formTitle.trim();
-    if (formDescription.trim()) payload.description = formDescription.trim();
+    payload.title = formData.name;
+    payload.description = formData.description;
     if (formInstructions.trim()) payload.instructions = formInstructions.trim();
     if (formDeadline.trim()) {
       try {
@@ -959,7 +939,7 @@ const FormRegistration = () => {
   const formDataToShow = formTypeToShow ? getFormData(formTypeToShow) : null;
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto space-y-4 px-3 py-4 sm:space-y-6 sm:p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1.5">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex flex-wrap items-center gap-2 sm:gap-3">
@@ -1270,7 +1250,7 @@ const FormRegistration = () => {
       {formTypeToShow && formDataToShow && (
         <Card className="border-2 border-blue-500">
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 <div className={`p-3 rounded-lg ${formDataToShow.color}`}>
                   <formDataToShow.icon className="h-6 w-6 text-white" />
@@ -1288,42 +1268,6 @@ const FormRegistration = () => {
             <div className="space-y-4">
               {/* Campos de informações do formulário */}
               <div className="space-y-4 border-b pb-4">
-                <div className="space-y-2">
-                  <Label htmlFor="form-title" className="text-sm font-medium">
-                    Título do Formulário <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="form-title"
-                    placeholder="Digite o título do formulário"
-                    value={formTitle}
-                    onChange={(e) => setFormTitle(e.target.value)}
-                    className="w-full"
-                  />
-                  {!formTitle.trim() && (
-                    <p className="text-xs text-muted-foreground">
-                      Sugestão: {formDataToShow.name}
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="form-description" className="text-sm font-medium">
-                    Descrição
-                  </Label>
-                  <Input
-                    id="form-description"
-                    placeholder="Digite a descrição do formulário (opcional)"
-                    value={formDescription}
-                    onChange={(e) => setFormDescription(e.target.value)}
-                    className="w-full"
-                  />
-                  {!formDescription.trim() && (
-                    <p className="text-xs text-muted-foreground">
-                      Sugestão: {formDataToShow.description}
-                    </p>
-                  )}
-                </div>
-
                 <div className="space-y-2">
                   <Label htmlFor="form-instructions" className="text-sm font-medium">
                     Instruções
@@ -1375,18 +1319,18 @@ const FormRegistration = () => {
                 </span>
               </div>
               
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Button
                   variant="outline"
                   onClick={() => handleOpenQuestionEditor(formTypeToShow)}
-                  className="flex items-center gap-2"
+                    className="flex items-center justify-center gap-2"
                 >
                   <CheckSquare className="h-4 w-4" />
                   Editar Perguntas
                 </Button>
                 <Button
                   onClick={handleSendForm}
-                  className="flex items-center gap-2"
+                  className="flex items-center justify-center gap-2"
                 >
                   <Send className="h-4 w-4" />
                   Enviar Formulário
@@ -1659,6 +1603,13 @@ const FormRegistration = () => {
                         <span className="text-sm text-foreground dark:text-gray-300">
                           {index + 1}. {opcao}
                         </span>
+                        {opcao === 'Outro' && (
+                          <Input
+                            disabled
+                            className="mt-2 bg-background"
+                            placeholder="Campo de escrita exibido ao selecionar Outro"
+                          />
+                        )}
                       </div>
                     ))}
                   </div>

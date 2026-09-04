@@ -31,7 +31,7 @@ interface StudentEvaluation {
     id: string;
     titulo: string;
     data_aplicacao: string;
-    disciplina: string;
+    disciplina: string | string[];
     serie: string;
     escola: string;
     turma?: string;
@@ -128,7 +128,8 @@ class ErrorBoundary extends React.Component<
 // Componente interno que contém a lógica principal
 function StudentDetailedResultsContent({ onBack }: StudentDetailedResultsProps) {
     const { id: evaluationId, studentId } = useParams<{ id: string; studentId: string }>();
-    const location = useLocation<{ disciplineStats?: DisciplineStatsMap }>();
+    const location = useLocation();
+    const locationState = location.state as { disciplineStats?: DisciplineStatsMap } | null;
     const { toast } = useToast();
 
     const [studentData, setStudentData] = useState<StudentData | null>(null);
@@ -143,13 +144,13 @@ function StudentDetailedResultsContent({ onBack }: StudentDetailedResultsProps) 
             return undefined;
         }
 
-        const stateStats = location.state?.disciplineStats;
+        const stateStats = locationState?.disciplineStats;
         if (stateStats && Object.keys(stateStats).length > 0) {
             return stateStats;
         }
 
         return loadBulletinStatsFromStorage<DisciplineStatsMap | undefined>(evaluationId, studentId) || undefined;
-    }, [evaluationId, studentId, location.state]);
+    }, [evaluationId, studentId, locationState]);
 
     const loadStudentData = useCallback(async () => {
         if (!evaluationId || !studentId) {

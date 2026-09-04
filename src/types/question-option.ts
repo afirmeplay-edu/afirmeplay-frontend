@@ -45,5 +45,6 @@ export interface QuestionOptionFormValue {
 export type QuestionOptionImageDisplay =
   | QuestionOptionImageApi
   | QuestionOptionImageForm
+  | string
   | null
   | undefined;

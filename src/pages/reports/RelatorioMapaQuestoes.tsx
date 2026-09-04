@@ -4,6 +4,8 @@ import {
   AlertCircle,
   BarChart3,
   BookOpen,
+  Download,
+  Eye,
   Filter,
   ListChecks,
   Loader2,
@@ -29,6 +31,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { InstrumentPickerField } from '@/components/filters';
 import {
   buildPickerContextLines,
@@ -49,16 +58,34 @@ import {
   MapaQuestoesApiService,
   reportEntityTypeForFlow,
 } from '@/services/reports/mapaQuestoesApi';
+import { generateMapaQuestoesPdf } from '@/services/reports/mapaQuestoesPdf';
+import QuestionPreview from '@/components/evaluations/questions/QuestionPreview';
+import type { Question } from '@/components/evaluations/types';
 import type {
   MapaQuestoesFilterAvaliacao,
   MapaQuestoesFilterEntity,
   MapaQuestoesFilterTurma,
   MapaQuestoesMarcacao,
+  MapaQuestoesQuestao,
   MapaQuestoesReportFlow,
   MapaQuestoesResumo,
 } from '@/types/mapa-questoes';
 
 type FilterOption = MapaQuestoesFilterEntity;
+
+function collectQuestionIds(report: MapaQuestoesResumo | null): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const bloco of report?.por_disciplina ?? []) {
+    for (const q of bloco.questoes ?? []) {
+      const id = (q.question_id || '').trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
 
 function formatNumber(value: number): string {
   return value.toLocaleString('pt-BR');
@@ -195,8 +222,13 @@ export default function RelatorioMapaQuestoes({
   const [loadingSeries, setLoadingSeries] = useState(false);
   const [loadingTurmas, setLoadingTurmas] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   const [report, setReport] = useState<MapaQuestoesResumo | null>(null);
+  const [questionById, setQuestionById] = useState<Map<string, Question>>(new Map());
+  const [questionsBatchStatus, setQuestionsBatchStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewQuestionId, setPreviewQuestionId] = useState<string | null>(null);
 
   const canGenerate =
     selectedEstado !== 'all' && selectedMunicipio !== 'all' && selectedAvaliacao !== 'all';
@@ -586,6 +618,100 @@ export default function RelatorioMapaQuestoes({
     }
   };
 
+  const handleDownloadPdf = async () => {
+    if (!report) return;
+    try {
+      setGeneratingPdf(true);
+      await generateMapaQuestoesPdf({
+        report,
+        labels: {
+          estado:
+            selectedEstado !== 'all'
+              ? estados.find((s) => s.id === selectedEstado)?.nome || selectedEstado
+              : '',
+          municipio:
+            selectedMunicipio !== 'all'
+              ? municipios.find((m) => m.id === selectedMunicipio)?.nome || selectedMunicipio
+              : '',
+          avaliacao: report.avaliacao.nome,
+          escola:
+            selectedEscola !== 'all' ? escolas.find((e) => e.id === selectedEscola)?.nome : undefined,
+          serie:
+            selectedSerie !== 'all' ? series.find((s) => s.id === selectedSerie)?.nome : undefined,
+          turma:
+            selectedTurma !== 'all'
+              ? turmas.find((t) => t.id === selectedTurma)?.label ||
+                turmas.find((t) => t.id === selectedTurma)?.nome
+              : undefined,
+        },
+        cityId: selectedMunicipio !== 'all' ? selectedMunicipio : null,
+        flow,
+      });
+      toast({
+        title: 'Relatório baixado',
+        description: 'O PDF do Mapa de questões foi salvo no seu dispositivo.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Erro ao gerar PDF',
+        description: getMapaQuestoesApiErrorMessage(error, 'Não foi possível gerar o PDF.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!report || isCartao) {
+      setQuestionById(new Map());
+      setQuestionsBatchStatus('idle');
+      setPreviewOpen(false);
+      setPreviewQuestionId(null);
+      return;
+    }
+
+    const ids = collectQuestionIds(report);
+    if (!ids.length) {
+      setQuestionById(new Map());
+      setQuestionsBatchStatus('ready');
+      return;
+    }
+
+    let cancelled = false;
+    setQuestionsBatchStatus('loading');
+    MapaQuestoesApiService.getQuestionsBatch(
+      ids,
+      selectedMunicipio !== 'all' ? selectedMunicipio : undefined
+    )
+      .then((byId) => {
+        if (cancelled) return;
+        setQuestionById(byId);
+        setQuestionsBatchStatus('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setQuestionById(new Map());
+        setQuestionsBatchStatus('error');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [report, isCartao, selectedMunicipio]);
+
+  const openQuestionPreview = (questao: MapaQuestoesQuestao) => {
+    const id = (questao.question_id || '').trim();
+    setPreviewQuestionId(id || null);
+    setPreviewOpen(true);
+  };
+
+  const previewQuestion = previewQuestionId ? questionById.get(previewQuestionId) : undefined;
+  const previewUnavailable =
+    previewOpen &&
+    questionsBatchStatus !== 'loading' &&
+    (!previewQuestionId || !previewQuestion);
+
   const isLoadingFilters =
     isLoadingHierarchy ||
     loadingEstados ||
@@ -797,19 +923,37 @@ export default function RelatorioMapaQuestoes({
 
       {report && !generating && (
         <div className="space-y-6">
-          <div>
-            <h2 className="text-lg font-semibold tracking-tight">{report.avaliacao.nome}</h2>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {disciplinaNomes.length > 0 ? (
-                disciplinaNomes.map((nome) => (
-                  <Badge key={nome} variant="secondary">
-                    {nome}
-                  </Badge>
-                ))
-              ) : (
-                <span className="text-sm text-muted-foreground">Sem disciplinas informadas</span>
-              )}
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">{report.avaliacao.nome}</h2>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {disciplinaNomes.length > 0 ? (
+                  disciplinaNomes.map((nome) => (
+                    <Badge key={nome} variant="secondary">
+                      {nome}
+                    </Badge>
+                  ))
+                ) : (
+                  <span className="text-sm text-muted-foreground">Sem disciplinas informadas</span>
+                )}
+              </div>
             </div>
+            <Button
+              onClick={() => void handleDownloadPdf()}
+              disabled={generatingPdf || !report.por_disciplina?.some((d) => d.questoes?.length)}
+            >
+              {generatingPdf ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Gerando PDF…
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4 mr-2" />
+                  Baixar PDF
+                </>
+              )}
+            </Button>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -875,6 +1019,9 @@ export default function RelatorioMapaQuestoes({
                         <TableHead className="min-w-[160px] text-foreground/80">Taxa de acertos</TableHead>
                         <TableHead className="text-foreground/80">Marcações</TableHead>
                         <TableHead className="w-[120px] text-center text-foreground/80">Sem resposta</TableHead>
+                        {!isCartao && (
+                          <TableHead className="w-[140px] text-center text-foreground/80">Ver questão</TableHead>
+                        )}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -951,6 +1098,20 @@ export default function RelatorioMapaQuestoes({
                               </span>
                             </div>
                           </TableCell>
+                          {!isCartao && (
+                            <TableCell className="text-center">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8"
+                                onClick={() => openQuestionPreview(q)}
+                              >
+                                <Eye className="h-3.5 w-3.5 mr-1.5" />
+                                Ver questão
+                              </Button>
+                            </TableCell>
+                          )}
                         </TableRow>
                         );
                       })}
@@ -966,6 +1127,44 @@ export default function RelatorioMapaQuestoes({
           ))}
         </div>
       )}
+
+      <Dialog
+        open={previewOpen}
+        onOpenChange={(open) => {
+          setPreviewOpen(open);
+          if (!open) setPreviewQuestionId(null);
+        }}
+      >
+        <DialogContent className="w-[95vw] max-w-4xl h-[90vh] max-h-[90vh] flex flex-col overflow-hidden p-0 sm:p-0">
+          <DialogHeader className="shrink-0 px-4 pt-4 pb-2 sm:px-6 sm:pt-6 border-b border-border">
+            <DialogTitle className="text-lg sm:text-xl">Visualizar questão</DialogTitle>
+            <DialogDescription>
+              Enunciado, alternativas e gabarito cadastrados no banco de questões.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pb-4 sm:px-6 sm:pb-6">
+            {questionsBatchStatus === 'loading' ? (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <Loader2 className="h-8 w-8 animate-spin mb-3" />
+                <p>Carregando questão…</p>
+              </div>
+            ) : previewQuestion ? (
+              <QuestionPreview key={previewQuestion.id} question={previewQuestion} />
+            ) : previewUnavailable ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center px-6">
+                <AlertCircle className="h-8 w-8 text-muted-foreground mb-3" />
+                <p className="text-sm font-medium text-foreground">
+                  Questão não disponível para visualização
+                </p>
+                <p className="text-sm text-muted-foreground mt-1 max-w-md">
+                  O enunciado desta questão não foi encontrado no banco (pode ter sido excluída
+                  depois da prova).
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

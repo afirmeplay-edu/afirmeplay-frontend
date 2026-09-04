@@ -1,13 +1,11 @@
 import { isAxiosError } from "axios";
 import { api } from "@/lib/api";
 import type {
-  CoverField,
   CoverFieldCatalog,
   CoverPreviewPayload,
   CoverTemplate,
   CoverTemplatePatchPayload,
 } from "@/types/cover-template";
-import { GENERIC_EXAM_COVER_FIELD_KEYS } from "@/types/cover-template";
 
 function templatesPath(testId: string) {
   return `/test/${testId}/cover-templates`;
@@ -129,33 +127,5 @@ export class CoverTemplatesApi {
       }
     );
     return ensureBlobIsFile(data, "Não foi possível gerar o preview da capa.");
-  }
-
-  static async getActive(testId: string): Promise<CoverTemplate | null> {
-    const list = await this.list(testId);
-    return list.find((item) => item.status === "active") ?? null;
-  }
-
-  /**
-   * PNG da capa ativa para o PDF da ficha: sem aluno, só título / disciplinas / série.
-   * Retorna null se não houver template ativo.
-   */
-  static async previewGenericExamCoverPng(
-    testId: string,
-    testData: CoverPreviewPayload["test_data"]
-  ): Promise<Blob | null> {
-    const active = await this.getActive(testId);
-    if (!active) return null;
-
-    const allowed = new Set<string>(GENERIC_EXAM_COVER_FIELD_KEYS);
-    const saved = Array.isArray(active.fields?.fields) ? active.fields.fields : [];
-    const fields: CoverField[] = saved.filter((field) => allowed.has(field.key));
-
-    return this.preview(testId, active.id, {
-      sample: false,
-      format: "png",
-      test_data: testData,
-      fields: { fields },
-    });
   }
 }
