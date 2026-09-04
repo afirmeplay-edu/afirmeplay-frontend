@@ -315,6 +315,7 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
           label: "Avaliação Subjetiva",
           role: ["admin", "professor", "diretor", "coordenador", "tecadm"],
           children: [
+            { icon: ClipboardList, label: "Avaliações", href: "/app/avaliacoes-subjetivas", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
             { icon: FilePlus, label: "Criar", href: "/app/avaliacoes-subjetivas/nova", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
             { icon: PencilRuler, label: "Corrigir", href: "/app/avaliacoes-subjetivas/correcao", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
             { icon: LayoutDashboard, label: "Dashboard", href: "/app/avaliacoes-subjetivas/dashboard", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },

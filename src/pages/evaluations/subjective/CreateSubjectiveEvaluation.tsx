@@ -11,12 +11,22 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
-import { ArrowLeft, Loader2, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Check } from "lucide-react";
 import {
   subjectiveTestApi,
   type SubjectiveTestPayload,
   type SubjectiveTestType,
 } from "@/services/evaluation/subjectiveTestApi";
+import { SubjectiveRubricMarksEditor } from "@/components/evaluations/subjective/SubjectiveRubricMarksEditor";
+import { DEFAULT_RUBRIC_MARKS, type SubjectiveRubricMark } from "@/lib/subjectiveRubric";
+import { cn } from "@/lib/utils";
+
+const CREATE_STEPS = [
+  { id: "dados", title: "Dados gerais", hint: "Título, disciplina e data" },
+  { id: "marcas", title: "Marcações da correção", hint: "Rótulo, sigla, cor e peso" },
+  { id: "questoes", title: "Questões e habilidades", hint: "Estrutura da prova" },
+  { id: "turma", title: "Turma avaliada", hint: "Série, escolas e turmas" },
+] as const;
 
 interface Option {
   id: string;
@@ -76,6 +86,10 @@ const CreateSubjectiveEvaluation = () => {
 
   const [numQuestions, setNumQuestions] = useState(10);
   const [questions, setQuestions] = useState<QuestionDraft[]>([]);
+  const [marks, setMarks] = useState<SubjectiveRubricMark[]>(() =>
+    DEFAULT_RUBRIC_MARKS.map((m) => ({ ...m }))
+  );
+  const [step, setStep] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -227,6 +241,9 @@ const CreateSubjectiveEvaluation = () => {
           }));
         setQuestions(qs);
         setNumQuestions(qs.length || 10);
+        if (detail.rubric_marks && detail.rubric_marks.length > 0) {
+          setMarks(detail.rubric_marks.map((m) => ({ ...m })));
+        }
 
         // Tentar descobrir o curso a partir da série
         if (detail.grade?.id) {
@@ -319,6 +336,72 @@ const CreateSubjectiveEvaluation = () => {
     return Array.from(map.entries());
   }, [availableClasses]);
 
+  const validateStep = (index: number): boolean => {
+    if (index === 0) {
+      if (!title.trim()) {
+        toast({ title: "Título obrigatório", variant: "destructive" });
+        return false;
+      }
+      if (!subjectId) {
+        toast({ title: "Selecione a disciplina", variant: "destructive" });
+        return false;
+      }
+      if (!applicationDate) {
+        toast({ title: "Informe a data de aplicação", variant: "destructive" });
+        return false;
+      }
+      return true;
+    }
+    if (index === 1) {
+      if (marks.length < 2) {
+        toast({ title: "Informe ao menos duas marcações", variant: "destructive" });
+        return false;
+      }
+      if (marks.some((m) => !m.label.trim())) {
+        toast({ title: "Preencha o rótulo de todas as marcações", variant: "destructive" });
+        return false;
+      }
+      const codes = marks.map((m) => (m.code || "").trim().toUpperCase()).filter(Boolean);
+      if (new Set(codes).size !== codes.length) {
+        toast({ title: "Siglas das marcações não podem se repetir", variant: "destructive" });
+        return false;
+      }
+      if (marks.some((m) => m.weight < 0 || m.weight > 1)) {
+        toast({ title: "O peso de cada marcação deve estar entre 0 e 1", variant: "destructive" });
+        return false;
+      }
+      return true;
+    }
+    if (index === 2) {
+      if (questions.length === 0) {
+        toast({ title: "Gere ao menos uma questão", variant: "destructive" });
+        return false;
+      }
+      if (questions.some((q) => !q.skill_description.trim())) {
+        toast({ title: "Preencha a habilidade de todas as questões", variant: "destructive" });
+        return false;
+      }
+      return true;
+    }
+    if (index === 3) {
+      if (!gradeId) {
+        toast({ title: "Selecione a série", variant: "destructive" });
+        return false;
+      }
+      if (selectedClasses.length === 0) {
+        toast({ title: "Selecione ao menos uma turma", variant: "destructive" });
+        return false;
+      }
+      return true;
+    }
+    return true;
+  };
+
+  const goNext = () => {
+    if (!validateStep(step)) return;
+    setStep((s) => Math.min(CREATE_STEPS.length - 1, s + 1));
+  };
+
   const handleSubmit = async () => {
     if (!title.trim()) {
       toast({ title: "Título obrigatório", variant: "destructive" });
@@ -348,6 +431,19 @@ const CreateSubjectiveEvaluation = () => {
       toast({ title: "Preencha a habilidade de todas as questões", variant: "destructive" });
       return;
     }
+    if (marks.length < 2) {
+      toast({ title: "Informe ao menos duas marcações", variant: "destructive" });
+      return;
+    }
+    if (marks.some((m) => !m.label.trim())) {
+      toast({ title: "Preencha o rótulo de todas as marcações", variant: "destructive" });
+      return;
+    }
+    const codes = marks.map((m) => m.code.trim().toUpperCase());
+    if (new Set(codes).size !== codes.length) {
+      toast({ title: "Siglas das marcações não podem se repetir", variant: "destructive" });
+      return;
+    }
 
     const payload: SubjectiveTestPayload = {
       title: title.trim(),
@@ -363,6 +459,13 @@ const CreateSubjectiveEvaluation = () => {
         number: i + 1,
         code: q.code.trim() || `Q${String(i + 1).padStart(2, "0")}`,
         skill_description: q.skill_description.trim(),
+      })),
+      rubric_marks: marks.map((m, i) => ({
+        code: (m.code || "").trim().toUpperCase() || `M${i + 1}`,
+        label: m.label.trim(),
+        color: m.color,
+        weight: Number.isFinite(m.weight) ? m.weight : 0,
+        sort_order: i,
       })),
     };
 
@@ -381,7 +484,7 @@ const CreateSubjectiveEvaluation = () => {
       console.error(err);
       toast({
         title: "Erro ao salvar",
-        description: err?.response?.data?.message || "Não foi possível salvar a avaliação subjetiva.",
+        description: err?.response?.data?.error || err?.response?.data?.message || "Não foi possível salvar a avaliação subjetiva.",
         variant: "destructive",
       });
     } finally {
@@ -400,7 +503,7 @@ const CreateSubjectiveEvaluation = () => {
   }
 
   return (
-    <div className="container mx-auto max-w-5xl space-y-4 px-4 py-6">
+    <div className="container mx-auto max-w-5xl space-y-5 px-4 py-6">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => navigate("/app/avaliacoes-subjetivas")}>
           <ArrowLeft className="h-4 w-4" />
@@ -410,16 +513,176 @@ const CreateSubjectiveEvaluation = () => {
             {isEdit ? "Editar avaliação subjetiva" : "Nova avaliação subjetiva"}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Cartão-resposta digital: a prova do aluno é física; aqui só a estrutura e a correção por rubrica.
+            Preencha em passos: dados, marcações, questões e turmas.
           </p>
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">1. Abrangência</CardTitle>
+      <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {CREATE_STEPS.map((item, index) => {
+          const done = index < step;
+          const current = index === step;
+          return (
+            <li key={item.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (index <= step || CREATE_STEPS.slice(0, index).every((_, i) => validateStep(i))) {
+                    setStep(index);
+                  }
+                }}
+                className={cn(
+                  "flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition-all",
+                  current && "border-primary bg-primary/5 shadow-sm",
+                  done && !current && "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/20",
+                  !current && !done && "border-border bg-card"
+                )}
+              >
+                <span
+                  className={cn(
+                    "mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold",
+                    current && "bg-primary text-primary-foreground",
+                    done && !current && "bg-emerald-500 text-white",
+                    !current && !done && "bg-muted text-muted-foreground"
+                  )}
+                >
+                  {done ? <Check className="h-3.5 w-3.5" /> : index + 1}
+                </span>
+                <span>
+                  <span className="block text-sm font-semibold">{item.title}</span>
+                  <span className="block text-[11px] text-muted-foreground">{item.hint}</span>
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+
+      {step === 0 && (
+      <Card className="overflow-hidden border-primary/20 shadow-sm">
+        <CardHeader className="bg-gradient-to-r from-primary/10 to-transparent">
+          <CardTitle className="text-base">Dados gerais</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="grid gap-3 pt-6 md:grid-cols-2">
+          <div className="space-y-2 md:col-span-2">
+            <Label>Título *</Label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex.: Diagnóstica 1º bimestre" />
+          </div>
+          <div className="space-y-2">
+            <Label>Disciplina *</Label>
+            <Select value={subjectId} onValueChange={setSubjectId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione a disciplina" />
+              </SelectTrigger>
+              <SelectContent>
+                {subjects.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Tipo *</Label>
+            <Select value={testType} onValueChange={(v) => setTestType(v as SubjectiveTestType)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="AVALIACAO">Avaliação</SelectItem>
+                <SelectItem value="SIMULADO">Simulado</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Data de aplicação *</Label>
+            <Input type="date" value={applicationDate} onChange={(e) => setApplicationDate(e.target.value)} />
+            <p className="text-xs text-muted-foreground">Somente para consulta — não dispara aplicação automática.</p>
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label>Descrição</Label>
+            <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
+          </div>
+        </CardContent>
+      </Card>
+      )}
+
+      {step === 1 && (
+      <Card className="overflow-hidden border-primary/20 shadow-sm">
+        <CardHeader className="bg-gradient-to-r from-amber-100/80 to-transparent dark:from-amber-950/40">
+          <CardTitle className="text-base">Marcações da correção</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <SubjectiveRubricMarksEditor marks={marks} onChange={setMarks} />
+        </CardContent>
+      </Card>
+      )}
+
+      {step === 2 && (
+      <Card className="overflow-hidden border-primary/20 shadow-sm">
+        <CardHeader className="bg-gradient-to-r from-sky-100/80 to-transparent dark:from-sky-950/40">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <CardTitle className="text-base">Questões e habilidades</CardTitle>
+            <div className="flex items-end gap-2">
+              <div>
+                <Label className="text-xs">Nº de questões</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={numQuestions}
+                  onChange={(e) => setNumQuestions(Number(e.target.value) || 1)}
+                  className="w-24"
+                />
+              </div>
+              <Button type="button" variant="outline" onClick={generateQuestions}>
+                Gerar Q1..Q{numQuestions}
+              </Button>
+              <Button type="button" variant="outline" onClick={addQuestion}>
+                <Plus className="mr-1 h-4 w-4" />
+                Questão
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {questions.length === 0 ? (
+            <p className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
+              Defina o número de questões e clique em <b>Gerar</b>.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {questions.map((q, i) => (
+                <div key={i} className="grid gap-2 rounded-md border p-2 md:grid-cols-[70px_100px_1fr_auto]">
+                  <Badge variant="outline" className="justify-center self-center">
+                    #{q.number}
+                  </Badge>
+                  <Input
+                    value={q.code}
+                    onChange={(e) => updateQuestion(i, { code: e.target.value })}
+                    placeholder="Q01"
+                  />
+                  <Input
+                    value={q.skill_description}
+                    onChange={(e) => updateQuestion(i, { skill_description: e.target.value })}
+                    placeholder="Digite o nome da habilidade"
+                  />
+                  <Button type="button" variant="ghost" size="icon" onClick={() => removeQuestion(i)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      )}
+
+      {step === 3 && (
+      <Card className="overflow-hidden border-primary/20 shadow-sm">
+        <CardHeader className="bg-gradient-to-r from-violet-100/80 to-transparent dark:from-violet-950/40">
+          <CardTitle className="text-base">Turma avaliada</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 pt-6">
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
               <Label>Curso *</Label>
@@ -549,119 +812,27 @@ const CreateSubjectiveEvaluation = () => {
           </div>
         </CardContent>
       </Card>
+      )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">2. Dados da avaliação</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-2">
-          <div className="space-y-2 md:col-span-2">
-            <Label>Título *</Label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex.: Diagnóstica 1º bimestre" />
-          </div>
-          <div className="space-y-2">
-            <Label>Disciplina *</Label>
-            <Select value={subjectId} onValueChange={setSubjectId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione a disciplina" />
-              </SelectTrigger>
-              <SelectContent>
-                {subjects.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Tipo *</Label>
-            <Select value={testType} onValueChange={(v) => setTestType(v as SubjectiveTestType)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="AVALIACAO">Avaliação</SelectItem>
-                <SelectItem value="SIMULADO">Simulado</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Data de aplicação *</Label>
-            <Input type="date" value={applicationDate} onChange={(e) => setApplicationDate(e.target.value)} />
-            <p className="text-xs text-muted-foreground">Somente para consulta — não dispara aplicação automática.</p>
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <Label>Descrição</Label>
-            <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <CardTitle className="text-base">3. Questões / Habilidades</CardTitle>
-            <div className="flex items-end gap-2">
-              <div>
-                <Label className="text-xs">Nº de questões</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={60}
-                  value={numQuestions}
-                  onChange={(e) => setNumQuestions(Number(e.target.value) || 1)}
-                  className="w-24"
-                />
-              </div>
-              <Button type="button" variant="outline" onClick={generateQuestions}>
-                Gerar Q1..Q{numQuestions}
-              </Button>
-              <Button type="button" variant="outline" onClick={addQuestion}>
-                <Plus className="mr-1 h-4 w-4" />
-                Questão
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {questions.length === 0 ? (
-            <p className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-              Defina o número de questões e clique em <b>Gerar</b>.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {questions.map((q, i) => (
-                <div key={i} className="grid gap-2 rounded-md border p-2 md:grid-cols-[70px_100px_1fr_auto]">
-                  <Badge variant="outline" className="justify-center self-center">
-                    #{q.number}
-                  </Badge>
-                  <Input
-                    value={q.code}
-                    onChange={(e) => updateQuestion(i, { code: e.target.value })}
-                    placeholder="Q01"
-                  />
-                  <Input
-                    value={q.skill_description}
-                    onChange={(e) => updateQuestion(i, { skill_description: e.target.value })}
-                    placeholder="Digite o nome da habilidade"
-                  />
-                  <Button type="button" variant="ghost" size="icon" onClick={() => removeQuestion(i)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="flex justify-end gap-2 pb-8">
+      <div className="flex flex-wrap justify-between gap-2 pb-8">
         <Button variant="outline" onClick={() => navigate("/app/avaliacoes-subjetivas")}>
           Cancelar
         </Button>
-        <Button onClick={handleSubmit} disabled={saving}>
-          {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {isEdit ? "Salvar alterações" : "Criar avaliação"}
-        </Button>
+        <div className="flex gap-2">
+          {step > 0 && (
+            <Button variant="outline" onClick={() => setStep((s) => s - 1)}>
+              Voltar
+            </Button>
+          )}
+          {step < CREATE_STEPS.length - 1 ? (
+            <Button onClick={goNext}>Próximo</Button>
+          ) : (
+            <Button onClick={handleSubmit} disabled={saving}>
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {isEdit ? "Salvar alterações" : "Criar avaliação"}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

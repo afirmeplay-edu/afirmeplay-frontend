@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DisciplineTag } from "@/components/ui/discipline-tag";
-import { ClipboardCheck, Eye, PencilRuler } from "lucide-react";
+import { ClipboardCheck, Eye, PencilRuler, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { REPORT_TAG_BASE } from "@/utils/report/reportTagStyles";
 import { subjectiveTestApi, type SubjectiveTest } from "@/services/evaluation/subjectiveTestApi";
+import { SubjectiveStatusBadge } from "@/components/evaluations/subjective/SubjectiveStatusBadge";
+import { Input } from "@/components/ui/input";
 
 function getTypeColor(type: string) {
   switch (type?.toUpperCase()) {
@@ -36,6 +38,8 @@ const SubjectiveCorrectionHub = () => {
   const [items, setItems] = useState<SubjectiveTest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   useEffect(() => {
     let active = true;
@@ -56,13 +60,51 @@ const SubjectiveCorrectionHub = () => {
     };
   }, []);
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return items.filter((item) => {
+      if (statusFilter !== "all" && (item.status || "pendente") !== statusFilter) return false;
+      if (!q) return true;
+      const hay = [item.title, item.subject?.name, item.grade?.name, ...(item.classes || []).map((c) => c.name)]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [items, query, statusFilter]);
+
   return (
     <div className="container mx-auto max-w-7xl space-y-6 px-4 py-6">
       <div>
         <h1 className="text-2xl font-bold">Correção</h1>
         <p className="text-sm text-muted-foreground">
-          Escolha uma avaliação subjetiva para lançar as respostas dos alunos (SIM / PARCIAL / NÃO / BRANCO).
+          Escolha uma avaliação para lançar as marcações. Turmas já concluídas ficam identificadas no próximo passo.
         </p>
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input className="pl-9" placeholder="Buscar avaliação, disciplina ou turma" value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {[
+            { id: "all", label: "Todas" },
+            { id: "pendente", label: "Rascunho" },
+            { id: "em_correcao", label: "Em correção" },
+            { id: "concluida", label: "Concluídas" },
+          ].map((f) => (
+            <Button
+              key={f.id}
+              size="sm"
+              variant={statusFilter === f.id ? "default" : "outline"}
+              className="rounded-full"
+              onClick={() => setStatusFilter(f.id)}
+            >
+              {f.label}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {loading ? (
@@ -85,7 +127,7 @@ const SubjectiveCorrectionHub = () => {
         </div>
       ) : error ? (
         <p className="text-sm text-destructive">{error}</p>
-      ) : items.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
             <PencilRuler className="h-10 w-10 text-muted-foreground" />
@@ -98,7 +140,7 @@ const SubjectiveCorrectionHub = () => {
           className="grid grid-cols-1 gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
           role="list"
         >
-          {items.map((item) => {
+          {filtered.map((item) => {
             const questionCount =
               typeof item.total_questions === "number"
                 ? item.total_questions
@@ -110,9 +152,12 @@ const SubjectiveCorrectionHub = () => {
                 <Card className="flex h-full flex-col overflow-hidden border-border/80 shadow-sm transition-shadow hover:shadow-md">
                   <CardHeader className="space-y-3 pb-3">
                     <div className="min-w-0 flex-1 space-y-1">
-                      <h3 className="line-clamp-2 text-base font-semibold leading-tight">
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="line-clamp-2 min-w-0 text-base font-semibold leading-tight">
                         {item.title}
                       </h3>
+                      <SubjectiveStatusBadge status={item.status} />
+                    </div>
                       {item.description ? (
                         <p className="line-clamp-2 text-xs text-muted-foreground">
                           {item.description}

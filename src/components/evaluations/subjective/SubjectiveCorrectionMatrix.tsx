@@ -16,23 +16,26 @@ import {
 } from "@/services/evaluation/subjectiveTestApi";
 import { generateSubjectiveCorrectionResponsesPdf } from "@/services/reports/subjectiveCorrectionResponsesPdf";
 import { cn } from "@/lib/utils";
+import { Progress } from "@/components/ui/progress";
+import {
+  DEFAULT_RUBRIC_MARKS,
+  contrastText,
+  rubricShortLabel,
+  type SubjectiveRubricMark,
+} from "@/lib/subjectiveRubric";
 
 interface SubjectiveCorrectionMatrixProps {
   testId: string;
   classId: string;
+  municipalityName?: string;
+  municipalityId?: string | null;
+  schoolName?: string;
 }
 
-const RUBRIC_OPTIONS: {
-  value: SubjectiveRubricValue;
-  label: string;
-  title: string;
-  activeClass: string;
-}[] = [
-  { value: "SIM", label: "S", title: "Sim", activeClass: "bg-green-500 text-white border-green-500 shadow-sm scale-105" },
-  { value: "PARCIAL", label: "P", title: "Parcial", activeClass: "bg-yellow-400 text-white border-yellow-400 shadow-sm scale-105" },
-  { value: "NAO", label: "N", title: "Não", activeClass: "bg-red-500 text-white border-red-500 shadow-sm scale-105" },
-  { value: "BRANCO", label: "B", title: "Branco", activeClass: "bg-slate-400 text-white border-slate-400 shadow-sm scale-105" },
-];
+function marksFromData(marks?: SubjectiveRubricMark[] | null): SubjectiveRubricMark[] {
+  if (marks && marks.length > 0) return marks;
+  return DEFAULT_RUBRIC_MARKS;
+}
 
 function cellKey(questionId: string, studentId: string) {
   return `${questionId}::${studentId}`;
@@ -89,7 +92,13 @@ function formatPct(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrectionMatrixProps) {
+export function SubjectiveCorrectionMatrix({
+  testId,
+  classId,
+  municipalityName,
+  municipalityId,
+  schoolName,
+}: SubjectiveCorrectionMatrixProps) {
   const { toast } = useToast();
   const [data, setData] = useState<SubjectiveCorrectionMatrixResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -196,6 +205,7 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
   }, [testId, classId]);
 
   const totalQuestions = data?.questions.length ?? 0;
+  const rubricMarks = marksFromData(data?.rubric_marks);
 
   const handleRubricClick = async (
     questionId: string,
@@ -330,7 +340,11 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
     if (!data) return;
     try {
       setExporting(true);
-      await generateSubjectiveCorrectionResponsesPdf(data);
+      await generateSubjectiveCorrectionResponsesPdf(data, {
+        municipio: municipalityName,
+        municipioId: municipalityId || null,
+        escola: schoolName,
+      });
       toast({
         title: "Relatório exportado",
         description: "O PDF com as respostas dos alunos foi baixado.",
@@ -384,14 +398,18 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
             Turma {data.class.name} · {summary?.totalStudents ?? 0} aluno(s) · {totalQuestions} questão(ões)
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span>{summary?.presentCount ?? 0} presente(s)</span>
-            <span>·</span>
-            <span>
-              {summary?.filledCells ?? 0}/{summary?.totalCells ?? 0} lançamentos
-            </span>
-          </div>
+          <div className="flex flex-wrap items-center gap-3">
+          {summary && summary.totalCells > 0 && (
+            <div className="min-w-[180px]">
+              <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
+                <span>
+                  {summary.filledCells}/{summary.totalCells} marcações
+                </span>
+                <span>{Math.round((summary.filledCells / summary.totalCells) * 100)}%</span>
+              </div>
+              <Progress value={(summary.filledCells / summary.totalCells) * 100} className="h-2" />
+            </div>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -407,8 +425,7 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
         <span>
-          Clique em <b>S</b> (Sim), <b>P</b> (Parcial), <b>N</b> (Não) ou <b>B</b> (Branco). Clique de novo no mesmo valor
-          para remover. Aluno ausente bloqueia as respostas. O índice ao fim da linha vem do servidor após cada lançamento.
+          Clique na sigla da marcação. Clique de novo no mesmo valor para remover. Aluno ausente bloqueia as respostas.
         </span>
         <div className="flex flex-wrap items-center gap-1.5">
           {SAEB_LEGEND.map((level) => (
@@ -509,24 +526,27 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
                         {isSaving ? (
                           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                         ) : (
-                          RUBRIC_OPTIONS.map((option) => {
-                            const active = value === option.value;
+                          rubricMarks.map((option) => {
+                            const active = value === option.code;
                             return (
                               <button
-                                key={option.value}
+                                key={option.code}
                                 type="button"
-                                title={option.title}
+                                title={`${option.label} (peso ${option.weight})`}
                                 disabled={!student.present}
-                                onClick={() => handleRubricClick(q.id, student.id, value, option.value)}
+                                onClick={() => handleRubricClick(q.id, student.id, value, option.code)}
                                 className={cn(
-                                  "h-7 w-7 rounded-md border text-[11px] font-bold transition-all",
-                                  active
-                                    ? option.activeClass
-                                    : "border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground",
+                                  "h-7 min-w-7 rounded-md border px-1 text-[11px] font-bold transition-all",
+                                  active ? "scale-105 shadow-sm" : "border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground",
                                   !student.present && "cursor-not-allowed"
                                 )}
+                                style={
+                                  active
+                                    ? { background: option.color, color: contrastText(option.color), borderColor: option.color }
+                                    : undefined
+                                }
                               >
-                                {option.label}
+                                {rubricShortLabel(option)}
                               </button>
                             );
                           })
@@ -592,17 +612,15 @@ export function SubjectiveCorrectionMatrix({ testId, classId }: SubjectiveCorrec
       </div>
 
       <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        {RUBRIC_OPTIONS.map((option) => (
-          <span key={option.value} className="flex items-center gap-1">
+        {rubricMarks.map((option) => (
+          <span key={option.code} className="flex items-center gap-1">
             <span
-              className={cn(
-                "grid h-5 w-5 place-items-center rounded border text-[10px] font-bold text-white",
-                option.activeClass
-              )}
+              className="grid h-5 min-w-5 place-items-center rounded border px-1 text-[10px] font-bold"
+              style={{ background: option.color, color: contrastText(option.color), borderColor: option.color }}
             >
-              {option.label}
+              {rubricShortLabel(option)}
             </span>
-            {option.title}
+            {option.label} ({option.weight})
           </span>
         ))}
       </div>
