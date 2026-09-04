@@ -309,6 +309,7 @@ function drawQuestionTable(
   doc: jsPDF,
   x: number,
   y: number,
+  width: number,
   title: string,
   questoes: BoletimAlunoQuestao[],
   letters: string[],

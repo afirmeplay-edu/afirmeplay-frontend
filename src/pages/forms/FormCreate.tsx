@@ -161,8 +161,6 @@ const FormCreate = () => {
   
   // Configurações do formulário
   const [formConfig, setFormConfig] = useState({
-    title: '',
-    description: '',
     targetGroups: [] as string[],
     selectedSchools: [] as string[],
     selectAllSchools: false,
@@ -512,11 +510,18 @@ const FormCreate = () => {
             {(question.tipo === 'selecao_unica' || question.type === 'selecao_unica') && (
               <div className="space-y-2">
                 {(question.opcoes || question.options)?.map((option: string, optIndex: number) => (
-                  <label key={optIndex} className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-muted transition-colors duration-200">
+                  <label key={optIndex} className="flex flex-wrap items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-muted transition-colors duration-200">
                     <span className="flex items-center justify-center w-6 h-6 bg-muted rounded-full text-xs font-medium text-muted-foreground">
                       {String.fromCharCode(65 + optIndex)}
                     </span>
                     <span className="text-sm text-foreground">{option}</span>
+                    {option === 'Outro' && (
+                      <Input
+                        disabled
+                        className="basis-full ml-9 bg-background"
+                        placeholder="Campo de escrita exibido ao selecionar Outro"
+                      />
+                    )}
                   </label>
                 ))}
               </div>
@@ -726,11 +731,6 @@ const FormCreate = () => {
   const validateForm = () => {
     const errors: Record<string, string> = {};
     
-    // Validar título
-    if (!formConfig.title.trim()) {
-      errors.title = 'Título é obrigatório';
-    }
-    
     // Validar prazo de resposta
     if (!formConfig.deadline) {
       errors.deadline = 'Prazo de resposta é obrigatório';
@@ -864,8 +864,8 @@ const FormCreate = () => {
 
       // Preparar payload
       const formPayload: any = {
-        title: formConfig.title.trim(),
-        description: formConfig.description.trim() || undefined,
+        title: formData.name,
+        description: formData.description,
         formType: formType,
         targetGroups: formConfig.targetGroups,
         isActive: formConfig.isActive,
@@ -952,9 +952,9 @@ const FormCreate = () => {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto space-y-4 px-3 py-4 sm:space-y-6 sm:p-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
         <Button 
           variant="outline" 
           size="sm"
@@ -970,7 +970,7 @@ const FormCreate = () => {
           </h1>
           <p className="text-muted-foreground text-sm sm:text-base">Configure e envie um novo questionário</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
           <Badge variant="outline" className="flex items-center gap-1">
             <Settings className="h-3 w-3" />
             {formData.name}
@@ -979,7 +979,7 @@ const FormCreate = () => {
       </div>
 
       {/* Progress Steps */}
-      <div className="flex items-center justify-center space-x-8">
+      <div className="flex items-center justify-start gap-3 overflow-x-auto pb-2 sm:justify-center sm:gap-8">
         <div className={`flex items-center gap-2 ${currentStep === 'config' ? 'text-blue-600' : 'text-gray-400'}`}>
           <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
             currentStep === 'config' ? 'bg-blue-600 text-white' : 'bg-muted'
@@ -988,7 +988,7 @@ const FormCreate = () => {
           </div>
           <span className="font-medium">Configuração</span>
         </div>
-        <div className={`w-16 h-0.5 ${currentStep === 'preview' || currentStep === 'send' ? 'bg-blue-600' : 'bg-muted'}`}></div>
+        <div className={`h-0.5 w-8 shrink-0 sm:w-16 ${currentStep === 'preview' || currentStep === 'send' ? 'bg-blue-600' : 'bg-muted'}`}></div>
         <div className={`flex items-center gap-2 ${currentStep === 'preview' ? 'text-blue-600' : 'text-gray-400'}`}>
           <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
             currentStep === 'preview' ? 'bg-blue-600 text-white' : 'bg-muted'
@@ -997,7 +997,7 @@ const FormCreate = () => {
           </div>
           <span className="font-medium">Visualização</span>
         </div>
-        <div className={`w-16 h-0.5 ${currentStep === 'send' ? 'bg-blue-600' : 'bg-muted'}`}></div>
+        <div className={`h-0.5 w-8 shrink-0 sm:w-16 ${currentStep === 'send' ? 'bg-blue-600' : 'bg-muted'}`}></div>
         <div className={`flex items-center gap-2 ${currentStep === 'send' ? 'text-blue-600' : 'text-gray-400'}`}>
           <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
             currentStep === 'send' ? 'bg-blue-600 text-white' : 'bg-muted'
@@ -1021,35 +1021,7 @@ const FormCreate = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <Label htmlFor="title">
-                  Título do Questionário <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id="title"
-                  placeholder="Ex: Questionário Socioeconômico 2024"
-                  value={formConfig.title}
-                  onChange={(e) => {
-                    setFormConfig(prev => ({ ...prev, title: e.target.value }));
-                    // Limpar erro quando o usuário começar a digitar
-                    if (validationErrors.title) {
-                      setValidationErrors(prev => {
-                        const newErrors = { ...prev };
-                        delete newErrors.title;
-                        return newErrors;
-                      });
-                    }
-                  }}
-                  className={validationErrors.title ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''}
-                />
-                {validationErrors.title && (
-                  <p className="text-sm text-red-600 flex items-center gap-1">
-                    <span className="text-red-500">⚠</span>
-                    {validationErrors.title}
-                  </p>
-                )}
-              </div>
+            <div className="grid grid-cols-1 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="deadline">
                   Prazo de Resposta <span className="text-red-500">*</span>
@@ -1078,17 +1050,6 @@ const FormCreate = () => {
                   </p>
                 )}
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="description">Descrição</Label>
-              <Textarea
-                id="description"
-                placeholder="Descreva o objetivo e importância deste questionário..."
-                value={formConfig.description}
-                onChange={(e) => setFormConfig(prev => ({ ...prev, description: e.target.value }))}
-                rows={3}
-              />
             </div>
 
             <div className="space-y-2">
@@ -1430,7 +1391,6 @@ const FormCreate = () => {
               <Button 
                 onClick={handleNextStep} 
                 disabled={
-                  !formConfig.title || 
                   !formConfig.deadline || 
                   (formType === 'secretario' 
                     ? (formConfig.selectedTecAdminUsers.length === 0 && !formConfig.selectAllTecAdminUsers)
@@ -1462,8 +1422,8 @@ const FormCreate = () => {
             <CardContent>
               <div className="space-y-4">
                 <div className="p-6 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg border">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-2">{formConfig.title}</h2>
-                  <p className="text-foreground mb-4">{formConfig.description}</p>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-2">{formData.name}</h2>
+                  <p className="text-foreground mb-4">{formData.description}</p>
                   {formConfig.instructions && (
                     <div className="p-4 bg-yellow-50 border-l-4 border-yellow-400 rounded">
                       <p className="text-sm text-yellow-800">
@@ -1589,7 +1549,7 @@ const FormCreate = () => {
               <div className="space-y-4">
                 <h3 className="font-semibold text-gray-900">Resumo do Questionário</h3>
                 <div className="space-y-2 text-sm">
-                  <div><strong>Título:</strong> {formConfig.title}</div>
+                  <div><strong>Questionário:</strong> {formData.name}</div>
                   <div><strong>Público:</strong> {formConfig.targetGroups.map(id => targetGroups.find(g => g.id === id)?.name).join(', ')}</div>
                   <div><strong>{formType === 'secretario' ? 'Usuários TecAdmin:' : 'Escolas:'}</strong> {formType === 'secretario' 
                     ? (formConfig.selectAllTecAdminUsers 
