@@ -4,6 +4,7 @@ import {
   AlertCircle,
   BarChart3,
   BookOpen,
+  Check,
   Download,
   Eye,
   Filter,
@@ -52,6 +53,7 @@ import {
   type UserHierarchyContext,
 } from '@/utils/userHierarchy';
 import { formatPercent1PtBr } from '@/utils/numberFormat';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import {
   getMapaQuestoesApiErrorMessage,
@@ -138,6 +140,63 @@ function getSemResposta(marcacoes: MapaQuestoesMarcacao[] | undefined): MapaQues
   return found ?? { alternativa: 'sem_resposta', alunos: 0, percentual: 0 };
 }
 
+function StackedPercentCount({
+  percentual,
+  countLabel,
+  percentClassName,
+  countClassName,
+}: {
+  percentual: number;
+  countLabel: string;
+  percentClassName?: string;
+  countClassName?: string;
+}) {
+  return (
+    <>
+      <span className={cn('text-sm font-semibold tabular-nums leading-tight', percentClassName)}>
+        {formatPercent1PtBr(percentual)}
+      </span>
+      <span className={cn('text-[11px] text-muted-foreground tabular-nums leading-tight', countClassName)}>
+        {countLabel}
+      </span>
+    </>
+  );
+}
+
+function HabilidadeCell({
+  codigo,
+  descricao,
+}: {
+  codigo: string;
+  descricao?: string;
+}) {
+  const code = (codigo || '').trim() || '—';
+  const desc = (descricao || '').trim();
+  const tooltipBody = desc || 'Descrição não disponível para esta habilidade.';
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          className="inline-flex cursor-help rounded-md border border-primary/15 bg-primary/5 px-2 py-0.5 font-mono text-xs text-foreground hover:bg-primary/10"
+        >
+          {code}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        className="z-50 max-w-sm p-3 bg-popover text-popover-foreground border border-border rounded-md shadow-lg"
+      >
+        <div className="space-y-1">
+          <div className="font-semibold text-sm font-mono">{code}</div>
+          <div className="text-xs leading-relaxed whitespace-pre-line">{tooltipBody}</div>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function MarcacoesCell({
   marcacoes,
   gabarito,
@@ -148,28 +207,40 @@ function MarcacoesCell({
   const items = completeMarcacoes(marcacoes, gabarito);
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-nowrap gap-1">
       {items.map((m) => {
         const isGabarito = m.alternativa.toUpperCase() === gabarito.toUpperCase();
         const isZero = m.alunos === 0 && m.percentual === 0;
+        const letter = m.alternativa.toUpperCase();
         return (
           <div
             key={m.alternativa}
-            title={`${m.alternativa}: ${formatNumber(m.alunos)} aluno(s) · ${formatPercent1PtBr(m.percentual)}`}
+            title={`${letter}: ${formatNumber(m.alunos)} aluno(s) · ${formatPercent1PtBr(m.percentual)}${
+              isGabarito ? ' · gabarito' : ''
+            }`}
             className={cn(
-              'min-w-[3.75rem] rounded-lg border px-2 py-1.5 text-center',
+              'inline-flex min-w-[3.5rem] flex-col items-center rounded-lg border px-1.5 py-1 text-center',
               isGabarito &&
-                'border-emerald-400/70 bg-emerald-500 text-white shadow-sm dark:border-emerald-500 dark:bg-emerald-600',
+                'border-2 border-emerald-600 bg-emerald-500 text-white shadow-md ring-2 ring-emerald-400/70 dark:border-emerald-400 dark:bg-emerald-600 dark:ring-emerald-400/50',
               !isGabarito && isZero && 'border-border/70 bg-muted/30 text-muted-foreground',
               !isGabarito && !isZero && 'border-primary/20 bg-primary/5 text-foreground'
             )}
           >
-            <p className={cn('text-[10px] font-semibold leading-none', isGabarito ? 'text-white/90' : 'text-muted-foreground')}>
-              {m.alternativa.toUpperCase()}
+            <p
+              className={cn(
+                'inline-flex items-center justify-center gap-0.5 text-[10px] font-bold leading-none',
+                isGabarito ? 'text-white' : 'text-muted-foreground'
+              )}
+            >
+              {isGabarito && <Check className="h-3 w-3 shrink-0" strokeWidth={3} aria-hidden />}
+              {letter}
             </p>
-            <p className="mt-0.5 text-xs font-semibold tabular-nums leading-tight">
-              {formatPercent1PtBr(m.percentual)}
-            </p>
+            <StackedPercentCount
+              percentual={m.percentual}
+              countLabel={formatNumber(m.alunos)}
+              percentClassName={cn('mt-0.5 text-xs', isGabarito && 'text-white')}
+              countClassName={isGabarito ? 'text-white/85' : undefined}
+            />
           </div>
         );
       })}
@@ -229,6 +300,7 @@ export default function RelatorioMapaQuestoes({
   const [questionsBatchStatus, setQuestionsBatchStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewQuestionId, setPreviewQuestionId] = useState<string | null>(null);
+  const [previewQuestao, setPreviewQuestao] = useState<MapaQuestoesQuestao | null>(null);
 
   const canGenerate =
     selectedEstado !== 'all' && selectedMunicipio !== 'all' && selectedAvaliacao !== 'all';
@@ -668,6 +740,7 @@ export default function RelatorioMapaQuestoes({
       setQuestionsBatchStatus('idle');
       setPreviewOpen(false);
       setPreviewQuestionId(null);
+      setPreviewQuestao(null);
       return;
     }
 
@@ -703,10 +776,21 @@ export default function RelatorioMapaQuestoes({
   const openQuestionPreview = (questao: MapaQuestoesQuestao) => {
     const id = (questao.question_id || '').trim();
     setPreviewQuestionId(id || null);
+    setPreviewQuestao(questao);
     setPreviewOpen(true);
   };
 
   const previewQuestion = previewQuestionId ? questionById.get(previewQuestionId) : undefined;
+  const previewOptionStats = (previewQuestao?.marcacoes ?? [])
+    .filter((item) => item.alternativa !== 'sem_resposta')
+    .map((item) => ({
+      letter: item.alternativa.toUpperCase(),
+      percentual: item.percentual,
+      alunos: item.alunos,
+    }));
+  const previewBlank = (previewQuestao?.marcacoes ?? []).find(
+    (item) => item.alternativa === 'sem_resposta'
+  );
   const previewUnavailable =
     previewOpen &&
     questionsBatchStatus !== 'loading' &&
@@ -950,7 +1034,7 @@ export default function RelatorioMapaQuestoes({
               ) : (
                 <>
                   <Download className="h-4 w-4 mr-2" />
-                  Baixar PDF
+                  Baixar PDF do relatório
                 </>
               )}
             </Button>
@@ -1009,7 +1093,7 @@ export default function RelatorioMapaQuestoes({
               </CardHeader>
               <CardContent className="p-0">
                 {bloco.questoes?.length ? (
-                  <Table className="border-collapse [&_th]:border [&_td]:border [&_th]:border-border [&_td]:border-border">
+                  <Table className="border-collapse [&_th]:border [&_td]:border [&_th]:border-border [&_td]:border-border [&_td]:py-2.5">
                     <TableHeader>
                       <TableRow className="bg-muted/60 hover:bg-muted/60">
                         <TableHead className="w-[72px] text-foreground/80">Questão</TableHead>
@@ -1042,30 +1126,31 @@ export default function RelatorioMapaQuestoes({
                             {q.disciplina || bloco.disciplina}
                           </TableCell>
                           <TableCell>
-                            <span className="inline-flex rounded-md border border-primary/15 bg-primary/5 px-2 py-0.5 font-mono text-xs text-foreground">
-                              {q.habilidade || '—'}
-                            </span>
+                            <HabilidadeCell
+                              codigo={q.habilidade || '—'}
+                              descricao={q.habilidade_descricao}
+                            />
                           </TableCell>
                           <TableCell className="text-center">
-                            <span className="inline-flex h-8 min-w-8 items-center justify-center rounded-md bg-emerald-500 px-2.5 text-sm font-bold text-white shadow-sm dark:bg-emerald-600">
-                              {q.gabarito || '—'}
+                            <span className="inline-flex h-8 min-w-8 items-center justify-center gap-1 rounded-md bg-emerald-500 px-2.5 text-sm font-bold text-white shadow-md ring-2 ring-emerald-300/80 dark:bg-emerald-600 dark:ring-emerald-400/50">
+                              {q.gabarito ? (
+                                <>
+                                  <Check className="h-3.5 w-3.5 shrink-0" strokeWidth={3} aria-hidden />
+                                  {q.gabarito}
+                                </>
+                              ) : (
+                                '—'
+                              )}
                             </span>
                           </TableCell>
                           <TableCell>
-                            <div className="min-w-[140px] space-y-1.5">
-                              <div className="flex items-baseline justify-between gap-2">
-                                <span
-                                  className={cn(
-                                    'text-sm font-semibold tabular-nums',
-                                    taxaAcertosClass(q.taxa_acertos.percentual)
-                                  )}
-                                >
-                                  {formatPercent1PtBr(q.taxa_acertos.percentual)}
-                                </span>
-                                <span className="text-[11px] text-muted-foreground tabular-nums">
-                                  {formatNumber(q.taxa_acertos.acertaram)} de{' '}
-                                  {formatNumber(q.taxa_acertos.total)}
-                                </span>
+                            <div className="min-w-[100px] space-y-1.5">
+                              <div className="flex flex-col items-start leading-tight">
+                                <StackedPercentCount
+                                  percentual={q.taxa_acertos.percentual}
+                                  countLabel={`${formatNumber(q.taxa_acertos.acertaram)} de ${formatNumber(q.taxa_acertos.total)}`}
+                                  percentClassName={taxaAcertosClass(q.taxa_acertos.percentual)}
+                                />
                               </div>
                               <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                                 <div
@@ -1090,12 +1175,10 @@ export default function RelatorioMapaQuestoes({
                                   : 'border-border bg-muted/60 text-foreground'
                               )}
                             >
-                              <span className="text-sm font-semibold tabular-nums leading-tight">
-                                {formatPercent1PtBr(semResposta.percentual)}
-                              </span>
-                              <span className="text-[11px] text-muted-foreground tabular-nums">
-                                {formatNumber(semResposta.alunos)}
-                              </span>
+                              <StackedPercentCount
+                                percentual={semResposta.percentual}
+                                countLabel={formatNumber(semResposta.alunos)}
+                              />
                             </div>
                           </TableCell>
                           {!isCartao && (
@@ -1132,14 +1215,17 @@ export default function RelatorioMapaQuestoes({
         open={previewOpen}
         onOpenChange={(open) => {
           setPreviewOpen(open);
-          if (!open) setPreviewQuestionId(null);
+          if (!open) {
+            setPreviewQuestionId(null);
+            setPreviewQuestao(null);
+          }
         }}
       >
         <DialogContent className="w-[95vw] max-w-4xl h-[90vh] max-h-[90vh] flex flex-col overflow-hidden p-0 sm:p-0">
           <DialogHeader className="shrink-0 px-4 pt-4 pb-2 sm:px-6 sm:pt-6 border-b border-border">
             <DialogTitle className="text-lg sm:text-xl">Visualizar questão</DialogTitle>
             <DialogDescription>
-              Enunciado, alternativas e gabarito cadastrados no banco de questões.
+              Enunciado, alternativas, gabarito e percentual de marcações no recorte filtrado.
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pb-4 sm:px-6 sm:pb-6">
@@ -1149,7 +1235,29 @@ export default function RelatorioMapaQuestoes({
                 <p>Carregando questão…</p>
               </div>
             ) : previewQuestion ? (
-              <QuestionPreview key={previewQuestion.id} question={previewQuestion} />
+              <QuestionPreview
+                key={previewQuestion.id}
+                question={previewQuestion}
+                optionStats={previewOptionStats}
+                correctRate={
+                  previewQuestao
+                    ? {
+                        percentual: previewQuestao.taxa_acertos.percentual,
+                        acertaram: previewQuestao.taxa_acertos.acertaram,
+                        total: previewQuestao.taxa_acertos.total,
+                      }
+                    : undefined
+                }
+                blankResponses={
+                  previewBlank
+                    ? {
+                        letter: 'sem_resposta',
+                        percentual: previewBlank.percentual,
+                        alunos: previewBlank.alunos,
+                      }
+                    : undefined
+                }
+              />
             ) : previewUnavailable ? (
               <div className="flex flex-col items-center justify-center py-16 text-center px-6">
                 <AlertCircle className="h-8 w-8 text-muted-foreground mb-3" />

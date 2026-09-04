@@ -66,6 +66,8 @@ export type MapaQuestoesQuestao = {
   disciplina: string;
   disciplina_id: string;
   habilidade: string;
+  /** Descrição completa da habilidade (tooltip no mapa). */
+  habilidade_descricao?: string;
   gabarito: string;
   taxa_acertos: MapaQuestoesTaxaAcertos;
   marcacoes: MapaQuestoesMarcacao[];
