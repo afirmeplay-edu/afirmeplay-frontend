@@ -70,6 +70,8 @@ const SubjectiveCorrectionPage = () => {
     );
   }
 
+  const classItems = test.class_progress || test.classes || [];
+
   return (
     <div className="container mx-auto space-y-6 px-2 py-4 md:px-4 md:py-6">
       <Breadcrumb>
@@ -123,58 +125,58 @@ const SubjectiveCorrectionPage = () => {
         />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-            {(test.class_progress || test.classes || []).length === 0 ? (
+          {classItems.length === 0 ? (
             <Card>
               <CardContent className="py-8 text-center text-sm text-muted-foreground">
                 Nenhuma turma vinculada a esta avaliação.
               </CardContent>
             </Card>
           ) : (
-            {(test.class_progress || test.classes || []).map((cls) => {
+            classItems.map((cls) => {
               const progress = "status" in cls ? cls : undefined;
               return (
-              <Card
-                key={cls.id}
-                className="cursor-pointer transition-shadow hover:shadow-md"
-                onClick={() => navigate(`/app/avaliacoes-subjetivas/${id}/correcao/${cls.id}`)}
-              >
-                <CardHeader className="pb-2">
-                  <CardTitle className="flex items-center justify-between gap-2 text-base">
-                    <span>{cls.name}</span>
-                    <div className="flex items-center gap-2">
-                      <SubjectiveStatusBadge status={progress?.status || "pendente"} />
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm text-muted-foreground">
-                  <div className="flex flex-wrap gap-4">
-                    <span className="inline-flex items-center gap-1.5">
-                      <School className="h-4 w-4" />
-                      {("school" in cls && cls.school?.name) || "Escola não informada"}
-                    </span>
-                    {typeof cls.students_count === "number" && (
-                      <span className="inline-flex items-center gap-1.5">
-                        <Users className="h-4 w-4" />
-                        {cls.students_count} alunos
-                      </span>
-                    )}
-                  </div>
-                  {typeof progress?.pct === "number" && (
-                    <div>
-                      <div className="mb-1 flex justify-between text-[11px]">
-                        <span>Marcações lançadas</span>
-                        <span>
-                          {progress.filled_cells}/{progress.expected_cells} ({progress.pct}%)
-                        </span>
+                <Card
+                  key={cls.id}
+                  className="cursor-pointer transition-shadow hover:shadow-md"
+                  onClick={() => navigate(`/app/avaliacoes-subjetivas/${id}/correcao/${cls.id}`)}
+                >
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center justify-between gap-2 text-base">
+                      <span>{cls.name}</span>
+                      <div className="flex items-center gap-2">
+                        <SubjectiveStatusBadge status={progress?.status || "pendente"} />
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
                       </div>
-                      <Progress value={progress.pct} className="h-2" />
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm text-muted-foreground">
+                    <div className="flex flex-wrap gap-4">
+                      <span className="inline-flex items-center gap-1.5">
+                        <School className="h-4 w-4" />
+                        {("school" in cls && cls.school?.name) || "Escola não informada"}
+                      </span>
+                      {typeof cls.students_count === "number" && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Users className="h-4 w-4" />
+                          {cls.students_count} alunos
+                        </span>
+                      )}
                     </div>
-                  )}
-                </CardContent>
-              </Card>
+                    {typeof progress?.pct === "number" && (
+                      <div>
+                        <div className="mb-1 flex justify-between text-[11px]">
+                          <span>Marcações lançadas</span>
+                          <span>
+                            {progress.filled_cells}/{progress.expected_cells} ({progress.pct}%)
+                          </span>
+                        </div>
+                        <Progress value={progress.pct} className="h-2" />
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               );
-            })}
+            })
           )}
         </div>
       )}
