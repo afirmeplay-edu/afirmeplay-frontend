@@ -68,7 +68,8 @@ export function normalizeUsersCountsReport(
     });
   }
 
-  // Complementa teachers por escola agregando os totais por turma.
+  // Garante que escolas presentes apenas em `by_class` também existam no mapa.
+  // Não soma professores por turma: isso contaria o mesmo usuário várias vezes.
   for (const row of byClass) {
     const key = schoolKey(row);
     if (key === "none") continue;
@@ -80,7 +81,6 @@ export function normalizeUsersCountsReport(
       directors: 0,
       coordinators: 0,
     };
-    prev.teachers += n(row.teachers);
     if (!prev.school_name && row.school_name) prev.school_name = row.school_name;
     if (!prev.school_id && row.school_id) prev.school_id = row.school_id;
     schoolBaseMap.set(key, prev);
@@ -223,7 +223,7 @@ export function buildSchoolScopedUsersCountsReport(
   const schoolName = schoolRow?.school_name ?? fallbackSchoolName ?? "Escola";
   const schoolDirectors = n(schoolRow?.directors);
   const schoolCoordinators = n(schoolRow?.coordinators);
-  const schoolTeachers = n(schoolRow?.teachers) || classRows.reduce((sum, row) => sum + n(row.teachers), 0);
+  const schoolTeachers = n(schoolRow?.teachers);
   const schoolStudents = n(schoolRow?.students) || classRows.reduce((sum, row) => sum + n(row.students), 0);
 
   const scopedByGrade = Array.from(gradeMap.values()).map((row) => ({

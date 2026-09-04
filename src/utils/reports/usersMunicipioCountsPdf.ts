@@ -83,7 +83,9 @@ function str(value: unknown): string {
 
 function schoolNameWithoutRepeatedPrefix(value: unknown): string {
   const original = str(value);
-  const withoutPrefix = original.replace(/^escola(?:\s+|:\s*|-\s*)/i, "").trim();
+  const withoutPrefix = original
+    .replace(/^(?:(?:escola|de)(?:\s+|:\s*|-\s*))+/i, "")
+    .trim();
   return withoutPrefix || original || "Não informada";
 }
 
@@ -92,12 +94,28 @@ function normalizeSortTokens(input: string): { numeric: number; suffix: string }
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
-  const match = cleaned.match(/^(\d+)\s*[º°oª]?\s*([a-z]+)?/i);
+  const match = cleaned.match(/^(\d+)/);
   if (!match) return { numeric: Number.MAX_SAFE_INTEGER, suffix: cleaned };
   return {
     numeric: Number(match[1]),
-    suffix: (match[2] || cleaned.replace(match[0], "")).trim(),
+    suffix: cleaned
+      .slice(match[0].length)
+      .replace(/^\s*[º°oª]\s*/i, "")
+      .trim(),
   };
+}
+
+function fullClassName(gradeName: unknown, className: unknown): string {
+  const grade = str(gradeName);
+  const classLabel = str(className);
+  if (!grade) return classLabel || "Turma não informada";
+  if (!classLabel) return grade;
+
+  const normalizedGrade = grade.toLocaleLowerCase("pt-BR");
+  const normalizedClass = classLabel.toLocaleLowerCase("pt-BR");
+  return normalizedClass.startsWith(normalizedGrade)
+    ? classLabel
+    : `${grade} ${classLabel}`;
 }
 
 function sortGradeAndClass(a: { grade_name?: string; class_name?: string }, b: { grade_name?: string; class_name?: string }): number {
@@ -340,7 +358,9 @@ export async function generateUsersMunicipioCountsPdf(args: {
     ])
   );
 
-  const byGrade = Array.isArray(args.report.by_grade) ? args.report.by_grade : [];
+  const byGrade = Array.isArray(args.report.by_grade)
+    ? [...args.report.by_grade].sort(sortGradeAndClass)
+    : [];
   addCountsTable(
     "Por série",
     ["Série", "Alunos", "Professores", "Diretores", "Coordenadores"],
@@ -459,7 +479,10 @@ export async function generateUsersMunicipioCountsPdf(args: {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(10);
         doc.setTextColor(...COLORS.primary);
-        const classTitle = doc.splitTextToSize(str(item.name) || "Turma não informada", cardW - 13) as string[];
+        const classTitle = doc.splitTextToSize(
+          fullClassName(item.gradeName, item.name),
+          cardW - 13
+        ) as string[];
         doc.text(classTitle.slice(0, 2), x + 8, y + 7, { lineHeightFactor: 1.1 });
 
         let lineY = y + titleSpace + Math.max(0, classTitle.slice(0, 2).length - 1) * 4;

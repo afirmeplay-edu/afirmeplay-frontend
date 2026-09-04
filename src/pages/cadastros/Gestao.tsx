@@ -262,6 +262,32 @@ function mergeLeadershipCountsIntoReport(
   };
 }
 
+function applyUniqueTeacherContactCount(
+  report: UsersCountsReportResponse,
+  contacts: ContactsByRole
+): UsersCountsReportResponse {
+  const uniqueTeacherEmails = new Set(
+    (contacts.professor ?? [])
+      .map((contact) => sanitizeEmail(contact.email).toLocaleLowerCase("pt-BR"))
+      .filter(Boolean)
+  );
+  if (uniqueTeacherEmails.size === 0) return report;
+
+  return {
+    ...report,
+    general: {
+      ...(report.general ?? {}),
+      teachers: uniqueTeacherEmails.size,
+    },
+    by_school: Array.isArray(report.by_school)
+      ? report.by_school.map((row) => ({
+          ...row,
+          teachers: uniqueTeacherEmails.size,
+        }))
+      : report.by_school,
+  };
+}
+
 export default function Gestao() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -829,18 +855,22 @@ export default function Gestao() {
         professor: [],
         aluno: [],
       };
-      const pushContact = (role: keyof ContactsByRole, name: string, email: string, dedupeKey: string) => {
+      const pushContact = (role: keyof ContactsByRole, name: string, email: string) => {
         if (!contacts[role]) contacts[role] = [];
-        const exists = contacts[role]!.some((item) => item.email === email || item.name === name || `${role}:${item.email}:${item.name}` === dedupeKey);
+        const normalizedEmail = email.toLocaleLowerCase("pt-BR");
+        const exists = contacts[role]!.some(
+          (item) => item.email.toLocaleLowerCase("pt-BR") === normalizedEmail
+        );
         if (!exists) contacts[role]!.push({ name, email });
       };
 
       // Otimização: usar endpoints por escola para reduzir payload.
-      const [usersRes, managersRes, studentsRes, teachersRes] = await Promise.all([
+      const [usersRes, managersRes, studentsRes, teachersRes, schoolTeachersRes] = await Promise.all([
         api.get(`/city/${cityId}/users`),
         api.get(`/managers/city/${cityId}`).catch(() => ({ data: [] })),
         api.get(`/students/school/${schoolId}`).catch(() => ({ data: [] })),
         api.get(`/teacher/school/${schoolId}`).catch(() => ({ data: [] })),
+        api.get("/school-teacher").catch(() => ({ data: { vinculos: [] } })),
       ]);
 
       const cityUsers = Array.isArray(usersRes.data?.users) ? usersRes.data.users : [];
@@ -911,9 +941,19 @@ export default function Gestao() {
       }
 
       const teacherUserIds = new Set<string>();
-      const teachersList = Array.isArray(teachersRes.data)
+      const teachersFromSchoolEndpoint = Array.isArray(teachersRes.data)
         ? teachersRes.data
-        : teachersRes.data?.data ?? teachersRes.data?.professores ?? [];
+        : teachersRes.data?.data ??
+          teachersRes.data?.professores ??
+          teachersRes.data?.teachers ??
+          [];
+      const schoolTeacherLinks = Array.isArray(schoolTeachersRes.data?.vinculos)
+        ? schoolTeachersRes.data.vinculos.filter(
+            (item: { school_id?: unknown; school?: { id?: unknown } }) =>
+              cleanText(item?.school_id ?? item?.school?.id) === schoolId
+          )
+        : [];
+      const teachersList = [...teachersFromSchoolEndpoint, ...schoolTeacherLinks];
       for (const item of teachersList) {
         const teacherData = item?.professor ?? item?.teacher ?? item;
         const teacherUser = item?.usuario ?? teacherData?.user ?? item?.user;
@@ -936,7 +976,7 @@ export default function Gestao() {
             item?.email
         );
         if (fallbackName && fallbackEmail) {
-          pushContact("professor", fallbackName, fallbackEmail, `professor:fallback:${fallbackEmail}`);
+          pushContact("professor", fallbackName, fallbackEmail);
         }
       }
 
@@ -945,10 +985,10 @@ export default function Gestao() {
         if (!userRow.id || !userRow.email || !userRow.name) continue;
         if (role === "diretor" || role === "coordenador") {
           if (managerSchoolMap.get(userRow.id) !== schoolId) continue;
-          pushContact(role, sanitizePersonName(userRow.name), sanitizeEmail(userRow.email), `${role}:${userRow.id}`);
+          pushContact(role, sanitizePersonName(userRow.name), sanitizeEmail(userRow.email));
         } else if (role === "professor") {
           if (!teacherUserIds.has(userRow.id)) continue;
-          pushContact("professor", sanitizePersonName(userRow.name), sanitizeEmail(userRow.email), `professor:${userRow.id}`);
+          pushContact("professor", sanitizePersonName(userRow.name), sanitizeEmail(userRow.email));
         } else if (role === "aluno") {
           if (studentSchoolMap.get(userRow.id) !== schoolId) continue;
           const hierarchy = studentHierarchyMap.get(userRow.id);
@@ -1102,10 +1142,14 @@ export default function Gestao() {
             fetchSchoolClassesForReport(schoolScope.id, finalReport),
           ])
         : [undefined, undefined];
+      const reportForPdf =
+        schoolScope && contactsByRole
+          ? applyUniqueTeacherContactCount(finalReport, contactsByRole)
+          : finalReport;
       await generateUsersMunicipioCountsPdf({
         cityId: effectiveUsersCityId,
         cityName,
-        report: finalReport,
+        report: reportForPdf,
         scope: schoolScope
           ? { type: "school", schoolName: schoolScope.name }
           : { type: "city" },
@@ -1177,10 +1221,11 @@ export default function Gestao() {
         const normalized = normalizeUsersCountsReport(reportWithLeadership);
         const scoped = buildSchoolScopedUsersCountsReport(normalized, schoolId, school.name);
         const schoolClasses = await fetchSchoolClassesForReport(schoolId, scoped);
+        const reportForPdf = applyUniqueTeacherContactCount(scoped, contactsByRole);
         await generateUsersMunicipioCountsPdf({
           cityId,
           cityName: school.city?.name ?? "Município",
-          report: scoped,
+          report: reportForPdf,
           scope: { type: "school", schoolName: school.name },
           contactsByRole,
           schoolClasses,
