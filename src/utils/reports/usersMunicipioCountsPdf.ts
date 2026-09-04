@@ -2,6 +2,7 @@ import {
   loadCityBrandingForReportPdf,
   paintLetterheadBackground,
 } from "@/utils/pdfCityBranding";
+import { getClassShiftLabel } from "@/lib/classShift";
 
 type Rgb = [number, number, number];
 type UserRoleGroup = "diretor" | "coordenador" | "professor" | "aluno";
@@ -61,6 +62,16 @@ export interface ReportContact {
 
 export type ContactsByRole = Partial<Record<UserRoleGroup, ReportContact[]>>;
 
+export interface ReportSchoolClass {
+  id?: string;
+  name: string;
+  gradeName?: string;
+  educationStageName?: string;
+  shift?: string | null;
+  students?: number;
+  teachers?: number;
+}
+
 function n(value: unknown): number {
   const num = typeof value === "number" ? value : Number(value);
   return Number.isFinite(num) ? num : 0;
@@ -68,6 +79,12 @@ function n(value: unknown): number {
 
 function str(value: unknown): string {
   return String(value ?? "").trim();
+}
+
+function schoolNameWithoutRepeatedPrefix(value: unknown): string {
+  const original = str(value);
+  const withoutPrefix = original.replace(/^escola(?:\s+|:\s*|-\s*)/i, "").trim();
+  return withoutPrefix || original || "Não informada";
 }
 
 function normalizeSortTokens(input: string): { numeric: number; suffix: string } {
@@ -102,6 +119,7 @@ export async function generateUsersMunicipioCountsPdf(args: {
   report: UsersCountsReportResponse;
   scope?: UsersReportScope;
   contactsByRole?: ContactsByRole;
+  schoolClasses?: ReportSchoolClass[];
 }): Promise<void> {
   const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
     import("jspdf"),
@@ -123,9 +141,10 @@ export async function generateUsersMunicipioCountsPdf(args: {
   const centerX = pageW / 2;
   const margin = 15;
   const scope = args.scope ?? { type: "city" as const };
+  const contextualSchoolName = schoolNameWithoutRepeatedPrefix(scope.schoolName);
   const reportLabel =
     scope.type === "school"
-      ? `DA ESCOLA ${str(scope.schoolName || "Escola").toUpperCase()}`
+      ? `DA ESCOLA ${contextualSchoolName.toUpperCase()}`
       : `DO MUNICÍPIO ${str(args.cityName || "").toUpperCase()}`;
 
   const usersBranding = await loadCityBrandingForReportPdf(args.cityId);
@@ -133,7 +152,26 @@ export async function generateUsersMunicipioCountsPdf(args: {
   const coverLetterhead = usersBranding.letterhead;
 
   const drawCover = () => {
-    const BAND_H = 58;
+    let logoW = 0;
+    let logoH = 0;
+    let logoBottom = 28;
+    if (logoAsset?.dataUrl && logoAsset.iw > 0 && logoAsset.ih > 0) {
+      logoW = 38;
+      logoH = (logoAsset.ih * logoW) / logoAsset.iw;
+      if (logoH > 18) {
+        logoW = (logoW * 18) / logoH;
+        logoH = 18;
+      }
+      logoBottom = 7 + logoH;
+    }
+
+    const titleY = Math.max(logoBottom + 5, 39);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    const reportLabelLines = doc.splitTextToSize(reportLabel, pageW - 34) as string[];
+    const reportLabelLineH = 5;
+    const BAND_H = Math.max(58, titleY + 8 + reportLabelLines.length * reportLabelLineH + 5);
+
     if (coverLetterhead) {
       paintLetterheadBackground(doc, coverLetterhead, pageW, pageH);
     } else {
@@ -143,36 +181,26 @@ export async function generateUsersMunicipioCountsPdf(args: {
     doc.setFillColor(...COLORS.primary);
     doc.rect(0, 0, pageW, BAND_H, "F");
 
-    let logoBottom = 0;
-    if (logoAsset?.dataUrl && logoAsset.iw > 0 && logoAsset.ih > 0) {
-      const desiredW = 38;
-      const desiredH = (logoAsset.ih * desiredW) / logoAsset.iw;
-      doc.addImage(logoAsset.dataUrl, "PNG", centerX - desiredW / 2, 7, desiredW, desiredH);
-      logoBottom = 7 + desiredH;
+    if (logoAsset?.dataUrl && logoW > 0 && logoH > 0) {
+      doc.addImage(logoAsset.dataUrl, "PNG", centerX - logoW / 2, 7, logoW, logoH);
     } else {
       doc.setFontSize(18);
       doc.setTextColor(...COLORS.white);
       doc.setFont("helvetica", "bold");
       doc.text("AFIRME PLAY", centerX, 22, { align: "center" });
-      logoBottom = 28;
     }
 
-    const titleY = Math.max(logoBottom + 5, BAND_H - 17);
     doc.setTextColor(...COLORS.white);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(18);
     doc.text("RELATÓRIO DE USUÁRIOS", centerX, titleY, { align: "center" });
     doc.setFontSize(12);
-    doc.text(reportLabel, centerX, titleY + 8, {
+    doc.text(reportLabelLines, centerX, titleY + 8, {
       align: "center",
+      lineHeightFactor: 1.15,
     });
 
-    let y = BAND_H + 20;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(...COLORS.textGray);
-    doc.text(`Gerado em ${new Date().toLocaleDateString("pt-BR")}`, centerX, y, { align: "center" });
-    y += 18;
+    const y = BAND_H + 10;
 
     const cardW = pageW - 40;
     const cardX = (pageW - cardW) / 2;
@@ -231,6 +259,13 @@ export async function generateUsersMunicipioCountsPdf(args: {
     const noteW = cardW - 18;
     const noteLines = doc.splitTextToSize(note, noteW);
     doc.text(noteLines, cardX + 9, noteY);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(...COLORS.textGray);
+    doc.text(`Gerado em ${new Date().toLocaleDateString("pt-BR")}`, centerX, pageH - 10, {
+      align: "center",
+    });
   };
 
   drawCover();
@@ -253,9 +288,9 @@ export async function generateUsersMunicipioCountsPdf(args: {
   const g = args.report.general ?? {};
   autoTable(doc, {
     startY: y,
-    styles: { font: "helvetica", fontSize: 10, textColor: COLORS.textDark as unknown as number[] },
-    headStyles: { fillColor: COLORS.primary as unknown as number[], textColor: COLORS.white as unknown as number[] },
-    bodyStyles: { fillColor: COLORS.white as unknown as number[] },
+    styles: { font: "helvetica", fontSize: 10, textColor: COLORS.textDark },
+    headStyles: { fillColor: COLORS.primary, textColor: COLORS.white },
+    bodyStyles: { fillColor: COLORS.white },
     head: [["Perfil", "Quantidade"]],
     body: [
       ["Alunos", n(g.students)],
@@ -279,9 +314,9 @@ export async function generateUsersMunicipioCountsPdf(args: {
     y = addSectionTitle(title, y);
     autoTable(doc, {
       startY: y,
-      styles: { font: "helvetica", fontSize: 9, textColor: COLORS.textDark as unknown as number[] },
-      headStyles: { fillColor: COLORS.primary as unknown as number[], textColor: COLORS.white as unknown as number[] },
-      bodyStyles: { fillColor: COLORS.white as unknown as number[] },
+      styles: { font: "helvetica", fontSize: 9, textColor: COLORS.textDark },
+      headStyles: { fillColor: COLORS.primary, textColor: COLORS.white },
+      bodyStyles: { fillColor: COLORS.white },
       head: [head],
       body: body.map((row) => row.map((c) => (typeof c === "number" ? String(c) : String(c ?? "")))),
       theme: "striped",
@@ -341,13 +376,17 @@ export async function generateUsersMunicipioCountsPdf(args: {
     y += 8;
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
-    doc.text(`Escola: ${schoolName}`, margin, y);
-    y += 6;
+    const schoolLines = doc.splitTextToSize(
+      `Escola: ${schoolNameWithoutRepeatedPrefix(schoolName)}`,
+      pageW - margin * 2
+    ) as string[];
+    doc.text(schoolLines, margin, y, { lineHeightFactor: 1.15 });
+    y += Math.max(6, schoolLines.length * 5);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(...COLORS.textGray);
     const cityLabel = str(args.cityName) || "Município";
-    doc.text(`Município: ${cityLabel}  |  Data: ${new Date().toLocaleDateString("pt-BR")}`, margin, y);
+    doc.text(`Município: ${cityLabel}`, margin, y);
     y += 8;
     doc.setDrawColor(...COLORS.borderLight);
     doc.setLineWidth(0.3);
@@ -360,9 +399,9 @@ export async function generateUsersMunicipioCountsPdf(args: {
     const sortedRows = [...rows].sort(sortGradeAndClass);
     autoTable(doc, {
       startY: y,
-      styles: { font: "helvetica", fontSize: 9, textColor: COLORS.textDark as unknown as number[] },
-      headStyles: { fillColor: COLORS.primary as unknown as number[], textColor: COLORS.white as unknown as number[] },
-      bodyStyles: { fillColor: COLORS.white as unknown as number[] },
+      styles: { font: "helvetica", fontSize: 9, textColor: COLORS.textDark },
+      headStyles: { fillColor: COLORS.primary, textColor: COLORS.white },
+      bodyStyles: { fillColor: COLORS.white },
       head: [["Série", "Turma", "Alunos", "Professores", "Diretores", "Coordenadores"]],
       body: sortedRows.map((r) => [
         str(r.grade_name) || "—",
@@ -380,6 +419,72 @@ export async function generateUsersMunicipioCountsPdf(args: {
       : y + 40;
   }
 
+  const schoolClasses = Array.isArray(args.schoolClasses) ? args.schoolClasses : [];
+  if (schoolClasses.length > 0) {
+    const sortedClasses = [...schoolClasses].sort((a, b) =>
+      sortGradeAndClass(
+        { grade_name: a.gradeName, class_name: a.name },
+        { grade_name: b.gradeName, class_name: b.name }
+      )
+    );
+    const cardGap = 6;
+    const cardW = (pageW - margin * 2 - cardGap) / 2;
+    const cardH = 39;
+    const titleSpace = 12;
+
+    if (y > pageH - 60) {
+      doc.addPage();
+      y = margin;
+    }
+    y = addSectionTitle("Turmas da escola", y);
+
+    for (let index = 0; index < sortedClasses.length; index += 2) {
+      if (y + cardH > pageH - margin) {
+        doc.addPage();
+        y = margin;
+        y = addSectionTitle("Turmas da escola (continuação)", y);
+      }
+
+      for (let column = 0; column < 2; column += 1) {
+        const item = sortedClasses[index + column];
+        if (!item) continue;
+        const x = margin + column * (cardW + cardGap);
+        doc.setFillColor(...COLORS.bgLight);
+        doc.setDrawColor(...COLORS.borderLight);
+        doc.setLineWidth(0.35);
+        doc.roundedRect(x, y, cardW, cardH, 2, 2, "FD");
+        doc.setFillColor(...COLORS.primary);
+        doc.rect(x, y, 3, cardH, "F");
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(...COLORS.primary);
+        const classTitle = doc.splitTextToSize(str(item.name) || "Turma não informada", cardW - 13) as string[];
+        doc.text(classTitle.slice(0, 2), x + 8, y + 7, { lineHeightFactor: 1.1 });
+
+        let lineY = y + titleSpace + Math.max(0, classTitle.slice(0, 2).length - 1) * 4;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8.5);
+        doc.setTextColor(...COLORS.textDark);
+        doc.text(`Série: ${str(item.gradeName) || "—"}`, x + 8, lineY);
+        lineY += 5;
+        if (str(item.educationStageName)) {
+          doc.text(`Curso: ${str(item.educationStageName)}`, x + 8, lineY);
+          lineY += 5;
+        }
+        doc.text(`Turno: ${getClassShiftLabel(item.shift)}`, x + 8, lineY);
+        lineY += 5;
+        doc.text(
+          `Professores: ${n(item.teachers)}   |   Alunos: ${n(item.students)}`,
+          x + 8,
+          lineY
+        );
+      }
+      y += cardH + cardGap;
+    }
+    y += 6;
+  }
+
   const contactRoleLabels: Array<{ key: UserRoleGroup; label: string }> = [
     { key: "diretor", label: "Diretores" },
     { key: "coordenador", label: "Coordenadores" },
@@ -390,35 +495,84 @@ export async function generateUsersMunicipioCountsPdf(args: {
   if (args.contactsByRole) {
     for (const roleItem of contactRoleLabels) {
       const list = (args.contactsByRole[roleItem.key] ?? []).filter((c) => str(c.name) || str(c.email));
-      const sortedList = [...list].sort((a, b) =>
-        str(a.name).localeCompare(str(b.name), "pt-BR", { sensitivity: "base" })
-      );
+      const sortedList = [...list].sort((a, b) => {
+        if (roleItem.key === "aluno") {
+          const byClass = sortGradeAndClass(
+            { grade_name: a.gradeName, class_name: a.className },
+            { grade_name: b.gradeName, class_name: b.className }
+          );
+          if (byClass !== 0) return byClass;
+        }
+        return str(a.name).localeCompare(str(b.name), "pt-BR", { sensitivity: "base" });
+      });
       if (sortedList.length === 0) continue;
+
+      if (roleItem.key === "aluno") {
+        const groupedStudents = new Map<string, ReportContact[]>();
+        for (const student of sortedList) {
+          const gradeName = str(student.gradeName);
+          const className = str(student.className);
+          const key = `${gradeName}\u0000${className}`;
+          const group = groupedStudents.get(key) ?? [];
+          group.push(student);
+          groupedStudents.set(key, group);
+        }
+
+        for (const [key, students] of groupedStudents) {
+          const [gradeName, className] = key.split("\u0000");
+          const normalizedGrade = gradeName.toLocaleLowerCase("pt-BR");
+          const normalizedClass = className.toLocaleLowerCase("pt-BR");
+          const groupLabel =
+            gradeName && className
+              ? normalizedClass.startsWith(normalizedGrade)
+                ? className
+                : `${gradeName} ${className}`
+              : gradeName || className || "Série e turma não informadas";
+
+          if (y > pageH - 60) {
+            doc.addPage();
+            y = margin;
+          }
+          y = addSectionTitle(`Contatos - Alunos - ${groupLabel}`, y);
+          autoTable(doc, {
+            startY: y,
+            styles: { font: "helvetica", fontSize: 9, textColor: COLORS.textDark },
+            headStyles: { fillColor: COLORS.primary, textColor: COLORS.white },
+            bodyStyles: { fillColor: COLORS.white },
+            head: [["#", "Nome", "E-mail"]],
+            body: students.map((item, idx) => [
+              String(idx + 1),
+              str(item.name) || "—",
+              str(item.email) || "—",
+            ]),
+            theme: "striped",
+            margin: { left: margin, right: margin },
+            columnStyles: { 0: { cellWidth: 10, halign: "right" } },
+          });
+          y = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY
+            ? (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12
+            : y + 40;
+        }
+        continue;
+      }
+
       if (y > pageH - 60) {
         doc.addPage();
         y = margin;
       }
       y = addSectionTitle(`Contatos - ${roleItem.label}`, y);
-      const isStudentRole = roleItem.key === "aluno";
-
-      const body: string[][] = sortedList.map((item, idx) =>
-        isStudentRole
-          ? [
-              String(idx + 1),
-              str(item.gradeName) || "—",
-              str(item.className) || "—",
-              str(item.name) || "—",
-              str(item.email) || "—",
-            ]
-          : [String(idx + 1), str(item.name) || "—", str(item.email) || "—"]
-      );
+      const body: string[][] = sortedList.map((item, idx) => [
+        String(idx + 1),
+        str(item.name) || "—",
+        str(item.email) || "—",
+      ]);
 
       autoTable(doc, {
         startY: y,
-        styles: { font: "helvetica", fontSize: 9, textColor: COLORS.textDark as unknown as number[] },
-        headStyles: { fillColor: COLORS.primary as unknown as number[], textColor: COLORS.white as unknown as number[] },
-        bodyStyles: { fillColor: COLORS.white as unknown as number[] },
-        head: [isStudentRole ? ["#", "Série", "Turma", "Nome", "E-mail"] : ["#", "Nome", "E-mail"]],
+        styles: { font: "helvetica", fontSize: 9, textColor: COLORS.textDark },
+        headStyles: { fillColor: COLORS.primary, textColor: COLORS.white },
+        bodyStyles: { fillColor: COLORS.white },
+        head: [["#", "Nome", "E-mail"]],
         body,
         theme: "striped",
         margin: { left: margin, right: margin },
