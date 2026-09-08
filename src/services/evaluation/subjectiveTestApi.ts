@@ -101,6 +101,7 @@ export interface SubjectiveCorrectionTestInfo {
   id: string;
   title: string;
   test_type: string;
+  subject?: SubjectiveTestEntityRef | null;
 }
 
 export interface SubjectiveCorrectionClassInfo {
@@ -282,6 +283,7 @@ export interface SubjectiveDashboardResponse {
     id: string;
     title: string;
     test_type: string;
+    subject?: SubjectiveTestEntityRef | null;
   };
   filters: {
     class_id: string | null;
@@ -315,6 +317,8 @@ export interface SubjectiveFilterEvaluation {
   test_type?: string | null;
   grade_id?: string | null;
   subject_id?: string | null;
+  subject?: SubjectiveTestEntityRef | null;
+  disciplina?: string | null;
 }
 
 /** Query de GET /subjective-tests/opcoes-filtros */
@@ -365,12 +369,29 @@ function normalizeFilterEvaluations(raw: unknown): SubjectiveFilterEvaluation[] 
       const obj = item as Record<string, unknown>;
       const id = obj.id != null ? String(obj.id) : "";
       if (!id) return null;
+      const subjectRaw = obj.subject;
+      let subject: SubjectiveTestEntityRef | null = null;
+      if (subjectRaw && typeof subjectRaw === "object") {
+        const s = subjectRaw as Record<string, unknown>;
+        if (s.id != null) {
+          subject = { id: String(s.id), name: String(s.name ?? s.nome ?? "") };
+        }
+      }
+      const subjectId = obj.subject_id != null ? String(obj.subject_id) : subject?.id ?? null;
+      const disciplina =
+        obj.disciplina != null
+          ? String(obj.disciplina)
+          : subject?.name
+            ? subject.name
+            : null;
       return {
         id,
         titulo: String(obj.titulo ?? obj.title ?? obj.nome ?? obj.name ?? "Sem título"),
         test_type: obj.test_type != null ? String(obj.test_type) : null,
         grade_id: obj.grade_id != null ? String(obj.grade_id) : null,
-        subject_id: obj.subject_id != null ? String(obj.subject_id) : null,
+        subject_id: subjectId,
+        subject: subject ?? (subjectId ? { id: subjectId, name: disciplina || "" } : null),
+        disciplina,
       } satisfies SubjectiveFilterEvaluation;
     })
     .filter((e): e is SubjectiveFilterEvaluation => e != null);

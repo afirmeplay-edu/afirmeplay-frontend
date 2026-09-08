@@ -44,19 +44,30 @@ import { generateSubjectiveDashboardPdf } from "@/services/reports/subjectiveDas
 import { generateSubjectiveCorrectionResponsesPdf } from "@/services/reports/subjectiveCorrectionResponsesPdf";
 import { RUBRIC_COLORS, SAEB_LEVELS, saebFromLevel } from "@/lib/subjectiveSaeb";
 import { DEFAULT_RUBRIC_MARKS } from "@/lib/subjectiveRubric";
+import { DisciplineTag } from "@/components/ui/discipline-tag";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip as UiTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
+function evaluationSubjectName(e?: SubjectiveFilterEvaluation | null): string | undefined {
+  if (!e) return undefined;
+  const fromSubject = e.subject?.name?.trim();
+  if (fromSubject) return fromSubject;
+  const fromDisciplina = e.disciplina?.trim();
+  return fromDisciplina || undefined;
+}
+
 function toPickerItems(evaluations: SubjectiveFilterEvaluation[]): InstrumentPickerItem[] {
   return evaluations.map((e) => {
-    const badge = e.test_type?.trim() || undefined;
+    const disciplina = evaluationSubjectName(e);
+    const typeBadge = e.test_type?.trim() || undefined;
+    const badges = [disciplina, typeBadge].filter((b): b is string => Boolean(b));
     return {
       id: e.id,
       label: e.titulo || "—",
-      badge,
-      badges: badge ? [badge] : [],
-      subtitle: badge,
+      badge: disciplina,
+      badges,
+      subtitle: disciplina,
     };
   });
 }
@@ -264,9 +275,16 @@ const SubjectiveDashboard = () => {
   const hitInfo = saebFromLevel(kpis?.saeb_level, kpis?.saeb_label);
   const filtersReady = selectedState !== "all" && selectedMunicipality !== "all";
   const canLoadDashboard = filtersReady && Boolean(selectedEvaluation);
+  const selectedEval = evaluations.find((e) => e.id === selectedEvaluation);
+  const selectedEvalSubjectName =
+    selectedEval ? evaluationSubjectName(selectedEval) : dash?.subjective_test?.subject?.name;
+  const selectedEvalSubjectId =
+    selectedEval?.subject?.id || selectedEval?.subject_id || dash?.subjective_test?.subject?.id;
 
   const scope = useMemo(
-    () => ({
+    () => {
+      const evalItem = evaluations.find((e) => e.id === selectedEvaluation);
+      return {
       estado: states.find((s) => s.id === selectedState)?.nome ?? "—",
       municipio: municipalities.find((m) => m.id === selectedMunicipality)?.nome ?? "—",
       escola:
@@ -277,12 +295,14 @@ const SubjectiveDashboard = () => {
         selectedGrade !== "all"
           ? grades.find((g) => g.id === selectedGrade)?.nome ?? "—"
           : "Todas",
-      avaliacao: evaluations.find((e) => e.id === selectedEvaluation)?.titulo ?? "—",
+      avaliacao: evalItem?.titulo ?? "—",
+      disciplina: evaluationSubjectName(evalItem) || dash?.subjective_test?.subject?.name || "—",
       turma:
         selectedClass !== "all"
           ? classes.find((c) => c.id === selectedClass)?.nome ?? "—"
           : "Todas",
-    }),
+    };
+    },
     [
       states,
       municipalities,
@@ -296,6 +316,7 @@ const SubjectiveDashboard = () => {
       selectedGrade,
       selectedEvaluation,
       selectedClass,
+      dash,
     ]
   );
 
@@ -634,26 +655,35 @@ const SubjectiveDashboard = () => {
               </Select>
             </div>
 
-            <InstrumentPickerField
-              label="Avaliação"
-              value={selectedEvaluation}
-              onChange={(v) => {
-                setSelectedEvaluation(v);
-                resetFromEvaluation();
-              }}
-              items={pickerItems}
-              modalItems={modalItems}
-              seriesOptions={seriesOptions}
-              disabled={loadingFilters || !filtersReady}
-              loading={loadingFilters && filtersReady}
-              placeholder="Selecione a avaliação"
-              modalTitle="Selecionar avaliação"
-              emptyMessage="Nenhuma avaliação subjetiva com correção neste recorte."
-              contextLines={contextLines}
-              contextRequiredMessage="Selecione estado e município antes de buscar."
-              onModalOpen={() => setModalSerieFiltro("all")}
-              onModalFiltersChange={({ serieFiltro }) => setModalSerieFiltro(serieFiltro)}
-            />
+            <div className="space-y-2">
+              <InstrumentPickerField
+                label="Avaliação"
+                value={selectedEvaluation}
+                onChange={(v) => {
+                  setSelectedEvaluation(v);
+                  resetFromEvaluation();
+                }}
+                items={pickerItems}
+                modalItems={modalItems}
+                seriesOptions={seriesOptions}
+                disabled={loadingFilters || !filtersReady}
+                loading={loadingFilters && filtersReady}
+                placeholder="Selecione a avaliação"
+                modalTitle="Selecionar avaliação"
+                emptyMessage="Nenhuma avaliação subjetiva com correção neste recorte."
+                contextLines={contextLines}
+                contextRequiredMessage="Selecione estado e município antes de buscar."
+                onModalOpen={() => setModalSerieFiltro("all")}
+                onModalFiltersChange={({ serieFiltro }) => setModalSerieFiltro(serieFiltro)}
+              />
+              {selectedEvalSubjectName ? (
+                <DisciplineTag
+                  subjectId={selectedEvalSubjectId}
+                  name={selectedEvalSubjectName}
+                  className="text-xs"
+                />
+              ) : null}
+            </div>
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Turma</label>
@@ -707,6 +737,7 @@ const SubjectiveDashboard = () => {
               <ScopeItem label="Município" value={scope.municipio} />
               <ScopeItem label="Escola" value={scope.escola} />
               <ScopeItem label="Série" value={scope.serie} />
+              <ScopeItem label="Disciplina" value={scope.disciplina} />
               <ScopeItem label="Turma" value={scope.turma} />
               <ScopeItem label="Avaliação" value={scope.avaliacao} />
             </div>
@@ -745,6 +776,18 @@ const SubjectiveDashboard = () => {
 
       {canLoadDashboard && !loadingDash && kpis ? (
         <>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold leading-tight">
+              {dash?.subjective_test?.title || selectedEval?.titulo}
+            </h2>
+            {(dash?.subjective_test?.subject?.name || selectedEvalSubjectName) ? (
+              <DisciplineTag
+                subjectId={dash?.subjective_test?.subject?.id || selectedEvalSubjectId}
+                name={dash?.subjective_test?.subject?.name || selectedEvalSubjectName || ""}
+                className="text-xs"
+              />
+            ) : null}
+          </div>
           <div className="grid gap-4 md:grid-cols-4">
             <KpiCard icon={<Users className="h-5 w-5" />} label="Alunos" value={kpis.total_students} />
             <ParticipationCard
