@@ -15,6 +15,7 @@ import {
   type FinalizeProcessedStudent,
 } from "@/services/evaluation/subjectiveTestApi";
 import { generateSubjectiveCorrectionResponsesPdf } from "@/services/reports/subjectiveCorrectionResponsesPdf";
+import { DisciplineTag } from "@/components/ui/discipline-tag";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -393,7 +394,16 @@ export function SubjectiveCorrectionMatrix({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 p-4">
         <div>
-          <h3 className="text-base font-semibold text-foreground">{data.subjective_test.title}</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-base font-semibold text-foreground">{data.subjective_test.title}</h3>
+            {data.subjective_test.subject?.name ? (
+              <DisciplineTag
+                subjectId={data.subjective_test.subject.id}
+                name={data.subjective_test.subject.name}
+                className="text-xs"
+              />
+            ) : null}
+          </div>
           <p className="text-sm text-muted-foreground">
             Turma {data.class.name} · {summary?.totalStudents ?? 0} aluno(s) · {totalQuestions} questão(ões)
           </p>

@@ -322,6 +322,7 @@ const CreateSubjectiveEvaluation = () => {
     });
   };
 
+  const selectAllSchools = () => setSelectedSchools([...schools]);
   const selectAllClasses = () => setSelectedClasses(availableClasses);
   const clearClasses = () => setSelectedClasses([]);
 
@@ -743,7 +744,18 @@ const CreateSubjectiveEvaluation = () => {
           </div>
 
           <div className="space-y-2">
-            <Label>Escolas ({selectedSchools.length})</Label>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label>Escolas ({selectedSchools.length})</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={selectAllSchools}
+                disabled={schools.length === 0 || schoolsLoading}
+              >
+                Selecionar todas as escolas ({schools.length})
+              </Button>
+            </div>
             <div className="max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
               {schoolsLoading && <p className="text-xs text-muted-foreground">Carregando escolas…</p>}
               {!schoolsLoading && schools.length === 0 && (
