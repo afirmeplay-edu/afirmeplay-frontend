@@ -16,6 +16,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { EvolutionData } from './EvolutionChart';
+import type { EvaluationInfo, EvolutionCompareScopeFilters } from '@/services/evaluation/evaluationComparisonApi';
+import { EvolutionEvaluationsScopeList } from './EvolutionEvaluationsScopeList';
+import { EvolutionGroupsView } from './EvolutionGroupsView';
+import { EVOLUTION_LEVEL_COLORS } from '@/utils/evolution/evolutionLevelColors';
 import {
   BarChart3,
   LineChart,
@@ -30,11 +35,9 @@ import {
   Users,
   ChevronDown,
   ChevronUp,
+  Building2,
 } from 'lucide-react';
 import { Eye, EyeOff } from 'lucide-react';
-import { EvolutionData } from './EvolutionChart';
-import type { EvaluationInfo } from '@/services/evaluation/evaluationComparisonApi';
-import { EvolutionEvaluationsScopeList } from './EvolutionEvaluationsScopeList';
 
 export interface ProcessedEvolutionData {
   /** "Geral" por etapa (notas) */
@@ -66,6 +69,12 @@ interface EvolutionChartsProps {
   onlyOverviewTab?: boolean;
   /** Lista de avaliações só com o nome (sem data/série/turmas). */
   scopeDisplayMode?: 'full' | 'title-only';
+  /** Aba inicial (hub Escola/Série/Turma abre em "groups"). */
+  defaultTab?: 'general' | 'subjects' | 'levels' | 'groups';
+  /** IDs das provas para a sub-aba de evolução por grupos. */
+  groupTestIds?: string[];
+  groupScopeFilters?: EvolutionCompareScopeFilters;
+  groupRefreshKey?: string;
 }
 
 const colors = {
@@ -344,8 +353,21 @@ function mergeByName(rows: EvolutionData[]): EvolutionDataWithDynamicKeys[] {
   return [...map.values()];
 }
 
-export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = false, instrumentLabel = 'avaliações', scopeDisplayMode = 'full' }: EvolutionChartsProps) {
-  const [activeTab, setActiveTab] = useState<'general' | 'subjects' | 'levels'>('general');
+export function EvolutionCharts({
+  data,
+  isLoading = false,
+  onlyOverviewTab = false,
+  instrumentLabel = 'avaliações',
+  scopeDisplayMode = 'full',
+  defaultTab = 'general',
+  groupTestIds,
+  groupScopeFilters,
+  groupRefreshKey,
+}: EvolutionChartsProps) {
+  const showGroupsTab = Boolean(groupTestIds && groupTestIds.length >= 2 && groupScopeFilters);
+  const initialTab =
+    defaultTab === 'groups' && !showGroupsTab ? 'general' : defaultTab;
+  const [activeTab, setActiveTab] = useState<'general' | 'subjects' | 'levels' | 'groups'>(initialTab);
   const [hiddenByChart, setHiddenByChart] = useState<Record<string, Set<string>>>({});
   const [collapsedCharts, setCollapsedCharts] = useState<Set<string>>(new Set());
 
@@ -484,68 +506,57 @@ export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = fal
     };
   }, [data.generalData]);
 
-  // Dados para gráfico de notas (aba geral)
+  // Dados para gráfico de notas (aba geral) — sempre calculados (independente da aba ativa)
   const chartData = useMemo(() => {
     const chartId = 'general-nota';
     const hidden = getHidden(chartId);
-    if (activeTab === 'general') {
-      const merged = mergeByName(data.generalData || []);
-      if (merged.length === 0) return [];
-      
-      const r = merged[0];
-      const chartDataArray: Record<string, unknown>[] = [];
-      
-      const rTyped = r as EvolutionDataWithDynamicKeys;
+    const merged = mergeByName(data.generalData || []);
+    if (merged.length === 0) return [];
 
-      // Construir dados dinamicamente para todas as avaliações
-      data.evaluationNames.forEach((evalName, index) => {
-        if (hidden.has(evalName)) return;
+    const r = merged[0];
+    const chartDataArray: Record<string, unknown>[] = [];
+    const rTyped = r as EvolutionDataWithDynamicKeys;
 
-        const etapaKey = `etapa${index + 1}`;
-        const etapaValue = safe(typeof rTyped[etapaKey] === 'number' ? rTyped[etapaKey] : undefined);
+    data.evaluationNames.forEach((evalName, index) => {
+      if (hidden.has(evalName)) return;
 
-        if (etapaValue !== undefined) {
-          // Calcular variação
-          let variacao = 0;
-          if (index > 0) {
-            const variacaoKey = `variacao_${index}_${index + 1}`;
-            const variacaoValue = safe(typeof rTyped[variacaoKey] === 'number' ? rTyped[variacaoKey] : undefined);
-            if (variacaoValue !== undefined) {
-              // Validar variação (limitar valores extremos)
-              if (Math.abs(variacaoValue) > 1000) {
-                variacao = variacaoValue > 0 ? 1000 : -1000;
-              } else {
-                variacao = variacaoValue;
-              }
+      const etapaKey = `etapa${index + 1}`;
+      const etapaValue = safe(typeof rTyped[etapaKey] === 'number' ? rTyped[etapaKey] : undefined);
+
+      if (etapaValue !== undefined) {
+        let variacao = 0;
+        if (index > 0) {
+          const variacaoKey = `variacao_${index}_${index + 1}`;
+          const variacaoValue = safe(typeof rTyped[variacaoKey] === 'number' ? rTyped[variacaoKey] : undefined);
+          if (variacaoValue !== undefined) {
+            if (Math.abs(variacaoValue) > 1000) {
+              variacao = variacaoValue > 0 ? 1000 : -1000;
             } else {
-              // Se não houver variação calculada, calcular manualmente
-              const prevEtapaKey = `etapa${index}`;
-              const prevValue = safe(typeof rTyped[prevEtapaKey] === 'number' ? rTyped[prevEtapaKey] : undefined);
-              if (prevValue !== undefined && prevValue > 0) {
-                variacao = ((etapaValue - prevValue) / prevValue) * 100;
-                // Validar variação calculada
-                if (Math.abs(variacao) > 1000) {
-                  variacao = variacao > 0 ? 1000 : -1000;
-                }
+              variacao = variacaoValue;
+            }
+          } else {
+            const prevEtapaKey = `etapa${index}`;
+            const prevValue = safe(typeof rTyped[prevEtapaKey] === 'number' ? rTyped[prevEtapaKey] : undefined);
+            if (prevValue !== undefined && prevValue > 0) {
+              variacao = ((etapaValue - prevValue) / prevValue) * 100;
+              if (Math.abs(variacao) > 1000) {
+                variacao = variacao > 0 ? 1000 : -1000;
               }
             }
           }
-          
-          chartDataArray.push({
-            name: evalName,
-            nota: etapaValue,
-            variacao: variacao,
-            color: getColorByIndex(index),
-          });
         }
-      });
-      
-      return chartDataArray;
-    } else {
-      // Para disciplinas, retornar array vazio (será tratado no loop)
-      return [];
-    }
-  }, [data, activeTab, getHidden]);
+
+        chartDataArray.push({
+          name: evalName,
+          nota: etapaValue,
+          variacao: variacao,
+          color: getColorByIndex(index),
+        });
+      }
+    });
+
+    return chartDataArray;
+  }, [data, getHidden]);
 
   // Dados segmentados para gráfico de notas (aba geral)
   const segmentedGeneral = useMemo(
@@ -553,39 +564,34 @@ export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = fal
     [chartData]
   );
 
-  // Dados para gráfico de proficiência (aba geral)
+  // Dados para gráfico de proficiência (aba geral) — sempre calculados
   const proficiencyChartData = useMemo(() => {
     const chartId = 'general-prof';
     const hidden = getHidden(chartId);
-    if (activeTab === 'general') {
-      const merged = mergeByName(data.proficiencyData || []);
-      if (merged.length === 0) return [];
-      
-      const r = merged[0];
-      const rTyped = r as EvolutionDataWithDynamicKeys;
-      const chartDataArray: Record<string, unknown>[] = [];
-      
-      // Construir dados de proficiência dinamicamente para todas as avaliações
-      data.evaluationNames.forEach((evalName, index) => {
-        if (hidden.has(evalName)) return;
-        
-        const etapaKey = `etapa${index + 1}`;
-        const etapaValue = safe(typeof rTyped[etapaKey] === 'number' ? rTyped[etapaKey] : undefined);
-        
-        if (etapaValue !== undefined) {
-          chartDataArray.push({
-            name: evalName,
-            proficiencia: etapaValue,
-            color: proficiencyColors[index % proficiencyColors.length],
-          });
-        }
-      });
-      
-      return chartDataArray;
-    } else {
-      return [];
-    }
-  }, [data, activeTab, getHidden]);
+    const merged = mergeByName(data.proficiencyData || []);
+    if (merged.length === 0) return [];
+
+    const r = merged[0];
+    const rTyped = r as EvolutionDataWithDynamicKeys;
+    const chartDataArray: Record<string, unknown>[] = [];
+
+    data.evaluationNames.forEach((evalName, index) => {
+      if (hidden.has(evalName)) return;
+
+      const etapaKey = `etapa${index + 1}`;
+      const etapaValue = safe(typeof rTyped[etapaKey] === 'number' ? rTyped[etapaKey] : undefined);
+
+      if (etapaValue !== undefined) {
+        chartDataArray.push({
+          name: evalName,
+          proficiencia: etapaValue,
+          color: proficiencyColors[index % proficiencyColors.length],
+        });
+      }
+    });
+
+    return chartDataArray;
+  }, [data, getHidden]);
 
   // Dados segmentados para gráfico de proficiência (aba geral)
   const segmentedProficiency = useMemo(
@@ -781,6 +787,25 @@ export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = fal
   }
 
   if (!data || (!data.generalData?.length && !Object.keys(data.subjectData || {}).length)) {
+    if (showGroupsTab && groupTestIds && groupScopeFilters) {
+      return (
+        <Tabs value="groups" className="w-full">
+          <TabsList className="grid w-full grid-cols-1 max-w-md">
+            <TabsTrigger value="groups" className="flex items-center gap-2">
+              <Building2 className="h-4 w-4" />
+              Escola · Série · Turma
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="groups" className="space-y-6">
+            <EvolutionGroupsView
+              testIds={groupTestIds}
+              scopeFilters={groupScopeFilters}
+              refreshKey={groupRefreshKey}
+            />
+          </TabsContent>
+        </Tabs>
+      );
+    }
     return (
       <Card className="border border-border shadow-sm">
         <CardContent className="flex flex-col items-center justify-center py-16">
@@ -796,7 +821,7 @@ export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = fal
     );
   }
 
-  if (!chartData || chartData.length === 0) {
+  if ((!chartData || chartData.length === 0) && !showGroupsTab) {
     return (
       <Card className="border border-border shadow-sm">
         <CardContent className="flex flex-col items-center justify-center py-16">
@@ -813,9 +838,9 @@ export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = fal
   }
 
   return (
-    <Tabs defaultValue="general" className="w-full">
+    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="w-full">
       {!onlyOverviewTab && (
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className={`grid w-full ${showGroupsTab ? 'grid-cols-2 lg:grid-cols-4' : 'grid-cols-3'}`}>
           <TabsTrigger value="general" className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4" />
             Visão Geral
@@ -828,6 +853,12 @@ export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = fal
             <Users className="h-4 w-4" />
             Por Níveis
           </TabsTrigger>
+          {showGroupsTab && (
+            <TabsTrigger value="groups" className="flex items-center gap-2">
+              <Building2 className="h-4 w-4" />
+              Escola · Série · Turma
+            </TabsTrigger>
+          )}
         </TabsList>
       )}
 
@@ -1514,12 +1545,7 @@ export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = fal
                 const hiddenLevel = getHidden(`level-${levelName}`);
                 
                 // Cores por nível
-                const levelColors: Record<string, string> = {
-                  'Abaixo do Básico': '#DC2626',
-                  'Básico': '#F59E0B',
-                  'Adequado': '#4ade80',
-                  'Avançado': '#16A34A',
-                };
+                const levelColors: Record<string, string> = { ...EVOLUTION_LEVEL_COLORS };
                 
                 const levelColor = levelColors[levelName] || '#6B7280';
                 
@@ -1692,6 +1718,16 @@ export function EvolutionCharts({ data, isLoading = false, onlyOverviewTab = fal
           </div>
         )}
       </TabsContent>
+
+      {showGroupsTab && groupTestIds && groupScopeFilters && (
+        <TabsContent value="groups" className="space-y-6">
+          <EvolutionGroupsView
+            testIds={groupTestIds}
+            scopeFilters={groupScopeFilters}
+            refreshKey={groupRefreshKey}
+          />
+        </TabsContent>
+      )}
         </>
       )}
     </Tabs>
