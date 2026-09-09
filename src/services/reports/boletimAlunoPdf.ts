@@ -483,14 +483,14 @@ function maxResultColsPerRow(s: PdfScale): number {
 
 /** Altura compacta de cada card na pilha vertical. */
 function stackCardH(s: PdfScale): number {
-  return Math.min(10.5, Math.max(8.6, s.cardH * 0.75));
+  return Math.min(11.5, Math.max(8.6, s.cardH * 0.77));
 }
 
 function stackVGap(s: PdfScale): number {
-  return Math.min(2, Math.max(1.2, s.gap * 0.4));
+  return Math.min(2.4, Math.max(1.2, s.gap * 0.5));
 }
 
-const STACK_HEADING_H = 4.0;
+const STACK_HEADING_H = 4.8;
 
 function metricStackHeight(s: PdfScale): number {
   const h = stackCardH(s);
@@ -558,9 +558,9 @@ function drawMetricStack(
 ): number {
   const h = stackCardH(s);
   const vGap = stackVGap(s);
-  const titleFont = Math.max(5.0, s.cardTitleFont * 0.92) + 1;
-  const valueFont = Math.max(6.2, s.cardValueFont * 0.7) + 1.5;
-  const labelFont = Math.max(4.8, s.cardTitleFont * 0.85) + 1;
+  const titleFont = Math.max(5.0, s.cardTitleFont * 0.92) + 2;
+  const valueFont = Math.max(6.2, s.cardValueFont * 0.7) + 2.5;
+  const labelFont = Math.max(4.8, s.cardTitleFont * 0.85) + 2;
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(titleFont);
@@ -615,7 +615,7 @@ function drawResultsColumns(doc: jsPDF, y: number, item: BoletimAlunoItem, s: Pd
   let cy = ensureSpace(doc, y, 5 + stackH, s);
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(Math.max(5.8, s.cardTitleFont + 0.4) + 1);
+  doc.setFontSize(Math.max(5.8, s.cardTitleFont + 0.4) + 2);
   doc.setTextColor(...C.textGray);
   doc.text('RESULTADOS POR DISCIPLINA', s.margin, cy + 2.2);
   cy += 5;
