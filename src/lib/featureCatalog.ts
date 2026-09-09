@@ -34,6 +34,7 @@ const HREF_FEATURE_EXACT: Record<string, string> = {
   '/app/calculadora-saeb': 'ideb_meta',
   '/app/calculo-metas': 'ideb_meta',
   '/app/evolucao': 'reports',
+  '/app/niveis-proficiencia': 'reports',
   '/app/monitoramento': 'monitoring',
   '/app/questionarios/cadastro': 'socioeconomic_forms',
   '/app/questionarios/relatorios-socio-economicos': 'socioeconomic_forms',

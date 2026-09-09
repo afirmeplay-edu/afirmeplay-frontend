@@ -68,6 +68,7 @@ const FormRespostasReport = React.lazy(() => import("@/pages/reports/FormRespost
 const StudentResult = React.lazy(() => import("@/pages/reports/StudentResult"));
 const StudentResultsPage = React.lazy(() => import("@/pages/reports/StudentResultsPage"));
 const RelatoriosEvolucaoHub = React.lazy(() => import("@/pages/reports/RelatoriosEvolucaoHub"));
+const NiveisProficienciaPage = React.lazy(() => import("@/pages/reports/niveis-proficiencia/NiveisProficienciaPage"));
 const MonitoramentoPage = React.lazy(() => import("@/pages/monitoramento/MonitoramentoPage"));
 
 // questions
@@ -297,6 +298,7 @@ const App = () => {
               <Route path="/app/monitoramento" element={<PrivateRoute><MonitoramentoPage /></PrivateRoute>} />
               <Route path="/app/mapa-habilidades" element={<Navigate to="/app/relatorios/mapa-habilidades" replace />} />
               <Route path="/app/evolucao" element={<PrivateRoute><RelatoriosEvolucaoHub /></PrivateRoute>} />
+              <Route path="/app/niveis-proficiencia" element={<PrivateRoute><NiveisProficienciaPage /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id/resultados" element={<PrivateRoute><EvaluationResults /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id/resultados-detalhados" element={<PrivateRoute><DetailedResultsView onBack={() => window.history.back()} /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id/aluno/:studentId/resultados" element={<PrivateRoute><StudentDetailedResults onBack={() => window.history.back()} /></PrivateRoute>} />

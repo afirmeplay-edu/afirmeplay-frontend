@@ -53,6 +53,7 @@ import {
   Activity,
   UserCheck,
   ListChecks,
+  GraduationCap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
@@ -353,6 +354,7 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
           ]
         },
         { icon: TrendingUp, label: "Evolução", href: "/app/evolucao", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
+        { icon: GraduationCap, label: "Níveis de Proficiência", href: "/app/niveis-proficiencia", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
         { icon: BarChart3, label: "Resultados", href: "/app/resultados", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
         { icon: Activity, label: "Monitoramento", href: "/app/monitoramento", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
         {
