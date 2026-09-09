@@ -19,12 +19,15 @@ export type MediasValorStyleContext = {
   faixaTitulo?: string;
 };
 
-/** Faixas de nota (0–10) alinhadas ao layout de referência do relatório. */
+/**
+ * Faixas de nota (0–10) — seção 3.3 Legenda de Desempenho.
+ * Avançado = nota acima de 8,0 (`classifyByRanges` usa `<= max` nas faixas anteriores).
+ */
 const NOTA_FAIXAS: Record<ProficienciaFaixaKey, { min: number; max: number }> = {
-  abaixo_do_basico: { min: 0, max: 3.7 },
-  basico: { min: 3.8, max: 5.4 },
-  adequado: { min: 5.5, max: 7.9 },
-  avancado: { min: 8, max: 10 },
+  abaixo_do_basico: { min: 0, max: 3.9 },
+  basico: { min: 4.0, max: 6.0 },
+  adequado: { min: 6.1, max: 8.0 },
+  avancado: { min: 8.01, max: 10 },
 };
 
 const PROFICIENCIA_MEDIA_INICIAIS: Record<ProficienciaFaixaKey, { min: number; max: number }> = {

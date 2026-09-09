@@ -68,6 +68,41 @@ export const LEGENDA_PROFICIENCIA_ROWS: LegendaProficienciaRow[] = [
   },
 ];
 
+export type LegendaDesempenhoRow = {
+  key: ProficienciaFaixaKey;
+  label: string;
+  intervalo: string;
+  description: string;
+};
+
+/** Linhas fixas da tabela 3.3 — Legenda de Desempenho (nota 0–10). */
+export const LEGENDA_DESEMPENHO_ROWS: LegendaDesempenhoRow[] = [
+  {
+    key: 'abaixo_do_basico',
+    label: 'Abaixo do Básico',
+    intervalo: 'Nota de 0,0 a 3,9',
+    description: 'Aproveitamento insuficiente do conteúdo avaliado.',
+  },
+  {
+    key: 'basico',
+    label: 'Básico',
+    intervalo: 'Nota de 4,0 a 6,0',
+    description: 'Aproveitamento parcial dos conteúdos básicos esperados.',
+  },
+  {
+    key: 'adequado',
+    label: 'Adequado',
+    intervalo: 'Nota de 6,1 a 8,0',
+    description: 'Domínio satisfatório das competências para o ano de escolaridade.',
+  },
+  {
+    key: 'avancado',
+    label: 'Avançado',
+    intervalo: 'Nota acima de 8,0',
+    description: 'Domínio excelente com nível de acertos acima do esperado.',
+  },
+];
+
 const NIVEL_LABEL_TO_KEY: Record<string, ProficienciaFaixaKey> = {
   'abaixo do básico': 'abaixo_do_basico',
   'abaixo do basico': 'abaixo_do_basico',
