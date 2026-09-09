@@ -1,7 +1,8 @@
 import { api } from "@/lib/api";
+import type { SubjectiveRubricMark } from "@/lib/subjectiveRubric";
 
-/** Rubrica de correção manual da avaliação subjetiva. */
-export type SubjectiveRubricValue = "SIM" | "PARCIAL" | "NAO" | "BRANCO";
+/** Rubrica de correção manual da avaliação subjetiva (code da marcação). */
+export type SubjectiveRubricValue = string;
 
 export type SubjectiveTestType = "AVALIACAO" | "SIMULADO";
 
@@ -34,6 +35,23 @@ export interface SubjectiveTestCreatedBy {
   name: string;
 }
 
+export interface SubjectiveClassProgress {
+  id: string;
+  name: string;
+  school?: SubjectiveTestEntityRef | null;
+  students_count?: number;
+  filled_cells?: number;
+  expected_cells?: number;
+  pct?: number;
+  finalized_students?: number;
+  status?: string;
+}
+
+export interface SubjectiveCorrectionSummary {
+  total_classes: number;
+  concluded_classes: number;
+}
+
 /** Payload de criação/atualização — POST/PUT /subjective-tests */
 export interface SubjectiveTestPayload {
   title: string;
@@ -47,6 +65,7 @@ export interface SubjectiveTestPayload {
   schools: string[];
   classes: string[];
   questions: SubjectiveTestQuestionInput[];
+  rubric_marks?: SubjectiveRubricMark[];
 }
 
 /** Detalhe / item de listagem de GET /subjective-tests */
@@ -66,6 +85,9 @@ export interface SubjectiveTest {
   createdAt?: string;
   total_questions?: number;
   questions?: SubjectiveTestQuestion[];
+  rubric_marks?: SubjectiveRubricMark[];
+  class_progress?: SubjectiveClassProgress[];
+  correction_summary?: SubjectiveCorrectionSummary;
 }
 
 export interface SubjectiveTestListResponse {
@@ -79,6 +101,7 @@ export interface SubjectiveCorrectionTestInfo {
   id: string;
   title: string;
   test_type: string;
+  subject?: SubjectiveTestEntityRef | null;
 }
 
 export interface SubjectiveCorrectionClassInfo {
@@ -120,6 +143,7 @@ export interface SubjectiveCorrectionMatrixResponse {
   class: SubjectiveCorrectionClassInfo;
   questions: SubjectiveCorrectionQuestion[];
   students: SubjectiveCorrectionStudent[];
+  rubric_marks?: SubjectiveRubricMark[];
 }
 
 /** Resposta de GET /subjective-tests/:id/alunos/:studentId/resultado (preview, sem gravar). */
@@ -206,7 +230,11 @@ export interface SubjectiveDashboardKpis {
 }
 
 export interface SubjectiveDashboardDistributionItem {
-  name: "SIM" | "PARCIAL" | "NAO" | "BRANCO" | string;
+  code?: string;
+  name: string;
+  label?: string;
+  color?: string;
+  weight?: number;
   value: number;
   pct: number;
 }
@@ -216,10 +244,11 @@ export interface SubjectiveDashboardPerQuestion {
   number: number;
   code: string;
   skill_description: string;
-  SIM: number;
-  PARCIAL: number;
-  NAO: number;
-  BRANCO: number;
+  SIM?: number;
+  PARCIAL?: number;
+  NAO?: number;
+  BRANCO?: number;
+  counts?: Record<string, number>;
   total: number;
   hit_rate_pct: number;
   saeb_level: SubjectiveSaebLevel | string;
@@ -254,14 +283,16 @@ export interface SubjectiveDashboardResponse {
     id: string;
     title: string;
     test_type: string;
+    subject?: SubjectiveTestEntityRef | null;
   };
   filters: {
     class_id: string | null;
     classes: SubjectiveTestEntityRef[];
   };
   kpis: SubjectiveDashboardKpis;
-  totals: Record<SubjectiveRubricValue, number>;
+  totals: Record<string, number>;
   distribution: SubjectiveDashboardDistributionItem[];
+  rubric_marks?: SubjectiveRubricMark[];
   /** Contagem de QUESTÕES por faixa (legado / habilidades). */
   saeb_levels: Record<SubjectiveSaebLevel, number>;
   /** Contagem de ALUNOS por faixa SAEB simplificada. */
@@ -286,6 +317,8 @@ export interface SubjectiveFilterEvaluation {
   test_type?: string | null;
   grade_id?: string | null;
   subject_id?: string | null;
+  subject?: SubjectiveTestEntityRef | null;
+  disciplina?: string | null;
 }
 
 /** Query de GET /subjective-tests/opcoes-filtros */
@@ -336,12 +369,29 @@ function normalizeFilterEvaluations(raw: unknown): SubjectiveFilterEvaluation[] 
       const obj = item as Record<string, unknown>;
       const id = obj.id != null ? String(obj.id) : "";
       if (!id) return null;
+      const subjectRaw = obj.subject;
+      let subject: SubjectiveTestEntityRef | null = null;
+      if (subjectRaw && typeof subjectRaw === "object") {
+        const s = subjectRaw as Record<string, unknown>;
+        if (s.id != null) {
+          subject = { id: String(s.id), name: String(s.name ?? s.nome ?? "") };
+        }
+      }
+      const subjectId = obj.subject_id != null ? String(obj.subject_id) : subject?.id ?? null;
+      const disciplina =
+        obj.disciplina != null
+          ? String(obj.disciplina)
+          : subject?.name
+            ? subject.name
+            : null;
       return {
         id,
         titulo: String(obj.titulo ?? obj.title ?? obj.nome ?? obj.name ?? "Sem título"),
         test_type: obj.test_type != null ? String(obj.test_type) : null,
         grade_id: obj.grade_id != null ? String(obj.grade_id) : null,
-        subject_id: obj.subject_id != null ? String(obj.subject_id) : null,
+        subject_id: subjectId,
+        subject: subject ?? (subjectId ? { id: subjectId, name: disciplina || "" } : null),
+        disciplina,
       } satisfies SubjectiveFilterEvaluation;
     })
     .filter((e): e is SubjectiveFilterEvaluation => e != null);

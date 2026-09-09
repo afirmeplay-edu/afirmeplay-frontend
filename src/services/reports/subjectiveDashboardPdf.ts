@@ -635,6 +635,24 @@ export async function generateSubjectiveDashboardPdf(
   const textMaxW = pageWidth - MARGIN * 2;
 
   doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  doc.setTextColor(...C.textDark);
+  const munTitle = String(meta.municipio || "MUNICÍPIO").trim().toLocaleUpperCase("pt-BR");
+  const pref =
+    !munTitle || munTitle === "ALL" || munTitle === "TODAS" || munTitle === "TODOS"
+      ? "PREFEITURA MUNICIPAL"
+      : munTitle.startsWith("PREFEITURA")
+        ? munTitle
+        : `PREFEITURA DE ${munTitle}`;
+  doc.text(pref, pageWidth / 2, y, { align: "center" });
+  y += 4.2;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(...C.textGray);
+  doc.text("SECRETARIA MUNICIPAL DE EDUCAÇÃO", pageWidth / 2, y, { align: "center" });
+  y += 6;
+
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
   doc.setTextColor(...C.textDark);
   const titleLines = doc.splitTextToSize(avaliacaoTitulo, textMaxW);

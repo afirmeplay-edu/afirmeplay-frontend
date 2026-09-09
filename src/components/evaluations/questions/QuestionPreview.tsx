@@ -15,13 +15,33 @@ import { cleanLegacyText, isLikelyPlainText } from "@/utils/textFormatter";
 import { QuestionRenderer } from "./QuestionRenderer";
 import { getQuestionTypeLabel, isSubjectiveFormType } from "@/utils/questionTypeMapping";
 import SubjectiveInteractionPreview from "./SubjectiveInteractionPreview";
+import { cn } from '@/lib/utils';
+import { formatPercent1PtBr } from '@/utils/numberFormat';
 import './QuestionPreview.css';
+
+export type QuestionPreviewOptionStat = {
+    letter: string;
+    percentual: number;
+    alunos: number;
+};
+
+export type QuestionPreviewCorrectRate = {
+    percentual: number;
+    acertaram: number;
+    total: number;
+};
 
 interface QuestionPreviewProps {
     question: Question;
     onClose?: () => void;
     /** Quando true, oculta título e badges (útil quando o preview é embutido em outro layout, ex.: ViewEvaluation). */
     hideHeader?: boolean;
+    /** Percentual e quantidade de alunos por alternativa (ex.: Mapa de questões). */
+    optionStats?: QuestionPreviewOptionStat[];
+    /** Taxa de acerto da questão no recorte filtrado. */
+    correctRate?: QuestionPreviewCorrectRate;
+    /** Alunos que não marcaram nenhuma alternativa. */
+    blankResponses?: QuestionPreviewOptionStat;
 }
 
 // Bloco de enunciado no mesmo padrão do TakeEvaluation (avaliação)
@@ -42,7 +62,14 @@ const SimpleHtmlRenderer = ({ content, className }: { content: string | null | u
     );
 };
 
-const QuestionPreview: React.FC<QuestionPreviewProps> = ({ question: initialQuestion, onClose, hideHeader = false }) => {
+const QuestionPreview: React.FC<QuestionPreviewProps> = ({
+    question: initialQuestion,
+    onClose,
+    hideHeader = false,
+    optionStats,
+    correctRate,
+    blankResponses,
+}) => {
     const { fetchSkills, getSkillsByIds, isLoading } = useSkillsStore();
     const [question, setQuestion] = useState<Question>(initialQuestion);
     const [isLoadingDetails, setIsLoadingDetails] = useState(false);
@@ -119,6 +146,14 @@ const QuestionPreview: React.FC<QuestionPreviewProps> = ({ question: initialQues
                            (question as any).opcoes || 
                            (question as any).alternativas || 
                            [];
+
+    const statsByLetter = new Map(
+        (optionStats ?? []).map((item) => [item.letter.trim().toUpperCase(), item])
+    );
+    const hasOptionStats = statsByLetter.size > 0;
+
+    const formatAlunos = (n: number) =>
+        `${n.toLocaleString('pt-BR')} ${n === 1 ? 'aluno' : 'alunos'}`;
 
     return (
         <div className="question-preview-content">
@@ -244,8 +279,18 @@ const QuestionPreview: React.FC<QuestionPreviewProps> = ({ question: initialQues
                 <div className="space-y-4 mb-8">
                     <div className="rounded-xl sm:rounded-2xl border border-border bg-card shadow p-4 sm:p-5 md:p-6">
                         <div className="text-base sm:text-lg md:text-xl font-bold text-foreground mb-4 sm:mb-6">
-                            Selecione a alternativa correta:
+                            {hasOptionStats ? 'Distribuição das marcações' : 'Selecione a alternativa correta:'}
                         </div>
+                        {hasOptionStats && correctRate && (
+                            <p className="text-sm text-muted-foreground mb-4">
+                                Taxa de acertos:{' '}
+                                <span className="font-semibold tabular-nums text-foreground">
+                                    {formatPercent1PtBr(correctRate.percentual)}
+                                </span>
+                                {' '}
+                                ({correctRate.acertaram.toLocaleString('pt-BR')} de {correctRate.total.toLocaleString('pt-BR')})
+                            </p>
+                        )}
                         {isLoadingDetails ? (
                             <div className="space-y-3">
                                 {[...Array(4)].map((_, i) => (
@@ -261,6 +306,8 @@ const QuestionPreview: React.FC<QuestionPreviewProps> = ({ question: initialQues
                                     const optionId = option.id ?? `option-${index}`;
                                     const optionText = typeof option.text === 'string' ? option.text : '';
                                     const isCorrect = option.isCorrect;
+                                    const letter = String.fromCharCode(65 + index);
+                                    const stat = statsByLetter.get(letter);
                                     return (
                                         <div
                                             key={optionId}
@@ -276,17 +323,37 @@ const QuestionPreview: React.FC<QuestionPreviewProps> = ({ question: initialQues
                                                 }`}
                                             />
                                             <div className="flex-1 min-w-0">
-                                                <div className="flex items-start gap-2 sm:gap-3">
-                                                    <span className="font-bold text-foreground min-w-[24px] sm:min-w-[30px] text-base sm:text-lg md:text-xl flex-shrink-0">
-                                                        {String.fromCharCode(65 + index)})
-                                                    </span>
-                                                    <QuestionOptionContent
-                                                        text={optionText}
-                                                        image={option.image}
-                                                        questionId={question.id !== 'preview' ? question.id : undefined}
-                                                        apiBase={BASE_URL}
-                                                        textClassName="text-sm sm:text-base md:text-lg leading-relaxed [&_*]:dark:text-gray-100"
-                                                    />
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="flex items-start gap-2 sm:gap-3 min-w-0">
+                                                        <span className="font-bold text-foreground min-w-[24px] sm:min-w-[30px] text-base sm:text-lg md:text-xl flex-shrink-0">
+                                                            {letter})
+                                                        </span>
+                                                        <QuestionOptionContent
+                                                            text={optionText}
+                                                            image={option.image}
+                                                            questionId={question.id !== 'preview' ? question.id : undefined}
+                                                            apiBase={BASE_URL}
+                                                            textClassName="text-sm sm:text-base md:text-lg leading-relaxed [&_*]:dark:text-gray-100"
+                                                        />
+                                                    </div>
+                                                    {stat && (
+                                                        <div
+                                                            className={cn(
+                                                                'shrink-0 inline-flex min-w-[4.5rem] flex-col items-end rounded-lg border px-2.5 py-1.5',
+                                                                isCorrect
+                                                                    ? 'border-green-300 bg-white/90 text-foreground dark:border-green-700 dark:bg-green-950/60'
+                                                                    : 'border-border bg-muted/50'
+                                                            )}
+                                                            title={`${letter}: ${formatAlunos(stat.alunos)} · ${formatPercent1PtBr(stat.percentual)}`}
+                                                        >
+                                                            <span className="text-sm font-semibold tabular-nums leading-tight">
+                                                                {formatPercent1PtBr(stat.percentual)}
+                                                            </span>
+                                                            <span className="text-[11px] text-muted-foreground tabular-nums leading-tight">
+                                                                {formatAlunos(stat.alunos)}
+                                                            </span>
+                                                        </div>
+                                                    )}
                                                 </div>
                                                 {isCorrect && (
                                                     <Badge variant="outline" className="mt-2 text-xs bg-green-100 dark:bg-green-950/50 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800">
@@ -297,6 +364,19 @@ const QuestionPreview: React.FC<QuestionPreviewProps> = ({ question: initialQues
                                         </div>
                                     );
                                 })}
+                                {blankResponses && (
+                                    <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-border bg-muted/40 px-4 py-3">
+                                        <span className="text-sm text-muted-foreground">Sem resposta</span>
+                                        <div className="inline-flex min-w-[4.5rem] flex-col items-end">
+                                            <span className="text-sm font-semibold tabular-nums leading-tight">
+                                                {formatPercent1PtBr(blankResponses.percentual)}
+                                            </span>
+                                            <span className="text-[11px] text-muted-foreground tabular-nums leading-tight">
+                                                {formatAlunos(blankResponses.alunos)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div className="text-center p-8 border-2 border-dashed border-yellow-300 dark:border-yellow-700 rounded-xl bg-yellow-50 dark:bg-yellow-950/20">

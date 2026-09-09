@@ -161,6 +161,8 @@ const FormCreate = () => {
   
   // Configurações do formulário
   const [formConfig, setFormConfig] = useState({
+    title: '',
+    description: '',
     targetGroups: [] as string[],
     selectedSchools: [] as string[],
     selectAllSchools: false,
@@ -510,18 +512,11 @@ const FormCreate = () => {
             {(question.tipo === 'selecao_unica' || question.type === 'selecao_unica') && (
               <div className="space-y-2">
                 {(question.opcoes || question.options)?.map((option: string, optIndex: number) => (
-                  <label key={optIndex} className="flex flex-wrap items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-muted transition-colors duration-200">
+                  <label key={optIndex} className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-muted transition-colors duration-200">
                     <span className="flex items-center justify-center w-6 h-6 bg-muted rounded-full text-xs font-medium text-muted-foreground">
                       {String.fromCharCode(65 + optIndex)}
                     </span>
                     <span className="text-sm text-foreground">{option}</span>
-                    {option === 'Outro' && (
-                      <Input
-                        disabled
-                        className="basis-full ml-9 bg-background"
-                        placeholder="Campo de escrita exibido ao selecionar Outro"
-                      />
-                    )}
                   </label>
                 ))}
               </div>
@@ -731,6 +726,10 @@ const FormCreate = () => {
   const validateForm = () => {
     const errors: Record<string, string> = {};
     
+    if (!formConfig.title.trim()) {
+      errors.title = 'Título é obrigatório';
+    }
+
     // Validar prazo de resposta
     if (!formConfig.deadline) {
       errors.deadline = 'Prazo de resposta é obrigatório';
@@ -864,8 +863,8 @@ const FormCreate = () => {
 
       // Preparar payload
       const formPayload: any = {
-        title: formData.name,
-        description: formData.description,
+        title: formConfig.title.trim(),
+        description: formConfig.description.trim() || undefined,
         formType: formType,
         targetGroups: formConfig.targetGroups,
         isActive: formConfig.isActive,
@@ -1021,7 +1020,34 @@ const FormCreate = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="title">
+                  Título do Questionário <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="title"
+                  placeholder="Digite o título do questionário"
+                  value={formConfig.title}
+                  onChange={(e) => {
+                    setFormConfig(prev => ({ ...prev, title: e.target.value }));
+                    if (validationErrors.title) {
+                      setValidationErrors(prev => {
+                        const newErrors = { ...prev };
+                        delete newErrors.title;
+                        return newErrors;
+                      });
+                    }
+                  }}
+                  className={validationErrors.title ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''}
+                />
+                {validationErrors.title && (
+                  <p className="text-sm text-red-600 flex items-center gap-1">
+                    <span className="text-red-500">⚠</span>
+                    {validationErrors.title}
+                  </p>
+                )}
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="deadline">
                   Prazo de Resposta <span className="text-red-500">*</span>
@@ -1050,6 +1076,17 @@ const FormCreate = () => {
                   </p>
                 )}
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="description">Descrição</Label>
+              <Textarea
+                id="description"
+                placeholder="Digite a descrição do questionário (opcional)"
+                value={formConfig.description}
+                onChange={(e) => setFormConfig(prev => ({ ...prev, description: e.target.value }))}
+                rows={3}
+              />
             </div>
 
             <div className="space-y-2">
@@ -1391,6 +1428,7 @@ const FormCreate = () => {
               <Button 
                 onClick={handleNextStep} 
                 disabled={
+                  !formConfig.title.trim() ||
                   !formConfig.deadline || 
                   (formType === 'secretario' 
                     ? (formConfig.selectedTecAdminUsers.length === 0 && !formConfig.selectAllTecAdminUsers)
@@ -1422,8 +1460,10 @@ const FormCreate = () => {
             <CardContent>
               <div className="space-y-4">
                 <div className="p-6 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg border">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-2">{formData.name}</h2>
-                  <p className="text-foreground mb-4">{formData.description}</p>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-2">{formConfig.title}</h2>
+                  {formConfig.description && (
+                    <p className="text-foreground mb-4">{formConfig.description}</p>
+                  )}
                   {formConfig.instructions && (
                     <div className="p-4 bg-yellow-50 border-l-4 border-yellow-400 rounded">
                       <p className="text-sm text-yellow-800">
@@ -1549,7 +1589,7 @@ const FormCreate = () => {
               <div className="space-y-4">
                 <h3 className="font-semibold text-gray-900">Resumo do Questionário</h3>
                 <div className="space-y-2 text-sm">
-                  <div><strong>Questionário:</strong> {formData.name}</div>
+                  <div><strong>Título:</strong> {formConfig.title}</div>
                   <div><strong>Público:</strong> {formConfig.targetGroups.map(id => targetGroups.find(g => g.id === id)?.name).join(', ')}</div>
                   <div><strong>{formType === 'secretario' ? 'Usuários TecAdmin:' : 'Escolas:'}</strong> {formType === 'secretario' 
                     ? (formConfig.selectAllTecAdminUsers 

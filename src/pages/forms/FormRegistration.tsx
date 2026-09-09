@@ -211,7 +211,8 @@ const FormRegistration = () => {
 
   const [selectedFormType, setSelectedFormType] = useState<string | null>(null);
 
-  // Informações adicionais do formulário
+  const [formTitle, setFormTitle] = useState<string>('');
+  const [formDescription, setFormDescription] = useState<string>('');
   const [formInstructions, setFormInstructions] = useState<string>('');
   const [formDeadline, setFormDeadline] = useState<string>('');
 
@@ -609,6 +610,8 @@ const FormRegistration = () => {
   // Limpar informações adicionais quando o tipo de formulário é desmarcado
   useEffect(() => {
     if (!selectedFormType) {
+      setFormTitle('');
+      setFormDescription('');
       setFormInstructions('');
       setFormDeadline('');
     }
@@ -763,6 +766,15 @@ const FormRegistration = () => {
       return baseQuestion;
     });
 
+    if (!formTitle.trim()) {
+      toast({
+        title: "Erro",
+        description: "O título do formulário é obrigatório.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Validar data de expiração (obrigatória)
     if (!formDeadline.trim()) {
       toast({
@@ -783,8 +795,8 @@ const FormRegistration = () => {
 
     if (selectedGrades.length > 0) payload.selectedGrades = selectedGrades;
     if (selectedClasses.length > 0) payload.selectedClasses = selectedClasses;
-    payload.title = formData.name;
-    payload.description = formData.description;
+    payload.title = formTitle.trim();
+    if (formDescription.trim()) payload.description = formDescription.trim();
     if (formInstructions.trim()) payload.instructions = formInstructions.trim();
     if (formDeadline.trim()) {
       try {
@@ -1269,6 +1281,32 @@ const FormRegistration = () => {
               {/* Campos de informações do formulário */}
               <div className="space-y-4 border-b pb-4">
                 <div className="space-y-2">
+                  <Label htmlFor="form-title" className="text-sm font-medium">
+                    Título do Formulário <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="form-title"
+                    placeholder="Digite o título do formulário"
+                    value={formTitle}
+                    onChange={(e) => setFormTitle(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="form-description" className="text-sm font-medium">
+                    Descrição
+                  </Label>
+                  <Input
+                    id="form-description"
+                    placeholder="Digite a descrição do formulário (opcional)"
+                    value={formDescription}
+                    onChange={(e) => setFormDescription(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="form-instructions" className="text-sm font-medium">
                     Instruções
                   </Label>
@@ -1603,13 +1641,6 @@ const FormRegistration = () => {
                         <span className="text-sm text-foreground dark:text-gray-300">
                           {index + 1}. {opcao}
                         </span>
-                        {opcao === 'Outro' && (
-                          <Input
-                            disabled
-                            className="mt-2 bg-background"
-                            placeholder="Campo de escrita exibido ao selecionar Outro"
-                          />
-                        )}
                       </div>
                     ))}
                   </div>

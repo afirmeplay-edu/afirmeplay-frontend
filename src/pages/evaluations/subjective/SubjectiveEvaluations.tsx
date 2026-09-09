@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog,
@@ -15,8 +15,17 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ClipboardCheck, Eye, Pencil, Plus, Trash2, BookOpen } from "lucide-react";
+import { BookOpen, Plus, Search } from "lucide-react";
 import { subjectiveTestApi, type SubjectiveTest } from "@/services/evaluation/subjectiveTestApi";
+import { SubjectiveEvalCard } from "@/components/evaluations/subjective/SubjectiveEvalCard";
+import { cn } from "@/lib/utils";
+
+const STATUS_FILTERS = [
+  { id: "all", label: "Todas" },
+  { id: "pendente", label: "Rascunho" },
+  { id: "em_correcao", label: "Em correção" },
+  { id: "concluida", label: "Concluídas" },
+] as const;
 
 const SubjectiveEvaluations = () => {
   const navigate = useNavigate();
@@ -25,11 +34,13 @@ const SubjectiveEvaluations = () => {
   const [loading, setLoading] = useState(true);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   const load = async () => {
     setLoading(true);
     try {
-      const response = await subjectiveTestApi.list({ page: 1, per_page: 50 });
+      const response = await subjectiveTestApi.list({ page: 1, per_page: 100 });
       setItems(response.items);
     } catch (err) {
       console.error(err);
@@ -47,6 +58,25 @@ const SubjectiveEvaluations = () => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return items.filter((item) => {
+      if (statusFilter !== "all" && (item.status || "pendente") !== statusFilter) return false;
+      if (!q) return true;
+      const hay = [
+        item.title,
+        item.subject?.name,
+        item.grade?.name,
+        ...(item.classes || []).map((c) => c.name),
+        ...(item.schools || []).map((s) => s.name),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [items, query, statusFilter]);
 
   const handleDelete = async () => {
     if (!deleteId) return;
@@ -74,7 +104,7 @@ const SubjectiveEvaluations = () => {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Avaliação Subjetiva</h1>
           <p className="text-sm text-muted-foreground">
-            Avaliações impressas com correção manual por rubrica (SIM / PARCIAL / NÃO / BRANCO).
+            Provas impressas com correção manual por marcações e pesos configuráveis.
           </p>
         </div>
         <Button onClick={() => navigate("/app/avaliacoes-subjetivas/nova")}>
@@ -83,79 +113,55 @@ const SubjectiveEvaluations = () => {
         </Button>
       </div>
 
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Buscar por título, disciplina ou turma"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {STATUS_FILTERS.map((f) => (
+            <Button
+              key={f.id}
+              size="sm"
+              variant={statusFilter === f.id ? "default" : "outline"}
+              className={cn("rounded-full", statusFilter === f.id && "shadow-sm")}
+              onClick={() => setStatusFilter(f.id)}
+            >
+              {f.label}
+            </Button>
+          ))}
+        </div>
+      </div>
+
       {loading ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-44 w-full" />
+            <Skeleton key={i} className="h-52 w-full" />
           ))}
         </div>
-      ) : items.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
             <BookOpen className="h-10 w-10 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">Nenhuma avaliação subjetiva cadastrada.</p>
-            <Button onClick={() => navigate("/app/avaliacoes-subjetivas/nova")}>Criar a primeira</Button>
+            <p className="text-sm text-muted-foreground">
+              {items.length === 0
+                ? "Nenhuma avaliação subjetiva cadastrada."
+                : "Nenhuma avaliação neste filtro."}
+            </p>
+            {items.length === 0 && (
+              <Button onClick={() => navigate("/app/avaliacoes-subjetivas/nova")}>Criar a primeira</Button>
+            )}
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {items.map((item) => (
-            <Card key={item.id} className="transition-shadow hover:shadow-md">
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-2">
-                  <CardTitle className="text-base leading-snug">{item.title}</CardTitle>
-                  <Badge variant="outline">{item.test_type === "SIMULADO" ? "Simulado" : "Avaliação"}</Badge>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {item.subject?.name || "—"} · {item.grade?.name || "—"}
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {item.description && (
-                  <p className="line-clamp-2 text-xs text-muted-foreground">{item.description}</p>
-                )}
-                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  {item.application_date && (
-                    <span>
-                      Aplicação:{" "}
-                      {new Date(item.application_date + "T12:00:00").toLocaleDateString("pt-BR")}
-                    </span>
-                  )}
-                  {typeof item.total_questions === "number" && (
-                    <span>· {item.total_questions} questão(ões)</span>
-                  )}
-                  {item.status && <Badge variant="secondary">{item.status}</Badge>}
-                </div>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => navigate(`/app/avaliacoes-subjetivas/${item.id}`)}
-                  >
-                    <Eye className="mr-1 h-3.5 w-3.5" />
-                    Ver
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => navigate(`/app/avaliacoes-subjetivas/${item.id}/editar`)}
-                  >
-                    <Pencil className="mr-1 h-3.5 w-3.5" />
-                    Editar
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => navigate(`/app/avaliacoes-subjetivas/${item.id}/correcao`)}
-                  >
-                    <ClipboardCheck className="mr-1 h-3.5 w-3.5" />
-                    Corrigir
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setDeleteId(item.id)}>
-                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+          {filtered.map((item) => (
+            <SubjectiveEvalCard key={item.id} item={item} onDelete={setDeleteId} />
           ))}
         </div>
       )}

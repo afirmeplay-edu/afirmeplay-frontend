@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, ClipboardCheck, Pencil } from "lucide-react";
 import { subjectiveTestApi, type SubjectiveTest } from "@/services/evaluation/subjectiveTestApi";
+import { SubjectiveStatusBadge } from "@/components/evaluations/subjective/SubjectiveStatusBadge";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -87,7 +88,7 @@ const ViewSubjectiveEvaluation = () => {
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold">{data.title}</h1>
               <Badge variant="outline">{data.test_type === "SIMULADO" ? "Simulado" : "Avaliação"}</Badge>
-              {data.status && <Badge variant="secondary">{data.status}</Badge>}
+              {data.status && <SubjectiveStatusBadge status={data.status} />}
             </div>
             <p className="text-sm text-muted-foreground">
               {data.subject?.name || "—"} · {data.grade?.name || "—"}

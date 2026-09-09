@@ -17,6 +17,7 @@ const C = {
   bgHeader: [243, 244, 246] as [number, number, number],
   white: [255, 255, 255] as [number, number, number],
   green: [22, 163, 74] as [number, number, number],
+  greenSoft: [220, 252, 231] as [number, number, number],
 };
 
 const MARGIN = 12;
@@ -32,24 +33,36 @@ export type MapaQuestoesPdfLabels = {
 };
 
 type HabilidadePdfSource = {
+  numero?: number;
   habilidade?: string;
-  /** Reservado: o resumo ainda não envia este campo (item 2 do diagnóstico). */
   habilidade_descricao?: string;
 };
 
-/**
- * Coluna Habilidade do PDF.
- * Hoje devolve só o código. Quando o backend passar `habilidade_descricao`,
- * ligar `includeDescription: true` nesta chamada — sem mudar colunas/layout.
- */
-function habilidadePdfText(
-  q: HabilidadePdfSource,
-  opts: { includeDescription?: boolean } = {}
-): string {
-  const code = (q.habilidade || '').trim() || '—';
-  const desc = opts.includeDescription ? (q.habilidade_descricao || '').trim() : '';
-  if (desc) return `${code} — ${desc}`;
-  return code;
+function pdfSafeText(text: string): string {
+  return text.replace(/\u2014|\u2013/g, '-').replace(/\u2026/g, '...');
+}
+
+function questaoIdentificacaoPdfText(q: HabilidadePdfSource): string {
+  const numero = Number.isFinite(Number(q.numero)) ? String(q.numero) : '—';
+  const lines = [`Questão ${numero}`];
+  const code = (q.habilidade || '').trim();
+  const desc = pdfSafeText((q.habilidade_descricao || '').trim());
+  if (code && code !== '—' && code !== 'N/A') {
+    lines.push(code);
+  }
+  if (desc && desc !== code) {
+    lines.push(desc);
+  }
+  if (lines.length === 1) {
+    lines.push('Habilidade nao informada');
+  }
+  return lines.join('\n');
+}
+
+function gabaritoPdfText(gabarito: string | null | undefined): string {
+  const letter = String(gabarito || '').trim().toUpperCase();
+  if (!letter) return 'Gabarito\n-';
+  return `Gabarito\n${letter}`;
 }
 
 function fmtNow(): string {
@@ -64,6 +77,10 @@ function fmtNow(): string {
 
 function formatNumber(value: number): string {
   return Number(value || 0).toLocaleString('pt-BR');
+}
+
+function stackedPercentCount(percentual: number, countLabel: string): string {
+  return `${formatPercent1PtBr(percentual)}\n${countLabel}`;
 }
 
 function pdfValue(value: string | number | null | undefined, empty = 'Não informado'): string {
@@ -338,7 +355,6 @@ export async function generateMapaQuestoesPdf(options: {
     const head = [
       'Questão',
       'Disciplina',
-      'Habilidade',
       'Gabarito',
       'Taxa de acertos',
       ...letters.map((l) => `Marc. ${l}`),
@@ -348,35 +364,36 @@ export async function generateMapaQuestoesPdf(options: {
       const marks = completeMarcacoes(q.marcacoes, q.gabarito);
       const byAlt = new Map(marks.map((m) => [m.alternativa, m]));
       const blank = semResposta(q);
-      const taxa = `${formatPercent1PtBr(q.taxa_acertos.percentual)} (${formatNumber(q.taxa_acertos.acertaram)} de ${formatNumber(q.taxa_acertos.total)})`;
       return [
-        `Q${q.numero}`,
-        q.disciplina || bloco.disciplina || '—',
-        habilidadePdfText(q, { includeDescription: false }),
-        String(q.gabarito || '—').toUpperCase(),
-        taxa,
+        questaoIdentificacaoPdfText(q),
+        q.disciplina || bloco.disciplina || '-',
+        gabaritoPdfText(q.gabarito),
+        stackedPercentCount(
+          q.taxa_acertos.percentual,
+          `${formatNumber(q.taxa_acertos.acertaram)} de ${formatNumber(q.taxa_acertos.total)}`
+        ),
         ...letters.map((l) => {
           const m = byAlt.get(l);
-          if (!m) return '0,0% (0)';
-          return `${formatPercent1PtBr(m.percentual)} (${formatNumber(m.alunos)})`;
+          if (!m) return stackedPercentCount(0, '0');
+          return stackedPercentCount(m.percentual, formatNumber(m.alunos));
         }),
-        `${formatPercent1PtBr(blank.percentual)} (${formatNumber(blank.alunos)})`,
+        stackedPercentCount(blank.percentual, formatNumber(blank.alunos)),
       ];
     });
 
-    const gabCol = 3;
-    const columnStyles: Record<number, { cellWidth: number; halign?: 'left' | 'center' | 'right' }> = {
-      0: { cellWidth: 16, halign: 'center' },
-      1: { cellWidth: 32, halign: 'left' },
-      2: { cellWidth: 28, halign: 'left' },
-      3: { cellWidth: 18, halign: 'center' },
-      4: { cellWidth: 36, halign: 'left' },
+    const gabCol = 2;
+    const marksStartCol = 4;
+    const columnStyles: Record<number, { cellWidth: number; halign?: 'left' | 'center' | 'right'; valign?: 'top' | 'middle' | 'bottom' }> = {
+      0: { cellWidth: 78, halign: 'left', valign: 'top' },
+      1: { cellWidth: 26, halign: 'left' },
+      2: { cellWidth: 24, halign: 'center' },
+      3: { cellWidth: 28, halign: 'center' },
     };
     const restCols = letters.length + 1;
-    const used = 16 + 32 + 28 + 18 + 36;
-    const restW = Math.max(18, (pageW - MARGIN * 2 - used) / Math.max(restCols, 1));
+    const used = 78 + 26 + 24 + 28;
+    const restW = Math.max(16, (pageW - MARGIN * 2 - used) / Math.max(restCols, 1));
     for (let i = 0; i < restCols; i++) {
-      columnStyles[5 + i] = { cellWidth: restW, halign: 'center' };
+      columnStyles[marksStartCol + i] = { cellWidth: restW, halign: 'center' };
     }
 
     doc.setFillColor(...C.primary);
@@ -402,18 +419,19 @@ export async function generateMapaQuestoesPdf(options: {
     autoTable(doc, {
       startY: y,
       head: [head],
-      body: body.length ? body : [['—', 'Sem questões nesta disciplina', '', '', '', ...letters.map(() => ''), '']],
+      body: body.length ? body : [['-', 'Sem questoes nesta disciplina', '', '', ...letters.map(() => ''), '']],
       theme: 'grid',
       styles: {
         font: 'helvetica',
         fontSize: 7,
-        cellPadding: 1.2,
+        cellPadding: 1.3,
         textColor: C.textDark,
         lineColor: C.border,
         lineWidth: 0.15,
         overflow: 'linebreak',
-        valign: 'middle',
-        minCellHeight: 6,
+        valign: 'top',
+        halign: 'center',
+        minCellHeight: 16,
       },
       headStyles: {
         fillColor: C.bgHeader,
@@ -429,11 +447,30 @@ export async function generateMapaQuestoesPdf(options: {
       rowPageBreak: 'avoid',
       showHead: 'everyPage',
       didParseCell: (data) => {
-        if (data.section === 'body' && data.column.index === gabCol) {
+        if (data.section !== 'body') return;
+        const questao = bloco.questoes?.[data.row.index];
+        if (data.column.index === 0) {
+          data.cell.styles.halign = 'left';
+          data.cell.styles.fontSize = 6.5;
+          data.cell.styles.overflow = 'linebreak';
+        }
+        if (data.column.index === gabCol && questao) {
           data.cell.styles.fontStyle = 'bold';
           data.cell.styles.textColor = C.white;
           data.cell.styles.fillColor = C.green;
           data.cell.styles.halign = 'center';
+          data.cell.styles.valign = 'middle';
+          data.cell.styles.fontSize = 8;
+        }
+        const letterIdx = data.column.index - marksStartCol;
+        if (letterIdx < 0 || letterIdx >= letters.length) return;
+        const gabLetter = String(questao?.gabarito || '').trim().toUpperCase();
+        if (gabLetter && gabLetter === letters[letterIdx]) {
+          data.cell.styles.fillColor = C.greenSoft;
+          data.cell.styles.textColor = C.green;
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.lineColor = C.green;
+          data.cell.styles.lineWidth = 0.35;
         }
       },
       didDrawPage: () => {
