@@ -1,8 +1,12 @@
 import { jsPDF } from 'jspdf';
-import { loadCityBrandingForReportPdf, type PdfImageAsset } from '@/utils/pdfCityBranding';
+import {
+  loadDefaultReportLogoAsset,
+  type PdfImageAsset,
+} from '@/utils/pdfCityBranding';
 import { formatDecimal1PtBr, formatPercent1PtBr } from '@/utils/numberFormat';
-import { getBoletimMarkStatus, questionAlternativeLetters } from '@/utils/reports/boletimAlunoHelpers';
+import { getBoletimMarkStatus, questionAlternativeLetters, resolveDisciplinaCards } from '@/utils/reports/boletimAlunoHelpers';
 import type {
+  BoletimAlunoCards,
   BoletimAlunoItem,
   BoletimAlunoPorDisciplina,
   BoletimAlunoQuestao,
@@ -83,11 +87,18 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-function pairDisciplinas(blocos: BoletimAlunoPorDisciplina[]): BoletimAlunoPorDisciplina[][] {
-  if (blocos.length <= 1) return blocos.length ? [blocos] : [];
+/** Quantidade de colunas de resposta por faixa horizontal (paisagem). */
+const GRID_COLS = 4;
+
+function groupDisciplinas(
+  blocos: BoletimAlunoPorDisciplina[],
+  perRow = GRID_COLS
+): BoletimAlunoPorDisciplina[][] {
+  if (!blocos.length) return [];
   const rows: BoletimAlunoPorDisciplina[][] = [];
-  for (let i = 0; i < blocos.length; i += 2) {
-    rows.push(blocos.slice(i, i + 2));
+  const n = Math.max(1, perRow);
+  for (let i = 0; i < blocos.length; i += n) {
+    rows.push(blocos.slice(i, i + n));
   }
   return rows;
 }
@@ -119,7 +130,7 @@ function metaLines(
 function baseScale(totalQ: number): PdfScale {
   const t = clamp((totalQ - 24) / 28, 0, 1);
   return {
-    margin: 12,
+    margin: 13,
     rowH: lerp(6.2, 4.35, t),
     colWNum: lerp(11, 7.6, t),
     colWAlt: lerp(9, 6.05, t),
@@ -127,11 +138,11 @@ function baseScale(totalQ: number): PdfScale {
     circleR: lerp(1.7, 1.2, t),
     bannerH: lerp(6, 5, t),
     colHeaderH: lerp(6, 5, t),
-    logoW: lerp(22, 14, t),
-    logoMaxH: lerp(11, 7.2, t),
+    logoW: lerp(34, 25, t),
+    logoMaxH: lerp(15, 10.5, t),
     startY: lerp(8, 4.2, t),
-    titleFont: lerp(11, 9, t),
-    titleGap: lerp(5.5, 4.0, t),
+    titleFont: lerp(12, 9.5, t),
+    titleGap: lerp(4.5, 3.4, t),
     metaFont: lerp(8, 6.4, t),
     metaLineH: lerp(4.35, 3.3, t),
     tableTitleFont: lerp(7, 5.8, t),
@@ -139,7 +150,7 @@ function baseScale(totalQ: number): PdfScale {
     cardH: lerp(17, 12.5, t),
     cardTitleFont: lerp(6.5, 5.4, t),
     cardValueFont: lerp(11, 8.4, t),
-    gap: lerp(4, 2.6, t),
+    gap: lerp(4, 2.5, t),
     footerReserve: 13,
   };
 }
@@ -149,7 +160,12 @@ function tableWidth(nLetters: number, s: PdfScale): number {
 }
 
 function logoDrawSize(logo: PdfImageAsset | null, s: PdfScale): { w: number; h: number } {
-  if (!logo || logo.iw <= 0 || logo.ih <= 0) return { w: 0, h: 0 };
+  if (!logo?.dataUrl) return { w: 0, h: 0 };
+  if (logo.iw <= 0 || logo.ih <= 0) {
+    console.warn('[boletimAluno] logo carregada sem dimensões válidas (iw/ih <= 0):', logo);
+    // Ainda desenha com caixa padrão para a logo não sumir silenciosamente.
+    return { w: s.logoW, h: Math.min(s.logoMaxH, s.logoW * 0.45) };
+  }
   let w = s.logoW;
   let h = (logo.ih * w) / logo.iw;
   if (h > s.logoMaxH) {
@@ -159,22 +175,32 @@ function logoDrawSize(logo: PdfImageAsset | null, s: PdfScale): { w: number; h: 
   return { w, h };
 }
 
+/** Largura de cada coluna de respostas: pouco menos de 1/4 da área útil. */
+function responseColumnWidth(s: PdfScale): number {
+  return (usableWidth(s) - s.gap * (GRID_COLS - 1)) / GRID_COLS;
+}
+
 function headerHeight(s: PdfScale, logo: PdfImageAsset | null, nMeta: number): number {
   const { h } = logoDrawSize(logo, s);
-  const logoBlock = h > 0 ? h + 2.2 : 0;
-  return s.startY + logoBlock + s.titleGap + nMeta * s.metaLineH + 2.4;
+  // Título e logo ficam na mesma faixa horizontal; depois vêm as metas.
+  const titleBand = Math.max(h > 0 ? h : 0, s.titleFont * 0.45, 4);
+  return s.startY + titleBand + s.titleGap + nMeta * s.metaLineH + 2.4;
 }
 
 function columnsForSlot(slotW: number, nLetters: number, nQuestoes: number, s: PdfScale): number {
   if (nQuestoes <= 0) return 1;
-  const tw = tableWidth(nLetters, s);
-  const nCols = Math.max(1, Math.floor((slotW + s.gap) / (tw + s.gap)));
-  return Math.min(nCols, nQuestoes);
+  // Conta pelo teto de ~1/4 (não pela largura natural), para caberem 4 colunas na paisagem.
+  const unitW = responseColumnWidth(s);
+  const colPitch = Math.min(unitW, Math.max(tableWidth(nLetters, s), 1));
+  const nCols = Math.max(1, Math.floor((slotW + s.gap) / (colPitch + s.gap)));
+  return Math.min(nCols, nQuestoes, GRID_COLS);
 }
 
 function blockHeight(nQuestoes: number, nLetters: number, slotW: number, s: PdfScale): number {
   if (nQuestoes <= 0) return s.bannerH + 8;
-  const nCols = columnsForSlot(slotW, nLetters, nQuestoes, s);
+  const unitW = responseColumnWidth(s);
+  const maxFit = Math.max(1, Math.floor((slotW + s.gap) / (unitW + s.gap)));
+  const nCols = Math.min(maxFit, columnsForSlot(slotW, nLetters, nQuestoes, s));
   const rows = Math.ceil(nQuestoes / nCols);
   return s.bannerH + s.colHeaderH + rows * s.rowH;
 }
@@ -183,17 +209,21 @@ function usableWidth(s: PdfScale): number {
   return PAGE_W - s.margin * 2;
 }
 
-function slotWidth(colsInRow: number, s: PdfScale): number {
-  const uw = usableWidth(s);
-  if (colsInRow <= 1) return uw;
-  return (uw - s.gap * (colsInRow - 1)) / colsInRow;
+function slotsPerDiscipline(disciplinasInRow: number): number {
+  return Math.max(1, Math.floor(GRID_COLS / Math.max(1, disciplinasInRow)));
+}
+
+function disciplineSlotWidth(disciplinasInRow: number, s: PdfScale): number {
+  const units = slotsPerDiscipline(disciplinasInRow);
+  const unitW = responseColumnWidth(s);
+  return units * unitW + (units - 1) * s.gap;
 }
 
 function measureTablesHeight(blocos: BoletimAlunoPorDisciplina[], s: PdfScale): number {
-  const rows = pairDisciplinas(blocos);
+  const rows = groupDisciplinas(blocos);
   let h = 0;
   rows.forEach((row, idx) => {
-    const sw = slotWidth(row.length, s);
+    const sw = disciplineSlotWidth(row.length, s);
     const rowH = Math.max(
       ...row.map((b) =>
         blockHeight(
@@ -220,7 +250,8 @@ function fitScale(
 
   for (let i = 0; i < 14; i++) {
     const head = headerHeight(s, logo, nMeta);
-    const avail = PAGE_H - head - s.cardH - 3.5 - s.footerReserve;
+    const resultsH = resultsColumnsHeight(item, s);
+    const avail = PAGE_H - head - resultsH - 8 - s.footerReserve;
     const tablesH = measureTablesHeight(blocos, s);
     if (tablesH <= avail) break;
 
@@ -294,7 +325,17 @@ function expandedColWidths(
 ): { num: number; alt: number; gab: number } {
   const n = Math.max(letters.length, 1);
   const base = tableWidth(letters.length, s);
-  const extra = Math.max(0, targetW - base);
+  // Nunca ultrapassar o teto (~1/4 da área útil); se a base for maior, comprime proporcionalmente.
+  const capped = Math.min(targetW, responseColumnWidth(s));
+  if (base > capped && base > 0) {
+    const k = capped / base;
+    return {
+      num: s.colWNum * k,
+      alt: s.colWAlt * k,
+      gab: s.colWGab * k,
+    };
+  }
+  const extra = Math.max(0, capped - base);
   const toAlt = extra * 0.7;
   const toNum = extra * 0.15;
   const toGab = extra * 0.15;
@@ -309,7 +350,6 @@ function drawQuestionTable(
   doc: jsPDF,
   x: number,
   y: number,
-  width: number,
   title: string,
   questoes: BoletimAlunoQuestao[],
   letters: string[],
@@ -398,11 +438,14 @@ function drawDisciplineBlock(
     return y + 10;
   }
 
-  const nCols = columnsForSlot(slotW, letters.length, questoes.length, s);
+  const unitW = responseColumnWidth(s);
+  // Quantas colunas de ~1/4 cabem no slot (sem esticar além do teto).
+  const maxFit = Math.max(1, Math.floor((slotW + s.gap) / (unitW + s.gap)));
+  const nCols = Math.min(maxFit, columnsForSlot(slotW, letters.length, questoes.length, s));
   const rowsPerCol = Math.ceil(questoes.length / nCols);
   const columns = chunk(questoes, rowsPerCol);
   const innerGap = s.gap;
-  const colW = (slotW - innerGap * (columns.length - 1)) / columns.length;
+  const colW = unitW;
 
   let bottom = y;
   columns.forEach((col, idx) => {
@@ -413,39 +456,191 @@ function drawDisciplineBlock(
   return bottom;
 }
 
-function drawCards(doc: jsPDF, y: number, item: BoletimAlunoItem, s: PdfScale): number {
-  const gap = Math.min(4, s.gap + 0.6);
-  const w = (PAGE_W - s.margin * 2 - gap * 3) / 4;
-  const h = s.cardH;
-  const cards = [
-    {
-      title: 'ACERTOS TOTAIS',
-      value: `${item.cards.acertos_totais.acertou} / ${item.cards.acertos_totais.total}`,
-      sub: formatPercent1PtBr(item.cards.acertos_totais.percentual),
-    },
-    { title: 'NOTA', value: formatDecimal1PtBr(item.cards.nota), sub: '' },
-    { title: 'PROFICIÊNCIA', value: formatDecimal1PtBr(item.cards.proficiencia), sub: '' },
-    { title: 'NÍVEL GERAL', value: item.cards.nivel || '—', sub: '' },
-  ];
+type ResultColumn = { title: string; cards: BoletimAlunoCards };
 
-  cards.forEach((card, i) => {
-    const x = s.margin + i * (w + gap);
-    doc.setFillColor(...C.primary);
-    doc.roundedRect(x, y, w, h, 0.9, 0.9, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(s.cardTitleFont);
-    doc.setTextColor(...C.white);
-    doc.text(card.title, x + w / 2, y + h * 0.28, { align: 'center' });
-    doc.setFontSize(s.cardValueFont);
-    const valueY = card.sub ? y + h * 0.6 : y + h * 0.68;
-    doc.text(String(card.value), x + w / 2, valueY, { align: 'center' });
-    if (card.sub) {
-      doc.setFontSize(Math.max(5.5, s.cardTitleFont));
-      doc.setFont('helvetica', 'normal');
-      doc.text(card.sub, x + w / 2, y + h * 0.84, { align: 'center' });
+function metricItems(cards: BoletimAlunoCards): Array<{ title: string; value: string; sub: string }> {
+  return [
+    {
+      title: 'ACERTOS',
+      value: `${cards.acertos_totais.acertou} / ${cards.acertos_totais.total}`,
+      sub: formatPercent1PtBr(cards.acertos_totais.percentual),
+    },
+    { title: 'NOTA', value: formatDecimal1PtBr(cards.nota, '—'), sub: '' },
+    { title: 'PROFICIÊNCIA', value: formatDecimal1PtBr(cards.proficiencia, '—'), sub: '' },
+    { title: 'NÍVEL', value: cards.nivel || '—', sub: '' },
+  ];
+}
+
+/** Largura das colunas de resultado: metade do slot de ~1/4 da área útil. */
+function resultStackColumnWidth(s: PdfScale): number {
+  return responseColumnWidth(s) / 3;
+}
+
+function maxResultColsPerRow(s: PdfScale): number {
+  const colW = resultStackColumnWidth(s);
+  return Math.max(1, Math.floor((usableWidth(s) + s.gap) / (colW + s.gap)));
+}
+
+/** Altura compacta de cada card na pilha vertical. */
+function stackCardH(s: PdfScale): number {
+  return Math.min(11.5, Math.max(8.6, s.cardH * 0.77));
+}
+
+function stackVGap(s: PdfScale): number {
+  return Math.min(2.4, Math.max(1.2, s.gap * 0.5));
+}
+
+const STACK_HEADING_H = 4.8;
+
+function metricStackHeight(s: PdfScale): number {
+  const h = stackCardH(s);
+  const gap = stackVGap(s);
+  return STACK_HEADING_H + 4 * h + 3 * gap;
+}
+
+function disciplineResultColumns(item: BoletimAlunoItem): ResultColumn[] {
+  const cols: ResultColumn[] = [];
+  for (const bloco of item.por_disciplina ?? []) {
+    const cards = resolveDisciplinaCards(bloco);
+    if (!cards) continue;
+    cols.push({ title: bloco.disciplina, cards });
+  }
+  return cols;
+}
+
+/**
+ * Empacota disciplinas à esquerda.
+ * Faixas cheias usam maxPerRow; a última faixa deixa 1 slot livre à direita para o GERAL
+ * (exceto quando a última faixa fica completa — aí o GERAL vai sozinho na faixa seguinte).
+ */
+function packDisciplineRows(discs: ResultColumn[], maxPerRow: number): ResultColumn[][] {
+  if (!discs.length) return [];
+  const maxLast = Math.max(1, maxPerRow - 1);
+  const rows: ResultColumn[][] = [];
+  let i = 0;
+  while (i < discs.length) {
+    const remaining = discs.length - i;
+    if (remaining <= maxLast) {
+      rows.push(discs.slice(i));
+      break;
     }
-  });
-  return y + h;
+    const take = Math.min(maxPerRow, remaining);
+    rows.push(discs.slice(i, i + take));
+    i += take;
+  }
+  return rows;
+}
+
+/** Quantidade de faixas (disciplinas + GERAL à direita). */
+function resultsRowCount(disciplineCount: number, s: PdfScale): number {
+  if (disciplineCount <= 0) return 1;
+  const maxPerRow = maxResultColsPerRow(s);
+  const maxLast = Math.max(1, maxPerRow - 1);
+  let rows = 0;
+  let left = disciplineCount;
+  while (left > maxLast) {
+    left -= maxPerRow;
+    rows += 1;
+  }
+  if (left > 0) return rows + 1; // última faixa compartilha com GERAL
+  return rows + 1; // faixas cheias → GERAL sozinho na seguinte
+}
+
+/** Desenha uma coluna: título + 4 métricas empilhadas. */
+function drawMetricStack(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  colW: number,
+  cards: BoletimAlunoCards,
+  heading: string,
+  s: PdfScale
+): number {
+  const h = stackCardH(s);
+  const vGap = stackVGap(s);
+  const titleFont = Math.max(5.0, s.cardTitleFont * 0.92) + 2;
+  const valueFont = Math.max(6.2, s.cardValueFont * 0.7) + 2.5;
+  const labelFont = Math.max(4.8, s.cardTitleFont * 0.85) + 2;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(titleFont);
+  doc.setTextColor(...C.textDark);
+  const title = doc.splitTextToSize(heading.toUpperCase(), colW - 0.8) as string[];
+  doc.text(title[0] || heading, x + colW / 2, y + 2.9, { align: 'center' });
+
+  let cy = y + STACK_HEADING_H;
+  for (const card of metricItems(cards)) {
+    doc.setFillColor(...C.primary);
+    doc.roundedRect(x, cy, colW, h, 0.7, 0.7, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(labelFont);
+    doc.setTextColor(...C.white);
+    doc.text(card.title, x + colW / 2, cy + h * 0.35, { align: 'center' });
+    doc.setFontSize(valueFont);
+    const valueLines = doc.splitTextToSize(String(card.value), colW - 1.6) as string[];
+    const valueY = card.sub ? cy + h * 0.66 : cy + h * 0.76;
+    doc.text(valueLines[0] || '—', x + colW / 2, valueY, { align: 'center' });
+    if (card.sub) {
+      doc.setFontSize(Math.max(4.8, labelFont));
+      doc.setFont('helvetica', 'normal');
+      doc.text(card.sub, x + colW / 2, cy + h * 0.92, { align: 'center' });
+    }
+    cy += h + vGap;
+  }
+  return cy - vGap;
+}
+
+function resultsColumnsHeight(item: BoletimAlunoItem, s: PdfScale): number {
+  const discs = disciplineResultColumns(item);
+  const rows = resultsRowCount(discs.length, s);
+  const sectionTitleH = 5;
+  const rowGap = 3;
+  return sectionTitleH + rows * metricStackHeight(s) + Math.max(0, rows - 1) * rowGap;
+}
+
+/**
+ * Disciplinas à esquerda (wrap) e GERAL ancorado à direita.
+ * Ex.: 10 disciplinas com ~6 por faixa →
+ *   a b c d e f
+ *   g h i j      K
+ */
+function drawResultsColumns(doc: jsPDF, y: number, item: BoletimAlunoItem, s: PdfScale): number {
+  const discs = disciplineResultColumns(item);
+  const geral: ResultColumn = { title: 'GERAL', cards: item.cards };
+  const colW = resultStackColumnWidth(s);
+  const stackH = metricStackHeight(s);
+  const maxPerRow = maxResultColsPerRow(s);
+  const geralX = PAGE_W - s.margin - colW;
+
+  let cy = ensureSpace(doc, y, 5 + stackH, s);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(Math.max(5.8, s.cardTitleFont + 0.4) + 2);
+  doc.setTextColor(...C.textGray);
+  doc.text('RESULTADOS POR DISCIPLINA', s.margin, cy + 2.2);
+  cy += 5;
+
+  const discRows = packDisciplineRows(discs, maxPerRow);
+  const totalRows = resultsRowCount(discs.length, s);
+
+  for (let rowIdx = 0; rowIdx < totalRows; rowIdx++) {
+    cy = ensureSpace(doc, cy, stackH, s);
+    const rowDiscs = discRows[rowIdx] ?? [];
+    const isLastRow = rowIdx === totalRows - 1;
+
+    rowDiscs.forEach((col, colIdx) => {
+      const x = s.margin + colIdx * (colW + s.gap);
+      drawMetricStack(doc, x, cy, colW, col.cards, col.title, s);
+    });
+
+    if (isLastRow) {
+      drawMetricStack(doc, geralX, cy, colW, geral.cards, geral.title, s);
+    }
+
+    cy += stackH + (rowIdx < totalRows - 1 ? 3 : 0);
+  }
+
+  return cy;
 }
 
 function drawStudentBoletim(
@@ -460,41 +655,60 @@ function drawStudentBoletim(
 
   const lines = metaLines(item, avaliacaoNome, labels);
   const s = fitScale(item, logo, lines.length);
+  const contentLeft = s.margin;
+  const contentRight = PAGE_W - s.margin;
   let y = s.startY;
 
   const logoSize = logoDrawSize(logo, s);
+  const titleBandH = Math.max(logoSize.h > 0 ? logoSize.h : 0, s.titleFont * 0.5, 5);
+  const logoGap = logoSize.w > 0 ? s.gap + 2 : 0;
+  const titleMaxW = Math.max(
+    40,
+    usableWidth(s) - (logoSize.w > 0 ? logoSize.w + logoGap : 0)
+  );
+
   if (logo?.dataUrl && logoSize.w > 0 && logoSize.h > 0) {
-    doc.addImage(logo.dataUrl, 'PNG', PAGE_W / 2 - logoSize.w / 2, y, logoSize.w, logoSize.h);
-    y += logoSize.h + 2.2;
+    // Logo Afirme Play: mesma faixa do título, canto superior direito (recuo = margem das tabelas).
+    doc.addImage(
+      logo.dataUrl,
+      'PNG',
+      contentRight - logoSize.w,
+      y,
+      logoSize.w,
+      logoSize.h
+    );
   }
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(s.titleFont);
   doc.setTextColor(...C.primary);
-  doc.text('BOLETIM DIAGNÓSTICO DO ALUNO', PAGE_W / 2, y, { align: 'center' });
-  y += s.titleGap;
+  const titleY = y + titleBandH / 2 + s.titleFont * 0.12;
+  const titleLines = doc.splitTextToSize('BOLETIM DO ALUNO', titleMaxW) as string[];
+  doc.text(titleLines[0] || 'BOLETIM DO ALUNO', contentLeft, titleY, { align: 'left' });
+  y += titleBandH + s.titleGap;
 
+  const metaMaxW = usableWidth(s);
   doc.setFontSize(s.metaFont);
   for (const [k, v] of lines) {
+    const label = `${k}: `;
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...C.textGray);
-    const label = `${k}: `;
     const lw = doc.getTextWidth(label);
-    doc.setTextColor(...C.textDark);
-    doc.text(label, PAGE_W / 2 - 70, y);
+    doc.text(label, contentLeft, y);
     doc.setFont('helvetica', 'normal');
-    const value = doc.splitTextToSize(String(v || '—').toUpperCase(), 148) as string[];
-    doc.text(value[0] || '—', PAGE_W / 2 - 70 + lw, y);
+    doc.setTextColor(...C.textDark);
+    const value = doc.splitTextToSize(String(v || '—').toUpperCase(), Math.max(40, metaMaxW - lw)) as string[];
+    doc.text(value[0] || '—', contentLeft + lw, y);
     y += s.metaLineH;
   }
 
   y += 2.4;
 
   const blocos = item.por_disciplina ?? [];
-  const rows = pairDisciplinas(blocos);
+  const rows = groupDisciplinas(blocos);
 
   rows.forEach((row, rowIdx) => {
-    const sw = slotWidth(row.length, s);
+    const sw = disciplineSlotWidth(row.length, s);
     const rowH = Math.max(
       ...row.map((b) =>
         blockHeight(b.questoes?.length ?? 0, questionAlternativeLetters(b.questoes).length, sw, s)
@@ -502,11 +716,11 @@ function drawStudentBoletim(
       8
     );
     const isLast = rowIdx === rows.length - 1;
-    const needed = rowH + (isLast ? 3 + s.cardH : 3);
+    const needed = rowH + (isLast ? 3 + resultsColumnsHeight(item, s) : 3);
     y = ensureSpace(doc, y, needed, s);
 
     row.forEach((bloco, colIdx) => {
-      const x = s.margin + colIdx * (sw + s.gap);
+      const x = contentLeft + colIdx * (sw + s.gap);
       drawDisciplineBlock(doc, x, y, sw, bloco, s);
     });
     y += rowH + 3;
@@ -519,8 +733,7 @@ function drawStudentBoletim(
     y += 8;
   }
 
-  y = ensureSpace(doc, y, s.cardH, s);
-  drawCards(doc, y, item, s);
+  drawResultsColumns(doc, y, item, s);
 }
 
 export async function generateBoletimAlunoPdf(options: {
@@ -530,12 +743,19 @@ export async function generateBoletimAlunoPdf(options: {
   cityId: string | null;
   flow: BoletimAlunoReportFlow;
 }): Promise<void> {
-  const { boletins, avaliacaoNome, labels, cityId, flow } = options;
+  const { boletins, avaliacaoNome, labels, flow } = options;
+  void options.cityId; // mantido na assinatura; o PDF usa sempre a logo Afirme Play
   if (!boletins.length) throw new Error('Não há boletins para exportar.');
 
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const dataGeracao = fmtNow();
-  const { logo } = await loadCityBrandingForReportPdf(cityId);
+  // Sempre a logo institucional Afirme Play (não a municipal).
+  const logo = await loadDefaultReportLogoAsset();
+  if (!logo) {
+    console.warn(
+      '[boletimAluno] loadDefaultReportLogoAsset retornou null — logo não será exibida neste PDF.'
+    );
+  }
 
   for (let i = 0; i < boletins.length; i++) {
     drawStudentBoletim(doc, boletins[i], avaliacaoNome, labels, logo, i === 0);
