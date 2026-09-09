@@ -193,7 +193,7 @@ export type PdfLegendTableRow = {
   text: [number, number, number];
 };
 
-/** Tabela de legenda em duas colunas (Nível / Descrição). */
+/** Tabela de legenda em duas colunas (Nível / Descrição) — célula cheia na coluna 1. */
 export function drawPdfLegendTable(
   doc: jsPDF,
   marginL: number,
@@ -222,13 +222,19 @@ export function drawPdfLegendTable(
     const bg = idx % 2 === 0 ? [255, 255, 255] : [249, 250, 251];
     doc.setFillColor(...(bg as [number, number, number]));
     doc.rect(marginL, y, contentW, rowH, 'F');
+
+    doc.setFillColor(...row.fill);
+    doc.rect(marginL, y, col1W, rowH, 'F');
+
     doc.setDrawColor(...lineMuted);
     doc.setLineWidth(0.2);
     doc.rect(marginL, y, contentW, rowH, 'S');
     doc.line(marginL + col1W, y, marginL + col1W, y + rowH);
 
-    const badgeX = marginL + col1W / 2;
-    drawPdfColoredBadge(doc, badgeX - doc.getTextWidth(row.label) / 2 - 4, y + 8.2, row.label, row.fill, row.text);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...row.text);
+    doc.text(row.label, marginL + col1W / 2, y + 7.5, { align: 'center' });
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
@@ -236,6 +242,77 @@ export function drawPdfLegendTable(
     const descLines = doc.splitTextToSize(row.description, col2W - 16) as string[];
     const descX = marginL + col1W + col2W / 2;
     doc.text(descLines, descX, y + 7.5, { align: 'center' });
+
+    y += rowH;
+  });
+
+  return y + 4;
+}
+
+export type PdfDesempenhoLegendTableRow = {
+  label: string;
+  intervalo: string;
+  description: string;
+  fill: [number, number, number];
+  text: [number, number, number];
+};
+
+/** Tabela de legenda em três colunas (Nível / Intervalo / Descrição). */
+export function drawPdfDesempenhoLegendTable(
+  doc: jsPDF,
+  marginL: number,
+  contentW: number,
+  y: number,
+  rows: PdfDesempenhoLegendTableRow[],
+  col1W = 48,
+  col2W = 52
+): number {
+  const { primary, textGray, lineMuted, white } = RELATORIO_CONSOLIDADO_PDF_COLORS;
+  const col3W = contentW - col1W - col2W;
+  const rowH = 14;
+  const headerH = 9;
+
+  doc.setFillColor(...primary);
+  doc.rect(marginL, y, contentW, headerH, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(...white);
+  doc.text('Nível', marginL + col1W / 2, y + 6, { align: 'center' });
+  doc.text('Intervalo da Nota', marginL + col1W + col2W / 2, y + 6, { align: 'center' });
+  doc.text('Descrição', marginL + col1W + col2W + col3W / 2, y + 6, { align: 'center' });
+  y += headerH;
+
+  rows.forEach((row, idx) => {
+    const bg = idx % 2 === 0 ? [255, 255, 255] : [249, 250, 251];
+    doc.setFillColor(...(bg as [number, number, number]));
+    doc.rect(marginL, y, contentW, rowH, 'F');
+
+    doc.setFillColor(...row.fill);
+    doc.rect(marginL, y, col1W, rowH, 'F');
+
+    doc.setDrawColor(...lineMuted);
+    doc.setLineWidth(0.2);
+    doc.rect(marginL, y, contentW, rowH, 'S');
+    doc.line(marginL + col1W, y, marginL + col1W, y + rowH);
+    doc.line(marginL + col1W + col2W, y, marginL + col1W + col2W, y + rowH);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...row.text);
+    doc.text(row.label, marginL + col1W / 2, y + 8.5, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...row.fill);
+    doc.text(row.intervalo, marginL + col1W + col2W / 2, y + 8.5, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...textGray);
+    const descLines = doc.splitTextToSize(row.description, col3W - 10) as string[];
+    const descX = marginL + col1W + col2W + col3W / 2;
+    const descStartY = y + (rowH - (descLines.length - 1) * 3.2) / 2 + 1.5;
+    doc.text(descLines, descX, descStartY, { align: 'center' });
 
     y += rowH;
   });

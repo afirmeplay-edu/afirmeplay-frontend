@@ -51,7 +51,7 @@ import {
   getMediasPdfDisciplinas,
 } from '@/services/reports/relatorioConsolidadoPdf/buildMediasIntroData';
 import { FREQUENCIA_PDF_CELL_COLORS } from '@/services/reports/relatorioConsolidadoPdf/frequenciaPdfCellStyles';
-import { LEGENDA_PROFICIENCIA_ROWS, PROFICIENCIA_PDF_CELL_COLORS } from '@/services/reports/relatorioConsolidadoPdf/proficienciaPdfCellStyles';
+import { LEGENDA_DESEMPENHO_ROWS, LEGENDA_PROFICIENCIA_ROWS, PROFICIENCIA_PDF_CELL_COLORS } from '@/services/reports/relatorioConsolidadoPdf/proficienciaPdfCellStyles';
 
 const OBJETIVO_TEXTO =
   'Diagnosticar o nível de proficiência dos estudantes nas competências e habilidades essenciais, subsidiando o planejamento pedagógico e a tomada de decisões para a melhoria contínua da qualidade do ensino.';
@@ -106,25 +106,6 @@ function TextRuns({ runs, className }: { runs: readonly TextRun[] | TextRun[]; c
   );
 }
 
-function LegendBadge({
-  label,
-  fill,
-  text,
-}: {
-  label: string;
-  fill: [number, number, number];
-  text: [number, number, number];
-}) {
-  return (
-    <span
-      className="inline-flex items-center rounded px-2 py-0.5 text-xs font-bold"
-      style={pdfRgbToCellStyle(fill, text)}
-    >
-      {label}
-    </span>
-  );
-}
-
 function LegendTable({
   title,
   col1,
@@ -148,15 +129,18 @@ function LegendTable({
         <Table>
           <TableHeader>
             <TableRow className="bg-primary hover:bg-primary">
-              <TableHead className="text-primary-foreground w-40 text-center">{col1}</TableHead>
-              <TableHead className="text-primary-foreground text-center">{col2}</TableHead>
+              <TableHead className="text-primary-foreground w-48 text-center font-bold">{col1}</TableHead>
+              <TableHead className="text-primary-foreground text-center font-bold">{col2}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.map((row) => (
               <TableRow key={row.label}>
-                <TableCell className="text-center">
-                  <LegendBadge label={row.label} fill={row.fill} text={row.text} />
+                <TableCell
+                  className="text-center font-bold text-sm whitespace-nowrap"
+                  style={pdfRgbToCellStyle(row.fill, row.text)}
+                >
+                  {row.label}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground text-center">{row.description}</TableCell>
               </TableRow>
@@ -164,6 +148,53 @@ function LegendTable({
           </TableBody>
         </Table>
       </div>
+    </div>
+  );
+}
+
+function DesempenhoLegendTable({
+  rows,
+}: {
+  rows: Array<{
+    label: string;
+    intervalo: string;
+    fill: [number, number, number];
+    text: [number, number, number];
+    description: string;
+  }>;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-md border">
+      <Table>
+        <TableHeader>
+          <TableRow className="bg-primary hover:bg-primary">
+            <TableHead className="text-primary-foreground w-48 text-center font-bold">Nível</TableHead>
+            <TableHead className="text-primary-foreground text-center font-bold whitespace-nowrap">
+              Intervalo da Nota
+            </TableHead>
+            <TableHead className="text-primary-foreground text-center font-bold">Descrição</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.label}>
+              <TableCell
+                className="text-center font-bold text-sm whitespace-nowrap"
+                style={pdfRgbToCellStyle(row.fill, row.text)}
+              >
+                {row.label}
+              </TableCell>
+              <TableCell
+                className="text-center font-bold text-sm whitespace-nowrap"
+                style={{ color: `rgb(${row.fill[0]}, ${row.fill[1]}, ${row.fill[2]})` }}
+              >
+                {row.intervalo}
+              </TableCell>
+              <TableCell className="text-sm text-muted-foreground text-center">{row.description}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }
@@ -195,6 +226,14 @@ export function RelatorioConsolidadoReportSections({
 
   const proficienciaLegendRows = LEGENDA_PROFICIENCIA_ROWS.map((row) => ({
     label: row.label,
+    description: row.description,
+    fill: PROFICIENCIA_PDF_CELL_COLORS[row.key].fill,
+    text: PROFICIENCIA_PDF_CELL_COLORS[row.key].text,
+  }));
+
+  const desempenhoLegendRows = LEGENDA_DESEMPENHO_ROWS.map((row) => ({
+    label: row.label,
+    intervalo: row.intervalo,
     description: row.description,
     fill: PROFICIENCIA_PDF_CELL_COLORS[row.key].fill,
     text: PROFICIENCIA_PDF_CELL_COLORS[row.key].text,
@@ -264,6 +303,11 @@ export function RelatorioConsolidadoReportSections({
           A proficiência média é apresentada na escala Saeb, dividida em quatro níveis:
         </p>
         <LegendTable title="" col1="Nível" col2="Descrição" rows={proficienciaLegendRows} />
+        <RelatorioSubsectionTitle label="3.3. Legenda de Desempenho (Nota – Escala 0 a 10)" className="mt-4" />
+        <p className="text-sm text-muted-foreground">
+          A nota média (desempenho) é apresentada na escala de 0 a 10, dividida em quatro níveis:
+        </p>
+        <DesempenhoLegendTable rows={desempenhoLegendRows} />
       </section>
 
       <section className="space-y-6">

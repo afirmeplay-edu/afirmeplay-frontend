@@ -44,12 +44,14 @@ export {
   type MediasValorStyleContext,
 } from './classifyMediasPdfFaixa';
 export {
+  LEGENDA_DESEMPENHO_ROWS,
   LEGENDA_PROFICIENCIA_ROWS,
   MEDIAS_PDF_COLUMN_COLORS,
   PROFICIENCIA_FAIXA_ORDER,
   PROFICIENCIA_PDF_CELL_COLORS,
   getProficienciaFaixaStyle,
   resolveProficienciaNivelStyle,
+  type LegendaDesempenhoRow,
   type LegendaProficienciaRow,
   type ProficienciaFaixaKey,
   type ProficienciaPdfCellStyle,
@@ -68,6 +70,7 @@ export {
   drawRelatorioConsolidadoSectionTitle,
   drawRelatorioConsolidadoSubsectionTitle,
   drawPdfColoredBadge,
+  drawPdfDesempenhoLegendTable,
   drawPdfLegendTable,
   drawPdfTextRuns,
   PDF_MARGIN_X,
