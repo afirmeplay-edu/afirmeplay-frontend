@@ -230,6 +230,8 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
       prevSchoolRef.current = selectedSchool;
       setSelectedGrade('all');
       setSelectedClass('all');
+      setSelectedGabaritosForComparison([]);
+      lastComparisonIdsRef.current = '';
     }
   }, [selectedSchool]);
 
@@ -237,6 +239,8 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
     if (prevGradeRef.current !== selectedGrade) {
       prevGradeRef.current = selectedGrade;
       setSelectedClass('all');
+      setSelectedGabaritosForComparison([]);
+      lastComparisonIdsRef.current = '';
     }
   }, [selectedGrade]);
 
@@ -414,6 +418,28 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
     });
   }, [availableGabaritosForPicker, gabaritoSearch]);
 
+  const handleSelectAllGabaritos = useCallback(() => {
+    if (filteredGabaritos.length === 0) return;
+    const toSelect = filteredGabaritos.slice(0, MAX_GABARITOS);
+    setSelectedGabaritosForComparison(toSelect);
+    const truncated = filteredGabaritos.length > MAX_GABARITOS;
+    toast({
+      title: truncated ? 'Seleção limitada' : 'Gabaritos selecionados',
+      description: truncated
+        ? `Foram selecionados os primeiros ${MAX_GABARITOS} de ${filteredGabaritos.length} gabaritos (limite por comparação).`
+        : `${toSelect.length} gabarito(s) selecionado(s) para comparação.`,
+    });
+  }, [filteredGabaritos, toast]);
+
+  const handleClearGabaritos = useCallback(() => {
+    setSelectedGabaritosForComparison([]);
+    lastComparisonIdsRef.current = '';
+    toast({
+      title: 'Seleção limpa',
+      description: 'Todos os gabaritos foram removidos da comparação.',
+    });
+  }, [toast]);
+
   const handleAddGabarito = useCallback(
     (gabaritoId: string) => {
       const gabarito = availableGabaritosForPicker.find((g) => g.id === gabaritoId);
@@ -519,20 +545,22 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
   useEffect(() => {
     selectedIdsRef.current = comparisonRequestKey;
 
-    const autoCompare = async () => {
-      if (selectedGabaritosForComparison.length < 2) {
-        setComparisonData(null);
-        setProcessedData(null);
-        setComparisonError(null);
-        lastComparisonIdsRef.current = '';
-        return;
-      }
+    if (selectedGabaritosForComparison.length < 2) {
+      setComparisonData(null);
+      setProcessedData(null);
+      setComparisonError(null);
+      lastComparisonIdsRef.current = '';
+      return;
+    }
 
-      if (comparisonRequestKey === lastComparisonIdsRef.current) return;
+    if (comparisonRequestKey === lastComparisonIdsRef.current) return;
 
-      lastComparisonIdsRef.current = comparisonRequestKey;
-      const requestedKey = comparisonRequestKey;
+    const requestedKey = comparisonRequestKey;
+    const timer = window.setTimeout(async () => {
+      if (selectedIdsRef.current !== requestedKey) return;
+      if (requestedKey === lastComparisonIdsRef.current) return;
 
+      lastComparisonIdsRef.current = requestedKey;
       setIsLoadingComparison(true);
       setComparisonError(null);
 
@@ -559,12 +587,15 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
         const errorMessage = extractApiError(error);
         if (selectedIdsRef.current !== requestedKey) return;
         handleComparisonError(errorMessage);
+        lastComparisonIdsRef.current = '';
       } finally {
-        setIsLoadingComparison(false);
+        if (selectedIdsRef.current === requestedKey) {
+          setIsLoadingComparison(false);
+        }
       }
-    };
+    }, 450);
 
-    autoCompare();
+    return () => window.clearTimeout(timer);
   }, [
     comparisonRequestKey,
     selectedGabaritosForComparison,
@@ -981,8 +1012,8 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
               </div>
 
               {!isLoadingFilters && availableGabaritosForPicker.length > 0 && (
-                <div className="mb-4">
-                  <div className="relative">
+                <div className="mb-4 flex flex-col sm:flex-row gap-3 sm:items-center">
+                  <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                       type="text"
@@ -991,6 +1022,29 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
                       onChange={(e) => setGabaritoSearch(e.target.value)}
                       className="pl-9 h-10"
                     />
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-10"
+                      onClick={handleSelectAllGabaritos}
+                      disabled={filteredGabaritos.length === 0}
+                    >
+                      Selecionar todos
+                      {filteredGabaritos.length > MAX_GABARITOS ? ` (máx. ${MAX_GABARITOS})` : ''}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-10"
+                      onClick={handleClearGabaritos}
+                      disabled={selectedGabaritosForComparison.length === 0}
+                    >
+                      Limpar
+                    </Button>
                   </div>
                 </div>
               )}
