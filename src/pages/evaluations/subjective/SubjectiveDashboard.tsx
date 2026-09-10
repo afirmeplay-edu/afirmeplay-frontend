@@ -1036,6 +1036,8 @@ const SubjectiveDashboard = () => {
               {(dash?.per_question || []).map((q) => {
                 const total = q.total || 1;
                 const info = saebFromLevel(q.saeb_level, q.saeb_label);
+                const questionMarks =
+                  q.rubric_marks && q.rubric_marks.length > 0 ? q.rubric_marks : activeMarks;
                 return (
                   <div key={q.id} className="rounded-lg border bg-card p-3">
                     <div className="flex items-start justify-between gap-3">
@@ -1060,14 +1062,14 @@ const SubjectiveDashboard = () => {
                       </div>
                     </div>
                     <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-muted">
-                      {activeMarks.map((m) => {
+                      {questionMarks.map((m) => {
                         const count = q.counts?.[m.code] ?? (q as Record<string, number>)[m.code] ?? 0;
                         const pct = (count / total) * 100;
                         return <div key={m.code} style={{ width: `${pct}%`, background: m.color }} />;
                       })}
                     </div>
                     <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-                      {activeMarks.map((m) => {
+                      {questionMarks.map((m) => {
                         const count = q.counts?.[m.code] ?? (q as Record<string, number>)[m.code] ?? 0;
                         return (
                           <Chip
