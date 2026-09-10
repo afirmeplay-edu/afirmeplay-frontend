@@ -17,13 +17,16 @@ import {
   type SubjectiveTestPayload,
   type SubjectiveTestType,
 } from "@/services/evaluation/subjectiveTestApi";
-import { SubjectiveRubricMarksEditor } from "@/components/evaluations/subjective/SubjectiveRubricMarksEditor";
-import { DEFAULT_RUBRIC_MARKS, type SubjectiveRubricMark } from "@/lib/subjectiveRubric";
+import { SubjectiveRubricGroupsEditor } from "@/components/evaluations/subjective/SubjectiveRubricGroupsEditor";
+import {
+  createDefaultRubricGroup,
+  type SubjectiveRubricGroup,
+} from "@/lib/subjectiveRubric";
 import { cn } from "@/lib/utils";
 
 const CREATE_STEPS = [
   { id: "dados", title: "Dados gerais", hint: "Título, disciplina e data" },
-  { id: "marcas", title: "Marcações da correção", hint: "Rótulo, sigla, cor e peso" },
+  { id: "marcas", title: "Grupos de critérios", hint: "Marcações por grupo" },
   { id: "questoes", title: "Questões e habilidades", hint: "Estrutura da prova" },
   { id: "turma", title: "Turma avaliada", hint: "Série, escolas e turmas" },
 ] as const;
@@ -50,6 +53,7 @@ interface QuestionDraft {
   number: number;
   code: string;
   skill_description: string;
+  rubric_group_key: string;
 }
 
 const CreateSubjectiveEvaluation = () => {
@@ -86,10 +90,20 @@ const CreateSubjectiveEvaluation = () => {
 
   const [numQuestions, setNumQuestions] = useState(10);
   const [questions, setQuestions] = useState<QuestionDraft[]>([]);
-  const [marks, setMarks] = useState<SubjectiveRubricMark[]>(() =>
-    DEFAULT_RUBRIC_MARKS.map((m) => ({ ...m }))
-  );
+  const [groups, setGroups] = useState<SubjectiveRubricGroup[]>(() => [createDefaultRubricGroup(0)]);
   const [step, setStep] = useState(0);
+
+  const defaultGroupKey = groups[0]?.temp_key || "";
+
+  useEffect(() => {
+    const valid = new Set(groups.map((g) => g.temp_key));
+    const fallback = groups[0]?.temp_key;
+    if (!fallback) return;
+    setQuestions((prev) => {
+      if (!prev.some((q) => !valid.has(q.rubric_group_key))) return prev;
+      return prev.map((q) => (valid.has(q.rubric_group_key) ? q : { ...q, rubric_group_key: fallback }));
+    });
+  }, [groups]);
 
   useEffect(() => {
     let active = true;
@@ -231,19 +245,40 @@ const CreateSubjectiveEvaluation = () => {
             students_count: c.students_count,
           }))
         );
+        const loadedGroups: SubjectiveRubricGroup[] =
+          detail.rubric_groups && detail.rubric_groups.length > 0
+            ? detail.rubric_groups.map((g, i) => ({
+                id: g.id,
+                temp_key: g.id || g.temp_key || `g${i + 1}`,
+                name: g.name || `Grupo ${i + 1}`,
+                sort_order: g.sort_order ?? i,
+                marks: (g.marks || []).map((m) => ({ ...m })),
+              }))
+            : detail.rubric_marks && detail.rubric_marks.length > 0
+              ? [
+                  {
+                    ...createDefaultRubricGroup(0),
+                    marks: detail.rubric_marks.map((m) => ({ ...m })),
+                  },
+                ]
+              : [createDefaultRubricGroup(0)];
+        setGroups(loadedGroups);
+        const fallbackKey = loadedGroups[0]?.temp_key || "";
         const qs = (detail.questions || [])
           .slice()
           .sort((a, b) => a.number - b.number)
-          .map((q) => ({
-            number: q.number,
-            code: q.code,
-            skill_description: q.skill_description || "",
-          }));
+          .map((q) => {
+            const groupKey =
+              loadedGroups.find((g) => g.id && g.id === q.rubric_group_id)?.temp_key || fallbackKey;
+            return {
+              number: q.number,
+              code: q.code,
+              skill_description: q.skill_description || "",
+              rubric_group_key: groupKey,
+            };
+          });
         setQuestions(qs);
         setNumQuestions(qs.length || 10);
-        if (detail.rubric_marks && detail.rubric_marks.length > 0) {
-          setMarks(detail.rubric_marks.map((m) => ({ ...m })));
-        }
 
         // Tentar descobrir o curso a partir da série
         if (detail.grade?.id) {
@@ -276,11 +311,13 @@ const CreateSubjectiveEvaluation = () => {
 
   const generateQuestions = () => {
     const n = Math.max(1, Math.min(60, numQuestions));
+    const fallback = groups[0]?.temp_key || defaultGroupKey;
     setQuestions(
       Array.from({ length: n }, (_, i) => ({
         number: i + 1,
         code: `Q${String(i + 1).padStart(2, "0")}`,
         skill_description: questions[i]?.skill_description || "",
+        rubric_group_key: questions[i]?.rubric_group_key || fallback,
       }))
     );
   };
@@ -301,7 +338,12 @@ const CreateSubjectiveEvaluation = () => {
     const next = questions.length + 1;
     setQuestions((prev) => [
       ...prev,
-      { number: next, code: `Q${String(next).padStart(2, "0")}`, skill_description: "" },
+      {
+        number: next,
+        code: `Q${String(next).padStart(2, "0")}`,
+        skill_description: "",
+        rubric_group_key: groups[0]?.temp_key || defaultGroupKey,
+      },
     ]);
   };
 
@@ -354,22 +396,32 @@ const CreateSubjectiveEvaluation = () => {
       return true;
     }
     if (index === 1) {
-      if (marks.length < 2) {
-        toast({ title: "Informe ao menos duas marcações", variant: "destructive" });
+      if (groups.length < 1) {
+        toast({ title: "Informe ao menos um grupo de critérios", variant: "destructive" });
         return false;
       }
-      if (marks.some((m) => !m.label.trim())) {
-        toast({ title: "Preencha o rótulo de todas as marcações", variant: "destructive" });
-        return false;
-      }
-      const codes = marks.map((m) => (m.code || "").trim().toUpperCase()).filter(Boolean);
-      if (new Set(codes).size !== codes.length) {
-        toast({ title: "Siglas das marcações não podem se repetir", variant: "destructive" });
-        return false;
-      }
-      if (marks.some((m) => m.weight < 0 || m.weight > 1)) {
-        toast({ title: "O peso de cada marcação deve estar entre 0 e 1", variant: "destructive" });
-        return false;
+      for (const group of groups) {
+        if (!group.name.trim()) {
+          toast({ title: "Preencha o nome de todos os grupos", variant: "destructive" });
+          return false;
+        }
+        if (group.marks.length < 2) {
+          toast({ title: `Grupo "${group.name}": informe ao menos duas marcações`, variant: "destructive" });
+          return false;
+        }
+        if (group.marks.some((m) => !m.label.trim())) {
+          toast({ title: `Grupo "${group.name}": preencha o rótulo de todas as marcações`, variant: "destructive" });
+          return false;
+        }
+        const codes = group.marks.map((m) => (m.code || "").trim().toUpperCase()).filter(Boolean);
+        if (new Set(codes).size !== codes.length) {
+          toast({ title: `Grupo "${group.name}": siglas não podem se repetir`, variant: "destructive" });
+          return false;
+        }
+        if (group.marks.some((m) => m.weight < 0 || m.weight > 1)) {
+          toast({ title: `Grupo "${group.name}": peso deve estar entre 0 e 1`, variant: "destructive" });
+          return false;
+        }
       }
       return true;
     }
@@ -380,6 +432,11 @@ const CreateSubjectiveEvaluation = () => {
       }
       if (questions.some((q) => !q.skill_description.trim())) {
         toast({ title: "Preencha a habilidade de todas as questões", variant: "destructive" });
+        return false;
+      }
+      const validKeys = new Set(groups.map((g) => g.temp_key));
+      if (questions.some((q) => !validKeys.has(q.rubric_group_key))) {
+        toast({ title: "Selecione o grupo de critérios de cada questão", variant: "destructive" });
         return false;
       }
       return true;
@@ -432,19 +489,7 @@ const CreateSubjectiveEvaluation = () => {
       toast({ title: "Preencha a habilidade de todas as questões", variant: "destructive" });
       return;
     }
-    if (marks.length < 2) {
-      toast({ title: "Informe ao menos duas marcações", variant: "destructive" });
-      return;
-    }
-    if (marks.some((m) => !m.label.trim())) {
-      toast({ title: "Preencha o rótulo de todas as marcações", variant: "destructive" });
-      return;
-    }
-    const codes = marks.map((m) => m.code.trim().toUpperCase());
-    if (new Set(codes).size !== codes.length) {
-      toast({ title: "Siglas das marcações não podem se repetir", variant: "destructive" });
-      return;
-    }
+    if (!validateStep(1) || !validateStep(2)) return;
 
     const payload: SubjectiveTestPayload = {
       title: title.trim(),
@@ -460,13 +505,20 @@ const CreateSubjectiveEvaluation = () => {
         number: i + 1,
         code: q.code.trim() || `Q${String(i + 1).padStart(2, "0")}`,
         skill_description: q.skill_description.trim(),
+        rubric_group_key: q.rubric_group_key,
       })),
-      rubric_marks: marks.map((m, i) => ({
-        code: (m.code || "").trim().toUpperCase() || `M${i + 1}`,
-        label: m.label.trim(),
-        color: m.color,
-        weight: Number.isFinite(m.weight) ? m.weight : 0,
+      rubric_groups: groups.map((g, i) => ({
+        id: g.id,
+        temp_key: g.temp_key,
+        name: g.name.trim() || `Grupo ${i + 1}`,
         sort_order: i,
+        marks: g.marks.map((m, mi) => ({
+          code: (m.code || "").trim().toUpperCase() || `M${mi + 1}`,
+          label: m.label.trim(),
+          color: m.color,
+          weight: Number.isFinite(m.weight) ? m.weight : 0,
+          sort_order: mi,
+        })),
       })),
     };
 
@@ -514,7 +566,7 @@ const CreateSubjectiveEvaluation = () => {
             {isEdit ? "Editar avaliação subjetiva" : "Nova avaliação subjetiva"}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Preencha em passos: dados, marcações, questões e turmas.
+            Preencha em passos: dados, grupos de critérios, questões e turmas.
           </p>
         </div>
       </div>
@@ -610,10 +662,10 @@ const CreateSubjectiveEvaluation = () => {
       {step === 1 && (
       <Card className="overflow-hidden border-primary/20 shadow-sm">
         <CardHeader className="bg-gradient-to-r from-amber-100/80 to-transparent dark:from-amber-950/40">
-          <CardTitle className="text-base">Marcações da correção</CardTitle>
+          <CardTitle className="text-base">Grupos de critérios</CardTitle>
         </CardHeader>
         <CardContent className="pt-6">
-          <SubjectiveRubricMarksEditor marks={marks} onChange={setMarks} />
+          <SubjectiveRubricGroupsEditor groups={groups} onChange={setGroups} />
         </CardContent>
       </Card>
       )}
@@ -653,7 +705,7 @@ const CreateSubjectiveEvaluation = () => {
           ) : (
             <div className="space-y-2">
               {questions.map((q, i) => (
-                <div key={i} className="grid gap-2 rounded-md border p-2 md:grid-cols-[70px_100px_1fr_auto]">
+                <div key={i} className="grid gap-2 rounded-md border p-2 md:grid-cols-[70px_100px_1fr_minmax(160px,220px)_auto]">
                   <Badge variant="outline" className="justify-center self-center">
                     #{q.number}
                   </Badge>
@@ -667,6 +719,21 @@ const CreateSubjectiveEvaluation = () => {
                     onChange={(e) => updateQuestion(i, { skill_description: e.target.value })}
                     placeholder="Digite o nome da habilidade"
                   />
+                  <Select
+                    value={q.rubric_group_key || groups[0]?.temp_key}
+                    onValueChange={(v) => updateQuestion(i, { rubric_group_key: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Grupo de critérios" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {groups.map((g, gi) => (
+                        <SelectItem key={g.temp_key || g.id || `g-${gi}`} value={g.temp_key || g.id || `g-${gi}`}>
+                          {g.name || "Grupo"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Button type="button" variant="ghost" size="icon" onClick={() => removeQuestion(i)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>

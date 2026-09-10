@@ -19,7 +19,7 @@ interface SubdomainCheckResponse {
 export default function SubdomainCheck() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [status, setStatus] = useState<"loading" | "valid" | "invalid">("loading");
+  const [status, setStatus] = useState<"loading" | "valid" | "invalid" | "unreachable">("loading");
 
   useEffect(() => {
     if (user.id) return;
@@ -37,7 +37,8 @@ export default function SubdomainCheck() {
         );
         setStatus(data?.exists ? "valid" : "invalid");
       } catch {
-        setStatus("invalid");
+        // API fora do ar ≠ subdomínio inválido
+        setStatus("unreachable");
       }
     };
 
@@ -48,6 +49,23 @@ export default function SubdomainCheck() {
   if (user.id) return <Navigate to={baseRoute} replace />;
 
   if (status === "loading") return <LoadingSpinner />;
+  if (status === "unreachable") {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#240046] px-6 text-center text-white">
+        <p className="text-lg font-semibold">Não foi possível validar o município</p>
+        <p className="max-w-md text-sm text-white/70">
+          O servidor da API não respondeu. Confirme se o backend está rodando e recarregue a página.
+        </p>
+        <button
+          type="button"
+          className="mt-2 rounded-md bg-white/15 px-4 py-2 text-sm hover:bg-white/25"
+          onClick={() => window.location.reload()}
+        >
+          Tentar novamente
+        </button>
+      </div>
+    );
+  }
   if (status === "invalid") {
     navigate("/subdominio-invalido", { replace: true });
     return <LoadingSpinner />;
