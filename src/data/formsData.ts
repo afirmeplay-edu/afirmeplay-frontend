@@ -1,10 +1,16 @@
 /**
  * Socioeconomic questionnaire data extracted from original HTML/JS files.
  * These constants are exported for consumption in React components.
+ *
+ * Note: questionsAlunoJovem / questionsAlunoVelho are no longer the source of truth
+ * for creating student forms — POST /forms without questions uses the backend template.
+ * Prefer GET /forms/templates/:formType for preview. Staff forms (professor/diretor/secretario)
+ * still send questions from this file.
  */
 
 import { Question, FormSection } from '../types/forms';
 
+/** @deprecated Prefer GET /forms/templates/aluno-jovem for create/preview flows. */
 export const questionsAlunoJovem: Question[] = [
             { id: 'q1', texto: 'Qual é o seu sexo?', tipo: 'selecao_unica', opcoes: ['Masculino', 'Feminino', 'Não quero declarar', 'Outro'], obrigatoria: true },
             { id: 'q2', texto: 'Qual é a sua idade?', tipo: 'selecao_unica', opcoes: ['9 anos ou menos', '10 anos', '11 anos', '12 anos', '13 anos', '14 anos ou mais'], obrigatoria: true },
@@ -31,6 +37,7 @@ export const questionsAlunoJovem: Question[] = [
             { id: 'q23', texto: 'Sobre sua escola, o quanto você concorda:', tipo: 'matriz_selecao', subPerguntas: [{ id: 'q23a', texto: 'Me interesso pelo que é ensinado' }, { id: 'q23b', texto: 'Me sinto motivado a usar o que aprendi' }, { id: 'q23c', texto: 'Há espaço para diferentes opiniões' }, { id: 'q23d', texto: 'Me sinto seguro(a) na escola' }, { id: 'q23e', texto: 'Me sinto à vontade para discordar dos professores' }, { id: 'q23f', texto: 'Consigo argumentar sobre conteúdos' }, { id: 'q23g', texto: 'As avaliações refletem o que aprendi' }, { id: 'q23h', texto: 'Meus professores acreditam na minha capacidade' }, { id: 'q23i', texto: 'Meus professores me motivam a continuar os estudos' }], opcoes: ['Discordo totalmente', 'Discordo', 'Concordo', 'Concordo totalmente'], obrigatoria: true },
         ];
 
+/** @deprecated Prefer GET /forms/templates/aluno-velho for create/preview flows. */
 export const questionsAlunoVelho: Question[] = [
             { id: 'q1', texto: 'Qual é o seu sexo?', tipo: 'selecao_unica', opcoes: ['Masculino', 'Feminino', 'Não quero declarar', 'Outro'], obrigatoria: true },
             { id: 'q2', texto: 'Qual é a sua idade?', tipo: 'selecao_unica', opcoes: ['13 anos ou menos', '14 anos', '15 anos', '16 anos', '17 anos', '18 anos ou mais'], obrigatoria: true },
