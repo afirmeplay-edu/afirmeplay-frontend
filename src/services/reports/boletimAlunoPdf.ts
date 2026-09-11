@@ -20,7 +20,6 @@ import type {
 
 const C = {
   primary: [124, 62, 237] as [number, number, number],
-  accent: [28, 176, 246] as [number, number, number],
   textDark: [31, 41, 55] as [number, number, number],
   textGray: [107, 114, 128] as [number, number, number],
   border: [209, 213, 219] as [number, number, number],
@@ -29,6 +28,40 @@ const C = {
   green: [22, 163, 74] as [number, number, number],
   red: [220, 38, 38] as [number, number, number],
 };
+
+/** Cores de fundo do valor de NÍVEL — alinhadas a DetailedResultsView. */
+const NIVEL_VALUE_COLORS: Record<string, [number, number, number]> = {
+  'Abaixo do Básico': [220, 38, 38], // #dc2626
+  Básico: [251, 191, 36], // #fbbf24
+  Adequado: [74, 222, 128], // #4ade80
+  Avançado: [22, 163, 74], // #16a34a
+  'Sem Nota': [107, 114, 128], // #6b7280
+};
+
+function nivelValueStyle(nivel: string): {
+  fill: [number, number, number];
+  text: [number, number, number];
+} {
+  const raw = (nivel || '').trim();
+  const map = NIVEL_VALUE_COLORS;
+  let fill = map['Sem Nota'];
+  if (raw && map[raw]) {
+    fill = map[raw];
+  } else {
+    const lower = raw
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    if (lower.includes('avancado')) fill = map['Avançado'];
+    else if (lower.includes('adequado')) fill = map.Adequado;
+    else if (lower === 'basico' || lower.startsWith('basico')) fill = map.Básico;
+    else if (lower.includes('abaixo')) fill = map['Abaixo do Básico'];
+  }
+  const [r, g, b] = fill;
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  const text: [number, number, number] = luminance > 0.65 ? C.textDark : C.white;
+  return { fill, text };
+}
 
 /** A4 portrait */
 const PAGE_W = 210;
@@ -79,7 +112,8 @@ type QuestionColumn = {
 type MetricCardDef = {
   title: string;
   value: string;
-  accent: boolean;
+  /** Card de nível: cabeçalho roxo; corpo com cor da faixa. */
+  isNivel: boolean;
 };
 
 function fmtNow(): string {
@@ -188,34 +222,103 @@ function columnWidth(s: PdfScale): number {
   return (usableWidth(s) - gaps) / GRID_COLS;
 }
 
-function questionColumnHeight(nQuestoes: number, s: PdfScale): number {
-  return s.bannerH + s.colHeaderH + Math.max(0, nQuestoes) * s.rowH + 1.2;
+/**
+ * Espaço entre colunas na faixa:
+ * - 2 → mais espaçadas
+ * - 3 → mais juntas
+ * - 4 → máximo por folha, gap mais apertado
+ */
+function gapForColumnCount(nCols: number, s: PdfScale): number {
+  if (nCols <= 1) return 0;
+  if (nCols === 2) return Math.max(14, s.colGap * 5.5);
+  if (nCols === 3) return Math.max(5, s.colGap * 2.2);
+  return s.colGap;
 }
 
-function maxRowsForHeight(availH: number, s: PdfScale): number {
-  const fixed = s.bannerH + s.colHeaderH + 1.2;
+/**
+ * Largura da coluna conforme quantas cabem na faixa (máx. 4).
+ * Com 2–3 colunas a tabela fica um pouco mais larga; com 4 usa o grid completo.
+ */
+function columnWidthForRow(nCols: number, s: PdfScale): number {
+  const n = Math.min(GRID_COLS, Math.max(1, nCols));
+  const gap = gapForColumnCount(n, s);
+  const natural = (usableWidth(s) - Math.max(0, n - 1) * gap) / n;
+  // Não deixa 1 coluna estourar a página inteira — limita ao tamanho do grid de 4.
+  const cap = columnWidth(s) * (n === 1 ? 1.35 : n === 2 ? 1.2 : 1);
+  return Math.min(natural, cap);
+}
+
+/** Posição X inicial para centralizar o bloco de colunas na página. */
+function centeredColumnsStartX(nCols: number, colW: number, gap: number, s: PdfScale): number {
+  const n = Math.max(1, nCols);
+  const blockW = n * colW + Math.max(0, n - 1) * gap;
+  return s.margin + Math.max(0, (usableWidth(s) - blockW) / 2);
+}
+
+function sharedBannerGap(_s: PdfScale): number {
+  return 1.0;
+}
+
+/**
+ * Altura de uma coluna de questões.
+ * `includeBanner`: banner roxo no topo da própria coluna.
+ */
+function questionColumnHeight(
+  nQuestoes: number,
+  s: PdfScale,
+  includeBanner = true
+): number {
+  const banner = includeBanner ? s.bannerH : 0;
+  return banner + s.colHeaderH + Math.max(0, nQuestoes) * s.rowH + 1.2;
+}
+
+/** Altura de uma faixa de colunas (até 4), com ou sem banner compartilhado. */
+function questionRowHeight(
+  cols: QuestionColumn[],
+  s: PdfScale,
+  sharedBanner: boolean
+): number {
+  if (!cols.length) return 0;
+  const maxQ = Math.max(...cols.map((c) => c.questoes.length), 0);
+  const colH = questionColumnHeight(maxQ, s, !sharedBanner);
+  if (!sharedBanner) return colH;
+  return s.bannerH + sharedBannerGap(s) + colH;
+}
+
+function maxRowsForRowAvail(
+  availH: number,
+  s: PdfScale,
+  sharedBanner: boolean
+): number {
+  const fixed = sharedBanner
+    ? s.bannerH + sharedBannerGap(s) + s.colHeaderH + 1.2
+    : s.bannerH + s.colHeaderH + 1.2;
   if (availH <= fixed) return 0;
   return Math.max(1, Math.floor((availH - fixed) / s.rowH));
 }
 
-function continuationHeaderHeight(s: PdfScale): number {
-  return s.startY + s.metaLineH * 2 + 1.5;
+/**
+ * Régua de divisão por disciplina (questões daquela disciplina):
+ * - ≤ 42 → 1 coluna
+ * - 43–83 (superou 42) → 2 colunas
+ * - ≥ 84 (superou 83) → 3 colunas
+ */
+function columnCountForDiscipline(nQuestoes: number): number {
+  if (nQuestoes <= 0) return 0;
+  if (nQuestoes <= 42) return 1;
+  if (nQuestoes <= 83) return 2;
+  return 3;
 }
 
 /**
- * Divide cada disciplina em colunas de no máximo `maxRows` questões,
- * balanceando o tamanho das partes.
+ * Divide a disciplina em N colunas equilibradas pela régua 42 / 83.
  */
-function splitDisciplineToColumns(
-  bloco: BoletimAlunoPorDisciplina,
-  maxRows: number
-): QuestionColumn[] {
+function splitDisciplineToColumns(bloco: BoletimAlunoPorDisciplina): QuestionColumn[] {
   const questoes = bloco.questoes ?? [];
   if (!questoes.length) return [];
   const letters = questionAlternativeLetters(questoes);
-  const cap = Math.max(1, maxRows);
-  const nParts = Math.ceil(questoes.length / cap);
-  const partSize = Math.ceil(questoes.length / nParts);
+  const nParts = columnCountForDiscipline(questoes.length);
+  const partSize = Math.ceil(questoes.length / Math.max(1, nParts));
   return chunk(questoes, partSize).map((part) => ({
     disciplina: bloco.disciplina,
     questoes: part,
@@ -223,92 +326,53 @@ function splitDisciplineToColumns(
   }));
 }
 
-/**
- * Empacota colunas em faixas de até GRID_COLS, paginando quando a altura
- * da faixa não cabe na página atual.
- */
-function paginateColumns(
-  cols: QuestionColumn[],
-  firstPageAvailH: number,
-  continuationAvailH: number,
-  s: PdfScale
-): QuestionColumn[][] {
-  if (!cols.length) return [];
-
-  const rows: QuestionColumn[][] = [];
-  let pending = [...cols];
-  let page = 0;
-
-  while (pending.length) {
-    const avail = page === 0 ? firstPageAvailH : continuationAvailH;
-    const maxRows = Math.max(1, maxRowsForHeight(avail, s));
-    const pageCols: QuestionColumn[] = [];
-    const nextPending: QuestionColumn[] = [];
-
-    for (let i = 0; i < pending.length; i++) {
-      const col = pending[i];
-      if (pageCols.length >= GRID_COLS) {
-        nextPending.push(...pending.slice(i));
-        break;
-      }
-      if (col.questoes.length <= maxRows) {
-        pageCols.push(col);
-      } else {
-        pageCols.push({
-          disciplina: col.disciplina,
-          questoes: col.questoes.slice(0, maxRows),
-          letters: col.letters,
-        });
-        nextPending.push({
-          disciplina: col.disciplina,
-          questoes: col.questoes.slice(maxRows),
-          letters: col.letters,
-        });
-        nextPending.push(...pending.slice(i + 1));
-        break;
-      }
-    }
-
-    if (!pageCols.length) {
-      // Evita loop infinito: força ao menos uma coluna parcial.
-      const col = pending[0];
-      const forceRows = Math.max(1, maxRows);
-      pageCols.push({
-        disciplina: col.disciplina,
-        questoes: col.questoes.slice(0, forceRows),
-        letters: col.letters,
-      });
-      pending = [
-        {
-          disciplina: col.disciplina,
-          questoes: col.questoes.slice(forceRows),
-          letters: col.letters,
-        },
-        ...pending.slice(1),
-      ].filter((c) => c.questoes.length > 0);
-    } else {
-      pending = nextPending.filter((c) => c.questoes.length > 0);
-    }
-
-    rows.push(pageCols);
-    page += 1;
-  }
-
-  return rows;
+function rowUsesSharedBanner(cols: QuestionColumn[]): boolean {
+  if (cols.length <= 1) return false;
+  const name = cols[0]?.disciplina;
+  return cols.every((c) => c.disciplina === name);
 }
 
-function buildQuestionPageRows(
-  blocos: BoletimAlunoPorDisciplina[],
-  firstPageAvailH: number,
-  continuationAvailH: number,
+/** Corta a mesma qtde de linhas em todas as colunas da faixa. */
+function takeRowSlice(
+  cols: QuestionColumn[],
+  maxRows: number
+): { slice: QuestionColumn[]; rest: QuestionColumn[] } {
+  const slice = cols
+    .map((c) => ({
+      disciplina: c.disciplina,
+      letters: c.letters,
+      questoes: c.questoes.slice(0, maxRows),
+    }))
+    .filter((c) => c.questoes.length > 0);
+
+  const rest = cols
+    .map((c) => ({
+      ...c,
+      questoes: c.questoes.slice(maxRows),
+    }))
+    .filter((c) => c.questoes.length > 0);
+
+  return { slice, rest };
+}
+
+function drawSharedDisciplineBanner(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  width: number,
+  title: string,
   s: PdfScale
-): QuestionColumn[][] {
-  const maxRowsFirst = Math.max(8, maxRowsForHeight(firstPageAvailH, s));
-  const cols: QuestionColumn[] = [];
-  for (const bloco of blocos) {
-    cols.push(...splitDisciplineToColumns(bloco, maxRowsFirst));
-  }
-  return paginateColumns(cols, firstPageAvailH, continuationAvailH, s);
+): number {
+  doc.setFillColor(...C.primary);
+  doc.roundedRect(x, y, width, s.bannerH, 1.2, 1.2, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(s.tableTitleFont);
+  doc.setTextColor(...C.white);
+  const lines = doc.splitTextToSize(title.toUpperCase(), width - 2.4) as string[];
+  doc.text(lines[0] || title, x + width / 2, y + s.bannerH * 0.68, { align: 'center' });
+
+  return y + s.bannerH + sharedBannerGap(s);
 }
 
 function drawQuestionColumn(
@@ -317,8 +381,10 @@ function drawQuestionColumn(
   y: number,
   colW: number,
   column: QuestionColumn,
-  s: PdfScale
+  s: PdfScale,
+  opts?: { omitBanner?: boolean }
 ): number {
+  const omitBanner = Boolean(opts?.omitBanner);
   const letters = column.letters.length
     ? column.letters
     : questionAlternativeLetters(column.questoes);
@@ -328,27 +394,30 @@ function drawQuestionColumn(
   const lettersW = colW - numW - gabW;
   const letterCellW = lettersW / nLetters;
   const r = Math.min(s.circleR, letterCellW / 2 - 0.35, s.rowH / 2 - 0.55);
-  const h = questionColumnHeight(column.questoes.length, s);
+  const h = questionColumnHeight(column.questoes.length, s, !omitBanner);
 
   doc.setDrawColor(...C.border);
   doc.setFillColor(...C.white);
   doc.setLineWidth(0.3);
   doc.roundedRect(x, y, colW, h, 1.2, 1.2, 'FD');
 
-  doc.setFillColor(...C.primary);
-  doc.roundedRect(x, y, colW, s.bannerH, 1.2, 1.2, 'F');
-  doc.setFillColor(...C.primary);
-  doc.rect(x, y + s.bannerH - 1.5, colW, 1.5, 'F');
+  let cy = y;
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(s.tableTitleFont);
-  doc.setTextColor(...C.white);
-  const title = doc.splitTextToSize(column.disciplina.toUpperCase(), colW - 2) as string[];
-  doc.text(title[0] || column.disciplina, x + colW / 2, y + s.bannerH * 0.68, {
-    align: 'center',
-  });
+  if (!omitBanner) {
+    doc.setFillColor(...C.primary);
+    doc.roundedRect(x, y, colW, s.bannerH, 1.2, 1.2, 'F');
+    doc.setFillColor(...C.primary);
+    doc.rect(x, y + s.bannerH - 1.5, colW, 1.5, 'F');
 
-  let cy = y + s.bannerH;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(s.tableTitleFont);
+    doc.setTextColor(...C.white);
+    const title = doc.splitTextToSize(column.disciplina.toUpperCase(), colW - 2) as string[];
+    doc.text(title[0] || column.disciplina, x + colW / 2, y + s.bannerH * 0.68, {
+      align: 'center',
+    });
+    cy = y + s.bannerH;
+  }
 
   doc.setFillColor(...C.bgHeader);
   doc.rect(x, cy, colW, s.colHeaderH, 'F');
@@ -397,27 +466,65 @@ function drawQuestionColumn(
   return y + h;
 }
 
-function metricCards(cards: BoletimAlunoCards): MetricCardDef[] {
+/**
+ * Desenha uma faixa de até 4 colunas, centralizada.
+ * Banner único só quando todas as colunas da faixa são da mesma disciplina.
+ */
+function drawQuestionColumnRow(
+  doc: jsPDF,
+  y: number,
+  cols: QuestionColumn[],
+  s: PdfScale
+): number {
+  if (!cols.length) return y;
+
+  const nCols = cols.length;
+  const sharedBanner = rowUsesSharedBanner(cols);
+  const gap = gapForColumnCount(nCols, s);
+  const colW = columnWidthForRow(nCols, s);
+  const startX = centeredColumnsStartX(nCols, colW, gap, s);
+  const blockW = nCols * colW + Math.max(0, nCols - 1) * gap;
+
+  let cy = y;
+  if (sharedBanner) {
+    cy = drawSharedDisciplineBanner(doc, startX, cy, blockW, cols[0].disciplina, s);
+  }
+
+  let bottom = cy;
+  cols.forEach((col, colIdx) => {
+    const x = startX + colIdx * (colW + gap);
+    const colBottom = drawQuestionColumn(doc, x, cy, colW, col, s, {
+      omitBanner: sharedBanner,
+    });
+    bottom = Math.max(bottom, colBottom);
+  });
+
+  return bottom;
+}
+
+/** Cards de métricas. Em disciplina o nível se chama "NÍVEL"; no agregado final, "NÍVEL GERAL". */
+function metricCards(cards: BoletimAlunoCards, opts?: { isGeral?: boolean }): MetricCardDef[] {
   return [
     {
       title: 'ACERTOS TOTAIS',
       value: `${cards.acertos_totais.acertou} / ${cards.acertos_totais.total}`,
-      accent: false,
+      isNivel: false,
     },
     {
       title: 'NOTA',
+      // null/undefined → "—" (compatível com backend sem cálculo por disciplina)
       value: formatDecimal1PtBr(cards.nota, '—'),
-      accent: false,
+      isNivel: false,
     },
     {
       title: 'MÉDIA PROFICIÊNCIA',
       value: formatDecimal1PtBr(cards.proficiencia, '—'),
-      accent: false,
+      isNivel: false,
     },
     {
-      title: 'NÍVEL GERAL',
+      title: opts?.isGeral ? 'NÍVEL GERAL' : 'NÍVEL',
       value: cards.nivel || '—',
-      accent: true,
+      isNivel: true,
     },
   ];
 }
@@ -432,9 +539,10 @@ function drawMetricCardRow(
   y: number,
   totalW: number,
   cards: BoletimAlunoCards,
-  s: PdfScale
+  s: PdfScale,
+  opts?: { isGeral?: boolean }
 ): number {
-  const items = metricCards(cards);
+  const items = metricCards(cards, opts);
   const gap = 2.2;
   const cardW = (totalW - gap * (items.length - 1)) / items.length;
   const headerH = Math.max(5.2, s.cardH * 0.32);
@@ -442,7 +550,7 @@ function drawMetricCardRow(
 
   items.forEach((card, i) => {
     const cx = x + i * (cardW + gap);
-    const headerColor = card.accent ? C.accent : C.primary;
+    const nivelStyle = card.isNivel ? nivelValueStyle(card.value) : null;
 
     doc.setFillColor(230, 230, 235);
     doc.roundedRect(cx + 0.4, y + 0.5, cardW, s.cardH, 1.2, 1.2, 'F');
@@ -452,9 +560,10 @@ function drawMetricCardRow(
     doc.setLineWidth(0.2);
     doc.roundedRect(cx, y, cardW, s.cardH, 1.2, 1.2, 'FD');
 
-    doc.setFillColor(...headerColor);
+    // Cabeçalho sempre roxo (inclui NÍVEL / NÍVEL GERAL)
+    doc.setFillColor(...C.primary);
     doc.roundedRect(cx, y, cardW, headerH, 1.2, 1.2, 'F');
-    doc.setFillColor(...headerColor);
+    doc.setFillColor(...C.primary);
     doc.rect(cx, y + headerH - 1.4, cardW, 1.4, 'F');
 
     doc.setFont('helvetica', 'bold');
@@ -465,12 +574,12 @@ function drawMetricCardRow(
       align: 'center',
     });
 
-    if (card.accent) {
-      doc.setFillColor(...C.accent);
+    if (nivelStyle) {
+      doc.setFillColor(...nivelStyle.fill);
       doc.roundedRect(cx, y + headerH, cardW, bodyH, 1.2, 1.2, 'F');
-      doc.setFillColor(...C.accent);
+      doc.setFillColor(...nivelStyle.fill);
       doc.rect(cx, y + headerH, cardW, 2, 'F');
-      doc.setTextColor(...C.white);
+      doc.setTextColor(...nivelStyle.text);
     } else {
       doc.setTextColor(...C.textDark);
     }
@@ -564,13 +673,7 @@ function drawFullHeader(
   const metaPairs: Array<[string, string]> = [
     ['AVALIAÇÃO', avaliacaoNome || labels.avaliacao || '—'],
     ['ESCOLA', item.aluno.escola || labels.escola || '—'],
-    ['SÉRIE', item.aluno.serie || labels.serie || '—'],
-    ['TURMA', item.aluno.turma || labels.turma || '—'],
-    ['ALUNO', item.aluno.nome || labels.aluno || '—'],
   ];
-  if (item.aluno.matricula) {
-    metaPairs.push(['MATRÍCULA', item.aluno.matricula]);
-  }
 
   doc.setFontSize(s.metaFont);
   for (const [k, v] of metaPairs) {
@@ -590,11 +693,75 @@ function drawFullHeader(
     y += s.metaLineH;
   }
 
-  y += s.titleGap * 0.4;
+  // SÉRIE | TURMA | MATRÍCULA na mesma linha
+  {
+    const parts: Array<[string, string]> = [
+      ['SÉRIE', item.aluno.serie || labels.serie || '—'],
+      ['TURMA', item.aluno.turma || labels.turma || '—'],
+    ];
+    if (item.aluno.matricula) {
+      parts.push(['MATRÍCULA', item.aluno.matricula]);
+    }
+
+    const gapBetween = 10;
+    const segments: Array<{ label: string; value: string; labelW: number; valueW: number }> = [];
+    let totalW = 0;
+    parts.forEach(([k, v], idx) => {
+      const label = `${k}: `;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(s.metaFont);
+      const labelW = doc.getTextWidth(label);
+      doc.setFont('helvetica', 'normal');
+      const valueW = doc.getTextWidth(String(v || '—').toUpperCase());
+      segments.push({ label, value: String(v || '—').toUpperCase(), labelW, valueW });
+      totalW += labelW + valueW;
+      if (idx < parts.length - 1) totalW += gapBetween;
+    });
+
+    let cursorX = centerX - totalW / 2;
+    segments.forEach((seg, idx) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(s.metaFont);
+      doc.setTextColor(...C.textGray);
+      doc.text(seg.label, cursorX, y);
+      cursorX += seg.labelW;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...C.textDark);
+      doc.text(seg.value, cursorX, y);
+      cursorX += seg.valueW;
+      if (idx < segments.length - 1) cursorX += gapBetween;
+    });
+    y += s.metaLineH;
+  }
+
+  {
+    const label = 'ALUNO: ';
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(s.metaFont);
+    const lw = doc.getTextWidth(label);
+    const valueText = String(item.aluno.nome || labels.aluno || '—').toUpperCase();
+    doc.setFont('helvetica', 'normal');
+    const vw = doc.getTextWidth(valueText);
+    const startX = centerX - (lw + vw) / 2;
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...C.textGray);
+    doc.text(label, startX, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...C.textDark);
+    doc.text(valueText, startX + lw, y);
+    y += s.metaLineH;
+  }
+
+  y += s.titleGap * 0.35;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(s.metaFont);
+  doc.setTextColor(...C.textGray);
+  doc.text('RELATÓRIO:', centerX, y, { align: 'center' });
+  y += s.metaLineH + 0.4;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(s.titleFont);
   doc.setTextColor(...C.primary);
-  doc.text('RELATÓRIO: BOLETIM DO ALUNO', centerX, y, { align: 'center' });
+  doc.text('BOLETIM DO ALUNO', centerX, y, { align: 'center' });
   y += s.titleGap + 1.5;
 
   return y;
@@ -661,7 +828,7 @@ function drawResultsSection(
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(s.metaFont);
     doc.setTextColor(...C.textDark);
-    doc.text(disc.title.toUpperCase(), s.margin, cy + 3.5);
+    doc.text(disc.title.toUpperCase(), PAGE_W / 2, cy + 3.5, { align: 'center' });
     cy += 5.5;
     cy = drawMetricCardRow(doc, s.margin, cy, contentW, disc.cards, s);
     cy += s.gap * 0.7;
@@ -671,9 +838,9 @@ function drawResultsSection(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(s.metaFont);
   doc.setTextColor(...C.textDark);
-  doc.text('GERAL', s.margin, cy + 3.5);
+  doc.text('GERAL', PAGE_W / 2, cy + 3.5, { align: 'center' });
   cy += 5.5;
-  cy = drawMetricCardRow(doc, s.margin, cy, contentW, item.cards, s);
+  cy = drawMetricCardRow(doc, s.margin, cy, contentW, item.cards, s, { isGeral: true });
 
   return cy;
 }
@@ -685,48 +852,54 @@ function drawQuestionRows(
   s: PdfScale
 ): number {
   const blocos = item.por_disciplina ?? [];
-  const nDiscWithCards = blocos.filter((b) => resolveDisciplinaCards(b)).length;
-  const resultsReserve = Math.min(
-    (nDiscWithCards + 1) * resultsBlockHeight(s) + s.gap,
-    72
-  );
 
-  const firstAvail = Math.max(
-    40,
-    PAGE_H - startY - s.footerReserve - resultsReserve - s.gap
-  );
-  const contAvail = Math.max(
-    50,
-    PAGE_H - continuationHeaderHeight(s) - s.footerReserve - 4
-  );
+  // Achata colunas de todas as disciplinas e empacota em faixas de até 4.
+  let queue: QuestionColumn[] = [];
+  for (const bloco of blocos) {
+    queue.push(...splitDisciplineToColumns(bloco));
+  }
 
-  const rows = buildQuestionPageRows(blocos, firstAvail, contAvail, s);
   let y = startY;
-  const colW = columnWidth(s);
+  let drewAny = false;
 
-  rows.forEach((rowCols, rowIdx) => {
-    const rowH = Math.max(
-      ...rowCols.map((c) => questionColumnHeight(c.questoes.length, s)),
-      10
-    );
+  while (queue.length) {
+    const nTake = Math.min(GRID_COLS, queue.length);
+    const rowPeek = queue.slice(0, nTake);
+    const sharedBanner = rowUsesSharedBanner(rowPeek);
+    const fullH = questionRowHeight(rowPeek, s, sharedBanner);
+    let avail = PAGE_H - s.footerReserve - y;
 
-    if (rowIdx === 0) {
-      if (y + rowH > PAGE_H - s.footerReserve) {
-        y = newPageWithContinuation(doc, item, s);
-      }
-    } else {
+    if (avail < Math.min(fullH, s.bannerH + s.colHeaderH + s.rowH + 4)) {
       y = newPageWithContinuation(doc, item, s);
+      avail = PAGE_H - s.footerReserve - y;
     }
 
-    rowCols.forEach((col, colIdx) => {
-      const x = s.margin + colIdx * (colW + s.colGap);
-      drawQuestionColumn(doc, x, y, colW, col, s);
-    });
+    if (fullH <= avail) {
+      queue = queue.slice(nTake);
+      y = drawQuestionColumnRow(doc, y, rowPeek, s);
+      y += s.gap * 0.75;
+      drewAny = true;
+      continue;
+    }
 
-    y += rowH + s.gap * 0.6;
-  });
+    let maxRows = maxRowsForRowAvail(avail, s, sharedBanner);
+    if (maxRows < 1) {
+      y = newPageWithContinuation(doc, item, s);
+      avail = PAGE_H - s.footerReserve - y;
+      maxRows = Math.max(1, maxRowsForRowAvail(avail, s, sharedBanner));
+    }
 
-  if (!rows.length) {
+    const { slice, rest } = takeRowSlice(rowPeek, maxRows);
+    if (!slice.length) break;
+
+    // Continuação destas colunas volta para o início da fila (mesma faixa).
+    queue = [...rest, ...queue.slice(nTake)];
+    y = drawQuestionColumnRow(doc, y, slice, s);
+    y += s.gap * 0.75;
+    drewAny = true;
+  }
+
+  if (!drewAny) {
     doc.setFontSize(8);
     doc.setTextColor(...C.textGray);
     doc.setFont('helvetica', 'normal');
