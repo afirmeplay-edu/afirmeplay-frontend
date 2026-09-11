@@ -300,13 +300,14 @@ function maxRowsForRowAvail(
 /**
  * Régua de divisão por disciplina (questões daquela disciplina):
  * - ≤ 42 → 1 coluna
- * - 43–83 (superou 42) → 2 colunas
- * - ≥ 84 (superou 83) → 3 colunas
+ * - 25–50 (superou 25) → 2 colunas
+ * - ≥ 51 (superou 50) → 3 colunas
  */
 function columnCountForDiscipline(nQuestoes: number): number {
   if (nQuestoes <= 0) return 0;
-  if (nQuestoes <= 42) return 1;
-  if (nQuestoes <= 83) return 2;
+  if (nQuestoes <= 25) return 1;
+  if (nQuestoes <= 50
+  ) return 2;
   return 3;
 }
 
@@ -845,13 +846,47 @@ function drawResultsSection(
   return cy;
 }
 
+/**
+ * Agrupa blocos de por_disciplina que tenham o mesmo nome de disciplina,
+ * concatenando as questões (e ordenando por número) antes de aplicar a
+ * régua de divisão em colunas (42 / 83). Isso evita que uma disciplina
+ * fragmentada em várias "partes" pelo backend fique sempre com ≤42
+ * questões por bloco e nunca dispare a divisão em 2/3 colunas.
+ */
+function mergeBlocosByDisciplina(
+  blocos: BoletimAlunoPorDisciplina[]
+): BoletimAlunoPorDisciplina[] {
+  const order: string[] = [];
+  const map = new Map<string, BoletimAlunoPorDisciplina>();
+
+  for (const bloco of blocos) {
+    const key = bloco.disciplina_id || bloco.disciplina;
+    const existing = map.get(key);
+    if (!existing) {
+      order.push(key);
+      map.set(key, { ...bloco, questoes: [...(bloco.questoes ?? [])] });
+      continue;
+    }
+    existing.questoes = [...existing.questoes, ...(bloco.questoes ?? [])];
+  }
+
+  // Garante ordem estável de exibição (#1, #2, ...) mesmo se os blocos
+  // originais chegaram fora de ordem.
+  for (const key of order) {
+    const merged = map.get(key)!;
+    merged.questoes = [...merged.questoes].sort((a, b) => a.numero - b.numero);
+  }
+
+  return order.map((key) => map.get(key)!);
+}
+
 function drawQuestionRows(
   doc: jsPDF,
   startY: number,
   item: BoletimAlunoItem,
   s: PdfScale
 ): number {
-  const blocos = item.por_disciplina ?? [];
+  const blocos = mergeBlocosByDisciplina(item.por_disciplina ?? []);
 
   // Achata colunas de todas as disciplinas e empacota em faixas de até 4.
   let queue: QuestionColumn[] = [];
@@ -953,7 +988,10 @@ export async function generateBoletimAlunoPdf(options: {
     );
   }
 
+  
+
   for (let i = 0; i < boletins.length; i++) {
+
     drawStudentBoletim(
       doc,
       boletins[i],
