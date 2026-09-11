@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Eye, Pencil, Trash2, Search, ChevronLeft, ChevronRight, ArrowUpDown, Copy, HelpCircle, BookOpen } from "lucide-react";
+import { Plus, Eye, Pencil, Trash2, Search, ChevronLeft, ChevronRight, ArrowUpDown, Copy, HelpCircle, BookOpen, FileUp } from "lucide-react";
 import { Question } from "@/components/evaluations/types";
 import { useAuth } from "@/context/authContext";
 import { api } from "@/lib/api";
@@ -1541,6 +1541,16 @@ const QuestionsPage = () => {
             <BookOpen className="h-4 w-4 sm:mr-1" />
             <span className="hidden sm:inline">Banco de Habilidades</span>
             <span className="sm:hidden">Habilidades</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate("/app/cadastros/questao/importar")}
+            className="flex-1 sm:flex-none"
+          >
+            <FileUp className="h-4 w-4 sm:mr-1" />
+            <span className="hidden sm:inline">Importar questões</span>
+            <span className="sm:hidden">Importar</span>
           </Button>
           <Button
             size="sm"

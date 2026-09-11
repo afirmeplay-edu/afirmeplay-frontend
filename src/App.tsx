@@ -74,6 +74,7 @@ const MonitoramentoPage = React.lazy(() => import("@/pages/monitoramento/Monitor
 // questions
 const CreateQuestionPage = React.lazy(() => import("@/pages/questions/CreateQuestionPage"));
 const EditQuestionPage = React.lazy(() => import("@/pages/questions/EditQuestionPage"));
+const ImportQuestionsPage = React.lazy(() => import("@/pages/questions/ImportQuestionsPage"));
 const QuestionsPage = React.lazy(() => import("@/pages/questions/QuestionsPage"));
 const HabilidadesPage = React.lazy(() => import("@/pages/questions/HabilidadesPage"));
 
@@ -436,6 +437,7 @@ const App = () => {
               {/* Rotas de gerenciamento de questões */}
               <Route path="/app/cadastros/questao" element={<PrivateRoute><QuestionsPage /></PrivateRoute>} />
               <Route path="/app/cadastros/questao/criar" element={<PrivateRoute><CreateQuestionPage /></PrivateRoute>} />
+              <Route path="/app/cadastros/questao/importar" element={<PrivateRoute><ImportQuestionsPage /></PrivateRoute>} />
               <Route path="/app/cadastros/questao/editar/:id" element={<PrivateRoute><EditQuestionPage /></PrivateRoute>} />
               <Route path="/app/cadastros/habilidades" element={<PrivateRoute><HabilidadesPage /></PrivateRoute>} />
 
