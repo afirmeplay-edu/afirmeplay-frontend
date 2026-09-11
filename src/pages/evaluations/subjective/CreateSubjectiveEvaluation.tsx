@@ -93,15 +93,14 @@ const CreateSubjectiveEvaluation = () => {
   const [groups, setGroups] = useState<SubjectiveRubricGroup[]>(() => [createDefaultRubricGroup(0)]);
   const [step, setStep] = useState(0);
 
-  const defaultGroupKey = groups[0]?.temp_key || "";
-
   useEffect(() => {
     const valid = new Set(groups.map((g) => g.temp_key));
-    const fallback = groups[0]?.temp_key;
-    if (!fallback) return;
     setQuestions((prev) => {
-      if (!prev.some((q) => !valid.has(q.rubric_group_key))) return prev;
-      return prev.map((q) => (valid.has(q.rubric_group_key) ? q : { ...q, rubric_group_key: fallback }));
+      // Mantém vazio ("selecionar grupo"); só limpa chave órfã se o grupo foi removido.
+      if (!prev.some((q) => q.rubric_group_key && !valid.has(q.rubric_group_key))) return prev;
+      return prev.map((q) =>
+        !q.rubric_group_key || valid.has(q.rubric_group_key) ? q : { ...q, rubric_group_key: "" }
+      );
     });
   }, [groups]);
 
@@ -311,13 +310,13 @@ const CreateSubjectiveEvaluation = () => {
 
   const generateQuestions = () => {
     const n = Math.max(1, Math.min(60, numQuestions));
-    const fallback = groups[0]?.temp_key || defaultGroupKey;
     setQuestions(
       Array.from({ length: n }, (_, i) => ({
         number: i + 1,
         code: `Q${String(i + 1).padStart(2, "0")}`,
         skill_description: questions[i]?.skill_description || "",
-        rubric_group_key: questions[i]?.rubric_group_key || fallback,
+        // Sem pré-seleção: usuário escolhe "Selecionar grupo" → grupo desejado
+        rubric_group_key: questions[i]?.rubric_group_key || "",
       }))
     );
   };
@@ -342,7 +341,7 @@ const CreateSubjectiveEvaluation = () => {
         number: next,
         code: `Q${String(next).padStart(2, "0")}`,
         skill_description: "",
-        rubric_group_key: groups[0]?.temp_key || defaultGroupKey,
+        rubric_group_key: "",
       },
     ]);
   };
@@ -720,11 +719,11 @@ const CreateSubjectiveEvaluation = () => {
                     placeholder="Digite o nome da habilidade"
                   />
                   <Select
-                    value={q.rubric_group_key || groups[0]?.temp_key}
+                    value={q.rubric_group_key || undefined}
                     onValueChange={(v) => updateQuestion(i, { rubric_group_key: v })}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Grupo de critérios" />
+                      <SelectValue placeholder="Selecionar grupo" />
                     </SelectTrigger>
                     <SelectContent>
                       {groups.map((g, gi) => (
