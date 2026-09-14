@@ -1,8 +1,17 @@
+export type QuestionImportSubjectRef = {
+  id: string;
+  name: string;
+};
+
 export type QuestionImportFormContext = {
-  subjectId: string;
-  subjectName: string;
   gradeId: string;
   gradeName: string;
+  /** Legado / AVALIACAO 1 disciplina */
+  subjectId?: string | null;
+  subjectName?: string | null;
+  subjects?: QuestionImportSubjectRef[];
+  allowedSubjectIds?: string[];
+  defaultSubjectId?: string | null;
 };
 
 export type QuestionImportSummary = {
@@ -20,6 +29,7 @@ export type QuestionImportResolved = {
   subjectName: string | null;
   gradeId: string | null;
   gradeName: string | null;
+  difficulty?: string | null;
   educationStageId?: string | null;
   skillId?: string | null;
   type?: string | null;
@@ -68,12 +78,15 @@ export type QuestionImportCreatedItem = {
   id: string;
   type?: string;
   warnings?: string[];
+  order?: number;
+  difficulty?: string;
 };
 
 export type QuestionImportFailedItem = {
   index: number;
   errors: string[];
   warnings?: string[];
+  valid?: boolean;
 };
 
 export type QuestionImportSkippedItem = {
@@ -92,7 +105,35 @@ export type QuestionImportResponse = {
   skipped?: QuestionImportSkippedItem[];
 };
 
-export type QuestionImportParams = {
-  subjectId: string;
+/** Params de disciplina: 1 → subjectId; N → subjectIds CSV. */
+export type QuestionImportSubjectParams =
+  | { subjectId: string; subjectIds?: never }
+  | { subjectIds: string; subjectId?: never };
+
+export type QuestionImportParams = QuestionImportSubjectParams & {
   grade: string;
+};
+
+export type TestImportDocxSummary = {
+  totalInFile: number;
+  selected: number;
+  created: number;
+  selectedIndexes: number[];
+};
+
+export type TestImportDocxSuccess = {
+  message: string;
+  id: string;
+  evaluation_mode?: string;
+  type?: string;
+  form?: QuestionImportFormContext;
+  summary: TestImportDocxSummary;
+  created: QuestionImportCreatedItem[];
+  questionsPreview?: QuestionImportItem[];
+};
+
+export type TestImportDocxErrorBody = {
+  error: string;
+  selectedIndexes?: number[];
+  failed?: QuestionImportFailedItem[];
 };
