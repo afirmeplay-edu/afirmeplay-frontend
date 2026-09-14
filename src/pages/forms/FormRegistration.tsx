@@ -46,13 +46,12 @@ import { useToast } from '@/hooks/use-toast';
 import { FormFiltersApiService } from '@/services/formFiltersApi';
 import { api } from '@/lib/api';
 import { 
-  questionsAlunoJovem, 
-  questionsAlunoVelho, 
   professorQuestions, 
   diretorQuestions, 
   secretarioQuestions 
 } from '@/data/formsData';
 import { Question } from '@/types/forms';
+import { fetchFormTemplateQuestions, isStudentFormType } from '@/services/formTemplatesApi';
 
 // IDs de Education Stages pré-definidos para cada tipo de formulário
 const EDUCATION_STAGE_IDS_BY_FORM_TYPE: Record<string, string[]> = {
@@ -216,13 +215,19 @@ const FormRegistration = () => {
   const [formInstructions, setFormInstructions] = useState<string>('');
   const [formDeadline, setFormDeadline] = useState<string>('');
 
-  // Estados para o editor de perguntas
+  // Estados para o editor de perguntas (staff) / preview (aluno)
   const [showQuestionEditor, setShowQuestionEditor] = useState(false);
+  const [questionDialogMode, setQuestionDialogMode] = useState<'edit' | 'preview'>('edit');
   const [selectedFormTypeForEditor, setSelectedFormTypeForEditor] = useState<string | null>(null);
   const [availableQuestions, setAvailableQuestions] = useState<Question[]>([]);
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<Set<string>>(new Set());
   const [searchQuestionTerm, setSearchQuestionTerm] = useState('');
   const [viewingQuestion, setViewingQuestion] = useState<Question | null>(null);
+
+  // Template de aluno (backend)
+  const [templateQuestions, setTemplateQuestions] = useState<Question[]>([]);
+  const [loadingTemplate, setLoadingTemplate] = useState(false);
+  const [templateError, setTemplateError] = useState<string | null>(null);
 
   // Ref para controlar resets em cascata
   const isRestoringFiltersRef = useRef(false);
@@ -508,7 +513,7 @@ const FormRegistration = () => {
         return {
           name: 'Formulário socioeconômico para anos iniciais e educação infantil',
           description: 'Questionário socioeconômico para estudantes da Educação Infantil e anos iniciais do Ensino Fundamental (1º ao 5º ano).',
-          questions: questionsAlunoJovem,
+          questions: templateQuestions,
           icon: Users,
           color: 'bg-blue-500'
         };
@@ -516,7 +521,7 @@ const FormRegistration = () => {
         return {
           name: 'Formulário socioeconômico para EJA e anos finais',
           description: 'Questionário socioeconômico para estudantes dos anos finais do Ensino Fundamental (6º ao 9º ano) e EJA do 1º ao 9º período.',
-          questions: questionsAlunoVelho,
+          questions: templateQuestions,
           icon: GraduationCap,
           color: 'bg-green-500'
         };
@@ -547,7 +552,45 @@ const FormRegistration = () => {
       default:
         return null;
     }
-  }, []);
+  }, [templateQuestions]);
+
+  // Carregar template completo do backend para formulários de aluno
+  useEffect(() => {
+    if (!isStudentFormType(selectedFormType)) {
+      setTemplateQuestions([]);
+      setTemplateError(null);
+      setLoadingTemplate(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadTemplate = async () => {
+      setLoadingTemplate(true);
+      setTemplateError(null);
+      try {
+        const questions = await fetchFormTemplateQuestions(selectedFormType);
+        if (cancelled) return;
+        setTemplateQuestions(questions);
+        if (questions.length === 0) {
+          setTemplateError('Template do backend não retornou perguntas.');
+        }
+      } catch (error) {
+        console.error('Erro ao carregar template do formulário:', error);
+        if (!cancelled) {
+          setTemplateQuestions([]);
+          setTemplateError('Não foi possível carregar o template de perguntas do backend.');
+        }
+      } finally {
+        if (!cancelled) setLoadingTemplate(false);
+      }
+    };
+
+    loadTemplate();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedFormType]);
 
   // Carregar turmas quando série(s) for(em) selecionada(s)
   useEffect(() => {
@@ -617,14 +660,15 @@ const FormRegistration = () => {
     }
   }, [selectedFormType]);
 
-  // Função para abrir editor de perguntas
+  // Função para abrir editor de perguntas (staff) ou preview (aluno)
   const handleOpenQuestionEditor = (formType: string) => {
     const formData = getFormData(formType);
     if (!formData) return;
 
+    const isPreview = isStudentFormType(formType);
+    setQuestionDialogMode(isPreview ? 'preview' : 'edit');
     setSelectedFormTypeForEditor(formType);
     setAvailableQuestions(formData.questions);
-    // Inicializar com todas as perguntas selecionadas
     setSelectedQuestionIds(new Set(formData.questions.map(q => q.id)));
     setSearchQuestionTerm('');
     setShowQuestionEditor(true);
@@ -730,42 +774,6 @@ const FormRegistration = () => {
     const formData = getFormData(formTypeToUse);
     if (!formData) return;
 
-    // Usar perguntas selecionadas ou todas se não houver seleção específica
-    const questionsToSend = selectedQuestionIds.size > 0 && selectedFormTypeForEditor === formTypeToUse
-      ? formData.questions.filter(q => selectedQuestionIds.has(q.id))
-      : formData.questions;
-
-    // Normalizar perguntas para o formato do backend (formato da API)
-    const normalizedQuestions = questionsToSend.map((q, index) => {
-      const baseQuestion: any = {
-        id: q.id,
-        text: q.texto || q.text || '',
-        type: q.tipo || q.type || 'selecao_unica',
-        required: q.obrigatoria !== undefined ? q.obrigatoria : true,
-        order: index + 1
-      };
-
-      // Adicionar opções se existirem
-      if (q.opcoes || q.options) {
-        baseQuestion.options = q.opcoes || q.options || [];
-      }
-
-      // Adicionar sub-perguntas se existirem
-      if (q.subPerguntas || q.subQuestions) {
-        baseQuestion.subQuestions = (q.subPerguntas || q.subQuestions || []).map((sp: any) => ({
-          id: sp.id,
-          text: sp.texto || sp.text || ''
-        }));
-      }
-
-      // Adicionar campos opcionais se existirem
-      if (q.min !== undefined) baseQuestion.min = q.min;
-      if (q.max !== undefined) baseQuestion.max = q.max;
-      if (q.dependsOn) baseQuestion.dependsOn = q.dependsOn;
-
-      return baseQuestion;
-    });
-
     if (!formTitle.trim()) {
       toast({
         title: "Erro",
@@ -786,12 +794,45 @@ const FormRegistration = () => {
     }
 
     // Payload conforme spec POST /forms: formType + selectedSchools; séries/turmas só se preenchidos
+    // Aluno: sem questions — backend aplica o template completo (25/26)
     const payload: any = {
       formType: formTypeToUse,
       selectedSchools,
       isActive: true,
-      questions: normalizedQuestions,
     };
+
+    if (!isStudentFormType(formTypeToUse)) {
+      const questionsToSend = selectedQuestionIds.size > 0 && selectedFormTypeForEditor === formTypeToUse
+        ? formData.questions.filter(q => selectedQuestionIds.has(q.id))
+        : formData.questions;
+
+      payload.questions = questionsToSend.map((q, index) => {
+        const baseQuestion: any = {
+          id: q.id,
+          text: q.texto || q.text || '',
+          type: q.tipo || q.type || 'selecao_unica',
+          required: q.obrigatoria !== undefined ? q.obrigatoria : true,
+          order: index + 1
+        };
+
+        if (q.opcoes || q.options) {
+          baseQuestion.options = q.opcoes || q.options || [];
+        }
+
+        if (q.subPerguntas || q.subQuestions) {
+          baseQuestion.subQuestions = (q.subPerguntas || q.subQuestions || []).map((sp: any) => ({
+            id: sp.id,
+            text: sp.texto || sp.text || ''
+          }));
+        }
+
+        if (q.min !== undefined) baseQuestion.min = q.min;
+        if (q.max !== undefined) baseQuestion.max = q.max;
+        if (q.dependsOn) baseQuestion.dependsOn = q.dependsOn;
+
+        return baseQuestion;
+      });
+    }
 
     if (selectedGrades.length > 0) payload.selectedGrades = selectedGrades;
     if (selectedClasses.length > 0) payload.selectedClasses = selectedClasses;
@@ -1344,27 +1385,56 @@ const FormRegistration = () => {
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Target className="h-4 w-4" />
                 <span>
-                  Total de perguntas: {
-                    selectedQuestionIds.size > 0 && selectedFormTypeForEditor === formTypeToShow
-                      ? selectedQuestionIds.size
-                      : formDataToShow.questions.length
-                  }
-                  {selectedQuestionIds.size > 0 && selectedFormTypeForEditor === formTypeToShow && (
-                    <span className="text-muted-foreground ml-1">
-                      (de {formDataToShow.questions.length} disponíveis)
-                    </span>
+                  {isStudentFormType(formTypeToShow) ? (
+                    loadingTemplate ? (
+                      <>Carregando template do backend...</>
+                    ) : templateError ? (
+                      <>Template indisponível</>
+                    ) : (
+                      <>
+                        Total de perguntas: {formDataToShow.questions.length}
+                        <span className="ml-1">(template completo do backend)</span>
+                      </>
+                    )
+                  ) : (
+                    <>
+                      Total de perguntas: {
+                        selectedQuestionIds.size > 0 && selectedFormTypeForEditor === formTypeToShow
+                          ? selectedQuestionIds.size
+                          : formDataToShow.questions.length
+                      }
+                      {selectedQuestionIds.size > 0 && selectedFormTypeForEditor === formTypeToShow && (
+                        <span className="text-muted-foreground ml-1">
+                          (de {formDataToShow.questions.length} disponíveis)
+                        </span>
+                      )}
+                    </>
                   )}
                 </span>
               </div>
+
+              {isStudentFormType(formTypeToShow) && templateError && (
+                <p className="text-sm text-destructive">{templateError}</p>
+              )}
               
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Button
                   variant="outline"
                   onClick={() => handleOpenQuestionEditor(formTypeToShow)}
-                    className="flex items-center justify-center gap-2"
+                  disabled={isStudentFormType(formTypeToShow) && (loadingTemplate || !!templateError || formDataToShow.questions.length === 0)}
+                  className="flex items-center justify-center gap-2"
                 >
-                  <CheckSquare className="h-4 w-4" />
-                  Editar Perguntas
+                  {isStudentFormType(formTypeToShow) ? (
+                    <>
+                      {loadingTemplate ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
+                      Visualizar Perguntas
+                    </>
+                  ) : (
+                    <>
+                      <CheckSquare className="h-4 w-4" />
+                      Editar Perguntas
+                    </>
+                  )}
                 </Button>
                 <Button
                   onClick={handleSendForm}
@@ -1396,19 +1466,25 @@ const FormRegistration = () => {
         </Card>
       )}
 
-      {/* Dialog de Editor de Perguntas */}
+      {/* Dialog de Editor / Preview de Perguntas */}
       <Dialog open={showQuestionEditor} onOpenChange={setShowQuestionEditor}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <CheckSquare className="h-5 w-5" />
-              Editor de Perguntas
+              {questionDialogMode === 'preview' ? (
+                <Eye className="h-5 w-5" />
+              ) : (
+                <CheckSquare className="h-5 w-5" />
+              )}
+              {questionDialogMode === 'preview' ? 'Visualização do Template' : 'Editor de Perguntas'}
             </DialogTitle>
             <DialogDescription>
-              Selecione as perguntas que deseja incluir no questionário. 
+              {questionDialogMode === 'preview'
+                ? 'Template completo aplicado pelo backend. A seleção parcial não está disponível para formulários de aluno.'
+                : 'Selecione as perguntas que deseja incluir no questionário.'}
               {selectedFormTypeForEditor && (
                 <span className="ml-1">
-                  Total: {availableQuestions.length} perguntas disponíveis
+                  Total: {availableQuestions.length} perguntas
                 </span>
               )}
             </DialogDescription>
@@ -1426,46 +1502,52 @@ const FormRegistration = () => {
                   className="pl-10"
                 />
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={toggleAllQuestions}
-                className="flex items-center gap-2"
-              >
-                {selectedQuestionIds.size === filteredQuestions.length ? (
-                  <>
-                    <Square className="h-4 w-4" />
-                    Desmarcar Todas
-                  </>
-                ) : (
-                  <>
-                    <CheckSquare className="h-4 w-4" />
-                    Marcar Todas
-                  </>
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={restoreAllQuestions}
-                className="flex items-center gap-2"
-              >
-                <RotateCcw className="h-4 w-4" />
-                Restaurar Todas
-              </Button>
+              {questionDialogMode === 'edit' && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={toggleAllQuestions}
+                    className="flex items-center gap-2"
+                  >
+                    {selectedQuestionIds.size === filteredQuestions.length ? (
+                      <>
+                        <Square className="h-4 w-4" />
+                        Desmarcar Todas
+                      </>
+                    ) : (
+                      <>
+                        <CheckSquare className="h-4 w-4" />
+                        Marcar Todas
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={restoreAllQuestions}
+                    className="flex items-center gap-2"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Restaurar Todas
+                  </Button>
+                </>
+              )}
             </div>
 
             {/* Contador de seleção */}
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">
-                {selectedQuestionIds.size} de {filteredQuestions.length} perguntas selecionadas
-              </span>
-              {selectedQuestionIds.size < filteredQuestions.length && (
-                <Badge variant="outline">
-                  {filteredQuestions.length - selectedQuestionIds.size} removidas
-                </Badge>
-              )}
-            </div>
+            {questionDialogMode === 'edit' && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  {selectedQuestionIds.size} de {filteredQuestions.length} perguntas selecionadas
+                </span>
+                {selectedQuestionIds.size < filteredQuestions.length && (
+                  <Badge variant="outline">
+                    {filteredQuestions.length - selectedQuestionIds.size} removidas
+                  </Badge>
+                )}
+              </div>
+            )}
 
             {/* Lista de perguntas */}
             <div className="flex-1 overflow-y-auto space-y-2 pr-2">
@@ -1479,36 +1561,41 @@ const FormRegistration = () => {
                   const questionText = question.texto || question.text || '';
                   const questionType = question.tipo || question.type || '';
                   const formattedType = formatQuestionType(questionType);
+                  const isPreview = questionDialogMode === 'preview';
 
                   return (
                     <div
                       key={question.id}
                       className={`p-4 border rounded-lg transition-colors ${
-                        isSelected
+                        isPreview || isSelected
                           ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-700'
                           : 'bg-card dark:bg-card border-gray-200 dark:border-border hover:bg-muted dark:hover:bg-muted'
                       }`}
                     >
                       <div className="flex items-start gap-3">
+                        {!isPreview && (
+                          <div 
+                            className="mt-1 cursor-pointer"
+                            onClick={() => toggleQuestionSelection(question.id)}
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                            ) : (
+                              <Square className="h-5 w-5 text-muted-foreground" />
+                            )}
+                          </div>
+                        )}
                         <div 
-                          className="mt-1 cursor-pointer"
-                          onClick={() => toggleQuestionSelection(question.id)}
-                        >
-                          {isSelected ? (
-                            <CheckSquare className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                          ) : (
-                            <Square className="h-5 w-5 text-muted-foreground" />
-                          )}
-                        </div>
-                        <div 
-                          className="flex-1 cursor-pointer"
-                          onClick={() => toggleQuestionSelection(question.id)}
+                          className={`flex-1 ${isPreview ? '' : 'cursor-pointer'}`}
+                          onClick={() => {
+                            if (!isPreview) toggleQuestionSelection(question.id);
+                          }}
                         >
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-sm font-medium text-muted-foreground">
                               {question.id}
                             </span>
-                            {question.obrigatoria !== false && (
+                            {(question.obrigatoria !== false && question.required !== false) && (
                               <Badge variant="outline" className="text-xs">
                                 Obrigatória
                               </Badge>
@@ -1550,7 +1637,9 @@ const FormRegistration = () => {
           {/* Rodapé com ações */}
           <div className="flex items-center justify-between pt-4 border-t">
             <div className="text-sm text-muted-foreground">
-              {selectedQuestionIds.size > 0 ? (
+              {questionDialogMode === 'preview' ? (
+                <span>{availableQuestions.length} pergunta(s) do template do backend</span>
+              ) : selectedQuestionIds.size > 0 ? (
                 <span>
                   {selectedQuestionIds.size} pergunta{selectedQuestionIds.size !== 1 ? 's' : ''} será{selectedQuestionIds.size === 1 ? '' : 'ão'} enviada{selectedQuestionIds.size === 1 ? '' : 's'}
                 </span>
@@ -1565,20 +1654,22 @@ const FormRegistration = () => {
                 variant="outline"
                 onClick={() => setShowQuestionEditor(false)}
               >
-                Cancelar
+                {questionDialogMode === 'preview' ? 'Fechar' : 'Cancelar'}
               </Button>
-              <Button
-                onClick={() => {
-                  setShowQuestionEditor(false);
-                  toast({
-                    title: "Perguntas atualizadas",
-                    description: `${selectedQuestionIds.size} pergunta(s) selecionada(s)`,
-                  });
-                }}
-                disabled={selectedQuestionIds.size === 0}
-              >
-                Confirmar
-              </Button>
+              {questionDialogMode === 'edit' && (
+                <Button
+                  onClick={() => {
+                    setShowQuestionEditor(false);
+                    toast({
+                      title: "Perguntas atualizadas",
+                      description: `${selectedQuestionIds.size} pergunta(s) selecionada(s)`,
+                    });
+                  }}
+                  disabled={selectedQuestionIds.size === 0}
+                >
+                  Confirmar
+                </Button>
+              )}
             </div>
           </div>
         </DialogContent>

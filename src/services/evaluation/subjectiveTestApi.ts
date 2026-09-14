@@ -1,5 +1,5 @@
 import { api } from "@/lib/api";
-import type { SubjectiveRubricMark } from "@/lib/subjectiveRubric";
+import type { SubjectiveRubricMark, SubjectiveRubricGroup } from "@/lib/subjectiveRubric";
 
 /** Rubrica de correção manual da avaliação subjetiva (code da marcação). */
 export type SubjectiveRubricValue = string;
@@ -10,6 +10,9 @@ export interface SubjectiveTestQuestionInput {
   number: number;
   code: string;
   skill_description: string;
+  /** temp_key do grupo no create, ou id persistido no edit */
+  rubric_group_key?: string;
+  rubric_group_id?: string | null;
 }
 
 export interface SubjectiveTestQuestion {
@@ -18,6 +21,15 @@ export interface SubjectiveTestQuestion {
   number: number;
   code: string;
   skill_description: string;
+  rubric_group_id?: string | null;
+}
+
+export interface SubjectiveRubricGroupPayload {
+  id?: string | null;
+  temp_key: string;
+  name: string;
+  sort_order: number;
+  marks: Array<Pick<SubjectiveRubricMark, "code" | "label" | "color" | "weight" | "sort_order">>;
 }
 
 export interface SubjectiveTestEntityRef {
@@ -65,7 +77,10 @@ export interface SubjectiveTestPayload {
   schools: string[];
   classes: string[];
   questions: SubjectiveTestQuestionInput[];
+  /** Legado: um único conjunto de marcações (vira 1 grupo no backend). */
   rubric_marks?: SubjectiveRubricMark[];
+  /** Preferencial: múltiplos grupos de critérios. */
+  rubric_groups?: SubjectiveRubricGroupPayload[];
 }
 
 /** Detalhe / item de listagem de GET /subjective-tests */
@@ -86,6 +101,7 @@ export interface SubjectiveTest {
   total_questions?: number;
   questions?: SubjectiveTestQuestion[];
   rubric_marks?: SubjectiveRubricMark[];
+  rubric_groups?: SubjectiveRubricGroup[];
   class_progress?: SubjectiveClassProgress[];
   correction_summary?: SubjectiveCorrectionSummary;
 }
@@ -114,6 +130,8 @@ export interface SubjectiveCorrectionQuestion {
   number: number;
   code: string;
   skill_description: string;
+  rubric_group_id?: string | null;
+  rubric_marks?: SubjectiveRubricMark[];
 }
 
 /** Resultado calculado por aluno (preview ao vivo ou EvaluationResult após finalizar). */
@@ -144,6 +162,7 @@ export interface SubjectiveCorrectionMatrixResponse {
   questions: SubjectiveCorrectionQuestion[];
   students: SubjectiveCorrectionStudent[];
   rubric_marks?: SubjectiveRubricMark[];
+  rubric_groups?: SubjectiveRubricGroup[];
 }
 
 /** Resposta de GET /subjective-tests/:id/alunos/:studentId/resultado (preview, sem gravar). */
@@ -244,6 +263,8 @@ export interface SubjectiveDashboardPerQuestion {
   number: number;
   code: string;
   skill_description: string;
+  rubric_group_id?: string | null;
+  rubric_marks?: SubjectiveRubricMark[];
   SIM?: number;
   PARCIAL?: number;
   NAO?: number;
@@ -293,6 +314,7 @@ export interface SubjectiveDashboardResponse {
   totals: Record<string, number>;
   distribution: SubjectiveDashboardDistributionItem[];
   rubric_marks?: SubjectiveRubricMark[];
+  rubric_groups?: SubjectiveRubricGroup[];
   /** Contagem de QUESTÕES por faixa (legado / habilidades). */
   saeb_levels: Record<SubjectiveSaebLevel, number>;
   /** Contagem de ALUNOS por faixa SAEB simplificada. */

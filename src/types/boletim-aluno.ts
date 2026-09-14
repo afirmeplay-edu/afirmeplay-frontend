@@ -84,21 +84,33 @@ export type BoletimAlunoQuestao = {
   respondeu: boolean;
 };
 
-export type BoletimAlunoPorDisciplina = {
-  disciplina_id: string;
-  disciplina: string;
-  questoes: BoletimAlunoQuestao[];
-};
-
 export type BoletimAlunoCards = {
   acertos_totais: {
     acertou: number;
     total: number;
     percentual: number;
   };
-  nota: number;
-  proficiencia: number;
+  nota: number | null;
+  proficiencia: number | null;
   nivel: string;
+};
+
+/**
+ * Bloco por disciplina. Métricas podem vir aninhadas em `cards` ou flat
+ * (nota/proficiencia/nivel/acertos) — a normalização em helpers unifica isso.
+ */
+export type BoletimAlunoPorDisciplina = {
+  disciplina_id: string;
+  disciplina: string;
+  questoes: BoletimAlunoQuestao[];
+  cards?: BoletimAlunoCards;
+  /** Campos flat opcionais (contrato legado / backend parcial). */
+  nota?: number | null;
+  proficiencia?: number | null;
+  nivel?: string | null;
+  acertos?: number | null;
+  total_questoes?: number | null;
+  percentual?: number | null;
 };
 
 export type BoletimAlunoItem = {

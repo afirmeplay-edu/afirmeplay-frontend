@@ -24,10 +24,11 @@ import {
   FileText
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { questionsAlunoJovem, questionsAlunoVelho, professorQuestions, diretorQuestions, secretarioQuestions } from '@/data';
+import { professorQuestions, diretorQuestions, secretarioQuestions } from '@/data';
 import { Question, SubQuestion } from '@/types/forms';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
+import { fetchFormTemplateQuestions, isStudentFormType } from '@/services/formTemplatesApi';
 
 // ✅ IDs de Education Stages pré-definidos para cada tipo de formulário
 const EDUCATION_STAGE_IDS_BY_FORM_TYPE: Record<string, string[]> = {
@@ -184,9 +185,16 @@ const FormCreate = () => {
   
   // Estado para controlar o envio
   const [isSending, setIsSending] = useState(false);
+
+  // Template de perguntas (aluno) vem do backend
+  const [templateQuestions, setTemplateQuestions] = useState<Question[]>([]);
+  const [loadingTemplate, setLoadingTemplate] = useState(false);
+  const [templateError, setTemplateError] = useState<string | null>(null);
   
   // Hook para toast
   const { toast } = useToast();
+
+  const isAlunoForm = isStudentFormType(formType);
 
   // Mapeamento de tipos de formulário para grupos de destino
   const getTargetGroupsForFormType = (formType: string) => {
@@ -228,6 +236,44 @@ const FormCreate = () => {
     }
   }, [formType]);
 
+  // Buscar template completo do backend para formulários de aluno
+  useEffect(() => {
+    if (!isStudentFormType(formType)) {
+      setTemplateQuestions([]);
+      setTemplateError(null);
+      setLoadingTemplate(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadTemplate = async () => {
+      setLoadingTemplate(true);
+      setTemplateError(null);
+      try {
+        const questions = await fetchFormTemplateQuestions(formType);
+        if (cancelled) return;
+        setTemplateQuestions(questions);
+        if (questions.length === 0) {
+          setTemplateError('Template do backend não retornou perguntas.');
+        }
+      } catch (error) {
+        console.error('Erro ao carregar template do formulário:', error);
+        if (!cancelled) {
+          setTemplateQuestions([]);
+          setTemplateError('Não foi possível carregar o template de perguntas do backend.');
+        }
+      } finally {
+        if (!cancelled) setLoadingTemplate(false);
+      }
+    };
+
+    loadTemplate();
+    return () => {
+      cancelled = true;
+    };
+  }, [formType]);
+
   // Filtrar escolas baseado no termo de busca
   const filteredSchools = schools.filter(school => 
     school.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -242,30 +288,26 @@ const FormCreate = () => {
     user.email.toLowerCase().includes(searchTermUsers.toLowerCase())
   );
 
-  // Dados do formulário baseado no tipo
+  // Dados do formulário baseado no tipo (aluno: perguntas via template do backend)
   const getFormData = () => {
-    console.log('getFormData called with formType:', formType);
     switch (formType) {
       case 'aluno-jovem':
-        console.log('Returning aluno-jovem data with', questionsAlunoJovem.length, 'questions');
         return {
           name: 'Aluno (Anos Iniciais)',
           description: 'Questionário socioeconômico para estudantes dos anos iniciais do Ensino Fundamental (1° ao 5° ano), EJA 1° ao 5° período e Educação Infantil.',
-          questions: questionsAlunoJovem,
+          questions: templateQuestions,
           icon: Users,
           color: 'bg-blue-500'
         };
       case 'aluno-velho':
-        console.log('Returning aluno-velho data with', questionsAlunoVelho.length, 'questions');
         return {
           name: 'Aluno (Anos Finais)',
           description: 'Questionário socioeconômico para estudantes dos anos finais do Ensino Fundamental (6° ao 9° ano) e EJA 6° ao 9° período.',
-          questions: questionsAlunoVelho,
+          questions: templateQuestions,
           icon: GraduationCap,
           color: 'bg-green-500'
         };
       case 'professor':
-        console.log('Returning professor data with', professorQuestions.length, 'questions');
         return {
           name: 'Professor',
           description: 'Questionário de caracterização e condições de trabalho para professores da Educação Básica.',
@@ -274,7 +316,6 @@ const FormCreate = () => {
           color: 'bg-purple-500'
         };
       case 'diretor':
-        console.log('Returning diretor data with', diretorQuestions.length, 'questions');
         return {
           name: 'Diretor',
           description: 'Questionário de caracterização da escola e condições de gestão para diretores escolares.',
@@ -283,7 +324,6 @@ const FormCreate = () => {
           color: 'bg-orange-500'
         };
       case 'secretario':
-        console.log('Returning secretario data with', secretarioQuestions.length, 'questions');
         return {
           name: 'Secretário Municipal de Educação',
           description: 'Questionário de caracterização e gestão educacional para secretários municipais de educação.',
@@ -292,7 +332,6 @@ const FormCreate = () => {
           color: 'bg-indigo-500'
         };
       default:
-        console.log('No form type matched, returning null');
         return null;
     }
   };
@@ -850,18 +889,14 @@ const FormCreate = () => {
     setIsSending(true);
 
     try {
-      // Preparar dados do questionário
-      const questions = formData?.questions || [];
-      const normalizedQuestions = normalizeQuestions(questions);
-
       // ✅ BUSCAR IDs das séries dinamicamente via API
       const gradeIds = await getGradeIdsForFormType(formType);
       
-      if (gradeIds.length === 0 && (formType === 'aluno-jovem' || formType === 'aluno-velho')) {
+      if (gradeIds.length === 0 && isStudentFormType(formType)) {
         console.warn(`⚠️ Nenhuma série encontrada para ${formType}. Verifique os education stages.`);
       }
 
-      // Preparar payload
+      // Preparar payload — aluno: sem questions (backend aplica o template completo)
       const formPayload: any = {
         title: formConfig.title.trim(),
         description: formConfig.description.trim() || undefined,
@@ -870,8 +905,11 @@ const FormCreate = () => {
         isActive: formConfig.isActive,
         deadline: formConfig.deadline ? new Date(formConfig.deadline).toISOString() : undefined,
         instructions: formConfig.instructions.trim() || undefined,
-        questions: normalizedQuestions
       };
+
+      if (!isStudentFormType(formType)) {
+        formPayload.questions = normalizeQuestions(formData?.questions || []);
+      }
 
       // ✅ ADICIONAR: IDs das séries (apenas para tipos de alunos)
       if (gradeIds.length > 0) {
@@ -1531,30 +1569,31 @@ const FormCreate = () => {
                 </div>
 
                 <div className="space-y-4">
-                  {(() => {
-                    console.log('FormData:', formData);
-                    console.log('FormType:', formType);
-                    console.log('Questions type:', Array.isArray(formData?.questions) ? 'Array' : 'Sections');
-                    console.log('Questions data:', formData?.questions);
-                    
-                    if (Array.isArray(formData.questions)) {
-                      console.log('Rendering array questions:', formData.questions.length);
-                      return formData.questions.map((question, index) => {
-                        console.log('Rendering question:', question);
-                        return renderQuestion(question, index);
-                      });
-                    } else {
-                      console.log('Rendering section questions');
-                      const allQuestions = (formData.questions as { title: string; questions: Question[] }[]).flatMap((section, sectionIndex) => {
-                        console.log('Section:', section.title, 'Questions:', section.questions.length);
-                        return section.questions.map((question, questionIndex) => {
-                          console.log('Rendering question from section:', question);
-                          return renderQuestion(question, sectionIndex * 1000 + questionIndex);
-                        });
-                      });
-                      console.log('Total questions to render:', allQuestions.length);
-                      return allQuestions;
+                  {isAlunoForm && loadingTemplate && (
+                    <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      <span>Carregando template de perguntas do backend...</span>
+                    </div>
+                  )}
+                  {isAlunoForm && templateError && !loadingTemplate && (
+                    <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5 text-sm text-destructive">
+                      {templateError}
+                    </div>
+                  )}
+                  {isAlunoForm && !loadingTemplate && !templateError && (
+                    <p className="text-sm text-muted-foreground">
+                      Template completo do backend ({templateQuestions.length} perguntas). A seleção parcial não está disponível para formulários de aluno.
+                    </p>
+                  )}
+                  {!loadingTemplate && (() => {
+                    const questionsToRender = formData?.questions || [];
+                    if (!Array.isArray(questionsToRender) || questionsToRender.length === 0) {
+                      if (isAlunoForm) return null;
+                      return (
+                        <p className="text-sm text-muted-foreground py-4">Nenhuma pergunta disponível.</p>
+                      );
                     }
+                    return questionsToRender.map((question, index) => renderQuestion(question, index));
                   })()}
                 </div>
               </div>
@@ -1603,6 +1642,14 @@ const FormCreate = () => {
                   }</div>
                   <div><strong>Prazo:</strong> {formConfig.deadline ? new Date(formConfig.deadline).toLocaleDateString('pt-BR') : 'Não definido'}</div>
                   <div><strong>Status:</strong> {formConfig.isActive ? 'Ativo' : 'Inativo'}</div>
+                  <div>
+                    <strong>Perguntas:</strong>{' '}
+                    {isAlunoForm
+                      ? (loadingTemplate
+                          ? 'Carregando template...'
+                          : `${templateQuestions.length} (template completo do backend)`)
+                      : `${formData?.questions?.length || 0}`}
+                  </div>
                 </div>
               </div>
               

@@ -106,33 +106,84 @@ function addSectionToPDF(
   const usableHeight = pageHeight - marginTop - marginBottom;
   const usableWidth = imgWidth - marginLeft - marginRight;
   const imgHeight = (canvas.height * usableWidth) / canvas.width;
-  
-  // Tentar usar PNG primeiro, mas fazer fallback para JPEG se necessário
+
   let imgData: string;
   let imageFormat: string;
   try {
-    // PNG para melhor qualidade de texto e gráficos
     imgData = canvas.toDataURL('image/png');
     imageFormat = 'PNG';
   } catch (error) {
-    // Fallback para JPEG com alta qualidade se PNG falhar
     console.warn('Erro ao gerar PNG, usando JPEG:', error);
     imgData = canvas.toDataURL('image/jpeg', 0.95);
     imageFormat = 'JPEG';
   }
-  
-  // Se a seção não cabe na página atual, criar nova página
-  // Isso garante que cada seção completa (gráfico) fique em uma única página
-  if (currentY + imgHeight > pageHeight - marginBottom) {
-    pdf.addPage();
-    currentY = marginTop;
+
+  // Seção cabe na página atual
+  if (imgHeight <= usableHeight) {
+    if (currentY + imgHeight > pageHeight - marginBottom) {
+      pdf.addPage();
+      currentY = marginTop;
+    }
+    pdf.addImage(imgData, imageFormat, marginLeft, currentY, usableWidth, imgHeight);
+    return currentY + imgHeight + 5;
   }
-  
-  // Adicionar a seção na posição atual com margens laterais
-  pdf.addImage(imgData, imageFormat, marginLeft, currentY, usableWidth, imgHeight);
-  
-  // Retornar nova posição Y (com pequeno espaçamento entre seções)
-  return currentY + imgHeight + 5; // 5mm de espaçamento entre seções
+
+  // Seção maior que uma página: fatiar o canvas para não cortar números/legendas
+  const pxPerMm = canvas.height / imgHeight;
+  let srcY = 0;
+  let firstSlice = true;
+
+  while (srcY < canvas.height - 1) {
+    const remainingPx = canvas.height - srcY;
+    const sliceHeightMm = Math.min(usableHeight, remainingPx / pxPerMm);
+    const sliceHeightPx = Math.max(1, Math.round(sliceHeightMm * pxPerMm));
+
+    if (!firstSlice || currentY + sliceHeightMm > pageHeight - marginBottom) {
+      pdf.addPage();
+      currentY = marginTop;
+    }
+
+    const sliceCanvas = document.createElement('canvas');
+    sliceCanvas.width = canvas.width;
+    sliceCanvas.height = sliceHeightPx;
+    const ctx = sliceCanvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+      ctx.drawImage(
+        canvas,
+        0,
+        srcY,
+        canvas.width,
+        sliceHeightPx,
+        0,
+        0,
+        canvas.width,
+        sliceHeightPx
+      );
+    }
+
+    let sliceData: string;
+    let sliceFormat: string;
+    try {
+      sliceData = sliceCanvas.toDataURL('image/png');
+      sliceFormat = 'PNG';
+    } catch {
+      sliceData = sliceCanvas.toDataURL('image/jpeg', 0.95);
+      sliceFormat = 'JPEG';
+    }
+
+    const drawnHeightMm = (sliceHeightPx * usableWidth) / canvas.width;
+    pdf.addImage(sliceData, sliceFormat, marginLeft, currentY, usableWidth, drawnHeightMm);
+    currentY += drawnHeightMm + 2;
+    srcY += sliceHeightPx;
+    firstSlice = false;
+
+    sliceCanvas.width = 0;
+    sliceCanvas.height = 0;
+  }
+
+  return currentY + 3;
 }
 
 // Paleta de cores institucional (baseada em AcertoNiveis.tsx e institutional_test_hybrid.html)

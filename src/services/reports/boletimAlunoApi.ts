@@ -1,6 +1,7 @@
 import { api } from '@/lib/api';
 import { REPORT_ENTITY_TYPE_ANSWER_SHEET } from '@/services/evaluation/evaluationResultsApi';
 import { getClassShiftLabel, hasClassShift } from '@/lib/classShift';
+import { normalizeBoletimAlunoBoletins } from '@/utils/reports/boletimAlunoHelpers';
 import type {
   BoletimAlunoFilterAluno,
   BoletimAlunoFilterAvaliacao,
@@ -188,7 +189,7 @@ export class BoletimAlunoApiService {
     return {
       ...data,
       paginacao: normalizePaginacao(data?.paginacao, params.page, params.per_page),
-      boletins: Array.isArray(data?.boletins) ? data.boletins : [],
+      boletins: normalizeBoletimAlunoBoletins(data?.boletins),
     };
   }
 }

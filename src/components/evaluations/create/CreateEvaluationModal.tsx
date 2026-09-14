@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { DisciplineTag } from '@/components/ui/discipline-tag';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, FileCheck, Book, Eye, Trash2, Plus, School, Search, X, AlertCircle, Users, Check } from 'lucide-react';
+import { Loader2, FileCheck, Book, Eye, Trash2, Plus, School, Search, X, AlertCircle, Users, Check, FileUp } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,7 @@ import { ClassInfo } from '@/types/evaluation-types';
 import { QuestionBank } from '../QuestionBank';
 import QuestionPreview from '../questions/QuestionPreview';
 import QuestionFormReadOnly from '../questions/QuestionFormReadOnly';
+import { ImportEvaluationDocxDialog } from './ImportEvaluationDocxDialog';
 import { useEvaluationActions, useQuestions, useQuestionActions } from '@/stores/useEvaluationStore';
 import { useEvaluationsManager } from '@/hooks/use-cache';
 import { useNavigate } from 'react-router-dom';
@@ -133,6 +134,7 @@ export function CreateEvaluationModal({
   const [showQuestionBank, setShowQuestionBank] = useState(false);
   const [showQuestionPreview, setShowQuestionPreview] = useState(false);
   const [showCreateQuestion, setShowCreateQuestion] = useState(false);
+  const [showImportDocx, setShowImportDocx] = useState(false);
   const [selectedSubjectForQuestion, setSelectedSubjectForQuestion] = useState<string>("");
   const [previewQuestion, setPreviewQuestion] = useState<Question | null>(null);
   
@@ -2269,7 +2271,7 @@ export function CreateEvaluationModal({
             {/* Step 2: Seleção de Questões */}
             {step === 2 && (
               <div className="space-y-6" data-section="questions">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                   <div>
                     <h3 className="text-lg font-semibold">Questões da Avaliação</h3>
                     <p className="text-sm text-muted-foreground">
@@ -2279,7 +2281,25 @@ export function CreateEvaluationModal({
                         : 'questões selecionadas'}
                     </p>
                   </div>
+                  {!evaluationId && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowImportDocx(true)}
+                      disabled={!grade || selectedSubjects.length === 0}
+                    >
+                      <FileUp className="h-4 w-4 mr-1" />
+                      Importar do Word
+                    </Button>
+                  )}
                 </div>
+
+                {!evaluationId && (
+                  <p className="text-xs text-muted-foreground">
+                    “Importar do Word” cria a avaliação e as questões do arquivo de uma vez (também ficam no banco). O fluxo abaixo (banco / nova questão) continua disponível.
+                  </p>
+                )}
 
                 {/* ✅ CORREÇÃO: Verificação adicional para modo de edição */}
                 {step === 2 && (evaluationId || initialData) && allQuestions.length === 0 && (initialData?.questions?.length || 0) > 0 && (
@@ -2538,6 +2558,50 @@ export function CreateEvaluationModal({
           />
         </DialogContent>
       </Dialog>
+
+      {!evaluationId && (
+        <ImportEvaluationDocxDialog
+          open={showImportDocx}
+          onOpenChange={setShowImportDocx}
+          gradeId={grade}
+          gradeName={grades.find((g) => g.id === grade)?.name}
+          subjects={selectedSubjects}
+          evaluation={{
+            title,
+            description: description || "",
+            type,
+            model,
+            course,
+            duration,
+            createdBy: user?.id || "",
+            timeLimit: new Date().toISOString(),
+            endTime: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+            classes: selectedClasses.map((c) => c.id),
+            schools: selectedSchools.map((s) => s.id),
+            municipalities: municipality === "all" ? [] : [municipality],
+            cityId: municipality !== "all" ? municipality : undefined,
+            ...(buildMunicipalityAvailabilityPayload(user?.role, {
+              availableToMunicipality,
+              availableFromLocal,
+            }) ?? {}),
+          }}
+          onSuccess={async () => {
+            try {
+              await updateAfterCRUD();
+            } catch {
+              // cache refresh best-effort
+            }
+            clearQuestions();
+            setQuestionsLoaded(false);
+            setIsNavigating(true);
+            onClose();
+            setTimeout(() => {
+              onSuccess();
+              setIsNavigating(false);
+            }, 150);
+          }}
+        />
+      )}
     </Dialog>
   );
 }

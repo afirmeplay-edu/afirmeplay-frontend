@@ -12,10 +12,12 @@ export default function RelatoriosEvolucaoHub() {
       defaultTab="avaliacao"
       title="Análise de Evolução"
       titleIcon={TrendingUp}
-      description="Compare múltiplas avaliações ou gabaritos corrigidos e acompanhe a evolução dos resultados ao longo do tempo — inclusive por aluno."
+      description="Compare múltiplas avaliações ou gabaritos corrigidos e acompanhe a evolução dos resultados ao longo do tempo — inclusive por aluno, escola, série e turma."
       avaliacao={<Evolution hidePageHeading />}
       cartao={<EvolutionCartaoResposta hidePageHeading />}
       aluno={<EvolutionPorAluno />}
+      grupos={<Evolution hidePageHeading includeGroupsTab />}
+      gruposTabLabel="Escola · Série · Turma"
     />
   );
 }

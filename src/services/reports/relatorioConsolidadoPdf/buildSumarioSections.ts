@@ -40,7 +40,7 @@ export function buildSumarioSections(report: RelatorioConsolidado): SumarioSecti
     {
       number: 3,
       title: 'Considerações Gerais',
-      subsections: ['Metodologia', 'Legenda Proficiência'],
+      subsections: ['Metodologia', 'Legenda Proficiência', 'Legenda Desempenho'],
     },
     {
       number: 4,

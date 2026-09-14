@@ -4,17 +4,21 @@ import type { LucideIcon } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-export type ReportTabValue = 'avaliacao' | 'cartao' | 'aluno';
+export type ReportTabValue = 'avaliacao' | 'cartao' | 'aluno' | 'grupos';
 
 function resolveTab(
   aba: string | null,
   defaultTab: ReportTabValue,
-  hasAlunoTab: boolean
+  hasAlunoTab: boolean,
+  hasGruposTab: boolean
 ): ReportTabValue {
   if (aba === 'cartao') return 'cartao';
   if (aba === 'avaliacao') return 'avaliacao';
   if (aba === 'aluno' && hasAlunoTab) return 'aluno';
-  return defaultTab === 'aluno' && !hasAlunoTab ? 'avaliacao' : defaultTab;
+  if (aba === 'grupos' && hasGruposTab) return 'grupos';
+  if (defaultTab === 'aluno' && !hasAlunoTab) return 'avaliacao';
+  if (defaultTab === 'grupos' && !hasGruposTab) return 'avaliacao';
+  return defaultTab;
 }
 
 function TabFallback() {
@@ -39,11 +43,15 @@ type DualReportEvalCartaoTabsProps = {
   aluno?: ReactNode;
   /** Rótulo da aba opcional (padrão: Evolução por aluno). */
   alunoTabLabel?: string;
+  /** Aba opcional "Escola · Série · Turma" (Evolução). */
+  grupos?: ReactNode;
+  /** Rótulo da aba de grupos. */
+  gruposTabLabel?: string;
 };
 
 /**
  * Abas Avaliação online / Cartão-resposta com ?aba=avaliacao|cartao na URL.
- * Opcionalmente inclui ?aba=aluno quando `aluno` é informado.
+ * Opcionalmente inclui ?aba=aluno e ?aba=grupos.
  * Só monta o conteúdo da aba ativa (evita duas cargas de API).
  */
 export function DualReportEvalCartaoTabs({
@@ -55,13 +63,16 @@ export function DualReportEvalCartaoTabs({
   cartao,
   aluno,
   alunoTabLabel = 'Evolução por aluno',
+  grupos,
+  gruposTabLabel = 'Escola · Série · Turma',
 }: DualReportEvalCartaoTabsProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const abaParam = searchParams.get('aba');
   const hasAlunoTab = aluno != null;
+  const hasGruposTab = grupos != null;
   const value = useMemo(
-    () => resolveTab(abaParam, defaultTab, hasAlunoTab),
-    [abaParam, defaultTab, hasAlunoTab]
+    () => resolveTab(abaParam, defaultTab, hasAlunoTab, hasGruposTab),
+    [abaParam, defaultTab, hasAlunoTab, hasGruposTab]
   );
 
   const onValueChange = useCallback(
@@ -73,6 +84,10 @@ export function DualReportEvalCartaoTabs({
     },
     [searchParams, setSearchParams]
   );
+
+  const tabCount = 2 + (hasAlunoTab ? 1 : 0) + (hasGruposTab ? 1 : 0);
+  const tabsListWidth =
+    tabCount >= 4 ? 'max-w-4xl' : hasAlunoTab || hasGruposTab ? 'max-w-2xl' : 'max-w-md';
 
   return (
     <div className="w-full min-w-0 space-y-6 pb-8">
@@ -89,7 +104,7 @@ export function DualReportEvalCartaoTabs({
       </header>
 
       <Tabs value={value} onValueChange={onValueChange} className="w-full">
-        <TabsList className={`mb-0 w-full ${hasAlunoTab ? 'max-w-2xl' : 'max-w-md'}`}>
+        <TabsList className={`mb-0 w-full ${tabsListWidth}`}>
           <TabsTrigger value="avaliacao" className="flex-1">
             Avaliação online
           </TabsTrigger>
@@ -101,6 +116,11 @@ export function DualReportEvalCartaoTabs({
               {alunoTabLabel}
             </TabsTrigger>
           ) : null}
+          {hasGruposTab ? (
+            <TabsTrigger value="grupos" className="flex-1">
+              {gruposTabLabel}
+            </TabsTrigger>
+          ) : null}
         </TabsList>
       </Tabs>
 
@@ -108,6 +128,7 @@ export function DualReportEvalCartaoTabs({
         {value === 'avaliacao' && <Suspense fallback={<TabFallback />}>{avaliacao}</Suspense>}
         {value === 'cartao' && <Suspense fallback={<TabFallback />}>{cartao}</Suspense>}
         {hasAlunoTab && value === 'aluno' && <Suspense fallback={<TabFallback />}>{aluno}</Suspense>}
+        {hasGruposTab && value === 'grupos' && <Suspense fallback={<TabFallback />}>{grupos}</Suspense>}
       </div>
     </div>
   );

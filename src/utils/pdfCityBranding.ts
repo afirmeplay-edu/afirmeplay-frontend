@@ -186,30 +186,42 @@ export async function resolveReportLogoForPdf(
 }
 
 export async function loadDefaultReportLogoAsset(): Promise<PdfImageAsset | null> {
-  try {
-    const logoPath = '/LOGO-1-menor.png';
+  const tryLoad = async (logoPath: string): Promise<PdfImageAsset | null> => {
     const response = await fetch(logoPath);
     if (!response.ok) return null;
     const blob = await response.blob();
     const objectUrl = URL.createObjectURL(blob);
-    const logoImg = new Image();
-    await new Promise<void>((resolve, reject) => {
-      logoImg.onload = () => resolve();
-      logoImg.onerror = reject;
-      logoImg.src = objectUrl;
-    });
-    URL.revokeObjectURL(objectUrl);
-    const iw = logoImg.width;
-    const ih = logoImg.height;
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-    if (iw <= 0 || ih <= 0) return null;
-    return { dataUrl, iw, ih };
-  } catch {
+    try {
+      const logoImg = new Image();
+      await new Promise<void>((resolve, reject) => {
+        logoImg.onload = () => resolve();
+        logoImg.onerror = reject;
+        logoImg.src = objectUrl;
+      });
+      const iw = logoImg.naturalWidth || logoImg.width;
+      const ih = logoImg.naturalHeight || logoImg.height;
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      if (!dataUrl) return null;
+      if (iw <= 0 || ih <= 0) {
+        console.warn('[pdfCityBranding] logo sem dimensões após onload:', logoPath);
+        // Mantém dataUrl com dimensões placeholder; o consumidor pode ainda desenhar.
+        return { dataUrl, iw: 240, ih: 80 };
+      }
+      return { dataUrl, iw, ih };
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  };
+
+  try {
+    return (await tryLoad('/LOGO-1-menor.png')) ?? (await tryLoad('/LOGO-1.png'));
+  } catch (err) {
+    console.warn('[pdfCityBranding] falha ao carregar logo padrão:', err);
     return null;
   }
 }

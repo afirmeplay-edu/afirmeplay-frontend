@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { TrendingUp, Users, Target, Award, Filter, RefreshCw, Download, Plus, X, Check, AlertCircle, Search, Calendar, List, Table } from 'lucide-react';
+import { TrendingUp, Users, Target, Award, Filter, RefreshCw, Download, Plus, X, Check, AlertCircle, Search, Calendar, List, Table, ExternalLink, Eye } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/authContext';
 import { api } from '@/lib/api';
@@ -59,9 +59,16 @@ interface Evaluation {
   turma?: string | null;
 }
 
-type EvolutionProps = { hidePageHeading?: boolean };
+type EvolutionProps = {
+  hidePageHeading?: boolean;
+  /**
+   * Aba hub "Escola · Série · Turma": mesma experiência da Avaliação online
+   * (gráficos, PDF, Excel, Ver avaliações) + sub-aba de cards por grupo.
+   */
+  includeGroupsTab?: boolean;
+};
 
-export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
+export default function Evolution({ hidePageHeading = false, includeGroupsTab = false }: EvolutionProps) {
   const { autoLogin } = useAuth();
   const { toast } = useToast();
 
@@ -224,6 +231,16 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
     });
   }, [toast]);
 
+  const handleClearEvaluations = useCallback(() => {
+    setSelectedEvaluationsForComparison([]);
+    setInvalidEvaluationIds(new Set());
+    lastComparisonIdsRef.current = '';
+    toast({
+      title: 'Seleção limpa',
+      description: 'Todas as provas foram removidas da comparação.',
+    });
+  }, [toast]);
+
   // Carregar municípios: GET /evolucao/opcoes-filtros?estado=X. Ao mudar estado, limpar municipio → escola → serie → turma.
   useEffect(() => {
     const loadMunicipalities = async () => {
@@ -267,30 +284,39 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
     loadMunicipalities();
   }, [selectedState, toast]);
 
-  // Ao mudar município: limpar escola, série e turma
+  // Ao mudar município: limpar escola, série, turma e carrinho de provas
   useEffect(() => {
     if (prevMunicipalityRef.current !== selectedMunicipality) {
       prevMunicipalityRef.current = selectedMunicipality;
       setSelectedSchool('all');
       setSelectedGrade('all');
       setSelectedClass('all');
+      setSelectedEvaluationsForComparison([]);
+      setInvalidEvaluationIds(new Set());
+      lastComparisonIdsRef.current = '';
     }
   }, [selectedMunicipality]);
 
-  // Ao mudar escola: limpar série e turma
+  // Ao mudar escola: limpar série, turma e carrinho (evita provas de outro escopo)
   useEffect(() => {
     if (prevSchoolRef.current !== selectedSchool) {
       prevSchoolRef.current = selectedSchool;
       setSelectedGrade('all');
       setSelectedClass('all');
+      setSelectedEvaluationsForComparison([]);
+      setInvalidEvaluationIds(new Set());
+      lastComparisonIdsRef.current = '';
     }
   }, [selectedSchool]);
 
-  // Ao mudar série: limpar turma
+  // Ao mudar série: limpar turma e carrinho (integração série × provas)
   useEffect(() => {
     if (prevGradeRef.current !== selectedGrade) {
       prevGradeRef.current = selectedGrade;
       setSelectedClass('all');
+      setSelectedEvaluationsForComparison([]);
+      setInvalidEvaluationIds(new Set());
+      lastComparisonIdsRef.current = '';
     }
   }, [selectedGrade]);
 
@@ -412,6 +438,22 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
       return titulo.includes(term) || id.includes(term);
     });
   }, [availableEvaluationsForPicker, evaluationSearch]);
+
+  const handleSelectAllEvaluations = useCallback(() => {
+    const candidates = filteredEvaluations.filter((e) => !invalidEvaluationIds.has(e.id));
+    if (candidates.length === 0) return;
+
+    const toSelect = candidates.slice(0, MAX_EVALUATIONS);
+    setSelectedEvaluationsForComparison(toSelect);
+
+    const truncated = candidates.length > MAX_EVALUATIONS;
+    toast({
+      title: truncated ? 'Seleção limitada' : 'Provas selecionadas',
+      description: truncated
+        ? `Foram selecionadas as primeiras ${MAX_EVALUATIONS} de ${candidates.length} provas disponíveis (limite por comparação).`
+        : `${toSelect.length} prova(s) selecionada(s) para comparação.`,
+    });
+  }, [filteredEvaluations, invalidEvaluationIds, toast]);
 
   // Carregar escolas: GET /evolucao/opcoes-filtros?estado=X&municipio=id (só escolas com avaliações)
   useEffect(() => {
@@ -610,24 +652,28 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
     [selectedIdsKey, scopeFilters]
   );
 
-  // Carregar gráficos automaticamente quando a seleção ou o escopo mudarem (2+ avaliações)
+  // Carregar gráficos automaticamente quando a seleção ou o escopo mudarem (2+ avaliações).
+  // Debounce evita cascata de compares ao marcar várias provas rapidamente.
   useEffect(() => {
     selectedIdsRef.current = comparisonRequestKey;
 
-    const autoCompare = async () => {
-      if (selectedEvaluationsForComparison.length < 2) {
-        setComparisonData(null);
-        setProcessedData(null);
-        setComparisonError(null);
-        lastComparisonIdsRef.current = '';
-        return;
-      }
+    if (selectedEvaluationsForComparison.length < 2) {
+      setComparisonData(null);
+      setProcessedData(null);
+      setComparisonError(null);
+      lastComparisonIdsRef.current = '';
+      return;
+    }
 
-      if (comparisonRequestKey === lastComparisonIdsRef.current) return;
+    if (comparisonRequestKey === lastComparisonIdsRef.current) return;
 
-      lastComparisonIdsRef.current = comparisonRequestKey;
-      const requestedKey = comparisonRequestKey;
+    const requestedKey = comparisonRequestKey;
+    const debounceMs = 450;
+    const timer = window.setTimeout(async () => {
+      if (selectedIdsRef.current !== requestedKey) return;
+      if (requestedKey === lastComparisonIdsRef.current) return;
 
+      lastComparisonIdsRef.current = requestedKey;
       setIsLoadingComparison(true);
       setComparisonError(null);
 
@@ -654,11 +700,18 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
         let errorMessage = '';
         if (error && typeof error === 'object') {
           if ('response' in error) {
-            const axiosError = error as { response?: { data?: { error?: string } } };
-            errorMessage = axiosError.response?.data?.error || '';
+            const axiosError = error as {
+              response?: { data?: { error?: string; details?: string; message?: string } };
+              message?: string;
+            };
+            errorMessage =
+              axiosError.response?.data?.error ||
+              axiosError.response?.data?.details ||
+              axiosError.response?.data?.message ||
+              '';
           }
-          if ('message' in error && typeof error.message === 'string') {
-            errorMessage = error.message;
+          if (!errorMessage && 'message' in error && typeof (error as { message?: unknown }).message === 'string') {
+            errorMessage = (error as { message: string }).message;
           }
         }
         if (selectedIdsRef.current !== requestedKey) return;
@@ -669,9 +722,16 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
             description: "Uma ou mais avaliações selecionadas ainda não possuem resultados calculados.",
             variant: "destructive",
           });
-        } else if (errorMessage.includes('Avaliação')) {
+        } else if (errorMessage.includes('não possui resultados no escopo')) {
+          setComparisonError('Sem resultados no escopo selecionado (escola/série/turma).');
+          toast({
+            title: "Sem resultados no escopo",
+            description: "As avaliações não têm resultados para o filtro atual. Ajuste escola, série ou turma.",
+            variant: "destructive",
+          });
+        } else if (errorMessage) {
           setComparisonError(errorMessage);
-          toast({ title: "Erro na avaliação", description: errorMessage, variant: "destructive" });
+          toast({ title: "Erro na comparação", description: errorMessage, variant: "destructive" });
         } else {
           setComparisonError('Erro ao carregar dados de comparação');
           toast({
@@ -680,12 +740,15 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
             variant: "destructive",
           });
         }
+        lastComparisonIdsRef.current = '';
       } finally {
-        setIsLoadingComparison(false);
+        if (selectedIdsRef.current === requestedKey) {
+          setIsLoadingComparison(false);
+        }
       }
-    };
+    }, debounceMs);
 
-    autoCompare();
+    return () => window.clearTimeout(timer);
   }, [comparisonRequestKey, selectedEvaluationsForComparison, scopeFilters, toast]);
 
   // Controles de visibilidade agora são por gráfico, definidos em EvolutionCharts
@@ -750,23 +813,23 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
                   variant="outline"
                   className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white border-0"
                 >
-                  <List className="h-4 w-4 mr-2" />
-                  Avaliações Selecionadas ({selectedEvaluationsForComparison.length})
+                  <Eye className="h-4 w-4 mr-2" />
+                  Ver avaliações ({selectedEvaluationsForComparison.length})
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-3 text-xl">
-                    <div className="p-2 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-lg">
-                      <Users className="h-6 w-6 text-white" />
+                    <div className="p-2 bg-muted rounded-lg">
+                      <List className="h-5 w-5 text-foreground" />
                     </div>
-                    Avaliações Selecionadas
+                    Avaliações selecionadas
                   </DialogTitle>
                   <DialogDescription>
                     {selectedEvaluationsForComparison.length} de {MAX_EVALUATIONS}{' '}
                     {selectedEvaluationsForComparison.length === 1
-                      ? 'avaliação selecionada para comparação'
-                      : 'avaliações selecionadas para comparação'}
+                      ? 'avaliação na comparação'
+                      : 'avaliações na comparação'}
                     {selectedEvaluationsForComparison.length >= MAX_EVALUATIONS && (
                       <span className="block mt-1 text-amber-600 dark:text-amber-400 text-xs">
                         Limite máximo atingido. Remova uma avaliação para adicionar outra.
@@ -774,48 +837,69 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
                     )}
                   </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-4 mt-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {selectedEvaluationsForComparison.map((evaluation, index) => (
-                      <div 
-                        key={evaluation.id} 
-                        className="group relative p-4 bg-gradient-to-br from-blue-50 dark:from-blue-950/30 to-indigo-50 dark:to-indigo-950/30 rounded-xl border-2 border-blue-200 dark:border-blue-800 hover:border-blue-300 dark:hover:border-blue-600 transition-all duration-200"
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-center gap-3 flex-1">
-                            <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
-                              {index + 1}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-semibold text-foreground text-sm leading-tight mb-1">
+                <div className="space-y-3 mt-4">
+                  <div className="rounded-lg border border-border overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/60">
+                        <tr className="text-left text-muted-foreground">
+                          <th className="px-3 py-2 font-medium w-10">#</th>
+                          <th className="px-3 py-2 font-medium">Avaliação</th>
+                          <th className="px-3 py-2 font-medium hidden sm:table-cell">Data</th>
+                          <th className="px-3 py-2 font-medium text-right">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedEvaluationsForComparison.map((evaluation, index) => (
+                          <tr
+                            key={evaluation.id}
+                            className="border-t border-border hover:bg-muted/40"
+                          >
+                            <td className="px-3 py-3 text-muted-foreground">{index + 1}</td>
+                            <td className="px-3 py-3">
+                              <div className="font-medium text-foreground leading-tight">
                                 {evaluation.titulo}
-                              </h4>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <Calendar className="h-3 w-3" />
-                                {formatDate(evaluation.data_aplicacao)}
                               </div>
                               {(() => {
                                 const scopeMeta = comparisonData?.evaluations?.find((e) => e.id === evaluation.id);
                                 return scopeMeta ? <EvolutionScopeMetaLines evaluation={scopeMeta} /> : null;
                               })()}
-                            </div>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleRemoveEvaluation(evaluation.id)}
-                            className="hover:bg-red-100 dark:hover:bg-red-950/30 hover:text-red-600 dark:hover:text-red-400 transition-colors duration-200"
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
+                            </td>
+                            <td className="px-3 py-3 text-muted-foreground hidden sm:table-cell whitespace-nowrap">
+                              {formatDate(evaluation.data_aplicacao)}
+                            </td>
+                            <td className="px-3 py-3">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() =>
+                                    window.open(`/app/avaliacao/${evaluation.id}`, '_blank', 'noopener,noreferrer')
+                                  }
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                                  Ver avaliação
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleRemoveEvaluation(evaluation.id)}
+                                  className="h-8 hover:bg-red-100 dark:hover:bg-red-950/30 hover:text-red-600"
+                                  aria-label="Remover da comparação"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                  
+
                   {selectedEvaluationsForComparison.length < 2 && (
-                    <div className="pt-4 border-t border-border">
-                      <div className="text-center py-4">
+                    <div className="pt-2">
+                      <div className="text-center py-3">
                         <p className="text-sm text-muted-foreground">
                           Selecione pelo menos 2 avaliações para iniciar a comparação automática
                         </p>
@@ -1220,8 +1304,8 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
 
               {/* Busca de avaliações */}
               {!isLoadingFilters && availableEvaluationsForPicker.length > 0 && (
-                <div className="mb-4">
-                  <div className="relative">
+                <div className="mb-4 flex flex-col sm:flex-row gap-3 sm:items-center">
+                  <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                       type="text"
@@ -1230,6 +1314,31 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
                       onChange={(e) => setEvaluationSearch(e.target.value)}
                       className="pl-9 h-10"
                     />
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-10"
+                      onClick={handleSelectAllEvaluations}
+                      disabled={filteredEvaluations.length === 0}
+                    >
+                      Selecionar todas
+                      {filteredEvaluations.length > MAX_EVALUATIONS
+                        ? ` (máx. ${MAX_EVALUATIONS})`
+                        : ''}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-10"
+                      onClick={handleClearEvaluations}
+                      disabled={selectedEvaluationsForComparison.length === 0}
+                    >
+                      Limpar
+                    </Button>
                   </div>
                 </div>
               )}
@@ -1373,12 +1482,20 @@ export default function Evolution({ hidePageHeading = false }: EvolutionProps) {
         </Card>
       )}
 
-      {/* Gráficos de Evolução — exibidos apenas quando não estiver carregando nova comparação */}
+      {/* Mesmos gráficos da Avaliação online; com includeGroupsTab, inclui sub-aba Escola/Série/Turma */}
       {processedData && !isLoadingComparison && (
-        <EvolutionCharts 
-          data={processedData} 
+        <EvolutionCharts
+          data={processedData}
           isLoading={false}
           instrumentLabel="avaliações"
+          defaultTab={includeGroupsTab ? 'groups' : 'general'}
+          groupTestIds={
+            includeGroupsTab
+              ? selectedEvaluationsForComparison.map((e) => e.id)
+              : undefined
+          }
+          groupScopeFilters={includeGroupsTab ? scopeFilters : undefined}
+          groupRefreshKey={includeGroupsTab ? comparisonRequestKey : undefined}
         />
       )}
     </div>

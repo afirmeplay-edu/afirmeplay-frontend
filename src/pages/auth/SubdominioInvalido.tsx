@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 
 export default function SubdominioInvalido() {
   const navigate = useNavigate();
-  const [status, setStatus] = useState<"checking" | "invalid" | "valid">("checking");
+  const [status, setStatus] = useState<"checking" | "invalid" | "valid" | "unreachable">("checking");
 
   useEffect(() => {
     const hostname = window.location.hostname;
@@ -19,13 +19,12 @@ export default function SubdominioInvalido() {
         );
         if (data?.exists) {
           setStatus("valid");
-          // Volta para a rota raiz para o fluxo normal (SubdomainCheck/Login/BaseRoute).
           navigate("/", { replace: true });
         } else {
           setStatus("invalid");
         }
       } catch {
-        setStatus("invalid");
+        setStatus("unreachable");
       }
     };
 
@@ -39,6 +38,25 @@ export default function SubdominioInvalido() {
           <Loader2 className="h-5 w-5 animate-spin" />
           <span className="text-sm">Verificando subdomínio...</span>
         </div>
+      </div>
+    );
+  }
+
+  if (status === "unreachable") {
+    return (
+      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#240046] p-6 text-center text-white">
+        <p className="text-lg font-semibold">API indisponível</p>
+        <p className="mt-2 max-w-md text-sm text-white/70">
+          Não foi possível validar o município porque o backend não respondeu.
+          Inicie o servidor e recarregue a página.
+        </p>
+        <button
+          type="button"
+          className="mt-4 rounded-md bg-white/15 px-4 py-2 text-sm hover:bg-white/25"
+          onClick={() => window.location.assign("/")}
+        >
+          Tentar novamente
+        </button>
       </div>
     );
   }

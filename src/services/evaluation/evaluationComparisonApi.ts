@@ -162,6 +162,57 @@ export interface EvolutionCompareScopeFilters {
   turma?: string | null;
 }
 
+export type EvolutionGroupViewBy = 'turma' | 'serie' | 'escola';
+
+export interface EvolutionGroupPoint {
+  evaluation_id: string;
+  evaluation_title?: string | null;
+  order: number;
+  average_grade: number | null;
+  average_proficiency: number | null;
+  level: string | null;
+  total_students: number;
+}
+
+export interface EvolutionGroupTransition {
+  from_order: number;
+  to_order: number;
+  from_level: string;
+  to_level: string;
+  level_changed: boolean;
+  proficiency_delta: number | null;
+  grade_pp_delta: number | null;
+}
+
+export interface EvolutionGroupCard {
+  id: string;
+  name: string;
+  school_id?: string | null;
+  school_name?: string | null;
+  grade_id?: string | null;
+  grade_name?: string | null;
+  class_id?: string | null;
+  class_name?: string | null;
+  current_level?: string | null;
+  points: EvolutionGroupPoint[];
+  transitions: EvolutionGroupTransition[];
+}
+
+export interface EvolutionGroupsResponse {
+  view_by: EvolutionGroupViewBy | string;
+  filtros_aplicados?: EvolutionCompareScopeFilters;
+  evaluations: Array<{
+    order: number;
+    id: string;
+    title: string;
+    application_date?: string;
+  }>;
+  total_evaluations: number;
+  total_groups: number;
+  summary_by_level: Record<string, number>;
+  groups: EvolutionGroupCard[];
+}
+
 export interface ComparisonResponse {
   source_type?: 'cartao_resposta' | 'avaliacao_online' | string;
   nivel_granularidade?: 'municipio' | 'escola' | 'serie' | 'turma' | string;
@@ -279,6 +330,37 @@ export class EvaluationComparisonApiService {
       console.error('Erro ao comparar avaliações:', error);
       throw error;
     }
+  }
+
+  /**
+   * Evolução por grupos (turma / série / escola) ao longo das avaliações.
+   * POST /test/compare-groups
+   */
+  static async compareEvaluationsByGroups(
+    testIds: string[],
+    viewBy: EvolutionGroupViewBy,
+    scopeFilters?: EvolutionCompareScopeFilters
+  ): Promise<EvolutionGroupsResponse> {
+    if (testIds.length < 2) {
+      throw new Error('Mínimo de 2 avaliações necessário para comparação');
+    }
+
+    const payload = {
+      test_ids: testIds,
+      visualizar_por: viewBy,
+      estado: scopeFilters?.estado ?? null,
+      municipio: scopeFilters?.municipio ?? null,
+      escola: scopeFilters?.escola ?? null,
+      serie: scopeFilters?.serie ?? null,
+      turma: scopeFilters?.turma ?? null,
+    };
+
+    const requestConfig = scopeFilters?.municipio
+      ? { meta: { cityId: scopeFilters.municipio } }
+      : {};
+
+    const response = await api.post('/test/compare-groups', payload, requestConfig);
+    return response.data;
   }
 
   /**

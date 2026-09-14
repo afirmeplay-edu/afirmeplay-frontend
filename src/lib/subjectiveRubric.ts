@@ -3,11 +3,22 @@ export type SubjectiveCorrectionStatus = "pendente" | "em_correcao" | "concluida
 export type SubjectiveRubricMark = {
   id?: string | null;
   subjective_test_id?: string;
+  rubric_group_id?: string | null;
   code: string;
   label: string;
   color: string;
   weight: number;
   sort_order: number;
+};
+
+export type SubjectiveRubricGroup = {
+  id?: string | null;
+  subjective_test_id?: string;
+  /** Chave local para vincular questões antes do save (create). */
+  temp_key?: string;
+  name: string;
+  sort_order: number;
+  marks: SubjectiveRubricMark[];
 };
 
 export const DEFAULT_RUBRIC_MARKS: SubjectiveRubricMark[] = [
@@ -16,6 +27,15 @@ export const DEFAULT_RUBRIC_MARKS: SubjectiveRubricMark[] = [
   { code: "NAO", label: "Não", color: "#ef4444", weight: 0, sort_order: 2 },
   { code: "BRANCO", label: "Branco", color: "#94a3b8", weight: 0, sort_order: 3 },
 ];
+
+export function createDefaultRubricGroup(index = 0): SubjectiveRubricGroup {
+  return {
+    temp_key: `g${index + 1}-${Date.now().toString(36)}`,
+    name: index === 0 ? "Grupo de critérios" : `Grupo ${index + 1}`,
+    sort_order: index,
+    marks: DEFAULT_RUBRIC_MARKS.map((m) => ({ ...m })),
+  };
+}
 
 export function rubricShortLabel(mark: Pick<SubjectiveRubricMark, "code" | "label">): string {
   const fromLabel = (mark.label || "").trim();

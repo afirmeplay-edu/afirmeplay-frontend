@@ -1,8 +1,18 @@
 import { jsPDF } from 'jspdf';
-import { loadCityBrandingForReportPdf, type PdfImageAsset } from '@/utils/pdfCityBranding';
-import { formatDecimal1PtBr, formatPercent1PtBr } from '@/utils/numberFormat';
-import { getBoletimMarkStatus, questionAlternativeLetters } from '@/utils/reports/boletimAlunoHelpers';
+import {
+  loadDefaultReportLogoAsset,
+  resolveReportLogoForPdf,
+  type PdfImageAsset,
+} from '@/utils/pdfCityBranding';
+import { formatDecimal1PtBr } from '@/utils/numberFormat';
+import {
+  getBoletimMarkStatus,
+  mergeBlocosByDisciplina,
+  questionAlternativeLetters,
+  resolveDisciplinaCards,
+} from '@/utils/reports/boletimAlunoHelpers';
 import type {
+  BoletimAlunoCards,
   BoletimAlunoItem,
   BoletimAlunoPorDisciplina,
   BoletimAlunoQuestao,
@@ -11,6 +21,7 @@ import type {
 
 const C = {
   primary: [124, 62, 237] as [number, number, number],
+  primaryDark: [91, 33, 182] as [number, number, number],
   textDark: [31, 41, 55] as [number, number, number],
   textGray: [107, 114, 128] as [number, number, number],
   border: [209, 213, 219] as [number, number, number],
@@ -20,15 +31,50 @@ const C = {
   red: [220, 38, 38] as [number, number, number],
 };
 
-const PAGE_W = 297;
-const PAGE_H = 210;
+/** Cores de fundo do valor de NÍVEL — alinhadas a DetailedResultsView. */
+const NIVEL_VALUE_COLORS: Record<string, [number, number, number]> = {
+  'Abaixo do Básico': [220, 38, 38], // #dc2626
+  Básico: [251, 191, 36], // #fbbf24
+  Adequado: [74, 222, 128], // #4ade80
+  Avançado: [22, 163, 74], // #16a34a
+  'Sem Nota': [107, 114, 128], // #6b7280
+};
+
+function nivelValueStyle(nivel: string): {
+  fill: [number, number, number];
+  text: [number, number, number];
+} {
+  const raw = (nivel || '').trim();
+  const map = NIVEL_VALUE_COLORS;
+  let fill = map['Sem Nota'];
+  if (raw && map[raw]) {
+    fill = map[raw];
+  } else {
+    const lower = raw
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    if (lower.includes('avancado')) fill = map['Avançado'];
+    else if (lower.includes('adequado')) fill = map.Adequado;
+    else if (lower === 'basico' || lower.startsWith('basico')) fill = map.Básico;
+    else if (lower.includes('abaixo')) fill = map['Abaixo do Básico'];
+  }
+  const [r, g, b] = fill;
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  const text: [number, number, number] = luminance > 0.65 ? C.textDark : C.white;
+  return { fill, text };
+}
+
+/** A4 portrait */
+const PAGE_W = 210;
+const PAGE_H = 297;
+
+/** Colunas de tabelas de questão por faixa da página. */
+const GRID_COLS = 4;
 
 type PdfScale = {
   margin: number;
   rowH: number;
-  colWNum: number;
-  colWAlt: number;
-  colWGab: number;
   circleR: number;
   bannerH: number;
   colHeaderH: number;
@@ -42,10 +88,13 @@ type PdfScale = {
   tableTitleFont: number;
   tableFont: number;
   cardH: number;
-  cardTitleFont: number;
+  cardLabelFont: number;
   cardValueFont: number;
   gap: number;
+  colGap: number;
   footerReserve: number;
+  sectionTitleH: number;
+  sectionTitleFont: number;
 };
 
 export type BoletimAlunoPdfLabels = {
@@ -58,13 +107,18 @@ export type BoletimAlunoPdfLabels = {
   aluno?: string;
 };
 
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
+type QuestionColumn = {
+  disciplina: string;
+  questoes: BoletimAlunoQuestao[];
+  letters: string[];
+};
 
-function clamp(n: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, n));
-}
+type MetricCardDef = {
+  title: string;
+  value: string;
+  /** Card de nível: cabeçalho roxo; corpo com cor da faixa. */
+  isNivel: boolean;
+};
 
 function fmtNow(): string {
   return new Date().toLocaleString('pt-BR', {
@@ -83,73 +137,43 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-function pairDisciplinas(blocos: BoletimAlunoPorDisciplina[]): BoletimAlunoPorDisciplina[][] {
-  if (blocos.length <= 1) return blocos.length ? [blocos] : [];
-  const rows: BoletimAlunoPorDisciplina[][] = [];
-  for (let i = 0; i < blocos.length; i += 2) {
-    rows.push(blocos.slice(i, i + 2));
-  }
-  return rows;
+function usableWidth(s: PdfScale): number {
+  return PAGE_W - s.margin * 2;
 }
 
-function totalQuestoes(item: BoletimAlunoItem): number {
-  return (item.por_disciplina ?? []).reduce((sum, b) => sum + (b.questoes?.length ?? 0), 0);
-}
-
-function metaLines(
-  item: BoletimAlunoItem,
-  avaliacaoNome: string,
-  labels: BoletimAlunoPdfLabels
-): Array<[string, string]> {
-  const lines: Array<[string, string]> = [
-    ['AVALIAÇÃO', avaliacaoNome || labels.avaliacao],
-    ['ESCOLA', item.aluno.escola || labels.escola || '—'],
-    [
-      'SÉRIE / TURMA',
-      [item.aluno.serie || labels.serie, item.aluno.turma || labels.turma]
-        .filter(Boolean)
-        .join('  |  ') || '—',
-    ],
-    ['ALUNO', item.aluno.nome],
-  ];
-  if (item.aluno.matricula) lines.push(['MATRÍCULA', item.aluno.matricula]);
-  return lines;
-}
-
-function baseScale(totalQ: number): PdfScale {
-  const t = clamp((totalQ - 24) / 28, 0, 1);
+function baseScale(): PdfScale {
   return {
-    margin: 12,
-    rowH: lerp(6.2, 4.35, t),
-    colWNum: lerp(11, 7.6, t),
-    colWAlt: lerp(9, 6.05, t),
-    colWGab: lerp(12, 8.2, t),
-    circleR: lerp(1.7, 1.2, t),
-    bannerH: lerp(6, 5, t),
-    colHeaderH: lerp(6, 5, t),
-    logoW: lerp(22, 14, t),
-    logoMaxH: lerp(11, 7.2, t),
-    startY: lerp(8, 4.2, t),
-    titleFont: lerp(11, 9, t),
-    titleGap: lerp(5.5, 4.0, t),
-    metaFont: lerp(8, 6.4, t),
-    metaLineH: lerp(4.35, 3.3, t),
-    tableTitleFont: lerp(7, 5.8, t),
-    tableFont: lerp(7, 5.7, t),
-    cardH: lerp(17, 12.5, t),
-    cardTitleFont: lerp(6.5, 5.4, t),
-    cardValueFont: lerp(11, 8.4, t),
-    gap: lerp(4, 2.6, t),
-    footerReserve: 13,
+    margin: 11,
+    rowH: 5.1,
+    circleR: 1.35,
+    bannerH: 6.2,
+    colHeaderH: 5.4,
+    logoW: 32,
+    logoMaxH: 16,
+    startY: 8,
+    titleFont: 13,
+    titleGap: 3.5,
+    metaFont: 8.2,
+    metaLineH: 4.2,
+    tableTitleFont: 7.2,
+    tableFont: 7,
+    cardH: 18,
+    cardLabelFont: 6.5,
+    cardValueFont: 11,
+    gap: 4.5,
+    colGap: 2.4,
+    footerReserve: 14,
+    sectionTitleH: 6.4,
+    sectionTitleFont: 8.4,
   };
 }
 
-function tableWidth(nLetters: number, s: PdfScale): number {
-  return s.colWNum + nLetters * s.colWAlt + s.colWGab;
-}
-
 function logoDrawSize(logo: PdfImageAsset | null, s: PdfScale): { w: number; h: number } {
-  if (!logo || logo.iw <= 0 || logo.ih <= 0) return { w: 0, h: 0 };
+  if (!logo?.dataUrl) return { w: 0, h: 0 };
+  if (logo.iw <= 0 || logo.ih <= 0) {
+    console.warn('[boletimAluno] logo carregada sem dimensões válidas (iw/ih <= 0):', logo);
+    return { w: s.logoW, h: Math.min(s.logoMaxH, s.logoW * 0.45) };
+  }
   let w = s.logoW;
   let h = (logo.ih * w) / logo.iw;
   if (h > s.logoMaxH) {
@@ -157,88 +181,6 @@ function logoDrawSize(logo: PdfImageAsset | null, s: PdfScale): { w: number; h: 
     w = (logo.iw * h) / logo.ih;
   }
   return { w, h };
-}
-
-function headerHeight(s: PdfScale, logo: PdfImageAsset | null, nMeta: number): number {
-  const { h } = logoDrawSize(logo, s);
-  const logoBlock = h > 0 ? h + 2.2 : 0;
-  return s.startY + logoBlock + s.titleGap + nMeta * s.metaLineH + 2.4;
-}
-
-function columnsForSlot(slotW: number, nLetters: number, nQuestoes: number, s: PdfScale): number {
-  if (nQuestoes <= 0) return 1;
-  const tw = tableWidth(nLetters, s);
-  const nCols = Math.max(1, Math.floor((slotW + s.gap) / (tw + s.gap)));
-  return Math.min(nCols, nQuestoes);
-}
-
-function blockHeight(nQuestoes: number, nLetters: number, slotW: number, s: PdfScale): number {
-  if (nQuestoes <= 0) return s.bannerH + 8;
-  const nCols = columnsForSlot(slotW, nLetters, nQuestoes, s);
-  const rows = Math.ceil(nQuestoes / nCols);
-  return s.bannerH + s.colHeaderH + rows * s.rowH;
-}
-
-function usableWidth(s: PdfScale): number {
-  return PAGE_W - s.margin * 2;
-}
-
-function slotWidth(colsInRow: number, s: PdfScale): number {
-  const uw = usableWidth(s);
-  if (colsInRow <= 1) return uw;
-  return (uw - s.gap * (colsInRow - 1)) / colsInRow;
-}
-
-function measureTablesHeight(blocos: BoletimAlunoPorDisciplina[], s: PdfScale): number {
-  const rows = pairDisciplinas(blocos);
-  let h = 0;
-  rows.forEach((row, idx) => {
-    const sw = slotWidth(row.length, s);
-    const rowH = Math.max(
-      ...row.map((b) =>
-        blockHeight(
-          b.questoes?.length ?? 0,
-          questionAlternativeLetters(b.questoes).length,
-          sw,
-          s
-        )
-      ),
-      0
-    );
-    h += rowH + (idx < rows.length - 1 ? 3 : 0);
-  });
-  return h;
-}
-
-function fitScale(
-  item: BoletimAlunoItem,
-  logo: PdfImageAsset | null,
-  nMeta: number
-): PdfScale {
-  const s = baseScale(totalQuestoes(item));
-  const blocos = item.por_disciplina ?? [];
-
-  for (let i = 0; i < 14; i++) {
-    const head = headerHeight(s, logo, nMeta);
-    const avail = PAGE_H - head - s.cardH - 3.5 - s.footerReserve;
-    const tablesH = measureTablesHeight(blocos, s);
-    if (tablesH <= avail) break;
-
-    s.rowH = Math.max(3.75, s.rowH * 0.93);
-    s.colWAlt = Math.max(5.15, s.colWAlt * 0.96);
-    s.colWNum = Math.max(6.6, s.colWNum * 0.97);
-    s.colWGab = Math.max(7.2, s.colWGab * 0.97);
-    s.circleR = Math.max(1.05, s.circleR * 0.96);
-    s.bannerH = Math.max(4.4, s.bannerH * 0.98);
-    s.colHeaderH = Math.max(4.4, s.colHeaderH * 0.98);
-    s.tableFont = Math.max(5.4, s.tableFont * 0.98);
-    s.tableTitleFont = Math.max(5.4, s.tableTitleFont * 0.98);
-    s.logoMaxH = Math.max(6.2, s.logoMaxH * 0.96);
-    s.startY = Math.max(3.6, s.startY * 0.97);
-    s.metaLineH = Math.max(3.05, s.metaLineH * 0.97);
-    s.cardH = Math.max(11.5, s.cardH * 0.98);
-  }
-  return s;
 }
 
 function addFooters(doc: jsPDF, dataGeracao: string, margin: number): void {
@@ -257,12 +199,6 @@ function addFooters(doc: jsPDF, dataGeracao: string, margin: number): void {
     doc.text(`Página ${i} de ${n}`, pageW / 2, pageH - 5.5, { align: 'center' });
     doc.text(`Gerado em ${dataGeracao}`, pageW - margin, pageH - 5.5, { align: 'right' });
   }
-}
-
-function ensureSpace(doc: jsPDF, y: number, needed: number, s: PdfScale): number {
-  if (y + needed <= PAGE_H - s.footerReserve) return y;
-  doc.addPage();
-  return 12;
 }
 
 function drawCircle(
@@ -287,165 +223,714 @@ function drawCircle(
   }
 }
 
-function expandedColWidths(
-  letters: string[],
-  targetW: number,
-  s: PdfScale
-): { num: number; alt: number; gab: number } {
-  const n = Math.max(letters.length, 1);
-  const base = tableWidth(letters.length, s);
-  const extra = Math.max(0, targetW - base);
-  const toAlt = extra * 0.7;
-  const toNum = extra * 0.15;
-  const toGab = extra * 0.15;
-  return {
-    num: s.colWNum + toNum,
-    alt: s.colWAlt + toAlt / n,
-    gab: s.colWGab + toGab,
-  };
+function columnWidth(s: PdfScale): number {
+  const gaps = (GRID_COLS - 1) * s.colGap;
+  return (usableWidth(s) - gaps) / GRID_COLS;
 }
 
-function drawQuestionTable(
+/**
+ * Espaço entre colunas na faixa:
+ * - 2 → mais espaçadas
+ * - 3 → mais juntas
+ * - 4 → máximo por folha, gap mais apertado
+ */
+function gapForColumnCount(nCols: number, s: PdfScale): number {
+  if (nCols <= 1) return 0;
+  if (nCols === 2) return Math.max(14, s.colGap * 5.5);
+  if (nCols === 3) return Math.max(5, s.colGap * 2.2);
+  return s.colGap;
+}
+
+/**
+ * Largura da coluna conforme quantas cabem na faixa (máx. 4).
+ * Com 2–3 colunas a tabela fica um pouco mais larga; com 4 usa o grid completo.
+ */
+function columnWidthForRow(nCols: number, s: PdfScale): number {
+  const n = Math.min(GRID_COLS, Math.max(1, nCols));
+  const gap = gapForColumnCount(n, s);
+  const natural = (usableWidth(s) - Math.max(0, n - 1) * gap) / n;
+  // Não deixa 1 coluna estourar a página inteira — limita ao tamanho do grid de 4.
+  const cap = columnWidth(s) * (n === 1 ? 1.35 : n === 2 ? 1.2 : 1);
+  return Math.min(natural, cap);
+}
+
+/** Posição X inicial para centralizar o bloco de colunas na página. */
+function centeredColumnsStartX(nCols: number, colW: number, gap: number, s: PdfScale): number {
+  const n = Math.max(1, nCols);
+  const blockW = n * colW + Math.max(0, n - 1) * gap;
+  return s.margin + Math.max(0, (usableWidth(s) - blockW) / 2);
+}
+
+function sharedBannerGap(_s: PdfScale): number {
+  return 1.0;
+}
+
+/**
+ * Altura de uma coluna de questões.
+ * `includeBanner`: banner roxo no topo da própria coluna.
+ */
+function questionColumnHeight(
+  nQuestoes: number,
+  s: PdfScale,
+  includeBanner = true
+): number {
+  const banner = includeBanner ? s.bannerH : 0;
+  return banner + s.colHeaderH + Math.max(0, nQuestoes) * s.rowH + 1.2;
+}
+
+/** Altura de uma faixa de colunas (até 4), com ou sem banner compartilhado. */
+function questionRowHeight(
+  cols: QuestionColumn[],
+  s: PdfScale,
+  sharedBanner: boolean
+): number {
+  if (!cols.length) return 0;
+  const maxQ = Math.max(...cols.map((c) => c.questoes.length), 0);
+  const colH = questionColumnHeight(maxQ, s, !sharedBanner);
+  if (!sharedBanner) return colH;
+  return s.bannerH + sharedBannerGap(s) + colH;
+}
+
+function maxRowsForRowAvail(
+  availH: number,
+  s: PdfScale,
+  sharedBanner: boolean
+): number {
+  const fixed = sharedBanner
+    ? s.bannerH + sharedBannerGap(s) + s.colHeaderH + 1.2
+    : s.bannerH + s.colHeaderH + 1.2;
+  if (availH <= fixed) return 0;
+  return Math.max(1, Math.floor((availH - fixed) / s.rowH));
+}
+
+/**
+ * Régua de divisão por disciplina (questões daquela disciplina):
+ * - ≤ 25 → 1 coluna
+ * - 26–50 → 2 colunas
+ * - ≥ 51 → 3 colunas
+ */
+function columnCountForDiscipline(nQuestoes: number): number {
+  if (nQuestoes <= 0) return 0;
+  if (nQuestoes <= 25) return 1;
+  if (nQuestoes <= 50) return 2;
+  return 3;
+}
+
+/** Divide a disciplina em N colunas equilibradas pela régua 25 / 50. */
+function splitDisciplineToColumns(bloco: BoletimAlunoPorDisciplina): QuestionColumn[] {
+  const questoes = bloco.questoes ?? [];
+  if (!questoes.length) return [];
+  const letters = questionAlternativeLetters(questoes);
+  const nParts = columnCountForDiscipline(questoes.length);
+  const partSize = Math.ceil(questoes.length / Math.max(1, nParts));
+  return chunk(questoes, partSize).map((part) => ({
+    disciplina: bloco.disciplina,
+    questoes: part,
+    letters,
+  }));
+}
+
+function rowUsesSharedBanner(cols: QuestionColumn[]): boolean {
+  if (cols.length <= 1) return false;
+  const name = cols[0]?.disciplina;
+  return cols.every((c) => c.disciplina === name);
+}
+
+/** Corta a mesma qtde de linhas em todas as colunas da faixa. */
+function takeRowSlice(
+  cols: QuestionColumn[],
+  maxRows: number
+): { slice: QuestionColumn[]; rest: QuestionColumn[] } {
+  const slice = cols
+    .map((c) => ({
+      disciplina: c.disciplina,
+      letters: c.letters,
+      questoes: c.questoes.slice(0, maxRows),
+    }))
+    .filter((c) => c.questoes.length > 0);
+
+  const rest = cols
+    .map((c) => ({
+      ...c,
+      questoes: c.questoes.slice(maxRows),
+    }))
+    .filter((c) => c.questoes.length > 0);
+
+  return { slice, rest };
+}
+
+function drawSharedDisciplineBanner(
   doc: jsPDF,
   x: number,
   y: number,
   width: number,
   title: string,
-  questoes: BoletimAlunoQuestao[],
-  letters: string[],
-  colW: number,
   s: PdfScale
 ): number {
-  const widths = expandedColWidths(letters, colW, s);
-  const w = widths.num + letters.length * widths.alt + widths.gab;
-  const r = Math.min(s.circleR, widths.alt / 2 - 0.7, s.rowH / 2 - 0.55);
-
   doc.setFillColor(...C.primary);
-  doc.roundedRect(x, y, w, s.bannerH, 0.5, 0.5, 'F');
+  doc.roundedRect(x, y, width, s.bannerH, 1.2, 1.2, 'F');
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(s.tableTitleFont);
   doc.setTextColor(...C.white);
-  const titleText = doc.splitTextToSize(title.toUpperCase(), w - 2.4) as string[];
-  doc.text(titleText[0] || title, x + w / 2, y + s.bannerH * 0.68, { align: 'center' });
+  const lines = doc.splitTextToSize(title.toUpperCase(), width - 2.4) as string[];
+  doc.text(lines[0] || title, x + width / 2, y + s.bannerH * 0.68, { align: 'center' });
 
-  let cy = y + s.bannerH;
-  doc.setFillColor(...C.bgHeader);
-  doc.rect(x, cy, w, s.colHeaderH, 'F');
+  return y + s.bannerH + sharedBannerGap(s);
+}
+
+function drawQuestionColumn(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  colW: number,
+  column: QuestionColumn,
+  s: PdfScale,
+  opts?: { omitBanner?: boolean }
+): number {
+  const omitBanner = Boolean(opts?.omitBanner);
+  const letters = column.letters.length
+    ? column.letters
+    : questionAlternativeLetters(column.questoes);
+  const nLetters = Math.max(letters.length, 1);
+  const numW = Math.min(8, colW * 0.18);
+  const gabW = Math.min(8, colW * 0.16);
+  const lettersW = colW - numW - gabW;
+  const letterCellW = lettersW / nLetters;
+  const r = Math.min(s.circleR, letterCellW / 2 - 0.35, s.rowH / 2 - 0.55);
+  const h = questionColumnHeight(column.questoes.length, s, !omitBanner);
+
   doc.setDrawColor(...C.border);
-  doc.setLineWidth(0.18);
-  doc.rect(x, cy, w, s.colHeaderH);
+  doc.setFillColor(...C.white);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(x, y, colW, h, 1.2, 1.2, 'FD');
 
-  const headers = ['#', ...letters, 'GAB'];
-  const colWidths = [widths.num, ...letters.map(() => widths.alt), widths.gab];
-  let hx = x;
-  doc.setFontSize(Math.max(5.4, s.tableFont - 0.4));
-  doc.setTextColor(...C.textDark);
-  doc.setFont('helvetica', 'bold');
-  for (let i = 0; i < headers.length; i++) {
-    doc.text(headers[i], hx + colWidths[i] / 2, cy + s.colHeaderH * 0.68, { align: 'center' });
-    hx += colWidths[i];
+  let cy = y;
+
+  if (!omitBanner) {
+    doc.setFillColor(...C.primary);
+    doc.roundedRect(x, y, colW, s.bannerH, 1.2, 1.2, 'F');
+    doc.setFillColor(...C.primary);
+    doc.rect(x, y + s.bannerH - 1.5, colW, 1.5, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(s.tableTitleFont);
+    doc.setTextColor(...C.white);
+    const title = doc.splitTextToSize(column.disciplina.toUpperCase(), colW - 2) as string[];
+    doc.text(title[0] || column.disciplina, x + colW / 2, y + s.bannerH * 0.68, {
+      align: 'center',
+    });
+    cy = y + s.bannerH;
   }
+
+  doc.setFillColor(...C.bgHeader);
+  doc.rect(x, cy, colW, s.colHeaderH, 'F');
+  doc.setDrawColor(...C.border);
+  doc.setLineWidth(0.15);
+  doc.line(x, cy + s.colHeaderH, x + colW, cy + s.colHeaderH);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(Math.max(5.8, s.tableFont - 0.4));
+  doc.setTextColor(...C.textGray);
+  doc.text('#', x + numW / 2, cy + s.colHeaderH * 0.68, { align: 'center' });
+  letters.forEach((letter, li) => {
+    const lx = x + numW + li * letterCellW + letterCellW / 2;
+    doc.text(letter, lx, cy + s.colHeaderH * 0.68, { align: 'center' });
+  });
+  doc.text('GAB', x + colW - gabW / 2, cy + s.colHeaderH * 0.68, { align: 'center' });
   cy += s.colHeaderH;
 
-  for (const q of questoes) {
+  for (const q of column.questoes) {
     doc.setDrawColor(...C.border);
-    doc.setFillColor(...C.white);
-    doc.rect(x, cy, w, s.rowH, 'FD');
-    let cx = x;
+    doc.setLineWidth(0.12);
+    doc.line(x + 0.6, cy + s.rowH, x + colW - 0.6, cy + s.rowH);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(s.tableFont);
+    doc.setTextColor(...C.textGray);
+    doc.text(String(q.numero), x + numW / 2, cy + s.rowH / 2 + 0.9, { align: 'center' });
+
+    letters.forEach((letter, li) => {
+      const lx = x + numW + li * letterCellW + letterCellW / 2;
+      drawCircle(doc, lx, cy + s.rowH / 2, r, getBoletimMarkStatus(q, letter));
+    });
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(s.tableFont);
     doc.setTextColor(...C.textDark);
-    doc.text(`Q${q.numero}`, cx + widths.num / 2, cy + s.rowH / 2 + 0.9, { align: 'center' });
-    cx += widths.num;
-
-    for (const letter of letters) {
-      const status = getBoletimMarkStatus(q, letter);
-      drawCircle(doc, cx + widths.alt / 2, cy + s.rowH / 2, r, status);
-      cx += widths.alt;
-    }
-
-    const padX = Math.min(1.1, widths.gab * 0.12);
-    const padY = Math.min(1.0, s.rowH * 0.16);
-    doc.setFillColor(...C.green);
-    doc.roundedRect(cx + padX, cy + padY, widths.gab - padX * 2, s.rowH - padY * 2, 0.5, 0.5, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(s.tableFont);
-    doc.setTextColor(...C.white);
-    doc.text(String(q.gabarito || '—').toUpperCase(), cx + widths.gab / 2, cy + s.rowH / 2 + 0.9, {
-      align: 'center',
-    });
+    doc.text(
+      String(q.gabarito || '—').toUpperCase(),
+      x + colW - gabW / 2,
+      cy + s.rowH / 2 + 0.9,
+      { align: 'center' }
+    );
     cy += s.rowH;
   }
+
+  return y + h;
+}
+
+/**
+ * Desenha uma faixa de até 4 colunas, centralizada.
+ * Banner único só quando todas as colunas da faixa são da mesma disciplina.
+ */
+function drawQuestionColumnRow(
+  doc: jsPDF,
+  y: number,
+  cols: QuestionColumn[],
+  s: PdfScale
+): number {
+  if (!cols.length) return y;
+
+  const nCols = cols.length;
+  const sharedBanner = rowUsesSharedBanner(cols);
+  const gap = gapForColumnCount(nCols, s);
+  const colW = columnWidthForRow(nCols, s);
+  const startX = centeredColumnsStartX(nCols, colW, gap, s);
+  const blockW = nCols * colW + Math.max(0, nCols - 1) * gap;
+
+  let cy = y;
+  if (sharedBanner) {
+    cy = drawSharedDisciplineBanner(doc, startX, cy, blockW, cols[0].disciplina, s);
+  }
+
+  let bottom = cy;
+  cols.forEach((col, colIdx) => {
+    const x = startX + colIdx * (colW + gap);
+    const colBottom = drawQuestionColumn(doc, x, cy, colW, col, s, {
+      omitBanner: sharedBanner,
+    });
+    bottom = Math.max(bottom, colBottom);
+  });
+
+  return bottom;
+}
+
+/** Cards de métricas. Em disciplina o nível se chama "NÍVEL"; no agregado final, "NÍVEL GERAL". */
+function metricCards(cards: BoletimAlunoCards, opts?: { isGeral?: boolean }): MetricCardDef[] {
+  return [
+    {
+      title: 'ACERTOS TOTAIS',
+      value: `${cards.acertos_totais.acertou} / ${cards.acertos_totais.total}`,
+      isNivel: false,
+    },
+    {
+      title: 'NOTA',
+      // null/undefined → "—" (compatível com backend sem cálculo por disciplina)
+      value: formatDecimal1PtBr(cards.nota, '—'),
+      isNivel: false,
+    },
+    {
+      title: 'MÉDIA PROFICIÊNCIA',
+      value: formatDecimal1PtBr(cards.proficiencia, '—'),
+      isNivel: false,
+    },
+    {
+      title: opts?.isGeral ? 'NÍVEL GERAL' : 'NÍVEL',
+      value: cards.nivel || '—',
+      isNivel: true,
+    },
+  ];
+}
+
+/**
+ * Banner de destaque para o título da seção (nome da disciplina ou "GERAL").
+ */
+function drawSectionTitleBanner(
+  doc: jsPDF,
+  y: number,
+  title: string,
+  s: PdfScale,
+  opts?: { isGeral?: boolean }
+): number {
+  const width = usableWidth(s);
+  const x = s.margin;
+  const fill = opts?.isGeral ? C.primaryDark : C.primary;
+
+  doc.setFillColor(...fill);
+  doc.roundedRect(x, y, width, s.sectionTitleH, 1.4, 1.4, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(s.sectionTitleFont);
+  doc.setTextColor(...C.white);
+  doc.text(title.toUpperCase(), PAGE_W / 2, y + s.sectionTitleH * 0.66, {
+    align: 'center',
+  });
+
+  return y + s.sectionTitleH;
+}
+
+function resultsBlockHeight(s: PdfScale): number {
+  return s.sectionTitleH + 2 + s.cardH + 1.5;
+}
+
+function drawMetricCardRow(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  totalW: number,
+  cards: BoletimAlunoCards,
+  s: PdfScale,
+  opts?: { isGeral?: boolean }
+): number {
+  const items = metricCards(cards, opts);
+  const gap = 2.2;
+  const cardW = (totalW - gap * (items.length - 1)) / items.length;
+  const headerH = Math.max(5.2, s.cardH * 0.32);
+  const bodyH = s.cardH - headerH;
+
+  items.forEach((card, i) => {
+    const cx = x + i * (cardW + gap);
+    const nivelStyle = card.isNivel ? nivelValueStyle(card.value) : null;
+
+    doc.setFillColor(230, 230, 235);
+    doc.roundedRect(cx + 0.4, y + 0.5, cardW, s.cardH, 1.2, 1.2, 'F');
+
+    doc.setFillColor(...C.white);
+    doc.setDrawColor(...C.border);
+    doc.setLineWidth(0.2);
+    doc.roundedRect(cx, y, cardW, s.cardH, 1.2, 1.2, 'FD');
+
+    // Cabeçalho sempre roxo (inclui NÍVEL / NÍVEL GERAL)
+    doc.setFillColor(...C.primary);
+    doc.roundedRect(cx, y, cardW, headerH, 1.2, 1.2, 'F');
+    doc.setFillColor(...C.primary);
+    doc.rect(cx, y + headerH - 1.4, cardW, 1.4, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(s.cardLabelFont);
+    doc.setTextColor(...C.white);
+    const label = doc.splitTextToSize(card.title, cardW - 2) as string[];
+    doc.text(label[0] || card.title, cx + cardW / 2, y + headerH * 0.68, {
+      align: 'center',
+    });
+
+    if (nivelStyle) {
+      doc.setFillColor(...nivelStyle.fill);
+      doc.roundedRect(cx, y + headerH, cardW, bodyH, 1.2, 1.2, 'F');
+      doc.setFillColor(...nivelStyle.fill);
+      doc.rect(cx, y + headerH, cardW, 2, 'F');
+      doc.setTextColor(...nivelStyle.text);
+    } else {
+      doc.setTextColor(...C.textDark);
+    }
+
+    doc.setFont('helvetica', 'bold');
+    let valueFont = s.cardValueFont;
+    doc.setFontSize(valueFont);
+    const maxW = cardW - 2.4;
+    while (valueFont > 6.5 && doc.getTextWidth(card.value) > maxW) {
+      valueFont -= 0.5;
+      doc.setFontSize(valueFont);
+    }
+    const lines = (doc.splitTextToSize(card.value, maxW) as string[]).slice(0, 2);
+    const lineStep = valueFont * 0.38;
+    const blockH = (lines.length - 1) * lineStep;
+    const valueY = y + headerH + bodyH / 2 - blockH / 2 + valueFont * 0.12;
+    lines.forEach((line, li) => {
+      doc.text(line || '—', cx + cardW / 2, valueY + li * lineStep, { align: 'center' });
+    });
+  });
+
+  return y + s.cardH;
+}
+
+function drawLogos(
+  doc: jsPDF,
+  y: number,
+  cityLogo: PdfImageAsset | null,
+  platformLogo: PdfImageAsset | null,
+  s: PdfScale
+): number {
+  const citySize = logoDrawSize(cityLogo, s);
+  const platformSize = logoDrawSize(platformLogo, s);
+  const hasCity = Boolean(cityLogo?.dataUrl && citySize.w > 0);
+  const hasPlatform = Boolean(platformLogo?.dataUrl && platformSize.w > 0);
+
+  if (!hasCity && !hasPlatform) return y;
+
+  if (hasCity && hasPlatform) {
+    const bandH = Math.max(citySize.h, platformSize.h);
+    doc.addImage(
+      cityLogo!.dataUrl,
+      'PNG',
+      s.margin,
+      y + (bandH - citySize.h) / 2,
+      citySize.w,
+      citySize.h
+    );
+    doc.addImage(
+      platformLogo!.dataUrl,
+      'PNG',
+      PAGE_W - s.margin - platformSize.w,
+      y + (bandH - platformSize.h) / 2,
+      platformSize.w,
+      platformSize.h
+    );
+    return y + bandH + 3;
+  }
+
+  const only = hasCity ? cityLogo! : platformLogo!;
+  const size = hasCity ? citySize : platformSize;
+  doc.addImage(only.dataUrl, 'PNG', (PAGE_W - size.w) / 2, y, size.w, size.h);
+  return y + size.h + 3;
+}
+
+function drawFullHeader(
+  doc: jsPDF,
+  item: BoletimAlunoItem,
+  avaliacaoNome: string,
+  labels: BoletimAlunoPdfLabels,
+  cityLogo: PdfImageAsset | null,
+  platformLogo: PdfImageAsset | null,
+  s: PdfScale
+): number {
+  let y = s.startY;
+  y = drawLogos(doc, y, cityLogo, platformLogo, s);
+
+  const centerX = PAGE_W / 2;
+  const maxMetaW = usableWidth(s);
+
+  if (labels.municipio && labels.municipio !== 'all') {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(s.metaFont + 0.8);
+    doc.setTextColor(...C.textDark);
+    const pref = `PREFEITURA MUNICIPAL DE ${String(labels.municipio).toUpperCase()}`;
+    const prefLines = doc.splitTextToSize(pref, maxMetaW) as string[];
+    doc.text(prefLines[0] || pref, centerX, y, { align: 'center' });
+    y += s.metaLineH + 0.6;
+  }
+
+  const metaPairs: Array<[string, string]> = [
+    ['AVALIAÇÃO', avaliacaoNome || labels.avaliacao || '—'],
+    ['ESCOLA', item.aluno.escola || labels.escola || '—'],
+  ];
+
+  doc.setFontSize(s.metaFont);
+  for (const [k, v] of metaPairs) {
+    const label = `${k}: `;
+    doc.setFont('helvetica', 'bold');
+    const lw = doc.getTextWidth(label);
+    const valueText = String(v || '—').toUpperCase();
+    doc.setFont('helvetica', 'normal');
+    const vw = doc.getTextWidth(valueText);
+    const startX = centerX - (lw + vw) / 2;
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...C.textGray);
+    doc.text(label, startX, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...C.textDark);
+    doc.text(valueText, startX + lw, y);
+    y += s.metaLineH;
+  }
+
+  // SÉRIE | TURMA | MATRÍCULA na mesma linha
+  {
+    const parts: Array<[string, string]> = [
+      ['SÉRIE', item.aluno.serie || labels.serie || '—'],
+      ['TURMA', item.aluno.turma || labels.turma || '—'],
+    ];
+    if (item.aluno.matricula) {
+      parts.push(['MATRÍCULA', item.aluno.matricula]);
+    }
+
+    const gapBetween = 10;
+    const segments: Array<{ label: string; value: string; labelW: number; valueW: number }> = [];
+    let totalW = 0;
+    parts.forEach(([k, v], idx) => {
+      const label = `${k}: `;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(s.metaFont);
+      const labelW = doc.getTextWidth(label);
+      doc.setFont('helvetica', 'normal');
+      const valueW = doc.getTextWidth(String(v || '—').toUpperCase());
+      segments.push({ label, value: String(v || '—').toUpperCase(), labelW, valueW });
+      totalW += labelW + valueW;
+      if (idx < parts.length - 1) totalW += gapBetween;
+    });
+
+    let cursorX = centerX - totalW / 2;
+    segments.forEach((seg, idx) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(s.metaFont);
+      doc.setTextColor(...C.textGray);
+      doc.text(seg.label, cursorX, y);
+      cursorX += seg.labelW;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...C.textDark);
+      doc.text(seg.value, cursorX, y);
+      cursorX += seg.valueW;
+      if (idx < segments.length - 1) cursorX += gapBetween;
+    });
+    y += s.metaLineH;
+  }
+
+  {
+    const label = 'ALUNO: ';
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(s.metaFont);
+    const lw = doc.getTextWidth(label);
+    const valueText = String(item.aluno.nome || labels.aluno || '—').toUpperCase();
+    doc.setFont('helvetica', 'normal');
+    const vw = doc.getTextWidth(valueText);
+    const startX = centerX - (lw + vw) / 2;
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...C.textGray);
+    doc.text(label, startX, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...C.textDark);
+    doc.text(valueText, startX + lw, y);
+    y += s.metaLineH;
+  }
+
+  y += s.titleGap * 0.35;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(s.metaFont);
+  doc.setTextColor(...C.textGray);
+  doc.text('RELATÓRIO:', centerX, y, { align: 'center' });
+  y += s.metaLineH + 0.4;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(s.titleFont);
+  doc.setTextColor(...C.primary);
+  doc.text('BOLETIM DO ALUNO', centerX, y, { align: 'center' });
+  y += s.titleGap + 1.5;
+
+  return y;
+}
+
+function drawContinuationHeader(doc: jsPDF, item: BoletimAlunoItem, s: PdfScale): number {
+  let y = s.startY;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(s.metaFont);
+  doc.setTextColor(...C.primary);
+  doc.text('RELATÓRIO: BOLETIM DO ALUNO (continuação)', PAGE_W / 2, y, {
+    align: 'center',
+  });
+  y += s.metaLineH;
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...C.textDark);
+  doc.setFontSize(s.metaFont - 0.4);
+  doc.text(String(item.aluno.nome || '').toUpperCase(), PAGE_W / 2, y, {
+    align: 'center',
+  });
+  y += s.metaLineH + 1.5;
+  return y;
+}
+
+function newPageWithContinuation(
+  doc: jsPDF,
+  item: BoletimAlunoItem,
+  s: PdfScale
+): number {
+  doc.addPage();
+  return drawContinuationHeader(doc, item, s);
+}
+
+function ensureSpaceWithContinuation(
+  doc: jsPDF,
+  y: number,
+  needed: number,
+  item: BoletimAlunoItem,
+  s: PdfScale
+): number {
+  if (y + needed <= PAGE_H - s.footerReserve) return y;
+  return newPageWithContinuation(doc, item, s);
+}
+
+function drawResultsSection(
+  doc: jsPDF,
+  y: number,
+  item: BoletimAlunoItem,
+  s: PdfScale
+): number {
+  const contentW = usableWidth(s);
+  const blockH = resultsBlockHeight(s);
+  let cy = y;
+
+  const discs: Array<{ title: string; cards: BoletimAlunoCards }> = [];
+  for (const bloco of mergeBlocosByDisciplina(item.por_disciplina ?? [])) {
+    const cards = resolveDisciplinaCards(bloco);
+    if (!cards) continue;
+    discs.push({ title: bloco.disciplina, cards });
+  }
+
+  for (const disc of discs) {
+    cy = ensureSpaceWithContinuation(doc, cy, blockH, item, s);
+    cy = drawSectionTitleBanner(doc, cy, disc.title, s);
+    cy += 2;
+    cy = drawMetricCardRow(doc, s.margin, cy, contentW, disc.cards, s);
+    cy += s.gap * 0.7;
+  }
+
+  cy = ensureSpaceWithContinuation(doc, cy, blockH, item, s);
+  cy = drawSectionTitleBanner(doc, cy, 'GERAL', s, { isGeral: true });
+  cy += 2;
+  cy = drawMetricCardRow(doc, s.margin, cy, contentW, item.cards, s, { isGeral: true });
 
   return cy;
 }
 
-function drawDisciplineBlock(
+function drawQuestionRows(
   doc: jsPDF,
-  x: number,
-  y: number,
-  slotW: number,
-  bloco: BoletimAlunoPorDisciplina,
+  startY: number,
+  item: BoletimAlunoItem,
   s: PdfScale
 ): number {
-  const questoes = bloco.questoes ?? [];
-  const letters = questionAlternativeLetters(questoes);
-  if (!questoes.length) {
-    doc.setFontSize(s.tableFont);
-    doc.setTextColor(...C.textGray);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Nenhuma questão em ${bloco.disciplina}.`, x, y + 5);
-    return y + 10;
+  const blocos = mergeBlocosByDisciplina(item.por_disciplina ?? []);
+
+  let queue: QuestionColumn[] = [];
+  for (const bloco of blocos) {
+    queue.push(...splitDisciplineToColumns(bloco));
   }
 
-  const nCols = columnsForSlot(slotW, letters.length, questoes.length, s);
-  const rowsPerCol = Math.ceil(questoes.length / nCols);
-  const columns = chunk(questoes, rowsPerCol);
-  const innerGap = s.gap;
-  const colW = (slotW - innerGap * (columns.length - 1)) / columns.length;
+  let y = startY;
+  let drewAny = false;
 
-  let bottom = y;
-  columns.forEach((col, idx) => {
-    const cx = x + idx * (colW + innerGap);
-    const b = drawQuestionTable(doc, cx, y, bloco.disciplina, col, letters, colW, s);
-    bottom = Math.max(bottom, b);
-  });
-  return bottom;
-}
+  while (queue.length) {
+    const nTake = Math.min(GRID_COLS, queue.length);
+    const rowPeek = queue.slice(0, nTake);
+    const sharedBanner = rowUsesSharedBanner(rowPeek);
+    const fullH = questionRowHeight(rowPeek, s, sharedBanner);
+    let avail = PAGE_H - s.footerReserve - y;
 
-function drawCards(doc: jsPDF, y: number, item: BoletimAlunoItem, s: PdfScale): number {
-  const gap = Math.min(4, s.gap + 0.6);
-  const w = (PAGE_W - s.margin * 2 - gap * 3) / 4;
-  const h = s.cardH;
-  const cards = [
-    {
-      title: 'ACERTOS TOTAIS',
-      value: `${item.cards.acertos_totais.acertou} / ${item.cards.acertos_totais.total}`,
-      sub: formatPercent1PtBr(item.cards.acertos_totais.percentual),
-    },
-    { title: 'NOTA', value: formatDecimal1PtBr(item.cards.nota), sub: '' },
-    { title: 'PROFICIÊNCIA', value: formatDecimal1PtBr(item.cards.proficiencia), sub: '' },
-    { title: 'NÍVEL GERAL', value: item.cards.nivel || '—', sub: '' },
-  ];
-
-  cards.forEach((card, i) => {
-    const x = s.margin + i * (w + gap);
-    doc.setFillColor(...C.primary);
-    doc.roundedRect(x, y, w, h, 0.9, 0.9, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(s.cardTitleFont);
-    doc.setTextColor(...C.white);
-    doc.text(card.title, x + w / 2, y + h * 0.28, { align: 'center' });
-    doc.setFontSize(s.cardValueFont);
-    const valueY = card.sub ? y + h * 0.6 : y + h * 0.68;
-    doc.text(String(card.value), x + w / 2, valueY, { align: 'center' });
-    if (card.sub) {
-      doc.setFontSize(Math.max(5.5, s.cardTitleFont));
-      doc.setFont('helvetica', 'normal');
-      doc.text(card.sub, x + w / 2, y + h * 0.84, { align: 'center' });
+    if (avail < Math.min(fullH, s.bannerH + s.colHeaderH + s.rowH + 4)) {
+      y = newPageWithContinuation(doc, item, s);
+      avail = PAGE_H - s.footerReserve - y;
     }
-  });
-  return y + h;
+
+    if (fullH <= avail) {
+      queue = queue.slice(nTake);
+      y = drawQuestionColumnRow(doc, y, rowPeek, s);
+      y += s.gap * 0.75;
+      drewAny = true;
+      continue;
+    }
+
+    let maxRows = maxRowsForRowAvail(avail, s, sharedBanner);
+    if (maxRows < 1) {
+      y = newPageWithContinuation(doc, item, s);
+      avail = PAGE_H - s.footerReserve - y;
+      maxRows = Math.max(1, maxRowsForRowAvail(avail, s, sharedBanner));
+    }
+
+    const { slice, rest } = takeRowSlice(rowPeek, maxRows);
+    if (!slice.length) break;
+
+    queue = [...rest, ...queue.slice(nTake)];
+    y = drawQuestionColumnRow(doc, y, slice, s);
+    y += s.gap * 0.75;
+    drewAny = true;
+  }
+
+  if (!drewAny) {
+    doc.setFontSize(8);
+    doc.setTextColor(...C.textGray);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Nenhuma questão neste boletim.', s.margin, y + 4);
+    y += 10;
+  }
+
+  return y;
 }
 
 function drawStudentBoletim(
@@ -453,74 +938,18 @@ function drawStudentBoletim(
   item: BoletimAlunoItem,
   avaliacaoNome: string,
   labels: BoletimAlunoPdfLabels,
-  logo: PdfImageAsset | null,
-  isFirstPage: boolean
+  cityLogo: PdfImageAsset | null,
+  platformLogo: PdfImageAsset | null,
+  isFirstDocPage: boolean
 ): void {
-  if (!isFirstPage) doc.addPage();
+  if (!isFirstDocPage) doc.addPage();
 
-  const lines = metaLines(item, avaliacaoNome, labels);
-  const s = fitScale(item, logo, lines.length);
-  let y = s.startY;
-
-  const logoSize = logoDrawSize(logo, s);
-  if (logo?.dataUrl && logoSize.w > 0 && logoSize.h > 0) {
-    doc.addImage(logo.dataUrl, 'PNG', PAGE_W / 2 - logoSize.w / 2, y, logoSize.w, logoSize.h);
-    y += logoSize.h + 2.2;
-  }
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(s.titleFont);
-  doc.setTextColor(...C.primary);
-  doc.text('BOLETIM DIAGNÓSTICO DO ALUNO', PAGE_W / 2, y, { align: 'center' });
-  y += s.titleGap;
-
-  doc.setFontSize(s.metaFont);
-  for (const [k, v] of lines) {
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...C.textGray);
-    const label = `${k}: `;
-    const lw = doc.getTextWidth(label);
-    doc.setTextColor(...C.textDark);
-    doc.text(label, PAGE_W / 2 - 70, y);
-    doc.setFont('helvetica', 'normal');
-    const value = doc.splitTextToSize(String(v || '—').toUpperCase(), 148) as string[];
-    doc.text(value[0] || '—', PAGE_W / 2 - 70 + lw, y);
-    y += s.metaLineH;
-  }
-
-  y += 2.4;
-
-  const blocos = item.por_disciplina ?? [];
-  const rows = pairDisciplinas(blocos);
-
-  rows.forEach((row, rowIdx) => {
-    const sw = slotWidth(row.length, s);
-    const rowH = Math.max(
-      ...row.map((b) =>
-        blockHeight(b.questoes?.length ?? 0, questionAlternativeLetters(b.questoes).length, sw, s)
-      ),
-      8
-    );
-    const isLast = rowIdx === rows.length - 1;
-    const needed = rowH + (isLast ? 3 + s.cardH : 3);
-    y = ensureSpace(doc, y, needed, s);
-
-    row.forEach((bloco, colIdx) => {
-      const x = s.margin + colIdx * (sw + s.gap);
-      drawDisciplineBlock(doc, x, y, sw, bloco, s);
-    });
-    y += rowH + 3;
-  });
-
-  if (!blocos.length) {
-    doc.setFontSize(8);
-    doc.setTextColor(...C.textGray);
-    doc.text('Nenhuma questão neste boletim.', s.margin, y);
-    y += 8;
-  }
-
-  y = ensureSpace(doc, y, s.cardH, s);
-  drawCards(doc, y, item, s);
+  const s = baseScale();
+  let y = drawFullHeader(doc, item, avaliacaoNome, labels, cityLogo, platformLogo, s);
+  y = drawQuestionRows(doc, y, item, s);
+  y += s.gap * 0.4;
+  y = ensureSpaceWithContinuation(doc, y, resultsBlockHeight(s), item, s);
+  drawResultsSection(doc, y, item, s);
 }
 
 export async function generateBoletimAlunoPdf(options: {
@@ -530,18 +959,43 @@ export async function generateBoletimAlunoPdf(options: {
   cityId: string | null;
   flow: BoletimAlunoReportFlow;
 }): Promise<void> {
-  const { boletins, avaliacaoNome, labels, cityId, flow } = options;
+  const { boletins, avaliacaoNome, labels, flow, cityId } = options;
   if (!boletins.length) throw new Error('Não há boletins para exportar.');
 
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  doc.setProperties({
+    title: 'Boletim do aluno — AfirmePlay',
+    subject: avaliacaoNome || 'Boletim do aluno',
+    author: 'AfirmePlay',
+    creator: 'AfirmePlay',
+    keywords: 'boletim, avaliacao, afirmeplay',
+  });
   const dataGeracao = fmtNow();
-  const { logo } = await loadCityBrandingForReportPdf(cityId);
 
-  for (let i = 0; i < boletins.length; i++) {
-    drawStudentBoletim(doc, boletins[i], avaliacaoNome, labels, logo, i === 0);
+  const [cityLogo, platformLogo] = await Promise.all([
+    resolveReportLogoForPdf(cityId),
+    loadDefaultReportLogoAsset(),
+  ]);
+
+  if (!platformLogo && !cityLogo) {
+    console.warn(
+      '[boletimAluno] nenhuma logo disponível — PDF será gerado sem logos no cabeçalho.'
+    );
   }
 
-  addFooters(doc, dataGeracao, 12);
+  for (let i = 0; i < boletins.length; i++) {
+    drawStudentBoletim(
+      doc,
+      boletins[i],
+      avaliacaoNome,
+      labels,
+      cityLogo,
+      platformLogo,
+      i === 0
+    );
+  }
+
+  addFooters(doc, dataGeracao, 11);
 
   const mode = flow === 'cartao' ? 'cartao' : 'online';
   const alunoPart =

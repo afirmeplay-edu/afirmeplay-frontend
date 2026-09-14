@@ -208,6 +208,11 @@ export function SubjectiveCorrectionMatrix({
   const totalQuestions = data?.questions.length ?? 0;
   const rubricMarks = marksFromData(data?.rubric_marks);
 
+  const marksForQuestion = (questionId: string): SubjectiveRubricMark[] => {
+    const q = data?.questions.find((item) => item.id === questionId);
+    return marksFromData(q?.rubric_marks?.length ? q.rubric_marks : rubricMarks);
+  };
+
   const handleRubricClick = async (
     questionId: string,
     studentId: string,
@@ -530,13 +535,14 @@ export function SubjectiveCorrectionMatrix({
                   const value = student.results[q.id] ?? null;
                   const key = cellKey(q.id, student.id);
                   const isSaving = savingCells.has(key);
+                  const questionMarks = marksForQuestion(q.id);
                   return (
                     <td key={q.id} className="border-b border-l border-border px-1.5 py-1.5">
                       <div className="flex justify-center gap-0.5">
                         {isSaving ? (
                           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                         ) : (
-                          rubricMarks.map((option) => {
+                          questionMarks.map((option) => {
                             const active = value === option.code;
                             return (
                               <button
@@ -621,18 +627,36 @@ export function SubjectiveCorrectionMatrix({
         </table>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        {rubricMarks.map((option) => (
-          <span key={option.code} className="flex items-center gap-1">
-            <span
-              className="grid h-5 min-w-5 place-items-center rounded border px-1 text-[10px] font-bold"
-              style={{ background: option.color, color: contrastText(option.color), borderColor: option.color }}
-            >
-              {rubricShortLabel(option)}
-            </span>
-            {option.label} ({option.weight})
-          </span>
-        ))}
+      <div className="space-y-2 text-xs text-muted-foreground">
+        <p className="font-medium text-foreground">O que estou avaliando</p>
+        {(data?.rubric_groups?.length ? data.rubric_groups : [{ name: "Critérios", marks: rubricMarks }]).map(
+          (group, gi) => (
+            <div key={group.id || group.temp_key || `legend-${gi}`} className="space-y-1">
+              {data?.rubric_groups && data.rubric_groups.length > 1 && (
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {group.name}
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-3">
+                {(group.marks || []).map((option) => (
+                  <span key={`${group.id || gi}-${option.code}`} className="flex items-center gap-1">
+                    <span
+                      className="grid h-5 min-w-5 place-items-center rounded border px-1 text-[10px] font-bold"
+                      style={{
+                        background: option.color,
+                        color: contrastText(option.color),
+                        borderColor: option.color,
+                      }}
+                    >
+                      {rubricShortLabel(option)}
+                    </span>
+                    {option.label} ({option.weight})
+                  </span>
+                ))}
+              </div>
+            </div>
+          )
+        )}
       </div>
 
       <div className="flex flex-col items-stretch gap-3 rounded-xl border border-border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
