@@ -7,6 +7,7 @@ import {
 import { formatDecimal1PtBr } from '@/utils/numberFormat';
 import {
   getBoletimMarkStatus,
+  mergeBlocosByDisciplina,
   questionAlternativeLetters,
   resolveDisciplinaCards,
 } from '@/utils/reports/boletimAlunoHelpers';
@@ -20,6 +21,7 @@ import type {
 
 const C = {
   primary: [124, 62, 237] as [number, number, number],
+  primaryDark: [91, 33, 182] as [number, number, number],
   textDark: [31, 41, 55] as [number, number, number],
   textGray: [107, 114, 128] as [number, number, number],
   border: [209, 213, 219] as [number, number, number],
@@ -91,6 +93,8 @@ type PdfScale = {
   gap: number;
   colGap: number;
   footerReserve: number;
+  sectionTitleH: number;
+  sectionTitleFont: number;
 };
 
 export type BoletimAlunoPdfLabels = {
@@ -159,6 +163,8 @@ function baseScale(): PdfScale {
     gap: 4.5,
     colGap: 2.4,
     footerReserve: 14,
+    sectionTitleH: 6.4,
+    sectionTitleFont: 8.4,
   };
 }
 
@@ -299,21 +305,18 @@ function maxRowsForRowAvail(
 
 /**
  * Régua de divisão por disciplina (questões daquela disciplina):
- * - ≤ 42 → 1 coluna
- * - 25–50 (superou 25) → 2 colunas
- * - ≥ 51 (superou 50) → 3 colunas
+ * - ≤ 25 → 1 coluna
+ * - 26–50 → 2 colunas
+ * - ≥ 51 → 3 colunas
  */
 function columnCountForDiscipline(nQuestoes: number): number {
   if (nQuestoes <= 0) return 0;
   if (nQuestoes <= 25) return 1;
-  if (nQuestoes <= 50
-  ) return 2;
+  if (nQuestoes <= 50) return 2;
   return 3;
 }
 
-/**
- * Divide a disciplina em N colunas equilibradas pela régua 42 / 83.
- */
+/** Divide a disciplina em N colunas equilibradas pela régua 25 / 50. */
 function splitDisciplineToColumns(bloco: BoletimAlunoPorDisciplina): QuestionColumn[] {
   const questoes = bloco.questoes ?? [];
   if (!questoes.length) return [];
@@ -530,8 +533,35 @@ function metricCards(cards: BoletimAlunoCards, opts?: { isGeral?: boolean }): Me
   ];
 }
 
+/**
+ * Banner de destaque para o título da seção (nome da disciplina ou "GERAL").
+ */
+function drawSectionTitleBanner(
+  doc: jsPDF,
+  y: number,
+  title: string,
+  s: PdfScale,
+  opts?: { isGeral?: boolean }
+): number {
+  const width = usableWidth(s);
+  const x = s.margin;
+  const fill = opts?.isGeral ? C.primaryDark : C.primary;
+
+  doc.setFillColor(...fill);
+  doc.roundedRect(x, y, width, s.sectionTitleH, 1.4, 1.4, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(s.sectionTitleFont);
+  doc.setTextColor(...C.white);
+  doc.text(title.toUpperCase(), PAGE_W / 2, y + s.sectionTitleH * 0.66, {
+    align: 'center',
+  });
+
+  return y + s.sectionTitleH;
+}
+
 function resultsBlockHeight(s: PdfScale): number {
-  return 5.5 + s.cardH + 1.5;
+  return s.sectionTitleH + 2 + s.cardH + 1.5;
 }
 
 function drawMetricCardRow(
@@ -818,7 +848,7 @@ function drawResultsSection(
   let cy = y;
 
   const discs: Array<{ title: string; cards: BoletimAlunoCards }> = [];
-  for (const bloco of item.por_disciplina ?? []) {
+  for (const bloco of mergeBlocosByDisciplina(item.por_disciplina ?? [])) {
     const cards = resolveDisciplinaCards(bloco);
     if (!cards) continue;
     discs.push({ title: bloco.disciplina, cards });
@@ -826,58 +856,18 @@ function drawResultsSection(
 
   for (const disc of discs) {
     cy = ensureSpaceWithContinuation(doc, cy, blockH, item, s);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(s.metaFont);
-    doc.setTextColor(...C.textDark);
-    doc.text(disc.title.toUpperCase(), PAGE_W / 2, cy + 3.5, { align: 'center' });
-    cy += 5.5;
+    cy = drawSectionTitleBanner(doc, cy, disc.title, s);
+    cy += 2;
     cy = drawMetricCardRow(doc, s.margin, cy, contentW, disc.cards, s);
     cy += s.gap * 0.7;
   }
 
   cy = ensureSpaceWithContinuation(doc, cy, blockH, item, s);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(s.metaFont);
-  doc.setTextColor(...C.textDark);
-  doc.text('GERAL', PAGE_W / 2, cy + 3.5, { align: 'center' });
-  cy += 5.5;
+  cy = drawSectionTitleBanner(doc, cy, 'GERAL', s, { isGeral: true });
+  cy += 2;
   cy = drawMetricCardRow(doc, s.margin, cy, contentW, item.cards, s, { isGeral: true });
 
   return cy;
-}
-
-/**
- * Agrupa blocos de por_disciplina que tenham o mesmo nome de disciplina,
- * concatenando as questões (e ordenando por número) antes de aplicar a
- * régua de divisão em colunas (42 / 83). Isso evita que uma disciplina
- * fragmentada em várias "partes" pelo backend fique sempre com ≤42
- * questões por bloco e nunca dispare a divisão em 2/3 colunas.
- */
-function mergeBlocosByDisciplina(
-  blocos: BoletimAlunoPorDisciplina[]
-): BoletimAlunoPorDisciplina[] {
-  const order: string[] = [];
-  const map = new Map<string, BoletimAlunoPorDisciplina>();
-
-  for (const bloco of blocos) {
-    const key = bloco.disciplina_id || bloco.disciplina;
-    const existing = map.get(key);
-    if (!existing) {
-      order.push(key);
-      map.set(key, { ...bloco, questoes: [...(bloco.questoes ?? [])] });
-      continue;
-    }
-    existing.questoes = [...existing.questoes, ...(bloco.questoes ?? [])];
-  }
-
-  // Garante ordem estável de exibição (#1, #2, ...) mesmo se os blocos
-  // originais chegaram fora de ordem.
-  for (const key of order) {
-    const merged = map.get(key)!;
-    merged.questoes = [...merged.questoes].sort((a, b) => a.numero - b.numero);
-  }
-
-  return order.map((key) => map.get(key)!);
 }
 
 function drawQuestionRows(
@@ -888,7 +878,6 @@ function drawQuestionRows(
 ): number {
   const blocos = mergeBlocosByDisciplina(item.por_disciplina ?? []);
 
-  // Achata colunas de todas as disciplinas e empacota em faixas de até 4.
   let queue: QuestionColumn[] = [];
   for (const bloco of blocos) {
     queue.push(...splitDisciplineToColumns(bloco));
@@ -927,7 +916,6 @@ function drawQuestionRows(
     const { slice, rest } = takeRowSlice(rowPeek, maxRows);
     if (!slice.length) break;
 
-    // Continuação destas colunas volta para o início da fila (mesma faixa).
     queue = [...rest, ...queue.slice(nTake)];
     y = drawQuestionColumnRow(doc, y, slice, s);
     y += s.gap * 0.75;
@@ -975,6 +963,13 @@ export async function generateBoletimAlunoPdf(options: {
   if (!boletins.length) throw new Error('Não há boletins para exportar.');
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  doc.setProperties({
+    title: 'Boletim do aluno — AfirmePlay',
+    subject: avaliacaoNome || 'Boletim do aluno',
+    author: 'AfirmePlay',
+    creator: 'AfirmePlay',
+    keywords: 'boletim, avaliacao, afirmeplay',
+  });
   const dataGeracao = fmtNow();
 
   const [cityLogo, platformLogo] = await Promise.all([
@@ -988,10 +983,7 @@ export async function generateBoletimAlunoPdf(options: {
     );
   }
 
-  
-
   for (let i = 0; i < boletins.length; i++) {
-
     drawStudentBoletim(
       doc,
       boletins[i],
