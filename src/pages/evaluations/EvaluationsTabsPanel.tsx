@@ -57,11 +57,11 @@ export function EvaluationsTabsPanel({
         onValueChange={handleValueChange}
         className="w-full space-y-6"
       >
-        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm ring-1 ring-border/50">
+        <div className="overflow-hidden rounded-xl border border-primary/20 bg-card shadow-sm ring-1 ring-primary/10">
           <TabsList
             aria-label="Alternar entre seções da central de avaliações"
             className={cn(
-              "flex h-auto w-full flex-col divide-y divide-border rounded-none bg-muted/40 p-0 text-muted-foreground",
+              "flex h-auto w-full flex-col divide-y divide-border/80 rounded-none bg-gradient-to-br from-primary/10 via-primary/5 to-muted/40 p-0 text-muted-foreground",
               "sm:flex-row sm:divide-x sm:divide-y-0 sm:rounded-none"
             )}
           >

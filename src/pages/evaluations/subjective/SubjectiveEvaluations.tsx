@@ -5,6 +5,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -15,13 +22,17 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { BookOpen, Plus, Search } from "lucide-react";
+import { BookOpen, Layers, Plus, Search } from "lucide-react";
 import { subjectiveTestApi, type SubjectiveTest } from "@/services/evaluation/subjectiveTestApi";
 import { SubjectiveEvalCard } from "@/components/evaluations/subjective/SubjectiveEvalCard";
-import { cn } from "@/lib/utils";
+import {
+  EvaluationListFilterShell,
+  evaluationListFilterControlClass,
+  evaluationListFilterSelectTriggerClass,
+} from "@/components/evaluations/EvaluationListFilterShell";
 
 const STATUS_FILTERS = [
-  { id: "all", label: "Todas" },
+  { id: "all", label: "Todos os status" },
   { id: "pendente", label: "Rascunho" },
   { id: "em_correcao", label: "Em correção" },
   { id: "concluida", label: "Concluídas" },
@@ -36,6 +47,9 @@ const SubjectiveEvaluations = () => {
   const [deleting, setDeleting] = useState(false);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [gradeFilter, setGradeFilter] = useState("all");
+  const [subjectFilter, setSubjectFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
 
   const load = async () => {
     setLoading(true);
@@ -59,10 +73,33 @@ const SubjectiveEvaluations = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const gradeOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of items) {
+      if (item.grade?.id && item.grade.name) map.set(item.grade.id, item.grade.name);
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  }, [items]);
+
+  const subjectOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of items) {
+      if (item.subject?.id && item.subject.name) map.set(item.subject.id, item.subject.name);
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  }, [items]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return items.filter((item) => {
       if (statusFilter !== "all" && (item.status || "pendente") !== statusFilter) return false;
+      if (gradeFilter !== "all" && item.grade?.id !== gradeFilter) return false;
+      if (subjectFilter !== "all" && item.subject?.id !== subjectFilter) return false;
+      if (typeFilter !== "all" && (item.test_type || "AVALIACAO") !== typeFilter) return false;
       if (!q) return true;
       const hay = [
         item.title,
@@ -76,7 +113,7 @@ const SubjectiveEvaluations = () => {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [items, query, statusFilter]);
+  }, [items, query, statusFilter, gradeFilter, subjectFilter, typeFilter]);
 
   const handleDelete = async () => {
     if (!deleteId) return;
@@ -113,30 +150,66 @@ const SubjectiveEvaluations = () => {
         </Button>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <EvaluationListFilterShell title="Filtrar avaliações" count={filtered.length}>
+        <div className="relative min-w-0 flex-1">
+          <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-primary/70" />
           <Input
-            className="pl-9"
+            className={`pl-10 ${evaluationListFilterControlClass}`}
             placeholder="Buscar por título, disciplina ou turma"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          {STATUS_FILTERS.map((f) => (
-            <Button
-              key={f.id}
-              size="sm"
-              variant={statusFilter === f.id ? "default" : "outline"}
-              className={cn("rounded-full", statusFilter === f.id && "shadow-sm")}
-              onClick={() => setStatusFilter(f.id)}
-            >
-              {f.label}
-            </Button>
-          ))}
-        </div>
-      </div>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className={evaluationListFilterSelectTriggerClass}>
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            {STATUS_FILTERS.map((f) => (
+              <SelectItem key={f.id} value={f.id}>
+                {f.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={gradeFilter} onValueChange={setGradeFilter}>
+          <SelectTrigger className={evaluationListFilterSelectTriggerClass}>
+            <Layers className="mr-2 h-4 w-4 shrink-0 text-primary/70" />
+            <SelectValue placeholder="Todas as séries" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas as séries</SelectItem>
+            {gradeOptions.map((g) => (
+              <SelectItem key={g.id} value={g.id}>
+                {g.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={subjectFilter} onValueChange={setSubjectFilter}>
+          <SelectTrigger className={evaluationListFilterSelectTriggerClass}>
+            <SelectValue placeholder="Todas as disciplinas" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas as disciplinas</SelectItem>
+            {subjectOptions.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                {s.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className={evaluationListFilterSelectTriggerClass}>
+            <SelectValue placeholder="Tipo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos os tipos</SelectItem>
+            <SelectItem value="AVALIACAO">Avaliação</SelectItem>
+            <SelectItem value="SIMULADO">Simulado</SelectItem>
+          </SelectContent>
+        </Select>
+      </EvaluationListFilterShell>
 
       {loading ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
