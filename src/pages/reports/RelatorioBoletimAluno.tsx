@@ -63,6 +63,7 @@ import {
   alunoPickerLabel,
   getBoletimMarkStatus,
   questionAlternativeLetters,
+  resolveDisciplinaCards,
 } from '@/utils/reports/boletimAlunoHelpers';
 import {
   BoletimAlunoApiService,
@@ -71,6 +72,7 @@ import {
 } from '@/services/reports/boletimAlunoApi';
 import { generateBoletimAlunoPdf } from '@/services/reports/boletimAlunoPdf';
 import type {
+  BoletimAlunoCards,
   BoletimAlunoFilterAluno,
   BoletimAlunoFilterAvaliacao,
   BoletimAlunoFilterEntity,
@@ -149,6 +151,71 @@ function DisciplinaQuestoesTable({
   );
 }
 
+/** Mesmo estilo visual dos cards GERAL — reutilizado por disciplina. */
+function BoletimMetricCardsGrid({
+  cards,
+  nivelLabel,
+}: {
+  cards: BoletimAlunoCards;
+  nivelLabel: string;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Card className="overflow-hidden border-0 bg-primary text-primary-foreground">
+        <CardHeader className="pb-1 pt-3">
+          <CardDescription className="flex items-center gap-2 text-primary-foreground/80">
+            <BarChart3 className="h-4 w-4" />
+            Acertos totais
+          </CardDescription>
+          <CardTitle className="text-2xl tabular-nums">
+            {formatNumber(cards.acertos_totais.acertou)} / {formatNumber(cards.acertos_totais.total)}
+          </CardTitle>
+          <p className="text-xs text-primary-foreground/80">
+            {formatPercent1PtBr(cards.acertos_totais.percentual)}
+          </p>
+        </CardHeader>
+      </Card>
+      <Card className="overflow-hidden border-0 bg-primary text-primary-foreground">
+        <CardHeader className="pb-2 pt-3">
+          <CardDescription className="flex items-center gap-2 text-primary-foreground/80">
+            <Percent className="h-4 w-4" />
+            Nota
+          </CardDescription>
+          <CardTitle className="text-2xl tabular-nums">
+            {formatDecimal1PtBr(cards.nota, '—')}
+          </CardTitle>
+        </CardHeader>
+      </Card>
+      <Card className="overflow-hidden border-0 bg-primary text-primary-foreground">
+        <CardHeader className="pb-2 pt-3">
+          <CardDescription className="flex items-center gap-2 text-primary-foreground/80">
+            <Trophy className="h-4 w-4" />
+            Proficiência
+          </CardDescription>
+          <CardTitle className="text-2xl tabular-nums">
+            {formatDecimal1PtBr(cards.proficiencia, '—')}
+          </CardTitle>
+        </CardHeader>
+      </Card>
+      <Card className="overflow-hidden border-0 bg-primary text-primary-foreground">
+        <CardHeader className="pb-2 pt-3">
+          <CardDescription className="text-primary-foreground/80">{nivelLabel}</CardDescription>
+          <CardTitle className="pt-0.5 text-xl">
+            <Badge
+              className={cn(
+                getReportProficiencyTagClass(cards.nivel),
+                'pointer-events-none rounded-md !px-3.5 !py-2 !text-base !font-bold !leading-snug normal-case !tracking-normal shadow-md ring-1 ring-black/15'
+              )}
+            >
+              {cards.nivel || '—'}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+      </Card>
+    </div>
+  );
+}
+
 function BoletimCard({
   item,
   avaliacaoNome,
@@ -156,6 +223,14 @@ function BoletimCard({
   item: BoletimAlunoItem;
   avaliacaoNome: string;
 }) {
+  const disciplinaMetricas = (item.por_disciplina ?? [])
+    .map((bloco) => {
+      const cards = resolveDisciplinaCards(bloco) ?? bloco.cards ?? null;
+      if (!cards) return null;
+      return { key: bloco.disciplina_id || bloco.disciplina, title: bloco.disciplina, cards };
+    })
+    .filter((row): row is { key: string; title: string; cards: BoletimAlunoCards } => row != null);
+
   return (
     <div className="space-y-4 rounded-xl border border-primary/15 bg-card p-4 sm:p-6">
       <header className="space-y-1 text-center">
@@ -191,51 +266,20 @@ function BoletimCard({
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="overflow-hidden border-0 bg-primary text-primary-foreground">
-          <CardHeader className="pb-1 pt-3">
-            <CardDescription className="flex items-center gap-2 text-primary-foreground/80">
-              <BarChart3 className="h-4 w-4" />
-              Acertos totais
-            </CardDescription>
-            <CardTitle className="text-2xl tabular-nums">
-              {formatNumber(item.cards.acertos_totais.acertou)} / {formatNumber(item.cards.acertos_totais.total)}
-            </CardTitle>
-            <p className="text-xs text-primary-foreground/80">
-              {formatPercent1PtBr(item.cards.acertos_totais.percentual)}
+      <div className="space-y-5">
+        {disciplinaMetricas.map((disc) => (
+          <div key={`metricas-${disc.key}`} className="space-y-2">
+            <p className="text-center text-sm font-semibold tracking-wide text-primary">
+              {disc.title}
             </p>
-          </CardHeader>
-        </Card>
-        <Card className="overflow-hidden border-0 bg-primary text-primary-foreground">
-          <CardHeader className="pb-2 pt-3">
-            <CardDescription className="flex items-center gap-2 text-primary-foreground/80">
-              <Percent className="h-4 w-4" />
-              Nota
-            </CardDescription>
-            <CardTitle className="text-2xl tabular-nums">{formatDecimal1PtBr(item.cards.nota)}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card className="overflow-hidden border-0 bg-primary text-primary-foreground">
-          <CardHeader className="pb-2 pt-3">
-            <CardDescription className="flex items-center gap-2 text-primary-foreground/80">
-              <Trophy className="h-4 w-4" />
-              Proficiência
-            </CardDescription>
-            <CardTitle className="text-2xl tabular-nums">
-              {formatDecimal1PtBr(item.cards.proficiencia)}
-            </CardTitle>
-          </CardHeader>
-        </Card>
-        <Card className="overflow-hidden border-0 bg-primary text-primary-foreground">
-          <CardHeader className="pb-2 pt-3">
-            <CardDescription className="text-primary-foreground/80">Nível geral</CardDescription>
-            <CardTitle className="text-xl">
-              <Badge className={cn(getReportProficiencyTagClass(item.cards.nivel), 'normal-case tracking-normal')}>
-                {item.cards.nivel || '—'}
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-        </Card>
+            <BoletimMetricCardsGrid cards={disc.cards} nivelLabel="Nível" />
+          </div>
+        ))}
+
+        <div className="space-y-2">
+          <p className="text-center text-sm font-semibold tracking-wide text-primary">Geral</p>
+          <BoletimMetricCardsGrid cards={item.cards} nivelLabel="Nível geral" />
+        </div>
       </div>
     </div>
   );

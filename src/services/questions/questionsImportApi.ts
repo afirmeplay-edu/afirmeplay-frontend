@@ -4,6 +4,7 @@ import { fetchAuthenticatedDownload } from "@/lib/fetch-authenticated-download";
 import type {
   QuestionImportParams,
   QuestionImportResponse,
+  QuestionImportSubjectParams,
 } from "@/types/questions-import";
 
 function messageFromUnknownBody(data: unknown, fallback: string): string {
@@ -23,18 +24,39 @@ export function questionsImportApiError(error: unknown, fallback: string): strin
   return fallback;
 }
 
+/** 1 disciplina → subjectId; N → subjectIds CSV. */
+export function buildQuestionImportSubjectParams(
+  subjectIds: string[]
+): QuestionImportSubjectParams | null {
+  const unique = [...new Set(subjectIds.filter(Boolean))];
+  if (unique.length === 0) return null;
+  if (unique.length === 1) return { subjectId: unique[0] };
+  return { subjectIds: unique.join(",") };
+}
+
+function appendSubjectFields(
+  target: FormData | Record<string, string>,
+  subjects: QuestionImportSubjectParams
+): void {
+  if ("subjectId" in subjects && subjects.subjectId) {
+    if (target instanceof FormData) target.append("subjectId", subjects.subjectId);
+    else target.subjectId = subjects.subjectId;
+  } else if ("subjectIds" in subjects && subjects.subjectIds) {
+    if (target instanceof FormData) target.append("subjectIds", subjects.subjectIds);
+    else target.subjectIds = subjects.subjectIds;
+  }
+}
+
 export async function downloadQuestionsImportTemplate(
   params: QuestionImportParams
 ): Promise<void> {
+  const query: Record<string, string> = { grade: params.grade };
+  appendSubjectFields(query, params);
+
   await fetchAuthenticatedDownload(
     "/questions/import/template",
     "template_importacao_questoes.docx",
-    {
-      params: {
-        subjectId: params.subjectId,
-        grade: params.grade,
-      },
-    }
+    { params: query }
   );
 }
 
@@ -50,9 +72,9 @@ export async function importQuestionsDocx(
 ): Promise<QuestionImportResponse> {
   const formData = new FormData();
   formData.append("file", options.file);
-  formData.append("subjectId", options.subjectId);
   formData.append("grade", options.grade);
   formData.append("commit", options.commit ? "true" : "false");
+  appendSubjectFields(formData, options);
 
   if (options.commit && options.indexes && options.indexes.length > 0) {
     formData.append("indexes", options.indexes.join(","));
@@ -63,9 +85,7 @@ export async function importQuestionsDocx(
     formData,
     {
       headers: { "Content-Type": "multipart/form-data" },
-      // Commit com imagens pode demorar
       timeout: options.commit ? 120_000 : 60_000,
-      // 400 no commit = nenhuma criada (ainda traz summary/questions)
       validateStatus: (s) => (s >= 200 && s < 300) || s === 400,
     }
   );
