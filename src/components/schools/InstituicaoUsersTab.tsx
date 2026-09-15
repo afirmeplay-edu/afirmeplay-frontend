@@ -232,6 +232,15 @@ export function InstituicaoUsersTab({
   });
   const [showAplicadorPassword, setShowAplicadorPassword] = useState(false);
   const [isSubmittingAddAplicador, setIsSubmittingAddAplicador] = useState(false);
+  const [addAdminOpen, setAddAdminOpen] = useState(false);
+  const [addAdminForm, setAddAdminForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+    registration: "",
+  });
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
+  const [isSubmittingAddAdmin, setIsSubmittingAddAdmin] = useState(false);
   const [userToDelete, setUserToDelete] = useState<MunicipioUser | null>(null);
   const [isDeletingUser, setIsDeletingUser] = useState(false);
   const [isBatchDeleteDialogOpen, setIsBatchDeleteDialogOpen] = useState(false);
@@ -260,6 +269,12 @@ export function InstituicaoUsersTab({
     if (!addAplicadorOpen || !checkedAplicadorEmail) return;
     setAddAplicadorForm((prev) => ({ ...prev, email: checkedAplicadorEmail }));
   }, [checkedAplicadorEmail, addAplicadorOpen]);
+
+  const { checkedEmail: checkedAdminEmail } = useEmailCheck(addAdminForm.name, addAdminOpen);
+  useEffect(() => {
+    if (!addAdminOpen || !checkedAdminEmail) return;
+    setAddAdminForm((prev) => ({ ...prev, email: checkedAdminEmail }));
+  }, [checkedAdminEmail, addAdminOpen]);
 
   const handleAddTecAdminNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newName = e.target.value;
@@ -345,6 +360,48 @@ export function InstituicaoUsersTab({
       toast({ title: "Erro", description: msg, variant: "destructive" });
     } finally {
       setIsSubmittingAddAplicador(false);
+    }
+  };
+
+  const handleAddAdminNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newName = e.target.value;
+    setAddAdminForm((prev) => ({
+      ...prev,
+      name: newName,
+      password: generatePasswordFromName(newName),
+    }));
+  };
+
+  const handleAddAdminSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const effectiveId = cityId || selectedCityId;
+    if (!effectiveId) return;
+    if (!addAdminForm.name.trim() || !addAdminForm.email.trim() || !addAdminForm.password.trim()) {
+      toast({ title: "Erro", description: "Preencha nome, e-mail e senha.", variant: "destructive" });
+      return;
+    }
+    setIsSubmittingAddAdmin(true);
+    try {
+      await api.post("/users", {
+        name: addAdminForm.name.trim(),
+        email: addAdminForm.email.trim(),
+        password: addAdminForm.password,
+        role: "admin",
+        city_id: effectiveId,
+        ...(addAdminForm.registration.trim() ? { registration: addAdminForm.registration.trim() } : {}),
+      });
+      toast({ title: "Sucesso", description: "Administrador criado com sucesso." });
+      setAddAdminOpen(false);
+      setAddAdminForm({ name: "", email: "", password: "", registration: "" });
+      fetchUsers();
+    } catch (err) {
+      console.error("Erro ao criar administrador:", err);
+      const msg = (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data?.error
+        || (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data?.message
+        || "Erro ao criar usuário.";
+      toast({ title: "Erro", description: msg, variant: "destructive" });
+    } finally {
+      setIsSubmittingAddAdmin(false);
     }
   };
 
@@ -718,6 +775,7 @@ export function InstituicaoUsersTab({
     : [];
 
   const showCitySelector = isAdmin && cities.length > 0 && !cityId;
+  const canCreateAdmin = authUser?.role === "admin";
   const canCreateTecAdmin = authUser?.role === "admin" || authUser?.role === "tecadm";
   const canCreateAplicador =
     authUser?.role === "admin" || authUser?.role === "tecadm" || authUser?.role === "coordenador";
@@ -747,9 +805,20 @@ export function InstituicaoUsersTab({
               </Select>
             </>
           )}
+          {canCreateAdmin && effectiveCityId && (
+            <Button
+              type="button"
+              onClick={() => setAddAdminOpen(true)}
+              className="shrink-0"
+            >
+              <UserPlus className="h-4 w-4 mr-2" />
+              Criar Admin
+            </Button>
+          )}
           {canCreateTecAdmin && effectiveCityId && (
             <Button
               type="button"
+              variant="outline"
               onClick={() => setAddTecAdminOpen(true)}
               className="shrink-0"
             >
@@ -1299,6 +1368,102 @@ export function InstituicaoUsersTab({
                   </>
                 ) : (
                   "Criar Aplicador"
+                )}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Criar Admin (somente administrador) */}
+      <Dialog open={addAdminOpen} onOpenChange={setAddAdminOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#7B3FE4]/10">
+                <UserPlus className="h-4 w-4 text-[#7B3FE4]" />
+              </div>
+              Criar Administrador
+            </DialogTitle>
+            <DialogDescription>
+              Cria um usuário com perfil Administrador vinculado ao município selecionado. Nome, e-mail e senha são obrigatórios.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleAddAdminSubmit} className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label htmlFor="add-admin-name">Nome completo *</Label>
+              <Input
+                id="add-admin-name"
+                value={addAdminForm.name}
+                onChange={handleAddAdminNameChange}
+                placeholder="Nome do administrador"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="add-admin-email">E-mail *</Label>
+              <Input
+                id="add-admin-email"
+                type="email"
+                value={addAdminForm.email}
+                onChange={(e) => setAddAdminForm((prev) => ({ ...prev, email: e.target.value }))}
+                placeholder="email@exemplo.com"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="add-admin-password">Senha *</Label>
+              <div className="relative">
+                <Input
+                  id="add-admin-password"
+                  type={showAdminPassword ? "text" : "password"}
+                  value={addAdminForm.password}
+                  onChange={(e) => setAddAdminForm((prev) => ({ ...prev, password: e.target.value }))}
+                  placeholder="Mínimo 6 caracteres"
+                  required
+                  minLength={6}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowAdminPassword(!showAdminPassword)}
+                  aria-label={showAdminPassword ? "Ocultar senha" : "Ver senha"}
+                >
+                  {showAdminPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="add-admin-registration">Matrícula (opcional)</Label>
+              <Input
+                id="add-admin-registration"
+                value={addAdminForm.registration}
+                onChange={(e) => setAddAdminForm((prev) => ({ ...prev, registration: e.target.value }))}
+                placeholder="Opcional"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAddAdminOpen(false)}
+                disabled={isSubmittingAddAdmin}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={isSubmittingAddAdmin}>
+                {isSubmittingAddAdmin ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Criando...
+                  </>
+                ) : (
+                  "Criar Admin"
                 )}
               </Button>
             </div>
