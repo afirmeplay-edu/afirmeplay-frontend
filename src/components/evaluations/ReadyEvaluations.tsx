@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Eye, Pencil, Trash2, ChevronLeft, ChevronRight, RefreshCw, Play, MoreVertical, FileText } from "lucide-react";
+import { Search, Eye, Pencil, Trash2, ChevronLeft, ChevronRight, RefreshCw, Play, MoreVertical, FileText, Layers } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
@@ -48,6 +48,11 @@ import {
 import { Evaluation, Subject, Grade, getEvaluationSubjects, getEvaluationSubjectsCount } from "@/types/evaluation-types";
 import { EvaluationsCardGrid } from "./EvaluationsCardGrid";
 import { formatEvaluationQuestionCount, isEvaluationApplied } from "./evaluationListUtils";
+import {
+  EvaluationListFilterShell,
+  evaluationListFilterControlClass,
+  evaluationListFilterSelectTriggerClass,
+} from "./EvaluationListFilterShell";
 import { cn } from "@/lib/utils";
 import ViewEvaluation from "@/pages/evaluations/ViewEvaluation";
 import { MunicipalityAvailabilityBadge } from "@/components/municipality-availability/MunicipalityAvailabilityBadge";
@@ -81,6 +86,38 @@ interface FiltersData {
   type: string;
   model: string;
   grade: string;
+  status: string;
+  evaluationMode: string;
+}
+
+const EVALUATION_MODE_OPTIONS = [
+  { id: "all", label: "Todos os modos" },
+  { id: "virtual", label: "Online" },
+  { id: "physical", label: "Física" },
+  { id: "subjective", label: "Subjetiva" },
+] as const;
+
+function formatEvaluationStatusLabel(status: string): string {
+  const normalized = status.trim().toLowerCase().replace(/\s+/g, "_");
+  const labels: Record<string, string> = {
+    pendente: "Pendente",
+    rascunho: "Rascunho",
+    em_andamento: "Em andamento",
+    em_correcao: "Em correção",
+    concluida: "Concluída",
+    finalizada: "Finalizada",
+    aplicada: "Aplicada",
+    ativa: "Ativa",
+    expirada: "Expirada",
+    draft: "Rascunho",
+    ready: "Pronta",
+    applied: "Aplicada",
+    configured: "Configurada",
+  };
+  if (labels[normalized]) return labels[normalized];
+  return status
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function isEligibleForPhysicalCorrection(evaluation: Evaluation): boolean {
@@ -205,6 +242,7 @@ const EvaluationsTable = ({
   itemsPerPage,
   subjects,
   grades,
+  statusOptions,
   showMyEvaluations,
   onPageChange,
   onFilterChange,
@@ -234,6 +272,7 @@ const EvaluationsTable = ({
   itemsPerPage: number;
   subjects: Subject[];
   grades: Grade[];
+  statusOptions: string[];
   showMyEvaluations?: boolean;
   onPageChange: (page: number) => void;
   onFilterChange: (key: string, value: string) => void;
@@ -285,23 +324,38 @@ const EvaluationsTable = ({
     }
   };
 
-  // Filtro de busca local (aplicado após dados já paginados)
+  // Filtro de busca local + status/modo (aplicado após dados já paginados)
   const filteredEvaluations = (evaluations || [])
     .filter(evaluation => evaluation && typeof evaluation === 'object' && evaluation.id)
-    .filter(
-      (evaluation) =>
-        evaluation?.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        evaluation?.subject?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        evaluation?.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    .filter((evaluation) => {
+      if (filters.status !== "all") {
+        const status = (evaluation.status || "").trim();
+        if (status !== filters.status) return false;
+      }
+      if (filters.evaluationMode !== "all") {
+        const mode = evaluation.evaluation_mode || "virtual";
+        if (mode !== filters.evaluationMode) return false;
+      }
+      if (!searchTerm) return true;
+      const term = searchTerm.toLowerCase();
+      return (
+        evaluation?.title?.toLowerCase().includes(term) ||
+        evaluation?.subject?.name?.toLowerCase().includes(term) ||
+        evaluation?.description?.toLowerCase().includes(term) ||
         evaluation?.id?.includes(searchTerm)
-    );
+      );
+    });
 
   // ✅ CORREÇÃO: Aplicar paginação local quando showMyEvaluations é true e há filtro no frontend
   // Isso garante que todas as avaliações filtradas sejam paginadas corretamente
-  const needsLocalPagination = showMyEvaluations && !searchTerm;
+  const hasLocalListFilter =
+    Boolean(searchTerm) ||
+    filters.status !== "all" ||
+    filters.evaluationMode !== "all";
+  const needsLocalPagination = showMyEvaluations && !hasLocalListFilter;
   const currentItems = needsLocalPagination
     ? evaluations.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-    : searchTerm
+    : hasLocalListFilter
     ? filteredEvaluations
     : evaluations;
   
@@ -311,92 +365,129 @@ const EvaluationsTable = ({
 
   return (
     <div className="space-y-6">
-      {/* Header com busca e filtros */}
-      <div className="flex flex-col lg:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      <EvaluationListFilterShell
+        title="Filtrar avaliações"
+        count={
+          searchTerm || hasActiveFilters
+            ? filteredEvaluations.length
+            : pagination?.total ?? evaluations.length
+        }
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onRefresh}
+              disabled={isLoading}
+              className="h-9 border-primary/20 bg-background/90"
+            >
+              <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+            </Button>
+            {hasActiveFilters && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onClearFilters}
+                className="h-9 border-primary/20 bg-background/90"
+              >
+                Limpar Filtros
+              </Button>
+            )}
+          </>
+        }
+      >
+        <div className="relative min-w-0 flex-1">
+          <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-primary/70" />
           <Input
             placeholder="Buscar avaliações..."
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="pl-9"
+            className={`pl-10 ${evaluationListFilterControlClass}`}
           />
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Select value={filters.subject} onValueChange={(value) => onFilterChange('subject', value)}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Disciplina" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              {(subjects || []).map((subject) => (
-                <SelectItem key={subject.id} value={subject.id}>
-                  {subject.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <Select value={filters.subject} onValueChange={(value) => onFilterChange("subject", value)}>
+          <SelectTrigger className={evaluationListFilterSelectTriggerClass}>
+            <SelectValue placeholder="Disciplina" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas as disciplinas</SelectItem>
+            {(subjects || []).map((subject) => (
+              <SelectItem key={subject.id} value={subject.id}>
+                {subject.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-          <Select value={filters.type} onValueChange={(value) => onFilterChange('type', value)}>
-            <SelectTrigger className="w-32">
-              <SelectValue placeholder="Tipo" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="AVALIACAO">Avaliação</SelectItem>
-              <SelectItem value="SIMULADO">Simulado</SelectItem>
-            </SelectContent>
-          </Select>
+        <Select value={filters.type} onValueChange={(value) => onFilterChange("type", value)}>
+          <SelectTrigger className={evaluationListFilterSelectTriggerClass}>
+            <SelectValue placeholder="Tipo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos os tipos</SelectItem>
+            <SelectItem value="AVALIACAO">Avaliação</SelectItem>
+            <SelectItem value="SIMULADO">Simulado</SelectItem>
+          </SelectContent>
+        </Select>
 
-          <Select value={filters.model} onValueChange={(value) => onFilterChange('model', value)}>
-            <SelectTrigger className="w-32">
-              <SelectValue placeholder="Modelo" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="SAEB">SAEB</SelectItem>
-              <SelectItem value="PROVA">Prova</SelectItem>
-              <SelectItem value="AVALIE">Avalie</SelectItem>
-            </SelectContent>
-          </Select>
+        <Select value={filters.model} onValueChange={(value) => onFilterChange("model", value)}>
+          <SelectTrigger className={evaluationListFilterSelectTriggerClass}>
+            <SelectValue placeholder="Modelo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos os modelos</SelectItem>
+            <SelectItem value="SAEB">SAEB</SelectItem>
+            <SelectItem value="PROVA">Prova</SelectItem>
+            <SelectItem value="AVALIE">Avalie</SelectItem>
+          </SelectContent>
+        </Select>
 
-          <Select value={filters.grade} onValueChange={(value) => onFilterChange('grade', value)}>
-            <SelectTrigger className="w-32">
-              <SelectValue placeholder="Série" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              {(grades || []).map((grade) => (
-                <SelectItem key={grade.id} value={grade.id}>
-                  {grade.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <Select value={filters.grade} onValueChange={(value) => onFilterChange("grade", value)}>
+          <SelectTrigger className={evaluationListFilterSelectTriggerClass}>
+            <Layers className="mr-2 h-4 w-4 shrink-0 text-primary/70" />
+            <SelectValue placeholder="Série" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas as séries</SelectItem>
+            {(grades || []).map((grade) => (
+              <SelectItem key={grade.id} value={grade.id}>
+                {grade.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRefresh}
-            disabled={isLoading}
-          >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-          </Button>
+        <Select value={filters.status} onValueChange={(value) => onFilterChange("status", value)}>
+          <SelectTrigger className={evaluationListFilterSelectTriggerClass}>
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos os status</SelectItem>
+            {statusOptions.map((status) => (
+              <SelectItem key={status} value={status}>
+                {formatEvaluationStatusLabel(status)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-          {hasActiveFilters && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onClearFilters}
-            >
-              Limpar Filtros
-            </Button>
-          )}
-
-          {/* Sempre renderizar cards (sem toggle de tabela) */}
-        </div>
-      </div>
+        <Select
+          value={filters.evaluationMode}
+          onValueChange={(value) => onFilterChange("evaluationMode", value)}
+        >
+          <SelectTrigger className={evaluationListFilterSelectTriggerClass}>
+            <SelectValue placeholder="Modo" />
+          </SelectTrigger>
+          <SelectContent>
+            {EVALUATION_MODE_OPTIONS.map((opt) => (
+              <SelectItem key={opt.id} value={opt.id}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </EvaluationListFilterShell>
 
       {/* Ações em lote */}
       {variant === "default" && selectedIds.length > 0 && (
@@ -756,7 +847,9 @@ export function ReadyEvaluations({
     subject: 'all',
     type: 'all',
     model: 'all',
-    grade: 'all'
+    grade: 'all',
+    status: 'all',
+    evaluationMode: 'all',
   });
   const [startModalOpen, setStartModalOpen] = useState(false);
   const [selectedEvaluationToStart, setSelectedEvaluationToStart] = useState<Evaluation | null>(null);
@@ -924,13 +1017,17 @@ export function ReadyEvaluations({
       subject: filters.subject,
       type: filters.type,
       model: filters.model,
-      grade: filters.grade
+      grade: filters.grade,
+      status: filters.status,
+      evaluationMode: filters.evaluationMode,
     });
   }, [
     filters.subject,
     filters.type,
     filters.model,
-    filters.grade
+    filters.grade,
+    filters.status,
+    filters.evaluationMode,
   ]);
   
   useEffect(() => {
@@ -1182,7 +1279,9 @@ export function ReadyEvaluations({
       subject: 'all',
       type: 'all',
       model: 'all',
-      grade: 'all'
+      grade: 'all',
+      status: 'all',
+      evaluationMode: 'all',
     });
   };
 
@@ -1286,6 +1385,17 @@ export function ReadyEvaluations({
 
   const hasActiveFilters = Object.values(filters).some(value => value !== 'all');
 
+  const statusOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const evaluation of filteredEvaluations) {
+      const status = (evaluation.status || "").trim();
+      if (status) set.add(status);
+    }
+    return Array.from(set).sort((a, b) =>
+      formatEvaluationStatusLabel(a).localeCompare(formatEvaluationStatusLabel(b), "pt-BR")
+    );
+  }, [filteredEvaluations]);
+
   // ✅ NOVO: Proteção adicional - se há erro de carregamento, mostrar componente simplificado
   if (evaluationsError && !evaluationsData) {
     return (
@@ -1332,6 +1442,7 @@ export function ReadyEvaluations({
             itemsPerPage={itemsPerPage}
             subjects={subjects}
             grades={grades}
+            statusOptions={statusOptions}
             showMyEvaluations={showMyEvaluations}
             onPageChange={handlePageChange}
             onFilterChange={handleFilterChange}
