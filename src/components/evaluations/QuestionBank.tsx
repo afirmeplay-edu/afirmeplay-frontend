@@ -99,6 +99,8 @@ interface QuestionBankProps {
   selectedSubjectId?: string;
   /** Quando true, renderiza só o conteúdo (sem Dialog), para ser usado dentro de outro modal. */
   embedded?: boolean;
+  /** IDs das questões já na avaliação — pré-marcadas ao reabrir e ignoradas na re-adição. */
+  existingQuestionIds?: string[];
 }
 
 const DIFFICULTIES = ["Abaixo do Básico", "Básico", "Adequado", "Avançado"];
@@ -235,6 +237,7 @@ export function QuestionBank({
   subjects: propsSubjects,
   selectedSubjectId,
   embedded = false,
+  existingQuestionIds = [],
 }: QuestionBankProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -255,6 +258,14 @@ export function QuestionBank({
   });
 
   const [erro, setErro] = useState<string | null>(null);
+
+  const existingIdsKey = existingQuestionIds.join("|");
+
+  // Ao abrir (ou quando a lista já escolhida muda), pré-marca as questões da avaliação
+  useEffect(() => {
+    if (!open) return;
+    setSelectedQuestions(existingQuestionIds.filter(Boolean));
+  }, [open, existingIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // [QuestionBank] Log para debug: props ao abrir
   useEffect(() => {
@@ -521,24 +532,52 @@ export function QuestionBank({
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedQuestions(paginatedQuestions.map(q => q.id));
+      setSelectedQuestions((prev) => [
+        ...new Set([...prev, ...paginatedQuestions.map((q) => q.id)]),
+      ]);
     } else {
-      setSelectedQuestions([]);
+      const pageIds = new Set(paginatedQuestions.map((q) => q.id));
+      setSelectedQuestions((prev) => prev.filter((id) => !pageIds.has(id)));
     }
   };
 
   const handleSelectQuestions = () => {
-    const selectedQuestionObjects = (questions || []).filter(q => selectedQuestions.includes(q.id));
-    selectedQuestionObjects.forEach(q => onQuestionSelected(q));
+    const existingSet = new Set(existingQuestionIds.filter(Boolean));
+    const selectedQuestionObjects = (questions || []).filter((q) =>
+      selectedQuestions.includes(q.id)
+    );
+    const newQuestions = selectedQuestionObjects.filter((q) => !existingSet.has(q.id));
+
+    newQuestions.forEach((q) => onQuestionSelected(q));
     setSelectedQuestions([]);
+    onClose();
+
+    if (newQuestions.length === 0) {
+      toast({
+        title: "Nenhuma questão nova",
+        description: "As questões selecionadas já estavam na avaliação.",
+      });
+      return;
+    }
+
     toast({
       title: "Questões adicionadas",
-      description: `${selectedQuestionObjects.length} questões foram adicionadas à avaliação.`,
+      description: `${newQuestions.length} questão(ões) adicionada(s) à avaliação.`,
     });
   };
 
   const handleQuickAdd = (question: Question) => {
+    if (existingQuestionIds.includes(question.id)) {
+      toast({
+        title: "Questão já adicionada",
+        description: "Esta questão já está na avaliação.",
+      });
+      onClose();
+      return;
+    }
+
     onQuestionSelected(question);
+    onClose();
     toast({
       title: "Questão adicionada",
       description: "A questão foi adicionada à avaliação.",
@@ -745,7 +784,10 @@ export function QuestionBank({
                   <>
                     <div className="flex items-center gap-2 p-3 bg-muted dark:bg-muted/50 rounded-lg border border-border">
                       <Checkbox
-                        checked={selectedQuestions.length === paginatedQuestions.length && paginatedQuestions.length > 0}
+                        checked={
+                          paginatedQuestions.length > 0 &&
+                          paginatedQuestions.every((q) => selectedQuestions.includes(q.id))
+                        }
                         onCheckedChange={handleSelectAll}
                       />
                       <Label className="text-sm font-medium">

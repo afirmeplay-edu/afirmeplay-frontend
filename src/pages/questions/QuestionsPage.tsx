@@ -72,7 +72,7 @@ interface Filters {
   subject: string;
   difficulty: string;
   grade: string;
-  type: string;
+  skill: string;
 }
 
 interface SortOption {
@@ -99,10 +99,6 @@ const getQuestionCreatorId = (question: Question): string => {
 };
 
 const DIFFICULTIES = ['Abaixo do Básico', 'Básico', 'Adequado', 'Avançado'];
-const QUESTION_TYPES = [
-  { value: 'multipleChoice', label: 'Múltipla Escolha' },
-  { value: 'dissertativa', label: 'Dissertativa' }
-];
 const PAGE_SIZE_OPTIONS = [10, 15, 20, 25];
 
 // Opções de ordenação
@@ -253,7 +249,7 @@ const QuestionsPage = () => {
     subject: 'all',
     difficulty: 'all',
     grade: 'all',
-    type: 'all'
+    skill: 'all'
   });
 
   // Estado de ordenação
@@ -330,6 +326,21 @@ const QuestionsPage = () => {
     });
   };
 
+  // Exibir código da habilidade: skillCode da API ou resolução por id
+  const getSkillCodeDisplay = useCallback((question: Question): string => {
+    if (question.skillCode) return question.skillCode;
+    const arr = Array.isArray(question.skills) ? question.skills : [];
+    if (arr.length === 0) return '—';
+    const codes = arr.map(s => {
+      const code = skillIdToCode[s];
+      if (code) return code;
+      // Se parece UUID (hex com hífens), ainda não resolvemos
+      if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(String(s).trim())) return null;
+      return s; // já é código
+    }).filter(Boolean);
+    return codes.length ? codes.join(', ') : '—';
+  }, [skillIdToCode]);
+
   // Questões filtradas e ordenadas (otimizado)
   const filteredAndSortedQuestions = useMemo(() => {
     if (questions.length === 0) return [];
@@ -346,12 +357,14 @@ const QuestionsPage = () => {
     };
 
     const filtered = questions.filter(question => {
-      // Busca por título, id ou conteúdo do enunciado (texto, formattedText, secondStatement)
+      // Busca por título, id, conteúdo do enunciado ou código da habilidade
       if (term !== '') {
         const matchTitle = question.title.toLowerCase().includes(term);
         const matchId = question.id.includes(debouncedSearchTerm);
         const matchContent = getSearchableContent(question).includes(term);
-        if (!matchTitle && !matchId && !matchContent) return false;
+        const skillDisplay = getSkillCodeDisplay(question);
+        const matchSkill = skillDisplay !== '—' && skillDisplay.toLowerCase().includes(term);
+        if (!matchTitle && !matchId && !matchContent && !matchSkill) return false;
       }
 
       if (filters.subject !== 'all' && question.subject?.id !== filters.subject) {
@@ -366,15 +379,21 @@ const QuestionsPage = () => {
         return false;
       }
 
-      if (filters.type !== 'all' && question.type !== filters.type) {
-        return false;
+      if (filters.skill !== 'all') {
+        const skillDisplay = getSkillCodeDisplay(question);
+        const skillCodes = skillDisplay === '—'
+          ? []
+          : skillDisplay.split(',').map((c) => c.trim()).filter(Boolean);
+        if (!skillCodes.includes(filters.skill)) {
+          return false;
+        }
       }
 
       return true;
     });
 
     return sortQuestions(filtered, sortBy);
-  }, [questions, debouncedSearchTerm, filters, sortBy]);
+  }, [questions, debouncedSearchTerm, filters, sortBy, getSkillCodeDisplay]);
 
   const totalPages = Math.ceil(filteredAndSortedQuestions.length / pageSize);
   const paginatedQuestions = useMemo(() => {
@@ -383,7 +402,7 @@ const QuestionsPage = () => {
   }, [filteredAndSortedQuestions, currentPage, pageSize]);
 
   // --- Filtros com opções somente do que existe ---
-  // Objetivo: evitar mostrar disciplinas/séries/tipos que não aparecem em nenhuma questão carregada.
+  // Objetivo: evitar mostrar disciplinas/séries/habilidades que não aparecem em nenhuma questão carregada.
   const availableSubjectIds = useMemo(() => {
     return new Set(
       questions
@@ -400,13 +419,15 @@ const QuestionsPage = () => {
     );
   }, [questions]);
 
-  const availableTypes = useMemo(() => {
-    return new Set(
-      questions
-        .map((q) => q.type)
-        .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
-    );
-  }, [questions]);
+  const availableSkillCodes = useMemo(() => {
+    const codes = new Set<string>();
+    for (const q of questions) {
+      const display = getSkillCodeDisplay(q);
+      if (display === '—') continue;
+      display.split(',').map((c) => c.trim()).filter(Boolean).forEach((code) => codes.add(code));
+    }
+    return codes;
+  }, [questions, getSkillCodeDisplay]);
 
   const availableDifficulties = useMemo(() => {
     return new Set(
@@ -460,10 +481,9 @@ const QuestionsPage = () => {
     return grades.filter((g) => availableGradeIds.has(g.id));
   }, [restrictFilterOptions, grades, availableGradeIds]);
 
-  const typeOptions = useMemo(() => {
-    if (!restrictFilterOptions) return QUESTION_TYPES;
-    return QUESTION_TYPES.filter((t) => availableTypes.has(t.value));
-  }, [restrictFilterOptions, availableTypes]);
+  const skillOptions = useMemo(() => {
+    return Array.from(availableSkillCodes).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [availableSkillCodes]);
 
   const difficultyOptions = useMemo(() => {
     if (!restrictFilterOptions) return DIFFICULTIES;
@@ -477,7 +497,7 @@ const QuestionsPage = () => {
       const next = { ...prev };
       if (next.subject !== "all" && !availableSubjectIds.has(next.subject)) next.subject = "all";
       if (next.grade !== "all" && !availableGradeIds.has(next.grade)) next.grade = "all";
-      if (next.type !== "all" && !availableTypes.has(next.type)) next.type = "all";
+      if (next.skill !== "all" && !availableSkillCodes.has(next.skill)) next.skill = "all";
       if (next.difficulty !== "all" && !availableDifficulties.has(next.difficulty)) next.difficulty = "all";
       return next;
     });
@@ -485,7 +505,7 @@ const QuestionsPage = () => {
     restrictFilterOptions,
     availableSubjectIds,
     availableGradeIds,
-    availableTypes,
+    availableSkillCodes,
     availableDifficulties,
   ]);
 
@@ -911,21 +931,6 @@ const QuestionsPage = () => {
     return () => { cancelled = true; };
   }, [questions, fetchSkills]);
 
-  // Exibir código da habilidade: skillCode da API ou resolução por id
-  const getSkillCodeDisplay = (question: Question): string => {
-    if (question.skillCode) return question.skillCode;
-    const arr = Array.isArray(question.skills) ? question.skills : [];
-    if (arr.length === 0) return '—';
-    const codes = arr.map(s => {
-      const code = skillIdToCode[s];
-      if (code) return code;
-      // Se parece UUID (hex com hífens), ainda não resolvemos
-      if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(String(s).trim())) return null;
-      return s; // já é código
-    }).filter(Boolean);
-    return codes.length ? codes.join(', ') : '—';
-  };
-
   // Reset page when filters or sort change
   useEffect(() => {
     setCurrentPage(1);
@@ -967,7 +972,7 @@ const QuestionsPage = () => {
       subject: "all",
       difficulty: "all",
       grade: "all",
-      type: "all",
+      skill: "all",
     });
   };
 
@@ -1340,20 +1345,20 @@ const QuestionsPage = () => {
 
       <div>
         <label className="text-sm font-medium mb-1 block text-muted-foreground">
-          Tipo
+          Habilidade
         </label>
         <Select
-          onValueChange={(value) => handleFilterChange("type", value)}
-          value={filters.type}
+          onValueChange={(value) => handleFilterChange("skill", value)}
+          value={filters.skill}
         >
           <SelectTrigger className="h-9">
-            <SelectValue placeholder="Todos os Tipos" />
+            <SelectValue placeholder="Todas as Habilidades" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Todos os Tipos</SelectItem>
-            {typeOptions.map((type) => (
-              <SelectItem key={type.value} value={type.value}>
-                {type.label}
+            <SelectItem value="all">Todas as Habilidades</SelectItem>
+            {skillOptions.map((skillCode) => (
+              <SelectItem key={skillCode} value={skillCode}>
+                {skillCode}
               </SelectItem>
             ))}
           </SelectContent>
@@ -1571,7 +1576,7 @@ const QuestionsPage = () => {
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
             <Input
-              placeholder="Pesquisar por conteúdo ou número..."
+              placeholder="Pesquisar por conteúdo, número ou código da habilidade..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 h-9"

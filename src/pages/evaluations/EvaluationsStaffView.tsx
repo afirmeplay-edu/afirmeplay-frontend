@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ClipboardList } from "lucide-react";
 import { useAuth } from "@/context/authContext";
 import { hasCorretorStyleEvalAccess } from "@/utils/restrictedStaffAccess";
@@ -15,6 +15,10 @@ const SKIP_LINK_CLASS =
 type EvaluationStatsPayload = NonNullable<
   ReturnType<typeof useEvaluationStats>["data"]
 >;
+
+type EvaluationsLocationState = {
+  evaluationsTab?: string;
+};
 
 function buildDashboardStats(data: EvaluationStatsPayload): EvaluationDashboardStats {
   return {
@@ -48,8 +52,18 @@ export function EvaluationsStaffView() {
   const { user } = useAuth();
   const isCorretor = hasCorretorStyleEvalAccess(user);
   const [activeTab, setActiveTab] = useState(isCorretor ? "correction" : "ready");
+  const location = useLocation();
   const navigate = useNavigate();
   const { data: statsData, isLoading: isLoadingStats } = useEvaluationStats();
+
+  useEffect(() => {
+    const state = location.state as EvaluationsLocationState | null;
+    const requestedTab = state?.evaluationsTab;
+    if (!requestedTab || isCorretor) return;
+
+    setActiveTab(requestedTab);
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [isCorretor, location.pathname, location.state, navigate]);
 
   const stats = useMemo(
     () =>
@@ -87,8 +101,8 @@ export function EvaluationsStaffView() {
                   Central de Avaliações
                 </h1>
                 <p className="max-w-2xl text-sm text-muted-foreground sm:text-base">
-                  Acompanhe indicadores, gerencie provas e abra o assistente para
-                  criar avaliações digitais.
+                  Acompanhe indicadores, gerencie provas e crie avaliações
+                  digitais nesta central.
                 </p>
               </div>
             </div>
@@ -99,7 +113,6 @@ export function EvaluationsStaffView() {
           <EvaluationsTabsPanel
             activeTab={activeTab}
             onTabChange={setActiveTab}
-            navigate={navigate}
             isProfessor={isProfessor}
             isCorretor={isCorretor}
           />
