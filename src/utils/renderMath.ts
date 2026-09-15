@@ -12,11 +12,16 @@ function escapeHtml(value: string): string {
 /**
  * Converte delimitadores LaTeX em HTML renderizado pelo KaTeX.
  * Suporta inline ($...$) e bloco ($$...$$).
+ *
+ * `$` colado a uma letra (ex.: R$, US$) NÃO abre fórmula — evita falso positivo
+ * de moeda em enunciados importados (DOCX) com dois R$ na mesma linha.
  */
 export function renderMathInText(text: string): string {
   if (!text || typeof text !== 'string') return '';
 
-  const pattern = /\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$/g;
+  // Bloco: $$...$$
+  // Inline: $...$ apenas se o `$` de abertura NÃO for precedido por letra (\p{L}).
+  const pattern = /\$\$([\s\S]+?)\$\$|(?<!\p{L})\$([^$\n]+?)\$/gu;
   let result = '';
   let lastIndex = 0;
   let match: RegExpExecArray | null;
