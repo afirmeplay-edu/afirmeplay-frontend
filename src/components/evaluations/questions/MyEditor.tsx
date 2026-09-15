@@ -44,7 +44,34 @@ function normalizePlainTextPaste(text: string): string {
   const paragraphs = text.split(/\n\n+/).map((p) => p.replace(/\n\s*/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
   if (paragraphs.length === 0) return '';
   const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  return paragraphs.map((p) => `<p>${escape(p)}</p>`).join('');
+  return paragraphs.map((p) => `<p style="text-align: justify">${escape(p)}</p>`).join('');
+}
+
+/**
+ * Garante text-align: justify em blocos suportados pelo schema do TipTap (p, h1–h3)
+ * ao colar HTML externo (Word/PDF), para o alinhamento persistir no HTML salvo.
+ */
+function applyJustifyToPastedHtml(html: string): string {
+  return html.replace(/<(p|h1|h2|h3)(\s[^>]*)?>/gi, (full, tag: string, attrs: string | undefined) => {
+    const rawAttrs = attrs ?? '';
+    const styleMatch = rawAttrs.match(/\sstyle\s*=\s*(["'])([\s\S]*?)\1/i);
+    if (styleMatch) {
+      const quote = styleMatch[1];
+      let styleValue = styleMatch[2]
+        .replace(/text-align\s*:\s*[^;]+;?/gi, '')
+        .replace(/;;+/g, ';')
+        .replace(/^;|;$/g, '')
+        .trim();
+      styleValue = styleValue
+        ? `${styleValue}; text-align: justify`
+        : 'text-align: justify';
+      const withoutStyle = rawAttrs.replace(/\sstyle\s*=\s*(["'])([\s\S]*?)\1/i, '').trim();
+      const rest = withoutStyle ? ` ${withoutStyle}` : '';
+      return `<${tag}${rest} style=${quote}${styleValue}${quote}>`;
+    }
+    const rest = rawAttrs.trim() ? ` ${rawAttrs.trim()}` : '';
+    return `<${tag}${rest} style="text-align: justify">`;
+  });
 }
 
 const MyEditor = ({ value, onChange }: MyEditorProps) => {
@@ -78,7 +105,7 @@ const MyEditor = ({ value, onChange }: MyEditorProps) => {
       TextAlign.configure({
         types: ['heading', 'paragraph', 'image'],
         alignments: ['left', 'center', 'right', 'justify'],
-        defaultAlignment: 'left',
+        defaultAlignment: 'justify',
       }),
       Placeholder.configure({
         placeholder: 'Digite o conteúdo aqui... Use a barra de ferramentas para formatar e inserir imagens.',
@@ -105,7 +132,7 @@ const MyEditor = ({ value, onChange }: MyEditorProps) => {
         const plain = event.clipboardData?.getData('text/plain');
         let toInsert: string;
         if (html && html.trim()) {
-          toInsert = html;
+          toInsert = applyJustifyToPastedHtml(html);
         } else if (plain != null && plain !== '') {
           toInsert = normalizePlainTextPaste(plain);
           if (!toInsert) return false;
