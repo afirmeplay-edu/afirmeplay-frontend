@@ -1,4 +1,3 @@
-import type { NavigateFunction } from "react-router-dom";
 import {
   Tabs,
   TabsContent,
@@ -8,6 +7,7 @@ import {
 import { ReadyEvaluations } from "@/components/evaluations/ReadyEvaluations";
 import { DigitalToPhysicalTabContent } from "./DigitalToPhysicalTabContent";
 import { PhysicalCorrectionTabContent } from "./PhysicalCorrectionTabContent";
+import { CreateEvaluationTabContent } from "./CreateEvaluationTabContent";
 import ErrorBoundary from "@/components/evaluations/ErrorBoundary";
 import { cn } from "@/lib/utils";
 import { ArrowRightLeft, ClipboardCheck, FileText, Plus } from "lucide-react";
@@ -19,7 +19,6 @@ import {
 interface EvaluationsTabsPanelProps {
   activeTab: string;
   onTabChange: (value: string) => void;
-  navigate: NavigateFunction;
   isProfessor: boolean;
   isCorretor: boolean;
 }
@@ -27,7 +26,6 @@ interface EvaluationsTabsPanelProps {
 export function EvaluationsTabsPanel({
   activeTab,
   onTabChange,
-  navigate,
   isProfessor,
   isCorretor,
 }: EvaluationsTabsPanelProps) {
@@ -38,11 +36,11 @@ export function EvaluationsTabsPanel({
       return;
     }
 
-    if (value === CREATE_EVALUATION_TAB) {
-      navigate("/app/criar-avaliacao?mode=virtual", { replace: true });
-      return;
-    }
     onTabChange(value);
+  };
+
+  const handleCreateDone = () => {
+    onTabChange("ready");
   };
 
   return (
@@ -133,7 +131,7 @@ export function EvaluationsTabsPanel({
               <TabsTrigger
                 value={CREATE_EVALUATION_TAB}
                 className={evaluationsTabTriggerClass}
-                title="Abre o assistente para criar uma nova avaliação digital"
+                title="Criar uma nova avaliação digital nesta central"
               >
                 <Plus
                   className="h-4 w-4 shrink-0 opacity-70 group-data-[state=active]:opacity-100"
@@ -189,12 +187,18 @@ export function EvaluationsTabsPanel({
           </ErrorBoundary>
         </TabsContent>
 
-        <TabsContent
-          value={CREATE_EVALUATION_TAB}
-          className="hidden"
-          aria-hidden
-          tabIndex={-1}
-        />
+        {!isCorretor && (
+          <TabsContent
+            value={CREATE_EVALUATION_TAB}
+            className="mt-0 space-y-4 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            <ErrorBoundary>
+              {activeTab === CREATE_EVALUATION_TAB && (
+                <CreateEvaluationTabContent onDone={handleCreateDone} />
+              )}
+            </ErrorBoundary>
+          </TabsContent>
+        )}
       </Tabs>
     </section>
   );

@@ -1,45 +1,22 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { CreateEvaluationModal } from "@/components/evaluations/create/CreateEvaluationModal";
+import { CREATE_EVALUATION_TAB } from "./evaluationsPage.constants";
 
+/**
+ * Deep link legado (`/app/criar-avaliacao` e atalhos do dashboard).
+ * Redireciona para a Central com a aba "Criar Nova" ativa.
+ */
 const CreateEvaluation = () => {
-  const [showModal, setShowModal] = useState(true);
   const navigate = useNavigate();
 
-  const handleSuccess = () => {
-    // Navegar imediatamente antes de fechar o modal
-    navigate("/app/avaliacoes", { replace: true });
-    setShowModal(false);
-  };
-
-  const handleClose = () => {
-    // Navegar imediatamente antes de fechar o modal
-    navigate("/app/avaliacoes", { replace: true });
-    setShowModal(false);
-  };
-
-  // Se o modal não estiver aberto, redirecionar imediatamente
   useEffect(() => {
-    if (!showModal) {
-      const timer = setTimeout(() => {
-        navigate("/app/avaliacoes", { replace: true });
-      }, 0);
-      return () => clearTimeout(timer);
-    }
-  }, [showModal, navigate]);
+    navigate("/app/avaliacoes", {
+      replace: true,
+      state: { evaluationsTab: CREATE_EVALUATION_TAB },
+    });
+  }, [navigate]);
 
-  // Se o modal não estiver aberto, não renderizar nada (a navegação vai acontecer)
-  if (!showModal) {
-    return null;
-  }
-
-  return (
-    <CreateEvaluationModal
-      isOpen={showModal}
-      onClose={handleClose}
-      onSuccess={handleSuccess}
-    />
-  );
+  return null;
 };
 
 export default CreateEvaluation;

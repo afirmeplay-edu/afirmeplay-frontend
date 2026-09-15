@@ -1,4 +1,4 @@
-/** Valor da aba que apenas dispara navegação para o modal de criação (não mantém painel visível). */
+/** Valor da aba "Criar Nova" (formulário inline abaixo do seletor de abas). */
 export const CREATE_EVALUATION_TAB = "create" as const;
 
 /** Estilo compartilhado das abas (divisões + estado ativo + foco visível). */
