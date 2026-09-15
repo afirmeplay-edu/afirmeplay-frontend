@@ -6,6 +6,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -118,6 +128,23 @@ function buildAnswersPayload(
   return out;
 }
 
+/** Letra marcada conta; null/''/INVALID = não respondido (botão Branco = null). */
+function isManualAnswerFilled(value: ManualAnswerValue): boolean {
+  if (value == null || value === '') return false;
+  return String(value).trim().toUpperCase() !== 'INVALID';
+}
+
+function countFilledAnswers(payload: Record<string, ManualAnswerValue>): {
+  filled: number;
+  total: number;
+  blank: number;
+} {
+  const values = Object.values(payload);
+  const total = values.length;
+  const filled = values.filter(isManualAnswerFilled).length;
+  return { filled, total, blank: total - filled };
+}
+
 function isEditingPreviousEntry(entry: ManualEntryResponse): boolean {
   if (entry.existing_result_id) return true;
   const saved = entry.saved_answers;
@@ -169,6 +196,9 @@ export default function ManualCorrectionPanel() {
   const [loadingEntry, setLoadingEntry] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<ManualCorrectionResponse | null>(null);
+  const [partialConfirmOpen, setPartialConfirmOpen] = useState(false);
+  const [partialBlankCount, setPartialBlankCount] = useState(0);
+  const [partialTotalCount, setPartialTotalCount] = useState(0);
   const [detailQueryContext, setDetailQueryContext] = useState<AnswerSheetDetailQueryContext | null>(
     null
   );
@@ -354,6 +384,9 @@ export default function ManualCorrectionPanel() {
     setManualEntry(null);
     setAnswers({});
     setSaveResult(null);
+    setPartialConfirmOpen(false);
+    setPartialBlankCount(0);
+    setPartialTotalCount(0);
   };
 
   const handleGabaritoChange = (id: string) => {
@@ -420,12 +453,13 @@ export default function ManualCorrectionPanel() {
     setAnswers((prev) => ({ ...prev, [questionKey]: value }));
   };
 
-  const handleSave = async () => {
+  const performSave = async () => {
     if (!manualEntry || !selectedScope || !selectedStudent) return;
     try {
       setSaving(true);
       const payload = buildAnswersPayload(manualEntry.blocks, answers);
       const result = await submitManualCorrection(selectedScope, selectedStudent.student_id, payload);
+      setPartialConfirmOpen(false);
       setSaveResult(result);
       setStep('result');
       toast({
@@ -444,6 +478,31 @@ export default function ManualCorrectionPanel() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSave = () => {
+    if (!manualEntry || !selectedScope || !selectedStudent) return;
+
+    const payload = buildAnswersPayload(manualEntry.blocks, answers);
+    const { filled, total, blank } = countFilledAnswers(payload);
+
+    if (filled === 0) {
+      toast({
+        title: 'Nenhuma resposta marcada',
+        description: 'É necessário responder pelo menos uma questão antes de salvar.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (blank > 0) {
+      setPartialBlankCount(blank);
+      setPartialTotalCount(total);
+      setPartialConfirmOpen(true);
+      return;
+    }
+
+    void performSave();
   };
 
   const editingPrevious = manualEntry ? isEditingPreviousEntry(manualEntry) : false;
@@ -630,6 +689,35 @@ export default function ManualCorrectionPanel() {
             </Button>
           </CardContent>
         </Card>
+
+        <AlertDialog
+          open={partialConfirmOpen}
+          onOpenChange={(open) => {
+            if (!saving) setPartialConfirmOpen(open);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Questões em branco</AlertDialogTitle>
+              <AlertDialogDescription>
+                {partialBlankCount} de {partialTotalCount} questões estão em branco. Deseja continuar mesmo
+                assim?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={saving}
+                onClick={(e) => {
+                  e.preventDefault();
+                  void performSave();
+                }}
+              >
+                {saving ? 'Salvando...' : 'Continuar e salvar'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     );
   }
