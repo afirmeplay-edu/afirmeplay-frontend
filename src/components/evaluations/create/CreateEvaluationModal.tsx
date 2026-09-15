@@ -39,6 +39,8 @@ interface CreateEvaluationModalProps {
   onSuccess: () => void;
   evaluationId?: string; // Para modo de edição
   initialData?: EvaluationFormData | null;
+  /** Quando true, renderiza o formulário inline (aba) sem Dialog externo. */
+  embedded?: boolean;
 }
 
 interface Course {
@@ -105,6 +107,7 @@ export function CreateEvaluationModal({
   onSuccess,
   evaluationId,
   initialData,
+  embedded = false,
 }: CreateEvaluationModalProps) {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -866,6 +869,9 @@ export function CreateEvaluationModal({
       }
       
       setStep(2);
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
     }
   };
 
@@ -1479,13 +1485,8 @@ export function CreateEvaluationModal({
       return;
     }
     
-    // Verificar se a questão já foi adicionada
+    // Ignora re-adição (já marcada no banco / já na avaliação)
     if (allQuestions.some(q => q.id === questionId)) {
-      toast({
-        title: "Questão já adicionada",
-        description: "Esta questão já está na avaliação",
-        variant: "destructive",
-      });
       return;
     }
     
@@ -1497,10 +1498,6 @@ export function CreateEvaluationModal({
     };
     
     addQuestion(questionWithSubject);
-    toast({
-      title: "Questão adicionada",
-      description: "Questão adicionada à avaliação",
-    });
   };
 
   const handleRemoveQuestion = (questionId: string) => {
@@ -1782,93 +1779,109 @@ export function CreateEvaluationModal({
     }
   };
 
-  return (
-    <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileCheck className="h-5 w-5 text-blue-600" />
-            {evaluationId ? 'Editar Avaliação' : 'Nova Avaliação'}
-          </DialogTitle>
-          <DialogDescription>
-            {step === 1 && 'Configure os dados básicos da avaliação e selecione as turmas'}
-            {step === 2 && 'Selecione as questões do banco'}
-          </DialogDescription>
-        </DialogHeader>
+  const formTitle = evaluationId ? 'Editar Avaliação' : 'Nova Avaliação';
+  const formDescription =
+    step === 1
+      ? 'Configure os dados básicos da avaliação e selecione as turmas'
+      : 'Selecione as questões do banco';
 
-        {loadingData ? (
-          <div className="flex items-center justify-center py-12 flex-1">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+  const formHeader = embedded ? (
+    <div className="space-y-1 border-b border-border pb-4">
+      <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
+        <FileCheck className="h-5 w-5 text-blue-600" />
+        {formTitle}
+      </h3>
+      <p className="text-sm text-muted-foreground">{formDescription}</p>
+    </div>
+  ) : (
+    <DialogHeader>
+      <DialogTitle className="flex items-center gap-2">
+        <FileCheck className="h-5 w-5 text-blue-600" />
+        {formTitle}
+      </DialogTitle>
+      <DialogDescription>{formDescription}</DialogDescription>
+    </DialogHeader>
+  );
+
+  const formBody = loadingData ? (
+    <div className="flex flex-1 items-center justify-center py-12">
+      <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+    </div>
+  ) : (
+    <div
+      className={cn(
+        'space-y-6 flex-1',
+        !embedded &&
+          'overflow-y-auto pr-1 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 hover:[&::-webkit-scrollbar-thumb]:bg-gray-400 dark:hover:[&::-webkit-scrollbar-thumb]:bg-gray-600'
+      )}
+    >
+      {/* Indicador de Progresso - Step 1 */}
+      {step === 1 && (
+        <Card className="bg-gradient-to-r from-blue-50 dark:from-blue-950/30 to-indigo-50 dark:to-indigo-950/30 border-blue-200 dark:border-blue-800">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-300">Progresso do Formulário</h3>
+              <span className="text-sm text-blue-700 dark:text-blue-400">
+                {[
+                  isTitleValid && type && model && duration,
+                  isCourseValid,
+                  isGradeValid,
+                  isLocationValid,
+                  isMunicipalityValid,
+                  isSchoolsValid,
+                  isSubjectsValid,
+                  isClassesValid
+                ].filter(Boolean).length} de 8 etapas concluídas
+              </span>
+            </div>
+            <div className="grid grid-cols-8 gap-2">
+              {[
+                { label: "Básico", valid: isTitleValid && type && model && duration },
+                { label: "Curso", valid: isCourseValid },
+                { label: "Série", valid: isGradeValid },
+                { label: "Estado", valid: isLocationValid },
+                { label: "Município", valid: isMunicipalityValid },
+                { label: "Escolas", valid: isSchoolsValid },
+                { label: "Disciplinas", valid: isSubjectsValid },
+                { label: "Turmas", valid: isClassesValid }
+              ].map((stepItem, index) => (
+                <div key={index} className="text-center">
+                  <div className={`w-8 h-8 mx-auto rounded-full flex items-center justify-center text-xs font-medium ${
+                    stepItem.valid 
+                      ? 'bg-green-500 text-white' 
+                      : 'bg-muted text-muted-foreground'
+                  }`}>
+                    {stepItem.valid ? '✓' : index + 1}
+                  </div>
+                  <p className="text-xs mt-1 text-muted-foreground">{stepItem.label}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Step 1: Configuração */}
+      {step === 1 && (
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>Título *</Label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Ex: Prova de Matemática - 5º Ano"
+            />
           </div>
-        ) : (
-          <div className="space-y-6 flex-1 overflow-y-auto pr-1 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 hover:[&::-webkit-scrollbar-thumb]:bg-gray-400 dark:hover:[&::-webkit-scrollbar-thumb]:bg-gray-600">
-            {/* Indicador de Progresso - Step 1 */}
-            {step === 1 && (
-              <Card className="bg-gradient-to-r from-blue-50 dark:from-blue-950/30 to-indigo-50 dark:to-indigo-950/30 border-blue-200 dark:border-blue-800">
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-300">Progresso do Formulário</h3>
-                    <span className="text-sm text-blue-700 dark:text-blue-400">
-                      {[
-                        isTitleValid && type && model && duration,
-                        isCourseValid,
-                        isGradeValid,
-                        isLocationValid,
-                        isMunicipalityValid,
-                        isSchoolsValid,
-                        isSubjectsValid,
-                        isClassesValid
-                      ].filter(Boolean).length} de 8 etapas concluídas
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-8 gap-2">
-                    {[
-                      { label: "Básico", valid: isTitleValid && type && model && duration },
-                      { label: "Curso", valid: isCourseValid },
-                      { label: "Série", valid: isGradeValid },
-                      { label: "Estado", valid: isLocationValid },
-                      { label: "Município", valid: isMunicipalityValid },
-                      { label: "Escolas", valid: isSchoolsValid },
-                      { label: "Disciplinas", valid: isSubjectsValid },
-                      { label: "Turmas", valid: isClassesValid }
-                    ].map((stepItem, index) => (
-                      <div key={index} className="text-center">
-                        <div className={`w-8 h-8 mx-auto rounded-full flex items-center justify-center text-xs font-medium ${
-                          stepItem.valid 
-                            ? 'bg-green-500 text-white' 
-                            : 'bg-muted text-muted-foreground'
-                        }`}>
-                          {stepItem.valid ? '✓' : index + 1}
-                        </div>
-                        <p className="text-xs mt-1 text-muted-foreground">{stepItem.label}</p>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
 
-            {/* Step 1: Configuração */}
-            {step === 1 && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Título *</Label>
-                  <Input
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Ex: Prova de Matemática - 5º Ano"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Descrição</Label>
-                  <Textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Descreva a avaliação..."
-                    rows={3}
-                  />
-                </div>
+          <div className="space-y-2">
+            <Label>Descrição</Label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Descreva a avaliação..."
+              rows={3}
+            />
+          </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -2466,38 +2479,38 @@ export function CreateEvaluationModal({
                 )}
               </div>
             )}
-          </div>
-        )}
+    </div>
+  );
 
-        {/* Navegação fixa no rodapé do modal */}
-        {!loadingData && (
-          <div className="flex justify-between pt-4 mt-4 border-t">
-            <Button variant="outline" onClick={step > 1 ? () => setStep(step - 1) : handleClose}>
-              {step > 1 ? 'Voltar' : 'Cancelar'}
-            </Button>
-            <div className="flex gap-2">
-              {step < 2 && (
-                <Button onClick={handleNext}>
-                  Próximo
-                </Button>
-              )}
-              {step === 2 && (
-                <Button onClick={handleSubmit} disabled={loading}>
-                  {loading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Salvando...
-                    </>
-                  ) : (
-                    evaluationId ? 'Atualizar Avaliação' : 'Criar Avaliação'
-                  )}
-                </Button>
-              )}
-            </div>
-          </div>
+  const formFooter = !loadingData ? (
+    <div className="mt-4 flex justify-between border-t pt-4">
+      <Button variant="outline" onClick={step > 1 ? () => setStep(step - 1) : handleClose}>
+        {step > 1 ? 'Voltar' : 'Cancelar'}
+      </Button>
+      <div className="flex gap-2">
+        {step < 2 && (
+          <Button onClick={handleNext}>
+            Próximo
+          </Button>
         )}
-      </DialogContent>
+        {step === 2 && (
+          <Button onClick={handleSubmit} disabled={loading}>
+            {loading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Salvando...
+              </>
+            ) : (
+              evaluationId ? 'Atualizar Avaliação' : 'Criar Avaliação'
+            )}
+          </Button>
+        )}
+      </div>
+    </div>
+  ) : null;
 
+  const nestedDialogs = (
+    <>
       {/* Modais de Questões */}
       <Dialog open={showQuestionBank} onOpenChange={setShowQuestionBank}>
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden">
@@ -2516,6 +2529,7 @@ export function CreateEvaluationModal({
             gradeName={grades.find(g => g.id === grade)?.name}
             subjects={selectedSubjects}
             selectedSubjectId={selectedSubjectForQuestion}
+            existingQuestionIds={allQuestions.map((q) => q.id).filter(Boolean) as string[]}
           />
         </DialogContent>
       </Dialog>
@@ -2602,6 +2616,32 @@ export function CreateEvaluationModal({
           }}
         />
       )}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <>
+        <div className="overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm ring-1 ring-border/50 sm:p-6">
+          <div className="flex flex-col gap-4">
+            {formHeader}
+            {formBody}
+            {formFooter}
+          </div>
+        </div>
+        {nestedDialogs}
+      </>
+    );
+  }
+
+  return (
+    <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
+      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+        {formHeader}
+        {formBody}
+        {formFooter}
+      </DialogContent>
+      {nestedDialogs}
     </Dialog>
   );
 }
