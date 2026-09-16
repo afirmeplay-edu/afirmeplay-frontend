@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -35,10 +36,26 @@ type GradeOption = { id: string; name: string };
 
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const DEFAULT_QUESTION_COUNT = 10;
+const MAX_TEMPLATE_QUESTIONS = 100;
 
 function isDocxFile(file: File): boolean {
   const name = file.name.toLowerCase();
   return name.endsWith(".docx") || file.type === DOCX_MIME;
+}
+
+function buildCountsParam(
+  selectedSubjectIds: string[],
+  countsBySubject: Record<string, number>
+): string | null {
+  if (selectedSubjectIds.length === 0) return null;
+  const parts: string[] = [];
+  for (const id of selectedSubjectIds) {
+    const qty = countsBySubject[id];
+    if (!Number.isInteger(qty) || qty < 1) return null;
+    parts.push(`${id}:${qty}`);
+  }
+  return parts.join(",");
 }
 
 const ImportQuestionsPage = () => {
@@ -51,6 +68,7 @@ const ImportQuestionsPage = () => {
   const [loadingMeta, setLoadingMeta] = useState(true);
 
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
+  const [countsBySubject, setCountsBySubject] = useState<Record<string, number>>({});
   const [gradeId, setGradeId] = useState("");
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -67,7 +85,27 @@ const ImportQuestionsPage = () => {
     () => buildQuestionImportSubjectParams(selectedSubjectIds),
     [selectedSubjectIds]
   );
+
+  const totalQuestionCount = useMemo(
+    () =>
+      selectedSubjectIds.reduce((sum, id) => {
+        const qty = countsBySubject[id];
+        return sum + (Number.isInteger(qty) && qty > 0 ? qty : 0);
+      }, 0),
+    [selectedSubjectIds, countsBySubject]
+  );
+
+  const countsValid = useMemo(() => {
+    if (selectedSubjectIds.length === 0) return false;
+    return selectedSubjectIds.every((id) => {
+      const qty = countsBySubject[id];
+      return Number.isInteger(qty) && qty >= 1;
+    });
+  }, [selectedSubjectIds, countsBySubject]);
+
+  const countsWithinLimit = totalQuestionCount <= MAX_TEMPLATE_QUESTIONS;
   const formReady = Boolean(gradeId && subjectParams);
+  const templateReady = formReady && countsValid && countsWithinLimit;
 
   useEffect(() => {
     let cancelled = false;
@@ -101,10 +139,30 @@ const ImportQuestionsPage = () => {
   }, []);
 
   const toggleSubject = (id: string) => {
-    setSelectedSubjectIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setSelectedSubjectIds((prev) => {
+      if (prev.includes(id)) {
+        setCountsBySubject((counts) => {
+          const next = { ...counts };
+          delete next[id];
+          return next;
+        });
+        return prev.filter((x) => x !== id);
+      }
+      setCountsBySubject((counts) => ({
+        ...counts,
+        [id]: counts[id] ?? DEFAULT_QUESTION_COUNT,
+      }));
+      return [...prev, id];
+    });
     resetPreview();
+  };
+
+  const setSubjectCount = (id: string, raw: string) => {
+    const parsed = Number.parseInt(raw, 10);
+    setCountsBySubject((prev) => ({
+      ...prev,
+      [id]: Number.isFinite(parsed) ? parsed : 0,
+    }));
   };
 
   const handleFileSelect = (file: File | null) => {
@@ -122,17 +180,21 @@ const ImportQuestionsPage = () => {
   };
 
   const handleDownloadTemplate = async () => {
-    if (!formReady || !subjectParams) return;
+    if (!templateReady || !subjectParams) return;
+    const counts = buildCountsParam(selectedSubjectIds, countsBySubject);
+    if (!counts) return;
+
     setDownloadingTemplate(true);
     try {
       await downloadQuestionsImportTemplate({
         grade: gradeId,
         ...subjectParams,
+        counts,
       });
       toast({
         title: "Template baixado",
         description:
-          "Preencha enunciados, disciplina (SubjectId) e dificuldade por questão.",
+          "Preencha enunciados e dificuldade em cada bloco. Desmarque o exemplo no preview.",
       });
     } catch (error) {
       toast({
@@ -269,6 +331,13 @@ const ImportQuestionsPage = () => {
     }
   };
 
+  const selectedSubjects = useMemo(() => {
+    const byId = new Map(subjects.map((s) => [s.id, s]));
+    return selectedSubjectIds
+      .map((id) => byId.get(id))
+      .filter((s): s is SubjectOption => Boolean(s));
+  }, [subjects, selectedSubjectIds]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-slate-50 dark:from-blue-950/30 dark:via-background dark:to-slate-950/30">
       <div className="container max-w-5xl mx-auto py-8 px-4 space-y-6">
@@ -289,7 +358,8 @@ const ImportQuestionsPage = () => {
             Importar questões
           </h1>
           <p className="text-muted-foreground text-sm sm:text-base">
-            Selecione série e uma ou mais disciplinas, baixe o template e confira o preview antes de importar.
+            Selecione série, disciplinas e a quantidade de questões por disciplina, baixe o
+            template e confira o preview antes de importar.
           </p>
         </div>
 
@@ -297,8 +367,8 @@ const ImportQuestionsPage = () => {
           <div>
             <h2 className="text-lg font-semibold">1. Contexto da importação</h2>
             <p className="text-sm text-muted-foreground">
-              A série é obrigatória. Com 1 disciplina enviamos <code>subjectId</code>; com várias,{" "}
-              <code>subjectIds</code>.
+              A série é obrigatória. Informe a quantidade de questões por disciplina (máximo{" "}
+              {MAX_TEMPLATE_QUESTIONS} no total).
             </p>
           </div>
 
@@ -355,10 +425,49 @@ const ImportQuestionsPage = () => {
             )}
           </div>
 
+          {selectedSubjects.length > 0 && (
+            <div className="space-y-3">
+              <Label>Qtd. questões por disciplina *</Label>
+              <div className="space-y-2 rounded-lg border p-3">
+                {selectedSubjects.map((s) => (
+                  <div
+                    key={s.id}
+                    className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4"
+                  >
+                    <span className="text-sm flex-1 min-w-0 truncate">{s.name}</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={MAX_TEMPLATE_QUESTIONS}
+                      step={1}
+                      className="w-28"
+                      value={countsBySubject[s.id] ?? DEFAULT_QUESTION_COUNT}
+                      onChange={(e) => setSubjectCount(s.id, e.target.value)}
+                      aria-label={`Quantidade de questões de ${s.name}`}
+                    />
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Total: {totalQuestionCount} questão(ões)
+              </p>
+              {!countsWithinLimit && (
+                <p className="text-sm text-destructive">
+                  O total de questões não pode passar de {MAX_TEMPLATE_QUESTIONS}.
+                </p>
+              )}
+              {countsValid === false && selectedSubjectIds.length > 0 && (
+                <p className="text-sm text-destructive">
+                  Informe uma quantidade inteira ≥ 1 para cada disciplina.
+                </p>
+              )}
+            </div>
+          )}
+
           <Button
             variant="outline"
             onClick={() => void handleDownloadTemplate()}
-            disabled={!formReady || downloadingTemplate}
+            disabled={!templateReady || downloadingTemplate}
           >
             {downloadingTemplate ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />

@@ -31,6 +31,7 @@ import { OfflinePackLocationCard } from './OfflinePackLocationCard';
 import { OfflinePackScopeForm } from './OfflinePackScopeForm';
 import { OfflinePackValidityCard } from './OfflinePackValidityCard';
 import { useOfflinePackForm } from './useOfflinePackForm';
+import { datetimeLocalToUtcIsoZ } from '@/utils/date';
 
 type LocationState = { cityId?: string };
 
@@ -129,6 +130,7 @@ function OfflinePackEditForm({
   const form = useOfflinePackForm({
     initialScope: pack.scope,
     initialContentType: pack.content_type ?? null,
+    initialExpiresAt: pack.expires_at,
     initialMaxRedemptions: pack.max_redemptions,
     minMaxRedemptions: pack.redemptions_count,
     initialCityId,
@@ -154,7 +156,7 @@ function OfflinePackEditForm({
     try {
       const body = {
         scope: buildScopePayload(form.scopeMode, form.selections),
-        ttl_hours: form.ttlHours,
+        expires_at: datetimeLocalToUtcIsoZ(form.expiresAtLocal),
         max_redemptions: form.maxRedemptions,
         content_type: {
           include_tests: form.includeTests,
@@ -253,7 +255,7 @@ function OfflinePackEditForm({
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>Pacote expirado</AlertTitle>
           <AlertDescription>
-            Informe novas horas de validade abaixo para renovar. Sem renovar, outras alterações podem
+            Informe uma data e hora futuras abaixo para renovar. Sem renovar, outras alterações podem
             ser rejeitadas pela API.
           </AlertDescription>
         </Alert>
@@ -274,8 +276,8 @@ function OfflinePackEditForm({
         />
         <OfflinePackScopeForm form={form} readOnly={!canEdit} />
         <OfflinePackValidityCard
-          ttlHours={form.ttlHours}
-          onTtlChange={form.setTtlHours}
+          expiresAtLocal={form.expiresAtLocal}
+          onExpiresAtChange={form.setExpiresAtLocal}
           maxRedemptions={form.maxRedemptions}
           onMaxRedemptionsChange={form.setMaxRedemptions}
           minMaxRedemptions={pack.redemptions_count}
