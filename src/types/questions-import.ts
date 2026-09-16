@@ -112,6 +112,8 @@ export type QuestionImportSubjectParams =
 
 export type QuestionImportParams = QuestionImportSubjectParams & {
   grade: string;
+  /** Mapa subjectId:qtd,subjectId:qtd — obrigatório no download do template. */
+  counts?: string;
 };
 
 export type TestImportDocxSummary = {
