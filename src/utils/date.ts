@@ -96,4 +96,55 @@ export function convertDateTimeLocalToISO(dateTimeString: string): string {
   return toLocalOffsetISO(localDate);
 }
 
+/** Formata um Date no valor de input datetime-local (YYYY-MM-DDTHH:mm), fuso local. */
+export function formatDateToDatetimeLocal(date: Date): string {
+  if (Number.isNaN(date.getTime())) return '';
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const h = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${day}T${h}:${min}`;
+}
+
+/** Interpreta datetime-local como horário local do usuário. */
+export function parseDatetimeLocalToDate(dateTimeString: string): Date | null {
+  if (!dateTimeString?.trim()) return null;
+  const parsed = dateTimeString.trim().split('T');
+  if (parsed.length !== 2) return null;
+  const [datePart, timePart] = parsed;
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hour, minute] = timePart.split(':').map(Number);
+  if ([year, month, day, hour, minute].some(Number.isNaN)) return null;
+  const d = new Date(year, month - 1, day, hour, minute ?? 0, 0, 0);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Converte datetime-local (YYYY-MM-DDTHH:mm) para ISO UTC com Z
+ * (ex.: "2026-09-20T21:30:00Z").
+ */
+export function datetimeLocalToUtcIsoZ(dateTimeString: string): string {
+  const localDate = parseDatetimeLocalToDate(dateTimeString);
+  if (!localDate) return '';
+  return localDate.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+/** Valor datetime-local equivalente a agora + N horas. */
+export function addHoursToDatetimeLocal(hours: number, from: Date = new Date()): string {
+  const d = new Date(from.getTime() + hours * 60 * 60 * 1000);
+  return formatDateToDatetimeLocal(d);
+}
+
+/** Limite mínimo (agora) e máximo (agora + maxDays) para input datetime-local. */
+export function datetimeLocalMinMax(
+  maxDays: number,
+  from: Date = new Date()
+): { min: string; max: string } {
+  const max = new Date(from.getTime() + maxDays * 24 * 60 * 60 * 1000);
+  return {
+    min: formatDateToDatetimeLocal(from),
+    max: formatDateToDatetimeLocal(max),
+  };
+}
 

@@ -16,6 +16,7 @@ import { OfflinePackScopeForm } from './OfflinePackScopeForm';
 import { OfflinePackLocationCard } from './OfflinePackLocationCard';
 import { OfflinePackValidityCard } from './OfflinePackValidityCard';
 import type { useOfflinePackForm } from './useOfflinePackForm';
+import { datetimeLocalToUtcIsoZ } from '@/utils/date';
 
 interface OfflinePackCreateTabProps {
   form: ReturnType<typeof useOfflinePackForm>;
@@ -34,8 +35,8 @@ export function OfflinePackCreateTab({ form, onCreated }: OfflinePackCreateTabPr
     canSubmit,
     scopeMode,
     selections,
-    ttlHours,
-    setTtlHours,
+    expiresAtLocal,
+    setExpiresAtLocal,
     maxRedemptions,
     setMaxRedemptions,
   } = form;
@@ -61,9 +62,9 @@ export function OfflinePackCreateTab({ form, onCreated }: OfflinePackCreateTabPr
     try {
       const scope = buildScopePayload(scopeMode, selections);
       const data = await registerOfflinePack(
-        { 
-          scope, 
-          ttl_hours: ttlHours, 
+        {
+          scope,
+          expires_at: datetimeLocalToUtcIsoZ(expiresAtLocal),
           max_redemptions: maxRedemptions,
           content_type: {
             include_tests: form.includeTests,
@@ -107,8 +108,8 @@ export function OfflinePackCreateTab({ form, onCreated }: OfflinePackCreateTabPr
       />
       <OfflinePackScopeForm form={form} />
       <OfflinePackValidityCard
-        ttlHours={ttlHours}
-        onTtlChange={setTtlHours}
+        expiresAtLocal={expiresAtLocal}
+        onExpiresAtChange={setExpiresAtLocal}
         maxRedemptions={maxRedemptions}
         onMaxRedemptionsChange={setMaxRedemptions}
       />

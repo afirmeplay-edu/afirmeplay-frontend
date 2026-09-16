@@ -1,8 +1,9 @@
 import { api } from '@/lib/api';
 
-export const OFFLINE_PACK_TTL_MIN = 1;
-export const OFFLINE_PACK_TTL_MAX = 336;
-export const OFFLINE_PACK_TTL_DEFAULT = 48;
+/** Limite de UX: validade no máximo 14 dias a partir de agora. */
+export const OFFLINE_PACK_EXPIRES_MAX_DAYS = 14;
+/** Default de criação: agora + 48 horas (equivalente ao TTL antigo). */
+export const OFFLINE_PACK_EXPIRES_DEFAULT_HOURS = 48;
 export const OFFLINE_PACK_MAX_REDEMPTIONS_MIN = 1;
 export const OFFLINE_PACK_MAX_REDEMPTIONS_MAX = 10000;
 export const OFFLINE_PACK_MAX_REDEMPTIONS_DEFAULT = 50;
@@ -63,7 +64,8 @@ export interface OfflinePackContentType {
 
 export interface RegisterOfflinePackRequest {
   scope: OfflinePackScopePayload;
-  ttl_hours: number;
+  /** ISO UTC com Z, ex.: "2026-09-20T21:30:00Z". */
+  expires_at: string;
   max_redemptions: number;
   content_type: OfflinePackContentType;
 }
@@ -91,7 +93,8 @@ export const OFFLINE_PACK_QR_LEGACY_MESSAGE =
 
 export interface PatchOfflinePackRequest {
   scope?: OfflinePackScopePayload;
-  ttl_hours?: number;
+  /** ISO UTC com Z; obrigatório ao renovar pacote expirado. */
+  expires_at?: string;
   max_redemptions?: number;
   content_type?: OfflinePackContentType;
 }
