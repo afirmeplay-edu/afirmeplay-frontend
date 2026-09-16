@@ -3,36 +3,38 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  OFFLINE_PACK_EXPIRES_MAX_DAYS,
   OFFLINE_PACK_MAX_REDEMPTIONS_MAX,
   OFFLINE_PACK_MAX_REDEMPTIONS_MIN,
-  OFFLINE_PACK_TTL_MAX,
-  OFFLINE_PACK_TTL_MIN,
 } from '@/services/mobile/offlinePackApi';
+import { datetimeLocalMinMax } from '@/utils/date';
 
 interface OfflinePackValidityCardProps {
-  ttlHours: number;
-  onTtlChange: (v: number) => void;
+  expiresAtLocal: string;
+  onExpiresAtChange: (v: string) => void;
   maxRedemptions: number;
   onMaxRedemptionsChange: (v: number) => void;
   minMaxRedemptions?: number;
-  ttlHint?: string;
+  expiresHint?: string;
   idPrefix?: string;
-  /** Na edição de pacote expirado, destacar renovação por TTL. */
+  /** Na edição de pacote expirado, destacar renovação por data/hora. */
   isExpired?: boolean;
   disabled?: boolean;
 }
 
 export function OfflinePackValidityCard({
-  ttlHours,
-  onTtlChange,
+  expiresAtLocal,
+  onExpiresAtChange,
   maxRedemptions,
   onMaxRedemptionsChange,
   minMaxRedemptions = OFFLINE_PACK_MAX_REDEMPTIONS_MIN,
-  ttlHint,
+  expiresHint,
   idPrefix = 'offline',
   isExpired = false,
   disabled = false,
 }: OfflinePackValidityCardProps) {
+  const { min, max } = datetimeLocalMinMax(OFFLINE_PACK_EXPIRES_MAX_DAYS);
+
   return (
     <Card className="border-border/80 shadow-sm">
       <CardHeader className="pb-4">
@@ -42,26 +44,27 @@ export function OfflinePackValidityCard({
         </CardTitle>
         <CardDescription>
           {isExpired
-            ? 'Este pacote está expirado. Informe novas horas de validade para renovar.'
-            : 'Defina por quanto tempo o código permanece válido e quantas vezes pode ser utilizado no app.'}
+            ? 'Este pacote está expirado. Informe uma data e hora futuras para renovar.'
+            : 'Defina até quando o código permanece válido e quantas vezes pode ser utilizado no app.'}
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-ttl`}>
-            {isExpired ? 'Renovar validade (horas)' : 'Validade (horas)'}
+          <Label htmlFor={`${idPrefix}-expires`}>
+            {isExpired ? 'Renovar validade (data e hora)' : 'Validade (data e hora)'}
           </Label>
           <Input
-            id={`${idPrefix}-ttl`}
-            type="number"
-            min={OFFLINE_PACK_TTL_MIN}
-            max={OFFLINE_PACK_TTL_MAX}
-            value={ttlHours}
-            onChange={(e) => onTtlChange(Number(e.target.value) || 0)}
+            id={`${idPrefix}-expires`}
+            type="datetime-local"
+            min={min}
+            max={max}
+            value={expiresAtLocal}
+            onChange={(e) => onExpiresAtChange(e.target.value)}
             disabled={disabled}
           />
           <p className="text-muted-foreground text-xs">
-            {ttlHint ?? `Entre ${OFFLINE_PACK_TTL_MIN} e ${OFFLINE_PACK_TTL_MAX} horas (até 14 dias).`}
+            {expiresHint ??
+              `Depois de agora e no máximo ${OFFLINE_PACK_EXPIRES_MAX_DAYS} dias.`}
           </p>
         </div>
         <div className="space-y-2">

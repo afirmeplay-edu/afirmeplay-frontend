@@ -9,10 +9,14 @@ import {
   OFFLINE_PACK_MAX_REDEMPTIONS_DEFAULT,
   OFFLINE_PACK_MAX_REDEMPTIONS_MAX,
   OFFLINE_PACK_MAX_REDEMPTIONS_MIN,
-  OFFLINE_PACK_TTL_DEFAULT,
-  OFFLINE_PACK_TTL_MAX,
-  OFFLINE_PACK_TTL_MIN,
+  OFFLINE_PACK_EXPIRES_DEFAULT_HOURS,
+  OFFLINE_PACK_EXPIRES_MAX_DAYS,
 } from '@/services/mobile/offlinePackApi';
+import {
+  addHoursToDatetimeLocal,
+  parseDatetimeLocalToDate,
+  parseISOToDatetimeLocal,
+} from '@/utils/date';
 import {
   OFFLINE_SELECT_NONE,
   isValidSchoolCityId,
@@ -42,7 +46,8 @@ export interface UseOfflinePackFormOptions {
   /** Preenche escopo ao editar (após GET do pacote). */
   initialScope?: OfflinePackScope | null;
   initialContentType?: OfflinePackContentType | null;
-  initialTtlHours?: number;
+  /** ISO UTC da API (`expires_at`) para prefill do datetime-local. */
+  initialExpiresAt?: string;
   initialMaxRedemptions?: number;
   minMaxRedemptions?: number;
   /** Pré-seleciona município (edição ou retorno da lista). */
@@ -53,7 +58,7 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
   const {
     initialScope,
     initialContentType,
-    initialTtlHours,
+    initialExpiresAt,
     initialMaxRedemptions,
     minMaxRedemptions = 1,
     initialCityId,
@@ -94,7 +99,13 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
   const [selectedFormIds, setSelectedFormIds] = useState<Set<string>>(new Set());
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
 
-  const [ttlHours, setTtlHours] = useState(initialTtlHours ?? OFFLINE_PACK_TTL_DEFAULT);
+  const [expiresAtLocal, setExpiresAtLocal] = useState(() => {
+    if (initialExpiresAt) {
+      const prefilled = parseISOToDatetimeLocal(initialExpiresAt);
+      if (prefilled) return prefilled;
+    }
+    return addHoursToDatetimeLocal(OFFLINE_PACK_EXPIRES_DEFAULT_HOURS);
+  });
   const [maxRedemptions, setMaxRedemptions] = useState(
     initialMaxRedemptions ?? OFFLINE_PACK_MAX_REDEMPTIONS_DEFAULT
   );
@@ -623,8 +634,10 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
   }, [initialContentType, initialScope]);
 
   useEffect(() => {
-    if (initialTtlHours != null) setTtlHours(initialTtlHours);
-  }, [initialTtlHours]);
+    if (initialExpiresAt == null) return;
+    const prefilled = parseISOToDatetimeLocal(initialExpiresAt);
+    if (prefilled) setExpiresAtLocal(prefilled);
+  }, [initialExpiresAt]);
 
   useEffect(() => {
     if (initialMaxRedemptions != null) setMaxRedemptions(initialMaxRedemptions);
@@ -683,14 +696,22 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
     includeForms,
   ]);
 
-  const ttlValid = ttlHours >= OFFLINE_PACK_TTL_MIN && ttlHours <= OFFLINE_PACK_TTL_MAX;
+  const expiresAtValid = useMemo(() => {
+    const selected = parseDatetimeLocalToDate(expiresAtLocal);
+    if (!selected) return false;
+    const now = new Date();
+    const max = new Date(now.getTime() + OFFLINE_PACK_EXPIRES_MAX_DAYS * 24 * 60 * 60 * 1000);
+    return selected.getTime() > now.getTime() && selected.getTime() <= max.getTime();
+  }, [expiresAtLocal]);
+
   const maxRedemptionsValid =
     maxRedemptions >= Math.max(OFFLINE_PACK_MAX_REDEMPTIONS_MIN, minMaxRedemptions) &&
     maxRedemptions <= OFFLINE_PACK_MAX_REDEMPTIONS_MAX;
 
   const contentTypeValid = includeTests || includeGabaritos || includeForms;
   const scopeFormValid = scopeMode === 'municipality' || customScopeValid;
-  const canSubmit = hasCityContext && ttlValid && maxRedemptionsValid && scopeFormValid && contentTypeValid;
+  const canSubmit =
+    hasCityContext && expiresAtValid && maxRedemptionsValid && scopeFormValid && contentTypeValid;
 
   const selections = useMemo(
     () => ({
@@ -748,8 +769,8 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
     setSelectedFormIds,
     selectedStudentIds,
     setSelectedStudentIds,
-    ttlHours,
-    setTtlHours,
+    expiresAtLocal,
+    setExpiresAtLocal,
     maxRedemptions,
     setMaxRedemptions,
     includeTests,
@@ -770,7 +791,7 @@ export function useOfflinePackForm(options: UseOfflinePackFormOptions = {}) {
     canSubmit,
     scopeFormValid,
     contentTypeValid,
-    ttlValid,
+    expiresAtValid,
     maxRedemptionsValid,
     selections,
     minMaxRedemptions,
