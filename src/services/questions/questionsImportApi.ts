@@ -52,6 +52,9 @@ export async function downloadQuestionsImportTemplate(
 ): Promise<void> {
   const query: Record<string, string> = { grade: params.grade };
   appendSubjectFields(query, params);
+  if (params.counts) {
+    query.counts = params.counts;
+  }
 
   await fetchAuthenticatedDownload(
     "/questions/import/template",
