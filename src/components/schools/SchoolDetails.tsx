@@ -3,11 +3,9 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/authContext";
-import { UserPlus, Eye, Pencil, Trash2, Edit, Loader2, ArrowLeft, Building, Users, GraduationCap, MapPin, Globe, Calendar, Plus, BookOpen, School, Upload, MoveRight, Link2, KeyRound, Clock } from "lucide-react";
-import { AddUserForm } from "./AddUserForm";
+import { UserPlus, Eye, Pencil, Trash2, Edit, Loader2, ArrowLeft, Building, Users, GraduationCap, MapPin, Globe, BookOpen, MoveRight, Link2, KeyRound, Clock, MoreHorizontal } from "lucide-react";
 import { CreateClassForm } from "./CreateClassForm";
 import { LinkTeacherModal } from "./LinkTeacherModal";
-import { LinkStudentModal } from "./LinkStudentModal";
 import { ManageClassModal } from "./ManageClassModal";
 import { ClassShiftBadge } from "./ClassShiftBadge";
 import { EditClassShiftDialog } from "./EditClassShiftDialog";
@@ -20,14 +18,6 @@ import { BulkCreateCoordinatorsModal } from "./BulkCreateCoordinatorsModal";
 import { PasswordReportModal } from "./PasswordReportModal";
 import { SchoolCoursesTab } from "./SchoolCoursesTab";
 import { InstituicaoDisciplinasTab } from "./InstituicaoDisciplinasTab";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -54,12 +44,22 @@ import {
 } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import SchoolForm from "./SchoolForm";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { getRoleDisplayName } from "@/lib/constants";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+const SCHOOL_TABS = ["overview", "classes", "courses", "disciplinas"] as const;
+type SchoolTab = (typeof SCHOOL_TABS)[number];
+
+function isSchoolTab(value: string | null): value is SchoolTab {
+  return !!value && (SCHOOL_TABS as readonly string[]).includes(value);
+}
 
 interface City {
   id: string;
@@ -154,7 +154,22 @@ export default function SchoolDetails() {
   const [isLoadingTeachers, setIsLoadingTeachers] = useState(false);
   const [selectedDirectors, setSelectedDirectors] = useState<string[]>([]);
   const [selectedCoordinators, setSelectedCoordinators] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState("overview");
+  const activeTab: SchoolTab = useMemo(() => {
+    const tab = searchParams.get("tab");
+    return isSchoolTab(tab) ? tab : "overview";
+  }, [searchParams]);
+  const setActiveTab = useCallback(
+    (value: string) => {
+      const next = new URLSearchParams(searchParams);
+      if (value === "overview") {
+        next.delete("tab");
+      } else {
+        next.set("tab", value);
+      }
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
   const [showManageClassModal, setShowManageClassModal] = useState(false);
   const [selectedClass, setSelectedClass] = useState<Class | null>(null);
   const [shiftEditClass, setShiftEditClass] = useState<Class | null>(null);
@@ -252,11 +267,15 @@ export default function SchoolDetails() {
     fetchCurrentTeacherUserId();
   }, [user?.id, user.role]);
 
-  const canManageClasses =
+  const canManageSchool =
     user.role === "admin" ||
     user.role === "tecadm" ||
     user.role === "diretor" ||
     user.role === "coordenador";
+
+  const canManageClasses = canManageSchool;
+
+  const canBulkCoordinators = user.role === "admin" || user.role === "tecadm";
 
   const handleClassShiftSaved = (classId: string, shift: ClassShiftCanonical | null) => {
     setClasses((prev) =>
@@ -686,438 +705,576 @@ export default function SchoolDetails() {
 
 
 
+  const totalUsers = directors.length + coordinators.length + teachers.length + students.length;
+  const teachersWithoutClass = teachers.filter((teacher) => !teacher.class_id).length;
+
+  const goToPeopleSection = () => {
+    const scroll = () =>
+      document.getElementById("school-people")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+
+    if (activeTab !== "overview") {
+      setActiveTab("overview");
+      window.setTimeout(scroll, 80);
+      return;
+    }
+    scroll();
+  };
+
   return (
     <div className="space-y-6 p-4 sm:p-6">
       {/* Header */}
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
-          <Button
-            variant="outline"
-            onClick={() => navigate("/app/cadastros/gestao")}
-            className="shrink-0 w-full sm:w-auto"
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Voltar
-          </Button>
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold flex items-center gap-2 break-words">
-              <Building className="h-5 w-5 sm:h-6 sm:w-6 text-orange-600 flex-shrink-0" />
-              <span className="truncate">{school.name}</span>
-            </h1>
-            <p className="text-muted-foreground mt-1 text-sm sm:text-base">
-              {school.city.name} - {school.city.state}
-            </p>
+      <div className="rounded-xl border border-border bg-card p-4 sm:p-5 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3 min-w-0">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => navigate("/app/cadastros/gestao")}
+              className="shrink-0 mt-0.5"
+              aria-label="Voltar para Gestão Escolar"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div className="min-w-0 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl sm:text-2xl font-semibold tracking-tight truncate">
+                  {school.name}
+                </h1>
+                <Badge
+                  variant="outline"
+                  className="text-[11px] font-medium text-emerald-700 border-emerald-300 bg-emerald-50 shrink-0"
+                >
+                  Ativa
+                </Badge>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {school.city.name} — {school.city.state}
+              </p>
+              <div className="flex flex-col sm:flex-row sm:flex-wrap gap-1 sm:gap-x-4 text-xs text-muted-foreground pt-1 border-t border-border/80 mt-2">
+                <span className="inline-flex items-start gap-1.5 min-w-0 pt-2 sm:pt-2">
+                  <MapPin className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{school.address || "Endereço não informado"}</span>
+                </span>
+                <span className="inline-flex items-start gap-1.5 min-w-0 sm:pt-2">
+                  <Globe className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{school.domain || "Domínio não informado"}</span>
+                </span>
+              </div>
+            </div>
           </div>
+          {canManageSchool && (
+            <Button
+              onClick={() => setIsEditDialogOpen(true)}
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto shrink-0"
+            >
+              <Edit className="mr-2 h-4 w-4" />
+              Editar
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total de Usuários</CardTitle>
-            <Users className="h-4 w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{directors.length + coordinators.length + teachers.length + students.length}</div>
-            <p className="text-xs text-muted-foreground">
-              {directors.length + coordinators.length + teachers.length + students.length === 1 ? 'usuário cadastrado' : 'usuários cadastrados'}
-            </p>
-          </CardContent>
-        </Card>
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <button
+          type="button"
+          onClick={goToPeopleSection}
+          className="rounded-xl border border-border bg-card px-4 py-3 text-left shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <p className="text-xs text-muted-foreground">Usuários</p>
+          <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{totalUsers}</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            {totalUsers === 1 ? "cadastrado" : "cadastrados"}
+          </p>
+        </button>
 
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Turmas</CardTitle>
-            <BookOpen className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{classes.length}</div>
-            <p className="text-xs text-muted-foreground">
-              {classes.length === 1 ? 'turma ativa' : 'turmas ativas'}
-            </p>
-          </CardContent>
-        </Card>
+        <button
+          type="button"
+          onClick={() => setActiveTab("classes")}
+          className="rounded-xl border border-border bg-card px-4 py-3 text-left shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <p className="text-xs text-muted-foreground">Turmas</p>
+          <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{classes.length}</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            {classes.length === 1 ? "turma" : "turmas"}
+          </p>
+        </button>
 
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Professores</CardTitle>
-            <GraduationCap className="h-4 w-4 text-purple-600" />
-          </CardHeader>
-          <CardContent>
-            {isLoadingTeachers ? (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm">Carregando...</span>
-              </div>
-            ) : (
-              <>
-                <div className="text-2xl font-bold">{teachers.length}</div>
-                <p className="text-xs text-muted-foreground">
-                  {teachers.filter(teacher => !teacher.class_id).length} sem turma
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
+        <button
+          type="button"
+          onClick={goToPeopleSection}
+          className="rounded-xl border border-border bg-card px-4 py-3 text-left shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <p className="text-xs text-muted-foreground">Professores</p>
+          {isLoadingTeachers ? (
+            <div className="mt-2 flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-xs">…</span>
+            </div>
+          ) : (
+            <>
+              <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{teachers.length}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                {teachersWithoutClass} sem turma
+              </p>
+            </>
+          )}
+        </button>
 
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Status</CardTitle>
-            <Badge variant="default" className="text-xs">
-              Ativa
-            </Badge>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">✓</div>
-            <p className="text-xs text-muted-foreground">
-              Instituição ativa
-            </p>
-          </CardContent>
-        </Card>
+        <button
+          type="button"
+          onClick={goToPeopleSection}
+          className="rounded-xl border border-border bg-card px-4 py-3 text-left shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <p className="text-xs text-muted-foreground">Alunos</p>
+          <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{students.length}</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            {students.length === 1 ? "aluno" : "alunos"}
+          </p>
+        </button>
       </div>
 
-      {/* School Information */}
-      <Card className="hover:shadow-lg transition-shadow">
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-              <Building className="h-5 w-5 text-orange-600" />
-              Informações da Instituição
-            </CardTitle>
-            {(user.role === 'admin' || user.role === 'tecadm' || user.role === 'diretor' || user.role === 'coordenador') && (
-              <Button onClick={() => setIsEditDialogOpen(true)} variant="outline" size="sm" className="w-full sm:w-auto">
-                <Edit className="mr-2 h-4 w-4" />
-                Editar
-              </Button>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <Building className="h-5 w-5 text-orange-600 mt-0.5 flex-shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-muted-foreground">Nome da Instituição</p>
-                  <p className="text-sm text-foreground break-words">{school.name}</p>
-                </div>
-              </div>
-              
-              <div className="flex items-start gap-3">
-                <MapPin className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-muted-foreground">Localização</p>
-                  <p className="text-sm text-foreground break-words">{school.city.name} - {school.city.state}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <MapPin className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-muted-foreground">Endereço</p>
-                  <p className="text-sm text-foreground break-words">{school.address || "Não informado"}</p>
-                </div>
-              </div>
-              
-              <div className="flex items-start gap-3">
-                <Globe className="h-5 w-5 text-purple-600 mt-0.5 flex-shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-muted-foreground">Domínio</p>
-                  <p className="text-sm text-foreground break-words">{school.domain || "Não informado"}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Main Content Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="overview">Visão Geral</TabsTrigger>
-          <TabsTrigger value="classes">Turmas</TabsTrigger>
-          <TabsTrigger value="courses">Cursos</TabsTrigger>
-          <TabsTrigger value="disciplinas">Disciplinas</TabsTrigger>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-4">
+        <TabsList className="grid h-10 w-full grid-cols-4 rounded-lg border border-border bg-muted p-1">
+          <TabsTrigger value="overview" className="text-xs sm:text-sm">Visão Geral</TabsTrigger>
+          <TabsTrigger value="classes" className="text-xs sm:text-sm">Turmas</TabsTrigger>
+          <TabsTrigger value="courses" className="text-xs sm:text-sm">Cursos</TabsTrigger>
+          <TabsTrigger value="disciplinas" className="text-xs sm:text-sm">Disciplinas</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-6">
-          {/* School Management Section */}
-          <Card className="hover:shadow-lg transition-shadow">
-            <CardHeader>
-                          <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-                  <Building className="h-5 w-5 text-red-600" />
-                  Gestão Escolar
-                </CardTitle>
-                <CardDescription>
-                  Diretores e coordenadores responsáveis pela gestão da instituição
-                </CardDescription>
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                {(user.role === 'admin' || user.role === 'tecadm' || user.role === 'diretor' || user.role === 'coordenador') && (
+        <TabsContent value="overview" className="space-y-5 mt-0">
+          {canManageSchool && (
+            <section className="rounded-xl border border-border bg-card p-4 sm:p-5 shadow-sm">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-base sm:text-lg font-semibold tracking-tight text-foreground">
+                    Ações da instituição
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    Importação, vínculos e relatórios
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
                   <Button
-                    variant="outline"
+                    variant="default"
                     size="sm"
                     onClick={() => setShowBulkUploadModal(true)}
                   >
                     <Users className="h-4 w-4 mr-2" />
                     Importar Alunos
                   </Button>
-                )}
-                {(user.role === 'admin' || user.role === 'tecadm' || user.role === 'diretor' || user.role === 'coordenador') && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm">
+                        <MoreHorizontal className="h-4 w-4 mr-2" />
+                        Mais ações
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => setShowManageSchoolLinksModal(true)}>
+                        <Users className="h-4 w-4 mr-2" />
+                        Gerenciar vínculos
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setShowPasswordReportModal(true)}>
+                        <KeyRound className="h-4 w-4 mr-2" />
+                        Relatório de Senhas
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* People management */}
+          <section
+            id="school-people"
+            className="scroll-mt-6 rounded-xl border border-border bg-card p-4 sm:p-5 shadow-sm space-y-5"
+          >
+            <div className="pb-1 border-b border-border">
+              <h2 className="text-base sm:text-lg font-semibold tracking-tight text-foreground">
+                Pessoas da instituição
+              </h2>
+              <p className="text-sm text-muted-foreground mt-0.5 pb-3">
+                Diretores, coordenadores e professores
+              </p>
+            </div>
+
+            {/* Directors */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="text-sm font-medium text-foreground">
+                  Diretores
+                  <span className="ml-1.5 text-muted-foreground font-normal">({directors.length})</span>
+                </h3>
+                {canManageSchool && (
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setShowManageSchoolLinksModal(true)}
+                    onClick={() => setShowLinkDirectorModal(true)}
                   >
-                    <Users className="h-4 w-4 mr-2" />
-                    Gerenciar
-                  </Button>
-                )}
-                {(user.role === 'admin' || user.role === 'tecadm' || user.role === 'diretor' || user.role === 'coordenador') && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowPasswordReportModal(true)}
-                  >
-                    <KeyRound className="h-4 w-4 mr-2" />
-                    Relatório de Senhas
+                    <UserPlus className="h-4 w-4 mr-1.5" />
+                    Adicionar
                   </Button>
                 )}
               </div>
-            </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Directors */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-medium text-sm flex items-center gap-2">
-                    <Users className="h-4 w-4 text-red-600" />
-                    Diretores ({directors.length})
-                  </h4>
-                  {(user.role === 'admin' || user.role === 'tecadm' || user.role === 'diretor' || user.role === 'coordenador') && (
+              {directors.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border bg-muted px-3 py-4 text-center">
+                  <p className="text-sm text-muted-foreground">Nenhum diretor cadastrado</p>
+                  {canManageSchool && (
                     <Button
-                      variant="outline"
+                      variant="link"
                       size="sm"
+                      className="mt-1 h-auto p-0"
                       onClick={() => setShowLinkDirectorModal(true)}
                     >
-                      <UserPlus className="h-4 w-4 mr-2" />
-                      Adicionar
+                      Adicionar o primeiro diretor
                     </Button>
                   )}
                 </div>
-                {directors.length === 0 ? (
-                  <div className="text-center py-4 bg-muted rounded-lg">
-                    <p className="text-sm text-muted-foreground">Nenhum diretor cadastrado</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {directors.map((director) => (
-                      <div key={director.id} className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted border-border">
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm">{director.name}</div>
-                          {user.role !== 'professor' && (
-                            <div className="text-xs text-muted-foreground">{director.email}</div>
-                          )}
-                        </div>
-                        <Badge variant="outline" className="text-xs">Diretor</Badge>
+              ) : (
+                <div className="divide-y divide-border rounded-lg border border-border bg-background">
+                  {directors.map((director) => (
+                    <div key={director.id} className="flex items-center gap-3 px-3 py-2.5">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{director.name}</div>
+                        {user.role !== "professor" && (
+                          <div className="text-xs text-muted-foreground truncate">{director.email}</div>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <Separator />
-
-              {/* Coordinators */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <h4 className="font-medium text-sm flex items-center gap-2">
-                    <Users className="h-4 w-4 text-orange-600" />
-                    Coordenadores ({coordinators.length})
-                  </h4>
-                  <div className="flex gap-2 flex-wrap items-center">
-                    {(user.role === 'admin' || user.role === 'tecadm' || user.role === 'diretor' || user.role === 'coordenador') && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowLinkCoordinatorModal(true)}
-                      >
-                        <UserPlus className="h-4 w-4 mr-2" />
-                        Adicionar
-                      </Button>
-                    )}
-                    {(user.role === 'admin' || user.role === 'tecadm') && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowBulkCoordinatorModal(true)}
-                      >
-                        <Users className="h-4 w-4 mr-2" />
-                        Coordenador em lote
-                      </Button>
-                    )}
-                  </div>
+                      <Badge variant="secondary" className="text-[10px] font-normal shrink-0">
+                        Diretor
+                      </Badge>
+                    </div>
+                  ))}
                 </div>
-                {coordinators.length === 0 ? (
-                  <div className="text-center py-4 bg-muted rounded-lg">
-                    <p className="text-sm text-muted-foreground">Nenhum coordenador cadastrado</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {coordinators.map((coordinator) => (
-                      <div key={coordinator.id} className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted border-border">
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm">{coordinator.name}</div>
-                          {user.role !== 'professor' && (
-                            <div className="text-xs text-muted-foreground">{coordinator.email}</div>
-                          )}
-                        </div>
-                        <Badge variant="outline" className="text-xs">Coordenador</Badge>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Coordinators */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="text-sm font-medium text-foreground">
+                  Coordenadores
+                  <span className="ml-1.5 text-muted-foreground font-normal">({coordinators.length})</span>
+                </h3>
+                <div className="flex gap-1 flex-wrap items-center">
+                  {canManageSchool && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowLinkCoordinatorModal(true)}
+                    >
+                      <UserPlus className="h-4 w-4 mr-1.5" />
+                      Adicionar
+                    </Button>
+                  )}
+                  {canBulkCoordinators && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm">
+                          <MoreHorizontal className="h-4 w-4 mr-2" />
+                          Mais
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setShowBulkCoordinatorModal(true)}>
+                          <Users className="h-4 w-4 mr-2" />
+                          Coordenador em lote
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
               </div>
+              {coordinators.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border bg-muted px-3 py-4 text-center">
+                  <p className="text-sm text-muted-foreground">Nenhum coordenador cadastrado</p>
+                  {canManageSchool && (
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="mt-1 h-auto p-0"
+                      onClick={() => setShowLinkCoordinatorModal(true)}
+                    >
+                      Adicionar o primeiro coordenador
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="divide-y divide-border rounded-lg border border-border bg-background">
+                  {coordinators.map((coordinator) => (
+                    <div key={coordinator.id} className="flex items-center gap-3 px-3 py-2.5">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{coordinator.name}</div>
+                        {user.role !== "professor" && (
+                          <div className="text-xs text-muted-foreground truncate">{coordinator.email}</div>
+                        )}
+                      </div>
+                      <Badge variant="secondary" className="text-[10px] font-normal shrink-0">
+                        Coordenador
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
-              <Separator />
+            <Separator />
 
-              {/* Teachers */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-medium text-sm flex items-center gap-2">
-                    <GraduationCap className="h-4 w-4 text-purple-600" />
-                    Professores ({isLoadingTeachers ? "..." : teachers.length})
-                  </h4>
-                  <div className="flex gap-2 flex-wrap">
-                    {(user.role === 'admin' || user.role === 'tecadm' || user.role === 'diretor' || user.role === 'coordenador') && (
+            {/* Teachers */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="text-sm font-medium text-foreground">
+                  Professores
+                  <span className="ml-1.5 text-muted-foreground font-normal">
+                    ({isLoadingTeachers ? "…" : teachers.length})
+                  </span>
+                </h3>
+                <div className="flex gap-1 flex-wrap items-center">
+                  {canManageSchool && (
+                    <>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => setShowLinkTeacherModal(true)}
                       >
-                        <UserPlus className="h-4 w-4 mr-2" />
+                        <UserPlus className="h-4 w-4 mr-1.5" />
                         Adicionar
                       </Button>
-                    )}
-                    {(user.role === 'admin' || user.role === 'tecadm' || user.role === 'diretor' || user.role === 'coordenador') && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setBulkTeachersModalEntry("link-classes");
-                          setShowBulkTeachersModal(true);
-                        }}
-                      >
-                        <Link2 className="h-4 w-4 mr-2" />
-                        Atrelar turmas
-                      </Button>
-                    )}
-                    {(user.role === 'admin' || user.role === 'tecadm' || user.role === 'diretor' || user.role === 'coordenador') && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setBulkTeachersModalEntry("import");
-                          setShowBulkTeachersModal(true);
-                        }}
-                      >
-                        <GraduationCap className="h-4 w-4 mr-2" />
-                        Professores em lote
-                      </Button>
-                    )}
-                  </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm">
+                            <MoreHorizontal className="h-4 w-4 mr-2" />
+                            Mais
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setBulkTeachersModalEntry("link-classes");
+                              setShowBulkTeachersModal(true);
+                            }}
+                          >
+                            <Link2 className="h-4 w-4 mr-2" />
+                            Atrelar turmas
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setBulkTeachersModalEntry("import");
+                              setShowBulkTeachersModal(true);
+                            }}
+                          >
+                            <GraduationCap className="h-4 w-4 mr-2" />
+                            Professores em lote
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </>
+                  )}
                 </div>
-                {isLoadingTeachers ? (
-                  <div className="text-center py-6 bg-muted rounded-lg">
-                    <Loader2 className="h-5 w-5 animate-spin text-primary mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">Carregando professores...</p>
-                  </div>
-                ) : teachers.length === 0 ? (
-                  <div className="text-center py-4 bg-muted rounded-lg">
-                    <p className="text-sm text-muted-foreground">Nenhum professor cadastrado</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {teachers.slice(0, 3).map((teacher) => (
-                      <div key={teacher.id} className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted border-border">
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm">{teacher.name}</div>
-                          {user.role !== 'professor' && (
-                            <div className="text-xs text-muted-foreground">{teacher.email}</div>
-                          )}
-                        </div>
-                        <Badge variant="outline" className="text-xs">Professor</Badge>
-                      </div>
-                    ))}
-                    {teachers.length > 3 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="justify-start h-auto px-2 py-1 text-xs text-blue-600 hover:text-blue-700"
-                        onClick={() => {
-                          setBulkTeachersModalEntry("link-classes");
-                          setShowBulkTeachersModal(true);
-                        }}
-                      >
-                        +{teachers.length - 3} professor(es)
-                      </Button>
-                    )}
-                  </div>
-                )}
               </div>
-            </CardContent>
-          </Card>
-
-          {/* Classes Overview */}
-          <Card className="hover:shadow-lg transition-shadow">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-                <BookOpen className="h-5 w-5 text-green-600" />
-                Turmas da Escola
-              </CardTitle>
-              <CardDescription>
-                Turmas com alunos vinculados
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {isLoadingClasses ? (
-                <div className="text-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">Carregando turmas...</p>
+              {isLoadingTeachers ? (
+                <div className="rounded-lg border border-border bg-muted px-3 py-6 text-center">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">Carregando professores…</p>
                 </div>
-              ) : classes.length === 0 ? (
-                <div className="text-center py-8">
-                  <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Nenhuma turma cadastrada</h3>
-                                     <p className="text-muted-foreground mb-4 text-sm">Crie turmas para organizar os alunos</p>
-                   {(user.role === 'admin' || user.role === 'tecadm' || user.role === 'diretor' || user.role === 'coordenador') && (
-                     <CreateClassForm
-                       schoolId={school.id}
-                       schoolName={school.name}
-                       onSuccess={() => {
-                         // Recarregar turmas
-                         window.location.reload();
-                       }}
-                     />
-                   )}
+              ) : teachers.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border bg-muted px-3 py-4 text-center">
+                  <p className="text-sm text-muted-foreground">Nenhum professor cadastrado</p>
+                  {canManageSchool && (
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="mt-1 h-auto p-0"
+                      onClick={() => setShowLinkTeacherModal(true)}
+                    >
+                      Adicionar o primeiro professor
+                    </Button>
+                  )}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {sortedClasses.map((classItem) => {
-                    return (
-                      <div key={classItem.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-                        <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-                          <h4 className="font-medium text-sm flex items-center gap-2 flex-wrap">
-                            {upperDisplay(classItem.name)}
-                            <ClassShiftBadge shift={classItem.shift} />
-                          </h4>
-                          {classItem.grade && (
-                            <Badge variant="secondary" className="text-xs">
+                <div className="divide-y divide-border rounded-lg border border-border bg-background">
+                  {teachers.slice(0, 5).map((teacher) => (
+                    <div key={teacher.id} className="flex items-center gap-3 px-3 py-2.5">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{teacher.name}</div>
+                        {user.role !== "professor" && (
+                          <div className="text-xs text-muted-foreground truncate">{teacher.email}</div>
+                        )}
+                      </div>
+                      <Badge variant="secondary" className="text-[10px] font-normal shrink-0">
+                        Professor
+                      </Badge>
+                    </div>
+                  ))}
+                  {teachers.length > 5 && (
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-left text-xs text-primary hover:bg-muted"
+                      onClick={() => {
+                        setBulkTeachersModalEntry("link-classes");
+                        setShowBulkTeachersModal(true);
+                      }}
+                    >
+                      Ver todos (+{teachers.length - 5})
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Classes Overview */}
+          <section className="rounded-xl border border-border bg-card p-4 sm:p-5 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-1 border-b border-border">
+              <div className="pb-3 sm:pb-0">
+                <h2 className="text-base sm:text-lg font-semibold tracking-tight text-foreground">
+                  Turmas
+                </h2>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Resumo — gerencie na aba Turmas
+                </p>
+              </div>
+              <Button
+                variant="default"
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => setActiveTab("classes")}
+              >
+                Gerenciar turmas
+              </Button>
+            </div>
+
+            {isLoadingClasses ? (
+              <div className="rounded-lg border border-border bg-muted px-3 py-8 text-center">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">Carregando turmas…</p>
+              </div>
+            ) : classes.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border bg-muted px-4 py-8 text-center">
+                <BookOpen className="h-8 w-8 text-muted-foreground/70 mx-auto mb-3" />
+                <h3 className="text-sm font-medium mb-1">Nenhuma turma ainda</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Crie a primeira turma para organizar alunos e professores
+                </p>
+                {canManageSchool && (
+                  <CreateClassForm
+                    schoolId={school.id}
+                    schoolName={school.name}
+                    onSuccess={() => {
+                      window.location.reload();
+                    }}
+                  />
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {sortedClasses.map((classItem) => (
+                  <button
+                    key={classItem.id}
+                    type="button"
+                    className="rounded-xl border border-border bg-background p-4 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => setActiveTab("classes")}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <h4 className="font-medium text-sm flex items-center gap-2 flex-wrap">
+                        {upperDisplay(classItem.name)}
+                        <ClassShiftBadge shift={classItem.shift} />
+                      </h4>
+                      {classItem.grade && (
+                        <Badge variant="secondary" className="text-[10px] font-normal shrink-0">
+                          {upperDisplay(
+                            typeof classItem.grade === "object" && classItem.grade !== null
+                              ? String((classItem.grade as { name?: string }).name ?? "")
+                              : typeof classItem.grade === "string"
+                                ? classItem.grade
+                                : ""
+                          )}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex gap-3 text-xs text-muted-foreground">
+                      <span>{classTeachers[classItem.id]?.length || 0} prof.</span>
+                      <span>{classStudents[classItem.id]?.length || 0} alunos</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        </TabsContent>
+
+        <TabsContent value="classes" className="space-y-4 mt-0">
+          <div className="rounded-xl border border-border bg-card p-4 sm:p-5 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-border mb-4">
+              <div>
+                <h2 className="text-base sm:text-lg font-semibold tracking-tight text-foreground">
+                  Gerenciamento de turmas
+                </h2>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Organize alunos e professores por turma
+                </p>
+              </div>
+              {canManageSchool && (
+                <CreateClassForm
+                  schoolId={school.id}
+                  schoolName={school.name}
+                  onSuccess={() => {
+                    window.location.reload();
+                  }}
+                />
+              )}
+            </div>
+
+          {isLoadingClasses ? (
+            <div className="rounded-lg border border-border bg-muted px-3 py-8 text-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">Carregando turmas…</p>
+            </div>
+          ) : classes.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-muted px-4 py-10 text-center">
+              <BookOpen className="h-8 w-8 text-muted-foreground/70 mx-auto mb-3" />
+              <h3 className="text-sm font-medium mb-1">Nenhuma turma ainda</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Crie a primeira turma para começar a vincular alunos
+              </p>
+              {canManageSchool && (
+                <CreateClassForm
+                  schoolId={school.id}
+                  schoolName={school.name}
+                  onSuccess={() => {
+                    window.location.reload();
+                  }}
+                />
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {sortedClasses.map((classItem) => {
+                return (
+                  <div
+                    key={classItem.id}
+                    className="rounded-xl border border-border bg-background p-4 sm:p-5"
+                  >
+                    <div className="flex items-start justify-between mb-4 gap-3 flex-wrap">
+                      <div className="min-w-0 space-y-1">
+                        <h4 className="font-medium text-base flex items-center gap-2 flex-wrap">
+                          {upperDisplay(classItem.name)}
+                          <ClassShiftBadge shift={classItem.shift} />
+                        </h4>
+                        {classItem.grade && (
+                          <div className="text-sm text-muted-foreground">
+                            <p>
+                              Série:{" "}
                               {upperDisplay(
                                 typeof classItem.grade === "object" && classItem.grade !== null
                                   ? String((classItem.grade as { name?: string }).name ?? "")
@@ -1125,237 +1282,163 @@ export default function SchoolDetails() {
                                     ? classItem.grade
                                     : ""
                               )}
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="space-y-2 text-xs text-muted-foreground">
-                          <div className="flex items-center gap-2">
-                            <GraduationCap className="h-3 w-3" />
-                            <span>Professores: {classTeachers[classItem.id]?.length || 0}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Users className="h-3 w-3" />
-                            <span>Alunos: {classStudents[classItem.id]?.length || 0}</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="classes" className="space-y-6">
-          {/* Classes Management */}
-          <Card className="hover:shadow-lg transition-shadow">
-            <CardHeader>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-                    <BookOpen className="h-5 w-5 text-green-600" />
-                    Gerenciamento de Turmas
-                  </CardTitle>
-                  <CardDescription>
-                    Organize os alunos por turmas
-                  </CardDescription>
-                </div>
-                                 {(user.role === 'admin' || user.role === 'tecadm' || user.role === 'diretor' || user.role === 'coordenador') && (
-                                   <CreateClassForm
-                                     schoolId={school.id}
-                                     schoolName={school.name}
-                                     onSuccess={() => {
-                                       // Recarregar turmas
-                                       window.location.reload();
-                                     }}
-                                   />
-                                 )}
-              </div>
-            </CardHeader>
-            <CardContent>
-              {isLoadingClasses ? (
-                <div className="text-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">Carregando turmas...</p>
-                </div>
-              ) : classes.length === 0 ? (
-                <div className="text-center py-8">
-                  <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Nenhuma turma cadastrada</h3>
-                  <p className="text-muted-foreground mb-4 text-sm">Crie turmas para organizar os alunos</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {sortedClasses.map((classItem) => {
-                    return (
-                      <div key={classItem.id} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
-                          <div>
-                            <h4 className="font-medium text-lg flex items-center gap-2 flex-wrap">
-                              {upperDisplay(classItem.name)}
-                              <ClassShiftBadge shift={classItem.shift} />
-                            </h4>
-                            {classItem.grade && (
-                              <div className="text-sm text-muted-foreground">
-                                <p>
-                                  Série:{" "}
-                                  {upperDisplay(
-                                    typeof classItem.grade === "object" && classItem.grade !== null
-                                      ? String((classItem.grade as { name?: string }).name ?? "")
-                                      : typeof classItem.grade === "string"
-                                        ? classItem.grade
-                                        : ""
-                                  )}
+                            </p>
+                            {typeof classItem.grade === "object" &&
+                              classItem.grade !== null &&
+                              (classItem.grade as any).education_stage && (
+                                <p className="text-xs text-muted-foreground">
+                                  Curso:{" "}
+                                  {upperDisplay((classItem.grade as any).education_stage.name)}
                                 </p>
-                                {typeof classItem.grade === "object" && classItem.grade !== null && (classItem.grade as any).education_stage && (
-                                  <p className="text-xs text-muted-foreground">
-                                    Curso:{" "}
-                                    {upperDisplay((classItem.grade as any).education_stage.name)}
-                                  </p>
-                                )}
-                              </div>
-                            )}
+                              )}
                           </div>
-                          <div className="flex gap-2 flex-wrap">
-                          {String(user.role).toLowerCase() === "professor" &&
-                            (classTeachers[classItem.id] || []).some((t) => t?.user_id && t.user_id === user.id) && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setStudentsDialogClass(classItem);
-                                  setShowStudentsDialog(true);
-                                }}
-                                title="Visualizar alunos desta turma"
-                              >
-                                <Eye className="h-4 w-4 mr-2" />
-                                Ver alunos
-                              </Button>
-                            )}
+                        )}
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        {String(user.role).toLowerCase() === "professor" &&
+                          (classTeachers[classItem.id] || []).some(
+                            (t) => t?.user_id && t.user_id === user.id
+                          ) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setStudentsDialogClass(classItem);
+                                setShowStudentsDialog(true);
+                              }}
+                              title="Visualizar alunos desta turma"
+                            >
+                              <Eye className="h-4 w-4 mr-2" />
+                              Ver alunos
+                            </Button>
+                          )}
 
-                            {canManageClasses && (
-                              <>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => setShiftEditClass(classItem)}
-                                >
-                                  <Clock className="h-4 w-4 mr-2" />
-                                  Editar turno
+                        {canManageClasses && (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setShiftEditClass(classItem)}
+                            >
+                              <Clock className="h-4 w-4 mr-2" />
+                              Editar turno
+                            </Button>
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedClass(classItem);
+                                setShowManageClassModal(true);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4 mr-2" />
+                              Gerenciar
+                            </Button>
+
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm">
+                                  <MoreHorizontal className="h-4 w-4 mr-2" />
+                                  Mais
                                 </Button>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm"
-                                  onClick={() => {
-                                    setSelectedClass(classItem);
-                                    setShowManageClassModal(true);
-                                  }}
-                                >
-                                  <Pencil className="h-4 w-4 mr-2" />
-                                  Gerenciar
-                                </Button>
-                                
-                                <Button 
-                                  variant="outline" 
-                                  size="sm"
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
                                   onClick={() => handleOpenMoveClassDialog(classItem)}
-                                  title="Mover turma para outra escola"
                                 >
                                   <MoveRight className="h-4 w-4 mr-2" />
-                                  Mover
-                                </Button>
-                                
-                                <Button 
-                                  variant="outline" 
-                                  size="sm"
+                                  Mover para outra escola
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-red-600 focus:text-red-700"
                                   onClick={() => {
                                     setClassToDelete(classItem);
                                     setShowDeleteClassDialog(true);
                                   }}
-                                  className="text-red-600 hover:text-red-700"
-                                  title="Excluir turma"
                                 >
                                   <Trash2 className="h-4 w-4 mr-2" />
-                                  Excluir
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div>
-                            <h5 className="font-medium text-sm mb-3 flex items-center gap-2">
-                              <GraduationCap className="h-4 w-4 text-blue-600" />
-                              Professores ({classTeachers[classItem.id]?.length || 0})
-                            </h5>
-                            <div className="border rounded-lg p-3 max-h-32 overflow-y-auto">
-                              {classTeachers[classItem.id]?.length === 0 ? (
-                                <p className="text-sm text-muted-foreground text-center">
-                                  Nenhum professor vinculado
-                                </p>
-                              ) : (
-                                <div className="space-y-1">
-                                  {classTeachers[classItem.id]?.slice(0, 3).map((teacher) => (
-                                    <div key={teacher.id} className="text-xs text-muted-foreground truncate">
-                                      {upperDisplay(teacher.name)}
-                                    </div>
-                                  ))}
-                                  {classTeachers[classItem.id]?.length > 3 && (
-                                    <div className="text-xs text-blue-600">
-                                      +{classTeachers[classItem.id].length - 3} mais
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
+                                  Excluir turma
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </>
+                        )}
+                      </div>
+                    </div>
 
-                          <div>
-                            <h5 className="font-medium text-sm mb-3 flex items-center gap-2">
-                              <Users className="h-4 w-4 text-green-600" />
-                              Alunos ({classStudents[classItem.id]?.length || 0})
-                            </h5>
-                            <div className="border rounded-lg p-3 max-h-32 overflow-y-auto">
-                              {classStudents[classItem.id]?.length === 0 ? (
-                                <p className="text-sm text-muted-foreground text-center">
-                                  Nenhum aluno vinculado
-                                </p>
-                              ) : (
-                                <div className="space-y-1">
-                                  {classStudents[classItem.id]?.slice(0, 3).map((student) => (
-                                    <div key={student.id} className="text-xs text-muted-foreground truncate">
-                                      {upperDisplay(student.name)}
-                                    </div>
-                                  ))}
-                                  {classStudents[classItem.id] &&
-                                    classStudents[classItem.id].length > 3 && (
-                                      <div className="text-xs text-blue-600">
-                                        +{classStudents[classItem.id].length - 3} mais
-                                      </div>
-                                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <h5 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+                          Professores ({classTeachers[classItem.id]?.length || 0})
+                        </h5>
+                        <div className="rounded-lg border border-border bg-muted p-3 max-h-32 overflow-y-auto">
+                          {classTeachers[classItem.id]?.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center">
+                              Nenhum professor vinculado
+                            </p>
+                          ) : (
+                            <div className="space-y-1">
+                              {classTeachers[classItem.id]?.slice(0, 3).map((teacher) => (
+                                <div
+                                  key={teacher.id}
+                                  className="text-xs text-muted-foreground truncate"
+                                >
+                                  {upperDisplay(teacher.name)}
+                                </div>
+                              ))}
+                              {classTeachers[classItem.id]?.length > 3 && (
+                                <div className="text-xs text-primary">
+                                  +{classTeachers[classItem.id].length - 3} mais
                                 </div>
                               )}
                             </div>
-                          </div>
+                          )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
 
-
+                      <div>
+                        <h5 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+                          Alunos ({classStudents[classItem.id]?.length || 0})
+                        </h5>
+                        <div className="rounded-lg border border-border bg-muted p-3 max-h-32 overflow-y-auto">
+                          {classStudents[classItem.id]?.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center">
+                              Nenhum aluno vinculado
+                            </p>
+                          ) : (
+                            <div className="space-y-1">
+                              {classStudents[classItem.id]?.slice(0, 3).map((student) => (
+                                <div
+                                  key={student.id}
+                                  className="text-xs text-muted-foreground truncate"
+                                >
+                                  {upperDisplay(student.name)}
+                                </div>
+                              ))}
+                              {classStudents[classItem.id] &&
+                                classStudents[classItem.id].length > 3 && (
+                                  <div className="text-xs text-primary">
+                                    +{classStudents[classItem.id].length - 3} mais
+                                  </div>
+                                )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          </div>
         </TabsContent>
 
-        <TabsContent value="courses" className="space-y-6">
+        <TabsContent value="courses" className="space-y-6 mt-0">
           <SchoolCoursesTab schoolId={school.id} schoolName={school.name} />
         </TabsContent>
 
-        <TabsContent value="disciplinas" className="space-y-6">
+        <TabsContent value="disciplinas" className="space-y-6 mt-0">
           <InstituicaoDisciplinasTab />
         </TabsContent>
       </Tabs>

@@ -1,0 +1,12 @@
+{
+  "mcp": {
+    "better-design": {
+      "type": "remote",
+      "url": "https://better-design.com/api/mcp",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer bd_live_jAGYpuAMMBeWbXtzShdL104HNXAENyFj"
+      }
+    }
+  }
+}
