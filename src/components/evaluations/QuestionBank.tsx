@@ -259,13 +259,14 @@ export function QuestionBank({
 
   const [erro, setErro] = useState<string | null>(null);
 
-  const existingIdsKey = existingQuestionIds.join("|");
-
-  // Ao abrir (ou quando a lista já escolhida muda), pré-marca as questões da avaliação
+  // Pré-marca as questões já na avaliação só ao abrir o modal.
+  // Não depende de existingQuestionIds: se sincronizar a cada adição, a seleção
+  // em andamento (e a página/busca) seria resetada no meio da sessão.
   useEffect(() => {
     if (!open) return;
     setSelectedQuestions(existingQuestionIds.filter(Boolean));
-  }, [open, existingIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // [QuestionBank] Log para debug: props ao abrir
   useEffect(() => {
@@ -517,6 +518,10 @@ export function QuestionBank({
     return filtered;
   }, [questions, searchTerm, subjectId, filters, gradeId, gradeName, grades]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filters, subjectId]);
+
   // Paginação
   const totalPages = Math.ceil(filteredQuestions.length / pageSize);
   const paginatedQuestions = useMemo(() => {
@@ -543,14 +548,12 @@ export function QuestionBank({
 
   const handleSelectQuestions = () => {
     const existingSet = new Set(existingQuestionIds.filter(Boolean));
-    const selectedQuestionObjects = (questions || []).filter((q) =>
-      selectedQuestions.includes(q.id)
-    );
-    const newQuestions = selectedQuestionObjects.filter((q) => !existingSet.has(q.id));
+    const questionsById = new Map((questions || []).map((q) => [q.id, q]));
+    const newQuestions = selectedQuestions
+      .map((id) => questionsById.get(id))
+      .filter((q): q is Question => Boolean(q) && !existingSet.has(q.id));
 
     newQuestions.forEach((q) => onQuestionSelected(q));
-    setSelectedQuestions([]);
-    onClose();
 
     if (newQuestions.length === 0) {
       toast({
@@ -572,12 +575,13 @@ export function QuestionBank({
         title: "Questão já adicionada",
         description: "Esta questão já está na avaliação.",
       });
-      onClose();
       return;
     }
 
     onQuestionSelected(question);
-    onClose();
+    setSelectedQuestions((prev) =>
+      prev.includes(question.id) ? prev : [...prev, question.id]
+    );
     toast({
       title: "Questão adicionada",
       description: "A questão foi adicionada à avaliação.",
@@ -730,15 +734,25 @@ export function QuestionBank({
               </div>
             </div>
 
-            <div className="flex items-center justify-between">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={resetFilters}
-                className="text-xs"
-              >
-                Limpar Filtros
-              </Button>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={resetFilters}
+                  className="text-xs"
+                >
+                  Limpar Filtros
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onClose}
+                  className="text-xs"
+                >
+                  Concluir
+                </Button>
+              </div>
               
               {selectedQuestions.length > 0 && (
                 <Button

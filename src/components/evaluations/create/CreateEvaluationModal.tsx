@@ -14,8 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/authContext';
-import { EvaluationFormData, Question, Subject } from '../types';
-import { ClassInfo } from '@/types/evaluation-types';
+import { EvaluationFormData, Question, Subject, ClassInfo } from '../types';
 import { QuestionBank } from '../QuestionBank';
 import QuestionPreview from '../questions/QuestionPreview';
 import QuestionFormReadOnly from '../questions/QuestionFormReadOnly';
@@ -99,6 +98,27 @@ function getQuestionPreviewText(question: Question): string {
   const fromText = extractPlainText(question.text);
   if (fromText) return fromText;
   return 'Sem texto disponível';
+}
+
+type QuestionWithLegacySubject = Question & { subject_id?: string };
+
+function getQuestionSubjectId(question: Question, preferred?: string, fallback?: string): string {
+  const q = question as QuestionWithLegacySubject;
+  return preferred || q.subjectId || q.subject?.id || q.subject_id || fallback || '';
+}
+
+function resolveQuestionSubject(
+  question: Question,
+  selectedSubjectId: string,
+  subjects: Subject[]
+): Subject | undefined {
+  if (question.subject?.name) return question.subject;
+  const id = getQuestionSubjectId(question, selectedSubjectId);
+  if (!id) return question.subject;
+  return {
+    id,
+    name: subjects.find((s) => s.id === id)?.name || question.subject?.name || '',
+  };
 }
 
 export function CreateEvaluationModal({
@@ -329,6 +349,7 @@ export function CreateEvaluationModal({
                   secondStatement: q.secondStatement || q.secondstatement || '',
                   skills: q.skills || '',
                   interactionConfig: q.interactionConfig || q.interaction_config || undefined,
+                  created_by: q.created_by || (typeof q.createdBy === 'string' ? q.createdBy : q.createdBy?.id) || '',
                 };
               });
               setQuestions(questionsData);
@@ -376,6 +397,7 @@ export function CreateEvaluationModal({
                       secondStatement: q.secondStatement || q.secondstatement || '',
                       skills: q.skills || '',
                       interactionConfig: q.interactionConfig || q.interaction_config || undefined,
+                  created_by: q.created_by || (typeof q.createdBy === 'string' ? q.createdBy : q.createdBy?.id) || '',
                     };
                   });
                   setQuestions(mappedQuestions);
@@ -494,6 +516,7 @@ export function CreateEvaluationModal({
                   secondStatement: q.secondStatement || q.secondstatement || '',
                   skills: q.skills || '',
                   interactionConfig: q.interactionConfig || q.interaction_config || undefined,
+                  created_by: q.created_by || (typeof q.createdBy === 'string' ? q.createdBy : q.createdBy?.id) || '',
                 };
               });
               console.log('📚 Carregando questões da API:', questionsData.length);
@@ -851,6 +874,7 @@ export function CreateEvaluationModal({
                       secondStatement: q.secondStatement || q.secondstatement || '',
                       skills: q.skills || '',
                       interactionConfig: q.interactionConfig || q.interaction_config || undefined,
+                  created_by: q.created_by || (typeof q.createdBy === 'string' ? q.createdBy : q.createdBy?.id) || '',
                     };
                   });
                   setQuestions(questionsData);
@@ -949,11 +973,11 @@ export function CreateEvaluationModal({
         }) ?? {}),
         questions: allQuestions.map((question, index) => {
           // ✅ CORREÇÃO: Garantir que subjectId seja sempre definido
-          const questionSubjectId = question.subjectId || 
-                                    question.subject?.id || 
-                                    question.subject_id || 
-                                    selectedSubjects[0]?.id || 
-                                    '';
+          const questionSubjectId = getQuestionSubjectId(
+            question,
+            undefined,
+            selectedSubjects[0]?.id
+          );
           
           // ✅ CORREÇÃO: Log para debug
           console.log(`📝 Processando questão ${index + 1}:`, {
@@ -1443,11 +1467,10 @@ export function CreateEvaluationModal({
       }
     }
     
-    // Garantir que o subjectId está correto
-    const questionWithSubject = {
+    const questionWithSubject: Question = {
       ...question,
-      subjectId: selectedSubjectForQuestion || question.subjectId || question.subject?.id || question.subject_id || '',
-      subject: question.subject || (selectedSubjectForQuestion ? { id: selectedSubjectForQuestion } : undefined),
+      subjectId: getQuestionSubjectId(question, selectedSubjectForQuestion),
+      subject: resolveQuestionSubject(question, selectedSubjectForQuestion, selectedSubjects),
     };
     
     console.log('✅ Adicionando questão ao store:', {
@@ -1490,11 +1513,10 @@ export function CreateEvaluationModal({
       return;
     }
     
-    // ✅ CORREÇÃO: Garantir que o subjectId está correto
-    const questionWithSubject = {
+    const questionWithSubject: Question = {
       ...question,
-      subjectId: selectedSubjectForQuestion || question.subjectId || question.subject?.id || question.subject_id || '',
-      subject: question.subject || (selectedSubjectForQuestion ? { id: selectedSubjectForQuestion } : undefined),
+      subjectId: getQuestionSubjectId(question, selectedSubjectForQuestion),
+      subject: resolveQuestionSubject(question, selectedSubjectForQuestion, selectedSubjects),
     };
     
     addQuestion(questionWithSubject);
@@ -1633,6 +1655,7 @@ export function CreateEvaluationModal({
                   secondStatement: q.secondStatement || q.secondstatement || '',
                       skills: q.skills || '',
                       interactionConfig: q.interactionConfig || q.interaction_config || undefined,
+                  created_by: q.created_by || (typeof q.createdBy === 'string' ? q.createdBy : q.createdBy?.id) || '',
                     };
                   });
                   setQuestions(questionsData);
@@ -1732,6 +1755,7 @@ export function CreateEvaluationModal({
                     secondStatement: q.secondStatement || q.secondstatement || '',
                     skills: q.skills || '',
                     interactionConfig: q.interactionConfig || q.interaction_config || undefined,
+                  created_by: q.created_by || (typeof q.createdBy === 'string' ? q.createdBy : q.createdBy?.id) || '',
                   };
                 });
                 setQuestions(questionsData);
@@ -2250,7 +2274,7 @@ export function CreateEvaluationModal({
                                 <CardContent className="p-4">
                                   <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-3 flex-1">
-                                      <Checkbox checked={isSelected} readOnly />
+                                      <Checkbox checked={isSelected} onCheckedChange={() => {}} />
                                       <div className="flex-1">
                                         <div className="font-medium">{classItem.name}</div>
                                         {classItem.school && (
@@ -2521,6 +2545,7 @@ export function CreateEvaluationModal({
             </DialogDescription>
           </DialogHeader>
           <QuestionBank
+            embedded
             open={showQuestionBank}
             subjectId={selectedSubjectForQuestion}
             onQuestionSelected={handleQuestionSelected}
