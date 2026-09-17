@@ -518,6 +518,7 @@ export const CreateEvaluationStep2 = ({
             </DialogDescription>
           </DialogHeader>
           <QuestionBank
+            embedded
             open={showQuestionBank}
             subjectId={selectedSubjectForQuestion}
             onQuestionSelected={handleQuestionSelected}
