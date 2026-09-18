@@ -7,6 +7,7 @@ import { useEvaluationStats } from "@/hooks/use-cache";
 import { EvaluationsStatsGrid } from "./EvaluationsStatsGrid";
 import { EvaluationsTabsPanel } from "./EvaluationsTabsPanel";
 import type { EvaluationDashboardStats } from "./evaluationsPage.types";
+import { peekEvaluationsListContext } from "@/components/evaluations/evaluationListUtils";
 
 /** Link “pular para conteúdo” visível apenas ao focar (teclado). */
 const SKIP_LINK_CLASS =
@@ -51,9 +52,16 @@ const EMPTY_STATS: EvaluationDashboardStats = {
 export function EvaluationsStaffView() {
   const { user } = useAuth();
   const isCorretor = hasCorretorStyleEvalAccess(user);
-  const [activeTab, setActiveTab] = useState(isCorretor ? "correction" : "ready");
   const location = useLocation();
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState(() => {
+    if (isCorretor) return "correction";
+    const fromNav = (location.state as EvaluationsLocationState | null)?.evaluationsTab;
+    if (fromNav) return fromNav;
+    const fromList = peekEvaluationsListContext();
+    if (fromList?.evaluationsTab) return fromList.evaluationsTab;
+    return "ready";
+  });
   const { data: statsData, isLoading: isLoadingStats } = useEvaluationStats();
 
   useEffect(() => {

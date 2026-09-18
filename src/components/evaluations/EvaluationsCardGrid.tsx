@@ -255,12 +255,12 @@ export function EvaluationsCardGrid({
                     type="button"
                     variant="secondary"
                     size="sm"
-                    className="min-h-9 w-9 shrink-0 px-0 sm:w-9"
+                    className="min-h-11 w-11 shrink-0 px-0"
                     onClick={() => onView(evaluation.id)}
-                    aria-label={`Ver avaliação: ${evaluation.title ?? evaluation.id}`}
-                    title="Ver"
+                    aria-label="Visualizar avaliação"
+                    title="Visualizar avaliação"
                   >
-                    <Eye className="h-4 w-4" />
+                    <Eye className="h-5 w-5" />
                   </Button>
 
                   <DropdownMenu>
