@@ -35,6 +35,7 @@ import {
 import StartEvaluationModal from "@/components/evaluations/StartEvaluationModal";
 import { convertDateTimeLocalToISO, parseISOToDatetimeLocal } from "@/utils/date";
 import { Evaluation, Subject, Grade, Municipality, SchoolInfo, AppliedClass, Author, Question, getEvaluationSubjects, getEvaluationSubjectsCount } from "@/types/evaluation-types";
+import type { QuestionOptionImageApi } from "@/types/question-option";
 import QuestionPreview from "@/components/evaluations/questions/QuestionPreview";
 import type { Question as EvaluationQuestion } from "@/components/evaluations/types";
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from "@/components/evaluations/results/constants";
@@ -52,9 +53,10 @@ import {
 
 // Interfaces locais para questões (estendem a interface base)
 interface QuestionOption {
-  id: string;
+  id?: string;
   text: string;
-  isCorrect: boolean;
+  isCorrect?: boolean;
+  image?: QuestionOptionImageApi | string;
 }
 
 // Interface para questões agrupadas por matéria
@@ -424,9 +426,15 @@ export default function ViewEvaluation({
     }
     if (isOlimpiada()) {
       navigate("/app/olimpiadas");
-    } else {
-      navigate("/app/avaliacoes");
+      return;
     }
+    const historyIdx =
+      typeof window.history.state?.idx === "number" ? window.history.state.idx : 0;
+    if (historyIdx > 0) {
+      navigate(-1);
+      return;
+    }
+    navigate("/app/avaliacoes");
   };
 
   const handleEdit = () => {
@@ -1399,10 +1407,11 @@ export default function ViewEvaluation({
                       value: Number(q.value ?? (q as { points?: number }).points ?? 0),
                       solution: q.solution ?? '',
                       formattedSolution: q.formattedSolution ?? q.solution ?? '',
-                      options: opts.map((opt: { id?: string; text: string; isCorrect?: boolean }, i: number) => ({
+                      options: opts.map((opt: QuestionOption, i: number) => ({
                         id: opt.id ?? String.fromCharCode(65 + i),
                         text: opt.text,
-                        isCorrect: opt.isCorrect ?? false
+                        isCorrect: opt.isCorrect ?? false,
+                        image: opt.image,
                       })),
                       created_by: ''
                     };
