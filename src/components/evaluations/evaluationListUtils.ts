@@ -119,3 +119,44 @@ export function formatEvaluationListDateTime(iso: string | null | undefined): st
     minute: "2-digit",
   });
 }
+
+const EVALUATIONS_LIST_CONTEXT_KEY = "afirmeplay:evaluations-list-context";
+
+export type EvaluationsListFilters = {
+  subject: string;
+  type: string;
+  model: string;
+  grade: string;
+  status: string;
+  evaluationMode: string;
+};
+
+export type EvaluationsListContext = {
+  evaluationsTab: string;
+  searchTerm: string;
+  filters: EvaluationsListFilters;
+  currentPage: number;
+  scrollY: number;
+  showMyEvaluations: boolean;
+  variant: "default" | "transformTab" | "correctionTab";
+};
+
+export function saveEvaluationsListContext(ctx: EvaluationsListContext): void {
+  try {
+    sessionStorage.setItem(EVALUATIONS_LIST_CONTEXT_KEY, JSON.stringify(ctx));
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+export function peekEvaluationsListContext(): EvaluationsListContext | null {
+  try {
+    const raw = sessionStorage.getItem(EVALUATIONS_LIST_CONTEXT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as EvaluationsListContext;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}

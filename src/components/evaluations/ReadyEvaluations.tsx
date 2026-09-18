@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, Eye, Pencil, Trash2, ChevronLeft, ChevronRight, RefreshCw, Play, MoreVertical, FileText, Layers } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useNavigationType } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { convertDateTimeLocalToISO } from "@/utils/date";
@@ -38,7 +38,6 @@ import { useEvaluations, useCache, useEvaluationsManager } from "@/hooks/use-cac
 import { useAuth } from "@/context/authContext";
 import ErrorBoundary from "./ErrorBoundary";
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from "./results/constants";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,14 +46,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Evaluation, Subject, Grade, getEvaluationSubjects, getEvaluationSubjectsCount } from "@/types/evaluation-types";
 import { EvaluationsCardGrid } from "./EvaluationsCardGrid";
-import { formatEvaluationQuestionCount, isEvaluationApplied } from "./evaluationListUtils";
+import {
+  formatEvaluationQuestionCount,
+  isEvaluationApplied,
+  saveEvaluationsListContext,
+  peekEvaluationsListContext,
+  type EvaluationsListFilters,
+} from "./evaluationListUtils";
 import {
   EvaluationListFilterShell,
   evaluationListFilterControlClass,
   evaluationListFilterSelectTriggerClass,
 } from "./EvaluationListFilterShell";
 import { cn } from "@/lib/utils";
-import ViewEvaluation from "@/pages/evaluations/ViewEvaluation";
 import { MunicipalityAvailabilityBadge } from "@/components/municipality-availability/MunicipalityAvailabilityBadge";
 import {
   canControlMunicipalityAvailability,
@@ -96,6 +100,24 @@ const EVALUATION_MODE_OPTIONS = [
   { id: "physical", label: "Física" },
   { id: "subjective", label: "Subjetiva" },
 ] as const;
+
+const DEFAULT_LIST_FILTERS: EvaluationsListFilters = {
+  subject: "all",
+  type: "all",
+  model: "all",
+  grade: "all",
+  status: "all",
+  evaluationMode: "all",
+};
+
+function resolveEvaluationsListTab(
+  variant: ReadyEvaluationsProps["variant"],
+  showMyEvaluations: boolean
+): string {
+  if (variant === "transformTab") return "digital-to-physical";
+  if (variant === "correctionTab") return "correction";
+  return showMyEvaluations ? "ready" : "all";
+}
 
 function formatEvaluationStatusLabel(status: string): string {
   const normalized = status.trim().toLowerCase().replace(/\s+/g, "_");
@@ -709,12 +731,12 @@ const EvaluationsTable = ({
                               type="button"
                               variant="ghost"
                               size="sm"
-                              className="h-8 w-8 shrink-0 p-0"
+                              className="min-h-11 w-11 shrink-0 p-0"
                               onClick={() => onView(evaluation.id)}
-                              aria-label={`Ver avaliação: ${evaluation.title ?? evaluation.id}`}
-                              title="Ver"
+                              aria-label="Visualizar avaliação"
+                              title="Visualizar avaliação"
                             >
-                              <Eye className="h-4 w-4" />
+                              <Eye className="h-5 w-5" />
                             </Button>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -836,27 +858,30 @@ export function ReadyEvaluations({
 }: ReadyEvaluationsProps) {
   const layout: "cards" = "cards";
 
-  const [searchTerm, setSearchTerm] = useState("");
+  const restoredList = (() => {
+    const ctx = peekEvaluationsListContext();
+    if (!ctx) return null;
+    if (ctx.showMyEvaluations !== showMyEvaluations) return null;
+    if ((ctx.variant ?? "default") !== variant) return null;
+    return ctx;
+  })();
+  const restoredListRef = useRef(restoredList);
+
+  const [searchTerm, setSearchTerm] = useState(restoredList?.searchTerm ?? "");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [evaluationToDelete, setEvaluationToDelete] = useState<string | null>(null);
-  const [viewEvaluationDialogOpen, setViewEvaluationDialogOpen] = useState(false);
-  const [viewEvaluationId, setViewEvaluationId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [filters, setFilters] = useState({
-    subject: 'all',
-    type: 'all',
-    model: 'all',
-    grade: 'all',
-    status: 'all',
-    evaluationMode: 'all',
-  });
+  const [currentPage, setCurrentPage] = useState(restoredList?.currentPage ?? 1);
+  const [filters, setFilters] = useState<EvaluationsListFilters>(
+    restoredList?.filters ?? DEFAULT_LIST_FILTERS
+  );
   const [startModalOpen, setStartModalOpen] = useState(false);
   const [selectedEvaluationToStart, setSelectedEvaluationToStart] = useState<Evaluation | null>(null);
   const [forceUpdate, setForceUpdate] = useState(0); // Forçar re-render após exclusão
   const [isExporting, setIsExporting] = useState(false);
   const itemsPerPage = 10;
   const navigate = useNavigate();
+  const navigationType = useNavigationType();
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -1030,9 +1055,23 @@ export function ReadyEvaluations({
     filters.evaluationMode,
   ]);
   
+  const skipPageResetRef = useRef(Boolean(restoredListRef.current));
+
   useEffect(() => {
+    if (skipPageResetRef.current) {
+      skipPageResetRef.current = false;
+      return;
+    }
     setCurrentPage(1);
   }, [filtersString, showMyEvaluations]);
+
+  useEffect(() => {
+    const ctx = restoredListRef.current;
+    if (!ctx || navigationType !== "POP") return;
+    if (typeof ctx.scrollY === "number" && ctx.scrollY > 0) {
+      requestAnimationFrame(() => window.scrollTo(0, ctx.scrollY));
+    }
+  }, [navigationType]);
 
   // ✅ NOVO: Forçar atualização quando forceUpdate mudar
   useEffect(() => {
@@ -1047,13 +1086,16 @@ export function ReadyEvaluations({
   }, []);
 
   const handleView = (evaluationId: string) => {
-    setViewEvaluationId(evaluationId);
-    setViewEvaluationDialogOpen(true);
-  };
-
-  const closeViewDialog = () => {
-    setViewEvaluationDialogOpen(false);
-    setViewEvaluationId(null);
+    saveEvaluationsListContext({
+      evaluationsTab: resolveEvaluationsListTab(variant, showMyEvaluations),
+      searchTerm,
+      filters,
+      currentPage,
+      scrollY: window.scrollY,
+      showMyEvaluations,
+      variant,
+    });
+    navigate(`/app/avaliacao/${evaluationId}`);
   };
 
   const handleEdit = (evaluationId: string) => {
@@ -1494,37 +1536,6 @@ export function ReadyEvaluations({
             onConfirm={handleConfirmStartEvaluation}
             evaluation={selectedEvaluationToStart}
           />
-
-          {/* Modal de Visualização da Avaliação */}
-          <Dialog
-            open={viewEvaluationDialogOpen}
-            onOpenChange={(open) => {
-              if (!open) closeViewDialog();
-            }}
-          >
-            <DialogContent
-              className="
-                p-0 w-[95vw] max-w-6xl h-[90vh] max-h-[90vh] overflow-hidden flex flex-col
-                sm:w-[calc(100vw-18rem)] sm:left-[18rem] sm:translate-x-0
-              "
-            >
-              {viewEvaluationId ? (
-                <div
-                  className="flex-1 min-h-0 overflow-y-auto
-                    [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent
-                    [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full
-                    dark:[&::-webkit-scrollbar-thumb]:bg-gray-700
-                    hover:[&::-webkit-scrollbar-thumb]:bg-gray-400 dark:hover:[&::-webkit-scrollbar-thumb]:bg-gray-600
-                    scroll-smooth"
-                >
-                  <ViewEvaluation
-                    evaluationId={viewEvaluationId}
-                    onClose={closeViewDialog}
-                  />
-                </div>
-              ) : null}
-            </DialogContent>
-          </Dialog>
         </div>
       </TooltipProvider>
     </ErrorBoundary>
