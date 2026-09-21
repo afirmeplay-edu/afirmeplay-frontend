@@ -70,13 +70,31 @@ const determineFormTypeFromGrade = async (
   try {
     const grade = await FormFiltersApiService.getFormGradeDetails(gradeId);
 
-    if (!grade || (!grade.name && !grade.nome)) return null;
+    // Sem detalhe: não bloquear no client — backend decide
+    if (!grade) return 'unknown';
 
     const gradeName = (grade.name || grade.nome || '').toLowerCase();
-    const educationStageId = grade.education_stage_id || grade.educationStageId;
+    const stageName = (
+      grade.education_stage?.name ||
+      grade.education_stage?.nome ||
+      ''
+    ).toLowerCase();
+    const educationStageId =
+      grade.education_stage_id ||
+      grade.educationStageId ||
+      grade.education_stage?.id ||
+      null;
 
-    if (isAdapEducationStage(educationStageId) || looksLikeAdapGradeName(gradeName)) {
+    if (
+      isAdapEducationStage(educationStageId) ||
+      looksLikeAdapGradeName(gradeName) ||
+      looksLikeAdapGradeName(stageName)
+    ) {
       return 'adap';
+    }
+
+    if (!gradeName && !stageName && !educationStageId) {
+      return 'unknown';
     }
 
     if (educationStageId) {
@@ -125,7 +143,7 @@ const determineFormTypeFromGrade = async (
     return null;
   } catch (error) {
     console.error('Erro ao determinar tipo de formulário pela série:', error);
-    return null;
+    return 'unknown';
   }
 };
 
@@ -160,6 +178,9 @@ interface Class {
 interface ListedForm {
   id: string;
   title: string;
+  customTitle?: string;
+  name?: string;
+  nome?: string;
   formType: string;
   description?: string;
   isActive: boolean;
@@ -230,6 +251,8 @@ const FormRegistration = () => {
   const [formsList, setFormsList] = useState<ListedForm[]>([]);
   const [formsPagination, setFormsPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const [isLoadingForms, setIsLoadingForms] = useState(false);
+  const [isSendingForm, setIsSendingForm] = useState(false);
+  const isSendingFormRef = useRef(false);
   const [deletingFormId, setDeletingFormId] = useState<string | null>(null);
   const [formToDeleteId, setFormToDeleteId] = useState<string | null>(null);
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
@@ -709,6 +732,8 @@ const FormRegistration = () => {
 
   // Função para enviar formulário
   const handleSendForm = async () => {
+    if (isSendingFormRef.current) return;
+
     const formTypeToUse = selectedFormType;
     
     if (!formTypeToUse) {
@@ -727,39 +752,6 @@ const FormRegistration = () => {
         variant: "destructive",
       });
       return;
-    }
-
-    // Séries selecionadas devem ser compatíveis com o formType (ADAP/Educação Especial vale nos dois)
-    if ((formTypeToUse === 'aluno-jovem' || formTypeToUse === 'aluno-velho')) {
-      if (selectedGrades.length > 0) {
-        try {
-          const incompatibleGrades: string[] = [];
-
-          for (const gradeId of selectedGrades) {
-            const detectedType = await determineFormTypeFromGrade(gradeId);
-            if (!isDetectedTypeCompatibleWithFormType(detectedType, formTypeToUse)) {
-              incompatibleGrades.push(gradeId);
-            }
-          }
-
-          if (incompatibleGrades.length > 0) {
-            toast({
-              title: "Séries incompatíveis com o formulário selecionado",
-              description: "Remova as séries que não pertencem ao público-alvo deste formulário (anos iniciais/Educação Infantil, EJA/anos finais ou Educação Especial/ADAP) e tente novamente.",
-              variant: "destructive",
-            });
-            return;
-          }
-        } catch (error) {
-          console.error('Erro ao validar séries para o tipo de formulário selecionado:', error);
-          toast({
-            title: "Erro ao validar séries",
-            description: "Não foi possível validar as séries selecionadas. Tente novamente.",
-            variant: "destructive",
-          });
-          return;
-        }
-      }
     }
 
     // Preparar payload
@@ -785,64 +777,99 @@ const FormRegistration = () => {
       return;
     }
 
-    // Payload conforme spec POST /forms: formType + selectedSchools; séries/turmas só se preenchidos
-    // Aluno: sem questions — backend aplica o template completo (25/26)
-    const payload: any = {
-      formType: formTypeToUse,
-      selectedSchools,
-      isActive: true,
-    };
-
-    if (!isStudentFormType(formTypeToUse)) {
-      const questionsToSend = selectedQuestionIds.size > 0 && selectedFormTypeForEditor === formTypeToUse
-        ? formData.questions.filter(q => selectedQuestionIds.has(q.id))
-        : formData.questions;
-
-      payload.questions = questionsToSend.map((q, index) => {
-        const baseQuestion: any = {
-          id: q.id,
-          text: q.texto || q.text || '',
-          type: q.tipo || q.type || 'selecao_unica',
-          required: q.obrigatoria !== undefined ? q.obrigatoria : true,
-          order: index + 1
-        };
-
-        if (q.opcoes || q.options) {
-          baseQuestion.options = q.opcoes || q.options || [];
-        }
-
-        if (q.subPerguntas || q.subQuestions) {
-          baseQuestion.subQuestions = (q.subPerguntas || q.subQuestions || []).map((sp: any) => ({
-            id: sp.id,
-            text: sp.texto || sp.text || ''
-          }));
-        }
-
-        if (q.min !== undefined) baseQuestion.min = q.min;
-        if (q.max !== undefined) baseQuestion.max = q.max;
-        if (q.dependsOn) baseQuestion.dependsOn = q.dependsOn;
-
-        return baseQuestion;
-      });
-    }
-
-    if (selectedGrades.length > 0) payload.selectedGrades = selectedGrades;
-    if (selectedClasses.length > 0) payload.selectedClasses = selectedClasses;
-    payload.title = formTitle.trim();
-    if (formDescription.trim()) payload.description = formDescription.trim();
-    if (formInstructions.trim()) payload.instructions = formInstructions.trim();
-    if (formDeadline.trim()) {
-      try {
-        const deadlineDate = new Date(formDeadline);
-        if (!isNaN(deadlineDate.getTime())) {
-          payload.deadline = deadlineDate.toISOString();
-        }
-      } catch (error) {
-        console.error('Erro ao processar data de expiração:', error);
-      }
-    }
-
+    setIsSendingForm(true);
+    isSendingFormRef.current = true;
     try {
+      // Séries selecionadas devem ser compatíveis com o formType (ADAP/Educação Especial vale nos dois)
+      if ((formTypeToUse === 'aluno-jovem' || formTypeToUse === 'aluno-velho')) {
+        if (selectedGrades.length > 0) {
+          try {
+            const incompatibleGrades: string[] = [];
+
+            for (const gradeId of selectedGrades) {
+              const detectedType = await determineFormTypeFromGrade(gradeId);
+              if (!isDetectedTypeCompatibleWithFormType(detectedType, formTypeToUse)) {
+                incompatibleGrades.push(gradeId);
+              }
+            }
+
+            if (incompatibleGrades.length > 0) {
+              toast({
+                title: "Séries incompatíveis com o formulário selecionado",
+                description: "Remova as séries que não pertencem ao público-alvo deste formulário (anos iniciais/Educação Infantil, EJA/anos finais ou Educação Especial/ADAP) e tente novamente.",
+                variant: "destructive",
+              });
+              return;
+            }
+          } catch (error) {
+            console.error('Erro ao validar séries para o tipo de formulário selecionado:', error);
+            toast({
+              title: "Erro ao validar séries",
+              description: "Não foi possível validar as séries selecionadas. Tente novamente.",
+              variant: "destructive",
+            });
+            return;
+          }
+        }
+      }
+
+      // Payload conforme spec POST /forms: formType + selectedSchools; séries/turmas só se preenchidos
+      // Aluno: sem questions — backend aplica o template completo (25/26)
+      const payload: any = {
+        formType: formTypeToUse,
+        selectedSchools,
+        isActive: true,
+      };
+
+      if (!isStudentFormType(formTypeToUse)) {
+        const questionsToSend = selectedQuestionIds.size > 0 && selectedFormTypeForEditor === formTypeToUse
+          ? formData.questions.filter(q => selectedQuestionIds.has(q.id))
+          : formData.questions;
+
+        payload.questions = questionsToSend.map((q, index) => {
+          const baseQuestion: any = {
+            id: q.id,
+            text: q.texto || q.text || '',
+            type: q.tipo || q.type || 'selecao_unica',
+            required: q.obrigatoria !== undefined ? q.obrigatoria : true,
+            order: index + 1
+          };
+
+          if (q.opcoes || q.options) {
+            baseQuestion.options = q.opcoes || q.options || [];
+          }
+
+          if (q.subPerguntas || q.subQuestions) {
+            baseQuestion.subQuestions = (q.subPerguntas || q.subQuestions || []).map((sp: any) => ({
+              id: sp.id,
+              text: sp.texto || sp.text || ''
+            }));
+          }
+
+          if (q.min !== undefined) baseQuestion.min = q.min;
+          if (q.max !== undefined) baseQuestion.max = q.max;
+          if (q.dependsOn) baseQuestion.dependsOn = q.dependsOn;
+
+          return baseQuestion;
+        });
+      }
+
+      if (selectedGrades.length > 0) payload.selectedGrades = selectedGrades;
+      if (selectedClasses.length > 0) payload.selectedClasses = selectedClasses;
+      payload.customTitle = formTitle.trim();
+      if (formDescription.trim()) payload.description = formDescription.trim();
+      if (formInstructions.trim()) payload.instructions = formInstructions.trim();
+      if (formDeadline.trim()) {
+        try {
+          const deadlineDate = new Date(formDeadline);
+          if (!isNaN(deadlineDate.getTime())) {
+            payload.deadline = deadlineDate.toISOString();
+          }
+        } catch (error) {
+          console.error('Erro ao processar data de expiração:', error);
+        }
+      }
+
       // Enviar para o backend usando a rota correta (admin: enviar contexto de cidade)
       const postConfig = selectedMunicipality !== 'all' ? { meta: { cityId: selectedMunicipality } } : {};
       const response = await api.post('/forms', payload, postConfig);
@@ -873,20 +900,16 @@ const FormRegistration = () => {
       });
 
       await loadForms(formsPagination.page, formsPagination.limit);
-
-      // Limpar seleções após sucesso (opcional)
-      // setSelectedState('all');
-      // setSelectedMunicipality('all');
-      // setSelectedSchool('all');
-      // setSelectedGrade('all');
-      // setSelectedClass('all');
     } catch (error: any) {
       console.error('Erro ao enviar formulário:', error);
       toast({
         title: "Erro ao enviar formulário",
-        description: error.response?.data?.message || "Não foi possível enviar o formulário. Tente novamente.",
+        description: error.response?.data?.message || error.response?.data?.error || "Não foi possível enviar o formulário. Tente novamente.",
         variant: "destructive",
       });
+    } finally {
+      isSendingFormRef.current = false;
+      setIsSendingForm(false);
     }
   };
 
@@ -1023,27 +1046,45 @@ const FormRegistration = () => {
                 <thead>
                   <tr className="border-b">
                     <th className="text-left py-3 px-2 font-medium">Título</th>
+                    <th className="text-left py-3 px-2 font-medium">Nome</th>
                     <th className="text-left py-3 px-2 font-medium">Tipo</th>
                     <th className="text-left py-3 px-2 font-medium">Prazo</th>
-                    <th className="text-left py-3 px-2 font-medium">Destinatários</th>
+                    <th className="text-left py-3 px-2 font-medium">Respondidos</th>
                     <th className="text-left py-3 px-2 font-medium">Status</th>
                     <th className="text-right py-3 px-2 font-medium">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {formsList.map((form) => (
+                  {formsList.map((form) => {
+                    const recipientsTotal =
+                      form.statistics?.totalRecipients ?? form.recipientsCount;
+                    const completedResponses = form.statistics?.completedResponses ?? 0;
+                    const recipientsLabel =
+                      recipientsTotal != null
+                        ? `${completedResponses}/${recipientsTotal}`
+                        : '—';
+                    const recipientsTitle =
+                      recipientsTotal != null
+                        ? `${completedResponses} respondido${completedResponses === 1 ? '' : 's'} de ${recipientsTotal} destinatário${recipientsTotal === 1 ? '' : 's'}`
+                        : undefined;
+                    const formName = form.customTitle || form.name || form.nome || '—';
+
+                    return (
                     <tr key={form.id} className="border-b last:border-0">
-                      <td className="py-3 px-2 max-w-[240px] truncate" title={form.title}>{form.title}</td>
+                      <td className="py-3 px-2 max-w-[200px] truncate" title={form.title}>
+                        {form.title || '—'}
+                      </td>
+                      <td className="py-3 px-2 max-w-[200px] truncate" title={formName !== '—' ? formName : undefined}>
+                        {formName}
+                      </td>
                       <td className="py-3 px-2">{getFormTypeDisplayName(form.formType)}</td>
                       <td className="py-3 px-2">
                         {form.deadline
                           ? new Date(form.deadline).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
                           : '—'}
                       </td>
-                      <td className="py-3 px-2">
-                        {form.recipientsCount != null
-                          ? `${form.statistics?.completedResponses ?? 0}/${form.recipientsCount}`
-                          : '—'}
+                      <td className="py-3 px-2" title={recipientsTitle}>
+                        {recipientsLabel}
                       </td>
                       <td className="py-3 px-2">
                         <Badge variant={form.isActive ? 'default' : 'secondary'}>
@@ -1067,7 +1108,8 @@ const FormRegistration = () => {
                         </Button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1430,10 +1472,20 @@ const FormRegistration = () => {
                 </Button>
                 <Button
                   onClick={handleSendForm}
+                  disabled={isSendingForm}
                   className="flex items-center justify-center gap-2"
                 >
-                  <Send className="h-4 w-4" />
-                  Enviar Formulário
+                  {isSendingForm ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Enviando...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" />
+                      Enviar Formulário
+                    </>
+                  )}
                 </Button>
               </div>
             </div>
