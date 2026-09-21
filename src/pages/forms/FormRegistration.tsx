@@ -52,26 +52,22 @@ import {
 } from '@/data/formsData';
 import { Question } from '@/types/forms';
 import { fetchFormTemplateQuestions, isStudentFormType } from '@/services/formTemplatesApi';
+import {
+  EJA_EDUCATION_STAGE_ID,
+  RIGID_EDUCATION_STAGE_TO_FORM_TYPE,
+  type DetectedStudentFormType,
+  isAdapEducationStage,
+  isDetectedTypeCompatibleWithFormType,
+  looksLikeAdapGradeName,
+} from '@/utils/socioeconomicFormStages';
 
-// IDs de Education Stages pré-definidos para cada tipo de formulário
-const EDUCATION_STAGE_IDS_BY_FORM_TYPE: Record<string, string[]> = {
-  'aluno-jovem': [
-    'd1142d12-ed98-46f4-ae78-62c963371464', // Educação Infantil
-    '614b7d10-b758-42ec-a04e-86f78dc7740a', // Anos Iniciais
-    '63cb6876-3221-4fa2-89e8-a82ad1733032', // EJA (filtrar períodos 1-5)
-  ],
-  'aluno-velho': [
-    'c78fcd8e-00a1-485d-8c03-70bcf59e3025', // Anos Finais
-    '63cb6876-3221-4fa2-89e8-a82ad1733032', // EJA (filtrar períodos 6-9)
-  ],
-};
-
-// Função para determinar o tipo de formulário baseado na série
-const determineFormTypeFromGrade = async (gradeId: string): Promise<string | null> => {
+/** Classifica série: rígido jovem/velho, ADAP (wildcard) ou null. */
+const determineFormTypeFromGrade = async (
+  gradeId: string,
+): Promise<DetectedStudentFormType | null> => {
   if (!gradeId || gradeId === 'all') return null;
 
   try {
-    // Buscar informações da série usando a nova rota de formulários
     const grade = await FormFiltersApiService.getFormGradeDetails(gradeId);
 
     if (!grade || (!grade.name && !grade.nome)) return null;
@@ -79,35 +75,34 @@ const determineFormTypeFromGrade = async (gradeId: string): Promise<string | nul
     const gradeName = (grade.name || grade.nome || '').toLowerCase();
     const educationStageId = grade.education_stage_id || grade.educationStageId;
 
-    // Verificar por education stage ID
-    if (educationStageId) {
-      // Anos Iniciais
-      if (EDUCATION_STAGE_IDS_BY_FORM_TYPE['aluno-jovem'].includes(educationStageId)) {
-        // Se for EJA, verificar período
-        if (educationStageId === '63cb6876-3221-4fa2-89e8-a82ad1733032') {
-          // EJA: verificar se é período 1-5 (aluno-jovem) ou 6-9 (aluno-velho)
-          const periodoMatch = gradeName.match(/(\d+)[°º]/);
-          if (periodoMatch) {
-            const periodo = parseInt(periodoMatch[1], 10);
-            return periodo >= 1 && periodo <= 5 ? 'aluno-jovem' : 'aluno-velho';
-          }
-          // Se não conseguir determinar, verificar pelo nome
-          if (/[1-5][°º]/.test(gradeName) || gradeName.includes('período 1') || gradeName.includes('período 2') || 
-              gradeName.includes('período 3') || gradeName.includes('período 4') || gradeName.includes('período 5')) {
-            return 'aluno-jovem';
-          }
-          return 'aluno-velho';
-        }
-        return 'aluno-jovem';
-      }
-      // Anos Finais
-      if (EDUCATION_STAGE_IDS_BY_FORM_TYPE['aluno-velho'].includes(educationStageId)) {
-        return 'aluno-velho';
-      }
+    if (isAdapEducationStage(educationStageId) || looksLikeAdapGradeName(gradeName)) {
+      return 'adap';
     }
 
-    // Fallback: verificar pelo nome da série
-    // Anos Iniciais (1º ao 5º ano, Educação Infantil)
+    if (educationStageId) {
+      if (educationStageId === EJA_EDUCATION_STAGE_ID) {
+        const periodoMatch = gradeName.match(/(\d+)[°º]/);
+        if (periodoMatch) {
+          const periodo = parseInt(periodoMatch[1], 10);
+          return periodo >= 1 && periodo <= 5 ? 'aluno-jovem' : 'aluno-velho';
+        }
+        if (
+          /[1-5][°º]/.test(gradeName) ||
+          gradeName.includes('período 1') ||
+          gradeName.includes('período 2') ||
+          gradeName.includes('período 3') ||
+          gradeName.includes('período 4') ||
+          gradeName.includes('período 5')
+        ) {
+          return 'aluno-jovem';
+        }
+        return 'aluno-velho';
+      }
+
+      const rigidType = RIGID_EDUCATION_STAGE_TO_FORM_TYPE[educationStageId];
+      if (rigidType) return rigidType;
+    }
+
     if (
       /^(1|2|3|4|5)[°º]/.test(gradeName) ||
       gradeName.includes('infantil') ||
@@ -118,7 +113,6 @@ const determineFormTypeFromGrade = async (gradeId: string): Promise<string | nul
       return 'aluno-jovem';
     }
 
-    // Anos Finais (6º ao 9º ano)
     if (
       /^(6|7|8|9)[°º]/.test(gradeName) ||
       gradeName.includes('final') ||
@@ -735,17 +729,15 @@ const FormRegistration = () => {
       return;
     }
 
-    // Para formulários de alunos, garantir que as séries selecionadas (quando houver) são compatíveis com o tipo escolhido
+    // Séries selecionadas devem ser compatíveis com o formType (ADAP/Educação Especial vale nos dois)
     if ((formTypeToUse === 'aluno-jovem' || formTypeToUse === 'aluno-velho')) {
-      // Se nenhuma série foi selecionada, o formulário será enviado para todas as séries da(s) escola(s)
-      // Somente se houver séries selecionadas é que validamos compatibilidade com o tipo (anos iniciais vs finais/EJA)
       if (selectedGrades.length > 0) {
         try {
           const incompatibleGrades: string[] = [];
 
           for (const gradeId of selectedGrades) {
             const detectedType = await determineFormTypeFromGrade(gradeId);
-            if (!detectedType || detectedType !== formTypeToUse) {
+            if (!isDetectedTypeCompatibleWithFormType(detectedType, formTypeToUse)) {
               incompatibleGrades.push(gradeId);
             }
           }
@@ -753,7 +745,7 @@ const FormRegistration = () => {
           if (incompatibleGrades.length > 0) {
             toast({
               title: "Séries incompatíveis com o formulário selecionado",
-              description: "Remova as séries que não pertencem ao público-alvo deste formulário (anos iniciais/Educação Infantil ou EJA/anos finais) e tente novamente.",
+              description: "Remova as séries que não pertencem ao público-alvo deste formulário (anos iniciais/Educação Infantil, EJA/anos finais ou Educação Especial/ADAP) e tente novamente.",
               variant: "destructive",
             });
             return;
