@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import type { PdfImageAsset } from "@/utils/pdfCityBranding";
 import { drawReportHeaderLogoWithFallback } from "@/utils/pdfCityBranding";
-import { downloadBlob } from "@/services/reports/hierarchicalDownload";
+import { downloadBlob, buildHierarchyPath } from "@/services/reports/hierarchicalDownload";
 import type { TermoCompromissoDadosResponse, TermoCompromissoFormData } from "@/types/termo-compromisso";
 import { getClassShiftLabel } from "@/lib/classShift";
 
@@ -414,14 +414,36 @@ export async function generateTermoCompromissoPdf(
   return doc;
 }
 
+export async function createTermoCompromissoPdfBlob(
+  payload: TermoCompromissoDadosResponse,
+  form: TermoCompromissoFormData,
+  logo: PdfImageAsset | null
+): Promise<Blob> {
+  const doc = await generateTermoCompromissoPdf(payload, form, logo);
+  return doc.output("blob");
+}
+
 export async function downloadTermoCompromissoPdf(
   payload: TermoCompromissoDadosResponse,
   form: TermoCompromissoFormData,
   logo: PdfImageAsset | null
 ): Promise<void> {
-  const doc = await generateTermoCompromissoPdf(payload, form, logo);
+  const blob = await createTermoCompromissoPdfBlob(payload, form, logo);
   const date = new Date().toISOString().slice(0, 10);
   const slug = fieldDisplay(form.nome).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   const fileName = `termo-compromisso-${slug || "documento"}-${date}.pdf`;
-  downloadBlob(doc.output("blob"), fileName);
+  downloadBlob(blob, fileName);
+}
+
+export function buildTermoCompromissoHierarchyPath(params: {
+  escola: string;
+  serie: string;
+  turma: string;
+}): string {
+  return buildHierarchyPath({
+    escola: params.escola,
+    serie: params.serie,
+    turma: params.turma,
+    fileName: "termo-compromisso.pdf",
+  });
 }

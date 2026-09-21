@@ -29,7 +29,7 @@ import {
   analyzeHistoricalGrowth,
   buildHistoricalDisplaySeries,
   calculateGrowthNeeded,
-  filterValidIdebHistory,
+  getLastValidBiennialDiff,
   getLatestValidIdebFromHistory,
 } from '@/utils/idebCalculator';
 import {
@@ -90,6 +90,8 @@ export default function IdebMetaCalculator() {
   const [schoolToDeleteId, setSchoolToDeleteId] = useState<string | null>(null);
   const [targetYear, setTargetYear] = useState<number>(2025);
   const [generatingPdf, setGeneratingPdf] = useState(false);
+  /** Contexto (município|nível) ao qual municipalityData/activeEntity pertencem — evita save/exibição cruzados */
+  const [dataContextKey, setDataContextKey] = useState<string | null>(null);
   const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadedForRef = useRef<string | null>(null);
   const serieHistoricaExportRef = useRef<HTMLDivElement>(null);
@@ -105,18 +107,41 @@ export default function IdebMetaCalculator() {
 
   const levelAsApi = selectedLevel as IdebMetaLevel;
   const hasValidContext = selectedMunicipality && selectedMunicipality !== 'all' && selectedState !== 'all';
+  const currentContextKey =
+    hasValidContext ? `${selectedMunicipality}|${selectedLevel}` : null;
+
+  const clearDisplayedResults = useCallback(() => {
+    if (saveDebounceRef.current) {
+      clearTimeout(saveDebounceRef.current);
+      saveDebounceRef.current = null;
+    }
+    setMunicipalityData(null);
+    setActiveEntity(null);
+    setDataContextKey(null);
+    setCustomTarget(0);
+  }, []);
 
   const applyProjectedMeta = useCallback((historico: HistoricoCompleto[]) => {
-    if (filterValidIdebHistory(historico).length > 0) {
-      setCustomTarget(analyzeHistoricalGrowth(historico).projectedMeta);
+    const growth = analyzeHistoricalGrowth(historico);
+    if (growth.canProject) {
+      setCustomTarget(growth.projectedMeta);
     }
   }, []);
 
   const applyPayloadToState = useCallback(
-    (payload: { municipalityData: IdebData; customTarget: number; activeEntityId: string | null; targetYear: number }) => {
+    (
+      payload: {
+        municipalityData: IdebData;
+        customTarget: number;
+        activeEntityId: string | null;
+        targetYear: number;
+      },
+      contextKey?: string | null
+    ) => {
       const { municipalityData, customTarget, activeEntityId, targetYear: ty } = payload;
       setMunicipalityData(municipalityData);
       setCustomTarget(customTarget);
+      if (contextKey) setDataContextKey(contextKey);
       const entity =
         activeEntityId && municipalityData.escolas
           ? municipalityData.escolas.find((s) => s.id === activeEntityId)
@@ -170,26 +195,45 @@ export default function IdebMetaCalculator() {
     if (exists) setSelectedMunicipality(userHierarchyContext.municipality!.id);
   }, [userHierarchyContext, municipalities]);
 
+  // Ao mudar estado/município/nível, limpar a tela para não exibir dados do contexto anterior
+  useEffect(() => {
+    clearDisplayedResults();
+    loadedForRef.current = null;
+  }, [selectedState, selectedMunicipality, selectedLevel, clearDisplayedResults]);
+
   // Ao abrir a calculadora com city_id + level definidos, carregar dados salvos da API (uma vez por contexto)
   useEffect(() => {
-    if (!hasValidContext) return;
-    const key = `${selectedMunicipality}|${selectedLevel}`;
-    if (loadedForRef.current === key) return;
-    loadedForRef.current = key;
+    if (!hasValidContext || !currentContextKey) return;
+    if (loadedForRef.current === currentContextKey) return;
+    loadedForRef.current = currentContextKey;
+    const keyAtRequest = currentContextKey;
     getSavedData(selectedMunicipality, levelAsApi)
       .then((saved) => {
+        if (loadedForRef.current !== keyAtRequest) return;
         if (saved?.municipalityData?.historico?.length) {
-          applyPayloadToState({
-            municipalityData: saved.municipalityData as IdebData,
-            customTarget: saved.customTarget,
-            activeEntityId: saved.activeEntityId,
-            targetYear: saved.targetYear,
-          });
+          applyPayloadToState(
+            {
+              municipalityData: saved.municipalityData as IdebData,
+              customTarget: saved.customTarget,
+              activeEntityId: saved.activeEntityId,
+              targetYear: saved.targetYear,
+            },
+            keyAtRequest
+          );
           toast({ title: 'Dados restaurados', description: 'Seus dados salvos foram carregados.' });
         }
       })
-      .catch(() => { loadedForRef.current = null; });
-  }, [hasValidContext, selectedMunicipality, selectedLevel, levelAsApi, applyPayloadToState, toast]);
+      .catch(() => {
+        if (loadedForRef.current === keyAtRequest) loadedForRef.current = null;
+      });
+  }, [
+    hasValidContext,
+    currentContextKey,
+    selectedMunicipality,
+    levelAsApi,
+    applyPayloadToState,
+    toast,
+  ]);
 
   // Carregar municípios quando estado for selecionado
   useEffect(() => {
@@ -227,7 +271,9 @@ export default function IdebMetaCalculator() {
       !municipalityData ||
       selectedState === 'all' ||
       selectedMunicipality === 'all' ||
-      !hasValidContext
+      !hasValidContext ||
+      !dataContextKey ||
+      dataContextKey !== currentContextKey
     )
       return;
     const activeEntityId =
@@ -252,7 +298,20 @@ export default function IdebMetaCalculator() {
     return () => {
       if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
     };
-  }, [municipalityData, activeEntity, customTarget, targetYear, selectedState, selectedMunicipality, selectedLevel, hasValidContext, levelAsApi, toast]);
+  }, [
+    municipalityData,
+    activeEntity,
+    customTarget,
+    targetYear,
+    selectedState,
+    selectedMunicipality,
+    selectedLevel,
+    hasValidContext,
+    levelAsApi,
+    dataContextKey,
+    currentContextKey,
+    toast,
+  ]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -265,17 +324,24 @@ export default function IdebMetaCalculator() {
       return;
     }
 
+    const contextKey = `${selectedMunicipality}|${selectedLevel}`;
+    clearDisplayedResults();
+    loadedForRef.current = contextKey;
     setLoading(true);
     try {
       if (hasValidContext) {
         const saved = await getSavedData(selectedMunicipality, levelAsApi);
+        if (loadedForRef.current !== contextKey) return;
         if (saved?.municipalityData?.historico?.length) {
-          applyPayloadToState({
-            municipalityData: saved.municipalityData as IdebData,
-            customTarget: saved.customTarget,
-            activeEntityId: saved.activeEntityId,
-            targetYear: saved.targetYear,
-          });
+          applyPayloadToState(
+            {
+              municipalityData: saved.municipalityData as IdebData,
+              customTarget: saved.customTarget,
+              activeEntityId: saved.activeEntityId,
+              targetYear: saved.targetYear,
+            },
+            contextKey
+          );
           toast({ title: 'Dados restaurados', description: 'Seus dados salvos foram carregados.' });
           return;
         }
@@ -350,11 +416,15 @@ export default function IdebMetaCalculator() {
         escolas: escolasExemplo,
       };
 
+      if (loadedForRef.current !== contextKey) return;
+
       setMunicipalityData(fullData);
+      setDataContextKey(contextKey);
       applyProjectedMeta(fullData.historico);
 
       // Por perfil: diretor/coordenador veem resultado da escola; admin/tec admin veem municipal
       const hierarchyForSearch = userHierarchyContext ?? (user?.id && user?.role && showSchoolResult ? await getUserHierarchyContext(user.id, user.role) : null);
+      if (loadedForRef.current !== contextKey) return;
       const realSchoolName = hierarchyForSearch?.school?.name ?? hierarchyForSearch?.school?.nome;
       if (showSchoolResult && hierarchyForSearch?.school) {
         const schoolId = hierarchyForSearch.school.id;
@@ -567,15 +637,13 @@ export default function IdebMetaCalculator() {
     return getLatestValidIdebFromHistory(activeEntity.historico);
   }, [activeEntity]);
 
-  const canCalculateMeta = Boolean(latestValidIdeb && growthInfo);
+  const canCalculateMeta = Boolean(latestValidIdeb && growthInfo?.canProject);
 
   const calculationData = useMemo(() => {
-    if (!activeEntity?.historico || !growthInfo || !latestValidIdeb) return null;
-    const validHist = filterValidIdebHistory(activeEntity.historico);
-    if (validHist.length === 0) return null;
-    const current = Number(validHist[validHist.length - 1].ideb);
-    const prevValue = validHist.length > 1 ? Number(validHist[validHist.length - 2].ideb) : current;
-    return calculateGrowthNeeded(current, customTarget, current - prevValue);
+    if (!activeEntity?.historico || !growthInfo?.canProject || !latestValidIdeb) return null;
+    const current = latestValidIdeb.ideb;
+    const previousGrowth = getLastValidBiennialDiff(activeEntity.historico) ?? 0;
+    return calculateGrowthNeeded(current, customTarget, previousGrowth);
   }, [activeEntity, customTarget, growthInfo, latestValidIdeb]);
 
   const filteredEscolas = useMemo(() => {
@@ -591,10 +659,10 @@ export default function IdebMetaCalculator() {
   }, [displaySeries]);
 
   const crescimentoBienalChartData = useMemo(() => {
-    if (!growthInfo?.years?.length || !growthInfo?.diffs?.length) return [];
-    return growthInfo.diffs.map((diff, i) => ({
-      periodo: `${growthInfo.years[i]}-${growthInfo.years[i + 1]}`,
-      crescimento: diff,
+    if (!growthInfo?.pairs?.length) return [];
+    return growthInfo.pairs.map((pair) => ({
+      periodo: `${pair.from}-${pair.to}`,
+      crescimento: pair.diff,
     }));
   }, [growthInfo]);
 
@@ -800,7 +868,7 @@ export default function IdebMetaCalculator() {
             </CardContent>
           </Card>
 
-          {municipalityData && (
+          {municipalityData && dataContextKey === currentContextKey && (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm min-w-0">
@@ -873,15 +941,21 @@ export default function IdebMetaCalculator() {
 
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-6 min-w-0">
-          {!activeEntity ? (
+          {!activeEntity || dataContextKey !== currentContextKey ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center p-6 sm:p-12 text-center min-h-[400px]">
                 <div className="w-14 h-14 sm:w-16 sm:h-16 bg-muted rounded-full flex items-center justify-center mb-4">
-                  <Layout className="w-7 h-7 sm:w-8 sm:h-8 text-primary" />
+                  {loading ? (
+                    <Loader2 className="w-7 h-7 sm:w-8 sm:h-8 text-primary animate-spin" />
+                  ) : (
+                    <Layout className="w-7 h-7 sm:w-8 sm:h-8 text-primary" />
+                  )}
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold text-foreground mb-2 break-words">Portal de Metas</h2>
                 <p className="text-muted-foreground max-w-sm text-sm sm:text-base break-words px-2">
-                  Selecione o município e o nível de ensino para gerar o memorial de cálculo e as projeções bienais.
+                  {loading
+                    ? 'Sincronizando dados da rede selecionada...'
+                    : 'Selecione o município e o nível de ensino para gerar o memorial de cálculo e as projeções bienais.'}
                 </p>
               </CardContent>
             </Card>
@@ -975,7 +1049,7 @@ export default function IdebMetaCalculator() {
                     </CardTitle>
                     {displaySeries.hasMissingScores && (
                       <p className="text-sm text-muted-foreground">
-                        Períodos com IDEB 0,0 indicam ausência de nota e não entram no cálculo da meta.
+                        Períodos com IDEB 0,0 ou gap diferente de 2 anos não entram no cálculo da meta.
                       </p>
                     )}
                   </CardHeader>
@@ -1203,9 +1277,9 @@ export default function IdebMetaCalculator() {
                     <div>
                       <p className="text-muted-foreground mb-4 text-sm sm:text-base break-words">
                         A projeção de meta em <strong className="tabular-nums">{customTarget.toFixed(1)}</strong> baseia-se no IDEB base de{' '}
-                        <span className="tabular-nums">{latestValidIdeb.ideb.toFixed(1)}</span> ({latestValidIdeb.ano}) acrescido do pico de crescimento (+<span className="tabular-nums">{growthInfo.maxDiff.toFixed(1)}</span>).
+                        <span className="tabular-nums">{latestValidIdeb.ideb.toFixed(1)}</span> ({latestValidIdeb.ano}) acrescido do pico de crescimento entre anos consecutivos com nota (+<span className="tabular-nums">{growthInfo.maxDiff.toFixed(1)}</span>).
                         {displaySeries?.hasMissingScores && (
-                          <> Períodos com nota 0,0 foram ignorados no cálculo.</>
+                          <> Períodos com nota 0,0 ou sem par bienal válido não entram no cálculo.</>
                         )}
                       </p>
                       <div className="space-y-4">
