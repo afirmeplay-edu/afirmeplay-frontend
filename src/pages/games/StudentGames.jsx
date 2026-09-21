@@ -19,6 +19,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { useAuth } from '@/context/authContext';
+import { RewardBadge } from '@/components/rewards/RewardBadge';
+import { getMyContentRewards } from '@/services/contentRewardsApi';
+import { CONTENT_REWARD_UI } from '@/constants/contentRewards';
 
 const DISCIPLINAS = [
     'Português',
@@ -46,6 +49,7 @@ const StudentGames = () => {
     const [teacherIds, setTeacherIds] = useState([]);
     const [schoolAdminIds, setSchoolAdminIds] = useState([]);
     const [isLoadingStudentInfo, setIsLoadingStudentInfo] = useState(true);
+    const [claimedGameIds, setClaimedGameIds] = useState(new Set());
 
     // Buscar informações do aluno (turma, escola, professores)
     const loadStudentInfo = async () => {
@@ -166,6 +170,18 @@ const StudentGames = () => {
             fetchGames();
         }
     }, [studentClassId, isLoadingStudentInfo]);
+
+    useEffect(() => {
+        let cancelled = false;
+        getMyContentRewards('game')
+            .then((res) => {
+                if (!cancelled) setClaimedGameIds(new Set(res.content_ids || []));
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     // Abrir jogo na página GameView
     const openGame = (gameId) => {
@@ -330,7 +346,10 @@ const StudentGames = () => {
                                                 <Card key={game.id} className="group hover:shadow-lg transition-shadow cursor-pointer" onClick={() => openGame(game.id)}>
                                                     <CardHeader className="pb-3">
                                                         <div className="flex justify-between items-start">
-                                                            <CardTitle className="text-lg line-clamp-2">{game.title}</CardTitle>
+                                                            <div className="flex items-start gap-2 min-w-0">
+                                                                <CardTitle className="text-lg line-clamp-2">{game.title}</CardTitle>
+                                                                <RewardBadge claimed={claimedGameIds.has(game.id)} coins={CONTENT_REWARD_UI.gameCoins} className="shrink-0" />
+                                                            </div>
                                                             <Badge variant="secondary" className="ml-2">
                                                                 {game.subject}
                                                             </Badge>
@@ -416,7 +435,10 @@ const StudentGames = () => {
                                                 <Card key={game.id} className="group hover:shadow-lg transition-shadow cursor-pointer" onClick={() => openGame(game.id)}>
                                                     <CardHeader className="pb-3">
                                                         <div className="flex justify-between items-start">
-                                                            <CardTitle className="text-lg line-clamp-2">{game.title}</CardTitle>
+                                                            <div className="flex items-start gap-2 min-w-0">
+                                                                <CardTitle className="text-lg line-clamp-2">{game.title}</CardTitle>
+                                                                <RewardBadge claimed={claimedGameIds.has(game.id)} coins={CONTENT_REWARD_UI.gameCoins} className="shrink-0" />
+                                                            </div>
                                                             <Badge variant="secondary" className="ml-2">
                                                                 {game.subject}
                                                             </Badge>
@@ -502,7 +524,10 @@ const StudentGames = () => {
                                                 <Card key={game.id} className="group hover:shadow-lg transition-shadow cursor-pointer" onClick={() => openGame(game.id)}>
                                                     <CardHeader className="pb-3">
                                                         <div className="flex justify-between items-start">
-                                                            <CardTitle className="text-lg line-clamp-2">{game.title}</CardTitle>
+                                                            <div className="flex items-start gap-2 min-w-0">
+                                                                <CardTitle className="text-lg line-clamp-2">{game.title}</CardTitle>
+                                                                <RewardBadge claimed={claimedGameIds.has(game.id)} coins={CONTENT_REWARD_UI.gameCoins} className="shrink-0" />
+                                                            </div>
                                                             <Badge variant="secondary" className="ml-2">
                                                                 {game.subject}
                                                             </Badge>

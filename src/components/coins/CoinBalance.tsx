@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Coins } from 'lucide-react';
 import { getBalance } from '@/services/coinsApi';
 import { formatCoins } from '@/utils/coins';
+import { COINS_UPDATED_EVENT } from '@/constants/contentRewards';
 import {
   Tooltip,
   TooltipContent,
@@ -44,8 +45,8 @@ export const CoinBalance: React.FC<CoinBalanceProps> = ({
   useEffect(() => {
     let cancelled = false;
 
-    const fetchBalance = async () => {
-      setLoading(true);
+    const fetchBalance = async (opts?: { silent?: boolean }) => {
+      if (!opts?.silent) setLoading(true);
       setError(null);
       try {
         const value = await getBalance(studentId);
@@ -56,13 +57,18 @@ export const CoinBalance: React.FC<CoinBalanceProps> = ({
           setError('Erro ao carregar saldo');
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && !opts?.silent) setLoading(false);
       }
     };
 
     fetchBalance();
+    const onCoinsUpdated = () => {
+      void fetchBalance({ silent: true });
+    };
+    window.addEventListener(COINS_UPDATED_EVENT, onCoinsUpdated);
     return () => {
       cancelled = true;
+      window.removeEventListener(COINS_UPDATED_EVENT, onCoinsUpdated);
     };
   }, [studentId]);
 

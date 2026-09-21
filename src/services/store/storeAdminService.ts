@@ -4,6 +4,7 @@ import type {
   StoreItemCreatePayload,
   StoreAdminItemsResponse,
   StoreAllowedScopesResponse,
+  StoreRequirementOptionsResponse,
 } from '@/types/store';
 
 function cityConfig(cityId?: string | null): { meta?: { cityId: string } } {
@@ -21,6 +22,10 @@ export const storeAdminApi = {
 
   getAllowedScopes(cityId?: string | null) {
     return api.get<StoreAllowedScopesResponse>('/store/admin/allowed-scopes', cityConfig(cityId));
+  },
+
+  getRequirementOptions(cityId?: string | null) {
+    return api.get<StoreRequirementOptionsResponse>('/store/admin/requirement-options', cityConfig(cityId));
   },
 
   createItem(payload: StoreItemCreatePayload, cityId?: string | null) {

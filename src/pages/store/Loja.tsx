@@ -110,7 +110,10 @@ const Loja: React.FC = () => {
     if (activeMainTab === 'purchases') fetchPurchases();
   }, [activeMainTab, fetchPurchases]);
 
-  const handleComprar = (item: StoreItem) => setSelectedItem(item);
+  const handleComprar = (item: StoreItem) => {
+    if (item.already_purchased || (item.requirement && item.requirement_met === false)) return;
+    setSelectedItem(item);
+  };
 
   const confirmPurchase = async () => {
     if (!selectedItem) return;

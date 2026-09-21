@@ -1,5 +1,20 @@
 export type StoreCategory = 'frame' | 'stamp' | 'sidebar_theme' | 'physical';
 
+export type StoreRequirementType =
+  | 'competition_band'
+  | 'eval_min_grade'
+  | 'eval_classification'
+  | 'achievement';
+
+export interface StoreRequirement {
+  type: StoreRequirementType;
+  min_band?: string;
+  min_grade?: number;
+  min_classification?: string;
+  id?: string;
+  medal?: string;
+}
+
 export interface StoreItem {
   id: string;
   name: string;
@@ -17,6 +32,9 @@ export interface StoreItem {
   icon?: string | null;
   /** Cor de destaque (chave: amber, blue, violet... ou hex) */
   icon_color?: string | null;
+  requirement?: StoreRequirement | null;
+  requirement_met?: boolean | null;
+  requirement_reason?: string | null;
 }
 
 export interface StorePurchaseResponse {
@@ -80,6 +98,7 @@ export interface StoreItemAdmin {
   created_at: string | null;
   icon?: string | null;
   icon_color?: string | null;
+  requirement?: StoreRequirement | null;
 }
 
 export interface StoreItemCreatePayload {
@@ -96,6 +115,25 @@ export interface StoreItemCreatePayload {
   sort_order?: number;
   icon?: string | null;
   icon_color?: string | null;
+  requirement?: StoreRequirement | null;
+}
+
+export interface StoreRequirementOption {
+  value: string;
+  label: string;
+}
+
+export interface StoreRequirementAchievementOption {
+  id: string;
+  nome: string;
+}
+
+export interface StoreRequirementOptionsResponse {
+  types: StoreRequirementType[];
+  competition_bands: StoreRequirementOption[];
+  eval_classifications: StoreRequirementOption[];
+  medals: StoreRequirementOption[];
+  achievements: StoreRequirementAchievementOption[];
 }
 
 export interface StoreAdminItemsResponse {
