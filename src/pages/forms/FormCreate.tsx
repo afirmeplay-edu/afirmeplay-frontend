@@ -29,19 +29,11 @@ import { Question, SubQuestion } from '@/types/forms';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { fetchFormTemplateQuestions, isStudentFormType } from '@/services/formTemplatesApi';
-
-// ✅ IDs de Education Stages pré-definidos para cada tipo de formulário
-const EDUCATION_STAGE_IDS_BY_FORM_TYPE: Record<string, string[]> = {
-  'aluno-jovem': [
-    'd1142d12-ed98-46f4-ae78-62c963371464', // Educação Infantil
-    '614b7d10-b758-42ec-a04e-86f78dc7740a', // Anos Iniciais
-    '63cb6876-3221-4fa2-89e8-a82ad1733032', // EJA (filtrar períodos 1-5)
-  ],
-  'aluno-velho': [
-    'c78fcd8e-00a1-485d-8c03-70bcf59e3025', // Anos Finais
-    '63cb6876-3221-4fa2-89e8-a82ad1733032', // EJA (filtrar períodos 6-9)
-  ],
-};
+import {
+  ADAP_EDUCATION_STAGE_ID,
+  EDUCATION_STAGE_IDS_BY_FORM_TYPE,
+  EJA_EDUCATION_STAGE_ID,
+} from '@/utils/socioeconomicFormStages';
 
 // Função para filtrar grades EJA por período
 const filterEJAGrades = (grades: Array<{ id: string; name: string }>, formType: string): Array<{ id: string; name: string }> => {
@@ -93,12 +85,16 @@ const getGradeIdsForFormType = async (formType: string | null): Promise<string[]
       const response = await api.get(`/grades/education-stage/${stageId}`);
       const grades = response.data || [];
       
-      // Se for EJA, filtrar os períodos corretos
-      if (stageId === '63cb6876-3221-4fa2-89e8-a82ad1733032') {
+      // Se for EJA, filtrar os períodos corretos (ADAP entra inteiro nos dois forms)
+      if (stageId === EJA_EDUCATION_STAGE_ID) {
         const filteredGrades = filterEJAGrades(grades, formType);
         const gradeIds = filteredGrades.map((grade: { id: string }) => grade.id);
         allGradeIds.push(...gradeIds);
         console.log(`📋 EJA ${formType}: ${filteredGrades.length} períodos encontrados`);
+      } else if (stageId === ADAP_EDUCATION_STAGE_ID) {
+        const gradeIds = grades.map((grade: { id: string }) => grade.id);
+        allGradeIds.push(...gradeIds);
+        console.log(`📋 Educação Especial/ADAP: ${grades.length} séries encontradas`);
       } else {
         // Para outros education stages, incluir todas as grades
         const gradeIds = grades.map((grade: { id: string }) => grade.id);
