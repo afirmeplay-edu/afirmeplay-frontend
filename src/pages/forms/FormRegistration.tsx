@@ -42,9 +42,16 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { FormMultiSelect, FormOption } from '@/components/ui/form-multi-select';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { FormFiltersApiService } from '@/services/formFiltersApi';
 import { api } from '@/lib/api';
+import { 
+  resolveFormRecipients, 
+  formatScopeLabel, 
+  getFormTypeDisplayName as getFormTypeDisplayNameUtil,
+  type ResolvedRecipients 
+} from '@/services/formRecipientsApi';
 import { 
   professorQuestions, 
   diretorQuestions, 
@@ -52,100 +59,6 @@ import {
 } from '@/data/formsData';
 import { Question } from '@/types/forms';
 import { fetchFormTemplateQuestions, isStudentFormType } from '@/services/formTemplatesApi';
-import {
-  EJA_EDUCATION_STAGE_ID,
-  RIGID_EDUCATION_STAGE_TO_FORM_TYPE,
-  type DetectedStudentFormType,
-  isAdapEducationStage,
-  isDetectedTypeCompatibleWithFormType,
-  looksLikeAdapGradeName,
-} from '@/utils/socioeconomicFormStages';
-
-/** Classifica série: rígido jovem/velho, ADAP (wildcard) ou null. */
-const determineFormTypeFromGrade = async (
-  gradeId: string,
-): Promise<DetectedStudentFormType | null> => {
-  if (!gradeId || gradeId === 'all') return null;
-
-  try {
-    const grade = await FormFiltersApiService.getFormGradeDetails(gradeId);
-
-    // Sem detalhe: não bloquear no client — backend decide
-    if (!grade) return 'unknown';
-
-    const gradeName = (grade.name || grade.nome || '').toLowerCase();
-    const stageName = (
-      grade.education_stage?.name ||
-      grade.education_stage?.nome ||
-      ''
-    ).toLowerCase();
-    const educationStageId =
-      grade.education_stage_id ||
-      grade.educationStageId ||
-      grade.education_stage?.id ||
-      null;
-
-    if (
-      isAdapEducationStage(educationStageId) ||
-      looksLikeAdapGradeName(gradeName) ||
-      looksLikeAdapGradeName(stageName)
-    ) {
-      return 'adap';
-    }
-
-    if (!gradeName && !stageName && !educationStageId) {
-      return 'unknown';
-    }
-
-    if (educationStageId) {
-      if (educationStageId === EJA_EDUCATION_STAGE_ID) {
-        const periodoMatch = gradeName.match(/(\d+)[°º]/);
-        if (periodoMatch) {
-          const periodo = parseInt(periodoMatch[1], 10);
-          return periodo >= 1 && periodo <= 5 ? 'aluno-jovem' : 'aluno-velho';
-        }
-        if (
-          /[1-5][°º]/.test(gradeName) ||
-          gradeName.includes('período 1') ||
-          gradeName.includes('período 2') ||
-          gradeName.includes('período 3') ||
-          gradeName.includes('período 4') ||
-          gradeName.includes('período 5')
-        ) {
-          return 'aluno-jovem';
-        }
-        return 'aluno-velho';
-      }
-
-      const rigidType = RIGID_EDUCATION_STAGE_TO_FORM_TYPE[educationStageId];
-      if (rigidType) return rigidType;
-    }
-
-    if (
-      /^(1|2|3|4|5)[°º]/.test(gradeName) ||
-      gradeName.includes('infantil') ||
-      gradeName.includes('inicial') ||
-      gradeName.includes('iniciais') ||
-      (gradeName.includes('eja') && /[1-5][°º]/.test(gradeName))
-    ) {
-      return 'aluno-jovem';
-    }
-
-    if (
-      /^(6|7|8|9)[°º]/.test(gradeName) ||
-      gradeName.includes('final') ||
-      gradeName.includes('finais') ||
-      (gradeName.includes('eja') && /[6-9][°º]/.test(gradeName))
-    ) {
-      return 'aluno-velho';
-    }
-
-    return null;
-  } catch (error) {
-    console.error('Erro ao determinar tipo de formulário pela série:', error);
-    return 'unknown';
-  }
-};
 
 // Interfaces para os filtros
 interface State {
@@ -195,6 +108,8 @@ interface ListedForm {
   selectedSchools?: string[];
   selectedGrades?: string[];
   selectedClasses?: string[];
+  cityId?: string;
+  cityName?: string;
 }
 
 const FormRegistration = () => {
@@ -256,6 +171,13 @@ const FormRegistration = () => {
   const [deletingFormId, setDeletingFormId] = useState<string | null>(null);
   const [formToDeleteId, setFormToDeleteId] = useState<string | null>(null);
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
+  
+  // Resolução de nomes para os cards
+  const [resolvedRecipients, setResolvedRecipients] = useState<Record<string, ResolvedRecipients>>({});
+  const [isResolvingNames, setIsResolvingNames] = useState(false);
+  
+  // Estado para controlar visibilidade do fluxo de criação
+  const [isCreating, setIsCreating] = useState(false);
 
   const loadForms = useCallback(async (page = 1, limit = 20) => {
     try {
@@ -281,6 +203,35 @@ const FormRegistration = () => {
   useEffect(() => {
     loadForms(formsPagination.page, formsPagination.limit);
   }, [loadForms]);
+
+  // Resolver nomes dos destinatários após carregar formulários
+  useEffect(() => {
+    if (formsList.length === 0) {
+      setResolvedRecipients({});
+      return;
+    }
+
+    const resolveAllRecipients = async () => {
+      setIsResolvingNames(true);
+      const resolved: Record<string, ResolvedRecipients> = {};
+
+      await Promise.all(
+        formsList.map(async (form) => {
+          try {
+            resolved[form.id] = await resolveFormRecipients(form);
+          } catch (error) {
+            console.error(`Erro ao resolver destinatários do formulário ${form.id}:`, error);
+            resolved[form.id] = { states: [], cities: [], schools: [], grades: [], classes: [] };
+          }
+        })
+      );
+
+      setResolvedRecipients(resolved);
+      setIsResolvingNames(false);
+    };
+
+    resolveAllRecipients();
+  }, [formsList]);
 
   const handleOpenDeleteConfirm = (formId: string) => {
     setFormToDeleteId(formId);
@@ -308,16 +259,33 @@ const FormRegistration = () => {
     }
   }, [formToDeleteId, loadForms, formsPagination.page, formsPagination.limit, toast]);
 
-  const getFormTypeDisplayName = (formType: string): string => {
-    const names: Record<string, string> = {
-      'aluno-jovem': 'Anos iniciais e educação infantil',
-      'aluno-velho': 'EJA e anos finais',
-      professor: 'Professores',
-      diretor: 'Diretor',
-      secretario: 'Secretário',
-    };
-    return names[formType] || formType;
-  };
+  // Cancelar criação de formulário e voltar à lista
+  const handleCancelCreation = useCallback(() => {
+    // Zerar tipo selecionado
+    setSelectedFormType(null);
+    
+    // Zerar campos do formulário
+    setFormTitle('');
+    setFormDescription('');
+    setFormInstructions('');
+    setFormDeadline('');
+    
+    // Zerar filtros
+    setSelectedState('all');
+    setSelectedMunicipality('all');
+    setSelectedSchools([]);
+    setSelectedGrades([]);
+    setSelectedClasses([]);
+    
+    // Zerar editor de perguntas
+    setSelectedQuestionIds(new Set());
+    setSelectedFormTypeForEditor(null);
+    setShowQuestionEditor(false);
+    
+    // Voltar à lista
+    setIsCreating(false);
+  }, []);
+
 
   // Carregar estados iniciais
   useEffect(() => {
@@ -780,40 +748,8 @@ const FormRegistration = () => {
     setIsSendingForm(true);
     isSendingFormRef.current = true;
     try {
-      // Séries selecionadas devem ser compatíveis com o formType (ADAP/Educação Especial vale nos dois)
-      if ((formTypeToUse === 'aluno-jovem' || formTypeToUse === 'aluno-velho')) {
-        if (selectedGrades.length > 0) {
-          try {
-            const incompatibleGrades: string[] = [];
-
-            for (const gradeId of selectedGrades) {
-              const detectedType = await determineFormTypeFromGrade(gradeId);
-              if (!isDetectedTypeCompatibleWithFormType(detectedType, formTypeToUse)) {
-                incompatibleGrades.push(gradeId);
-              }
-            }
-
-            if (incompatibleGrades.length > 0) {
-              toast({
-                title: "Séries incompatíveis com o formulário selecionado",
-                description: "Remova as séries que não pertencem ao público-alvo deste formulário (anos iniciais/Educação Infantil, EJA/anos finais ou Educação Especial/ADAP) e tente novamente.",
-                variant: "destructive",
-              });
-              return;
-            }
-          } catch (error) {
-            console.error('Erro ao validar séries para o tipo de formulário selecionado:', error);
-            toast({
-              title: "Erro ao validar séries",
-              description: "Não foi possível validar as séries selecionadas. Tente novamente.",
-              variant: "destructive",
-            });
-            return;
-          }
-        }
-      }
-
       // Payload conforme spec POST /forms: formType + selectedSchools; séries/turmas só se preenchidos
+      // Validação de compatibilidade de séries será feita pelo backend
       // Aluno: sem questions — backend aplica o template completo (25/26)
       const payload: any = {
         formType: formTypeToUse,
@@ -899,7 +835,11 @@ const FormRegistration = () => {
         description: successMessage,
       });
 
-      await loadForms(formsPagination.page, formsPagination.limit);
+      // Recarregar a partir da página 1 para o formulário recém-criado aparecer no topo da lista
+      await loadForms(1, formsPagination.limit);
+      
+      // Voltar à lista após envio bem-sucedido
+      handleCancelCreation();
     } catch (error: any) {
       console.error('Erro ao enviar formulário:', error);
       toast({
@@ -1021,6 +961,7 @@ const FormRegistration = () => {
       </div>
 
       {/* Formulários já cadastrados pelo usuário */}
+      {!isCreating && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -1033,69 +974,153 @@ const FormRegistration = () => {
         </CardHeader>
         <CardContent>
           {isLoadingForms ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Card key={i} className="overflow-hidden">
+                  <CardHeader className="space-y-2">
+                    <Skeleton className="h-5 w-[75%]" />
+                    <Skeleton className="h-3 w-full" />
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-6 w-1/2" />
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           ) : formsList.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">
-              Nenhum questionário cadastrado ainda. Selecione um tipo abaixo e preencha os filtros para criar.
-            </p>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground py-6 text-center">
+                Nenhum questionário cadastrado ainda. Clique em "Novo Formulário" para criar.
+              </p>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                <Card
+                  className="flex h-full cursor-pointer flex-col items-center justify-center overflow-hidden border-2 border-dashed border-border/50 bg-muted/20 shadow-sm transition-all hover:border-primary/50 hover:bg-muted/30 hover:shadow-md"
+                  onClick={() => setIsCreating(true)}
+                >
+                  <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                    <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+                      <Plus className="h-8 w-8 text-primary" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-foreground">Novo Formulário</h3>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Clique para criar um novo questionário
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-3 px-2 font-medium">Título</th>
-                    <th className="text-left py-3 px-2 font-medium">Nome</th>
-                    <th className="text-left py-3 px-2 font-medium">Tipo</th>
-                    <th className="text-left py-3 px-2 font-medium">Prazo</th>
-                    <th className="text-left py-3 px-2 font-medium">Respondidos</th>
-                    <th className="text-left py-3 px-2 font-medium">Status</th>
-                    <th className="text-right py-3 px-2 font-medium">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {formsList.map((form) => {
-                    const recipientsTotal =
-                      form.statistics?.totalRecipients ?? form.recipientsCount;
-                    const completedResponses = form.statistics?.completedResponses ?? 0;
-                    const recipientsLabel =
-                      recipientsTotal != null
-                        ? `${completedResponses}/${recipientsTotal}`
-                        : '—';
-                    const recipientsTitle =
-                      recipientsTotal != null
-                        ? `${completedResponses} respondido${completedResponses === 1 ? '' : 's'} de ${recipientsTotal} destinatário${recipientsTotal === 1 ? '' : 's'}`
-                        : undefined;
-                    const formName = form.customTitle || form.name || form.nome || '—';
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {formsList.map((form) => {
+                const recipientsTotal = form.statistics?.totalRecipients ?? form.recipientsCount;
+                const completedResponses = form.statistics?.completedResponses ?? 0;
+                const recipientsLabel = recipientsTotal != null
+                  ? `${completedResponses}/${recipientsTotal}`
+                  : '—';
+                const formTitle = form.customTitle || form.title || form.name || form.nome || 'Questionário';
+                const resolved = resolvedRecipients[form.id];
 
-                    return (
-                    <tr key={form.id} className="border-b last:border-0">
-                      <td className="py-3 px-2 max-w-[200px] truncate" title={form.title}>
-                        {form.title || '—'}
-                      </td>
-                      <td className="py-3 px-2 max-w-[200px] truncate" title={formName !== '—' ? formName : undefined}>
-                        {formName}
-                      </td>
-                      <td className="py-3 px-2">{getFormTypeDisplayName(form.formType)}</td>
-                      <td className="py-3 px-2">
-                        {form.deadline
-                          ? new Date(form.deadline).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
-                          : '—'}
-                      </td>
-                      <td className="py-3 px-2" title={recipientsTitle}>
-                        {recipientsLabel}
-                      </td>
-                      <td className="py-3 px-2">
-                        <Badge variant={form.isActive ? 'default' : 'secondary'}>
+                return (
+                  <Card
+                    key={form.id}
+                    className="flex h-full flex-col overflow-hidden border-border/80 shadow-sm transition-shadow hover:shadow-md"
+                  >
+                    <CardHeader className="space-y-3 pb-3">
+                      <div className="min-w-0 space-y-1">
+                        <h3 className="line-clamp-2 text-base font-semibold leading-tight">
+                          {formTitle}
+                        </h3>
+                        {form.description && (
+                          <p className="line-clamp-2 text-xs text-muted-foreground">
+                            {form.description}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Badge variant="outline" className="text-xs">
+                          {getFormTypeDisplayNameUtil(form.formType)}
+                        </Badge>
+                        <Badge variant={form.isActive ? 'default' : 'secondary'} className="text-xs">
                           {form.isActive ? 'Ativo' : 'Inativo'}
                         </Badge>
-                      </td>
-                      <td className="py-3 px-2 text-right">
+                      </div>
+                      <div className="space-y-1 border-t border-border/60 pt-2 text-[11px] leading-snug text-muted-foreground">
+                        {isResolvingNames && !resolved ? (
+                          <>
+                            <Skeleton className="h-3 w-full" />
+                            <Skeleton className="h-3 w-3/4" />
+                            <Skeleton className="h-3 w-1/2" />
+                          </>
+                        ) : (
+                          <>
+                            {(resolved?.states?.length ?? 0) > 0 && (
+                              <div>
+                                <span className="font-medium text-foreground/80">Estado: </span>
+                                {formatScopeLabel(resolved?.states ?? [], undefined, '—', 1)}
+                              </div>
+                            )}
+                            <div>
+                              <span className="font-medium text-foreground/80">Cidade: </span>
+                              {form.cityName
+                                || formatScopeLabel(resolved?.cities ?? [], undefined, '—', 1)}
+                            </div>
+                            <div>
+                              <span className="font-medium text-foreground/80">Escolas: </span>
+                              {formatScopeLabel(resolved?.schools ?? [], form.selectedSchools, '—', 2)}
+                            </div>
+                            <div>
+                              <span className="font-medium text-foreground/80">Séries: </span>
+                              {formatScopeLabel(resolved?.grades ?? [], form.selectedGrades, 'Todas', 2)}
+                            </div>
+                            <div>
+                              <span className="font-medium text-foreground/80">Turmas: </span>
+                              {formatScopeLabel(resolved?.classes ?? [], form.selectedClasses, 'Todas', 2)}
+                            </div>
+                          </>
+                        )}
+                        {form.totalQuestions != null && (
+                          <div>
+                            <span className="font-medium text-foreground/80">Perguntas: </span>
+                            {form.totalQuestions}
+                          </div>
+                        )}
+                        <div>
+                          <span className="font-medium text-foreground/80">Prazo: </span>
+                          {form.deadline
+                            ? new Date(form.deadline).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+                            : '—'}
+                        </div>
+                        <div>
+                          <span className="font-medium text-foreground/80">Respondidos: </span>
+                          {recipientsLabel}
+                          {form.statistics?.completionRate != null && (
+                            <span className="ml-1">({Math.round(form.statistics.completionRate)}%)</span>
+                          )}
+                        </div>
+                        <div>
+                          <span className="font-medium text-foreground/80">Criado em: </span>
+                          {new Date(form.createdAt).toLocaleDateString('pt-BR')}
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <div className="mt-auto border-t bg-muted/20 pt-4 px-6 pb-4">
+                      <div className="flex items-center gap-2">
                         <Button
-                          variant="ghost"
+                          type="button"
+                          variant="secondary"
                           size="sm"
-                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          className="min-h-9 w-9 shrink-0 px-0"
+                          onClick={() => navigate(`/app/questionarios/${form.id}`)}
+                          aria-label="Visualizar questionário"
+                          title="Visualizar questionário"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
                           onClick={() => handleOpenDeleteConfirm(form.id)}
                           disabled={deletingFormId === form.id}
                         >
@@ -1106,12 +1131,27 @@ const FormRegistration = () => {
                           )}
                           <span className="ml-1.5">Excluir</span>
                         </Button>
-                      </td>
-                    </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })}
+              
+              {/* Card "Novo Formulário" */}
+              <Card
+                className="flex h-full cursor-pointer flex-col items-center justify-center overflow-hidden border-2 border-dashed border-border/50 bg-muted/20 shadow-sm transition-all hover:border-primary/50 hover:bg-muted/30 hover:shadow-md"
+                onClick={() => setIsCreating(true)}
+              >
+                <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                  <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+                    <Plus className="h-8 w-8 text-primary" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-foreground">Novo Formulário</h3>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Clique para criar um novo questionário
+                  </p>
+                </CardContent>
+              </Card>
             </div>
           )}
           {formsPagination.totalPages > 1 && (
@@ -1141,17 +1181,34 @@ const FormRegistration = () => {
           )}
         </CardContent>
       </Card>
+      )}
 
+      {/* Seções de criação de formulário (ocultas por padrão) */}
+      {isCreating && (
+      <div className="space-y-4 sm:space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
       {/* Seleção de tipo de formulário */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Filter className="h-5 w-5" />
-            Selecione o tipo de formulário
-          </CardTitle>
-          <CardDescription>
-            Primeiro escolha qual formulário socioeconômico deseja enviar e, em seguida, defina os filtros de destinatários.
-          </CardDescription>
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1.5">
+              <CardTitle className="flex items-center gap-2">
+                <Filter className="h-5 w-5" />
+                Selecione o tipo de formulário
+              </CardTitle>
+              <CardDescription>
+                Primeiro escolha qual formulário socioeconômico deseja enviar e, em seguida, defina os filtros de destinatários.
+              </CardDescription>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleCancelCreation}
+              className="shrink-0"
+            >
+              <X className="h-4 w-4 mr-1.5" />
+              Cancelar
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1296,7 +1353,7 @@ const FormRegistration = () => {
               />
               {selectedSchools.length > 0 && selectedGrades.length === 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Deixe vazio para enviar a todas as séries
+                  ✓ Deixe vazio para enviar a <strong>todas</strong> as séries das escolas selecionadas
                 </p>
               )}
             </div>
@@ -1312,7 +1369,7 @@ const FormRegistration = () => {
               />
               {selectedGrades.length > 0 && selectedClasses.length === 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Deixe vazio para enviar a todas as turmas
+                  ✓ Deixe vazio para enviar a <strong>todas</strong> as turmas das séries selecionadas
                 </p>
               )}
             </div>
@@ -1427,7 +1484,6 @@ const FormRegistration = () => {
                     ) : (
                       <>
                         Total de perguntas: {formDataToShow.questions.length}
-                        <span className="ml-1">(template completo do backend)</span>
                       </>
                     )
                   ) : (
@@ -1471,6 +1527,14 @@ const FormRegistration = () => {
                   )}
                 </Button>
                 <Button
+                  variant="outline"
+                  onClick={handleCancelCreation}
+                  className="flex items-center justify-center gap-2"
+                >
+                  <X className="h-4 w-4" />
+                  Cancelar
+                </Button>
+                <Button
                   onClick={handleSendForm}
                   disabled={isSendingForm}
                   className="flex items-center justify-center gap-2"
@@ -1508,6 +1572,8 @@ const FormRegistration = () => {
             </p>
           </CardContent>
         </Card>
+      )}
+      </div>
       )}
 
       {/* Dialog de Editor / Preview de Perguntas */}
