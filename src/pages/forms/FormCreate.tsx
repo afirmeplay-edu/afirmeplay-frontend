@@ -894,7 +894,7 @@ const FormCreate = () => {
 
       // Preparar payload — aluno: sem questions (backend aplica o template completo)
       const formPayload: any = {
-        title: formConfig.title.trim(),
+        customTitle: formConfig.title.trim(),
         description: formConfig.description.trim() || undefined,
         formType: formType,
         targetGroups: formConfig.targetGroups,

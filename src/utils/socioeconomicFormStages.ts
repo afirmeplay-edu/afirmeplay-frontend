@@ -28,28 +28,30 @@ export const RIGID_EDUCATION_STAGE_TO_FORM_TYPE: Record<string, 'aluno-jovem' | 
   'c78fcd8e-00a1-485d-8c03-70bcf59e3025': 'aluno-velho', // Anos Finais
 };
 
-export type DetectedStudentFormType = 'aluno-jovem' | 'aluno-velho' | 'adap';
+/** `unknown` = detalhe da série indisponível; não bloqueia no front (backend valida). */
+export type DetectedStudentFormType = 'aluno-jovem' | 'aluno-velho' | 'adap' | 'unknown';
 
 export function isAdapEducationStage(educationStageId?: string | null): boolean {
-  return Boolean(educationStageId && educationStageId === ADAP_EDUCATION_STAGE_ID);
+  return Boolean(educationStageId && String(educationStageId) === ADAP_EDUCATION_STAGE_ID);
 }
 
-/** Fallback por nome quando o stage ID não veio na resposta. */
+/** Fallback por nome da série (ex.: "Suporte 1") ou do stage ("Educação Especial"). */
 export function looksLikeAdapGradeName(gradeName: string): boolean {
-  const name = gradeName.toLowerCase();
+  const name = gradeName.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
   return (
     name.includes('adap') ||
-    name.includes('educação especial') ||
     name.includes('educacao especial') ||
     name.includes('ed. especial') ||
     name.includes('ed especial') ||
-    (name.includes('especial') && (name.includes('suporte') || name.includes('aee')))
+    /\bsuporte\s*\d*\b/.test(name) ||
+    name.includes('aee') ||
+    (name.includes('especial') && name.includes('suporte'))
   );
 }
 
 /**
  * Série detectada é compatível com o formType do request.
- * ADAP cola no formType escolhido (não trava num tipo).
+ * ADAP cola no formType escolhido; `unknown` não bloqueia no client.
  */
 export function isDetectedTypeCompatibleWithFormType(
   detectedType: DetectedStudentFormType | null,
@@ -58,7 +60,7 @@ export function isDetectedTypeCompatibleWithFormType(
   if (!detectedType || (formType !== 'aluno-jovem' && formType !== 'aluno-velho')) {
     return false;
   }
-  if (detectedType === 'adap') {
+  if (detectedType === 'adap' || detectedType === 'unknown') {
     return true;
   }
   return detectedType === formType;
