@@ -17,7 +17,11 @@ import {
   getTermoCompromissoApiError,
   getTermoCompromissoDados,
 } from "@/services/documents/termoCompromissoApi";
-import { downloadTermoCompromissoPdf } from "@/services/reports/termoCompromissoPdf";
+import {
+  buildTermoCompromissoHierarchyPath,
+  createTermoCompromissoPdfBlob,
+  downloadTermoCompromissoPdf,
+} from "@/services/reports/termoCompromissoPdf";
 import type {
   TermoCompromissoDadosResponse,
   TermoCompromissoFormData,
@@ -25,6 +29,7 @@ import type {
 } from "@/types/termo-compromisso";
 import { loadCityBrandingPdfAssets } from "@/utils/pdfCityBranding";
 import { getClassShiftLabel } from "@/lib/classShift";
+import { downloadBlob, generateZipBlob } from "@/services/reports/hierarchicalDownload";
 
 type Option = { id: string; name: string };
 
@@ -90,6 +95,7 @@ export default function TermoCompromissoPage() {
 
   const isManualMode = modo === "manual";
   const isAppliedMode = modo === "avaliacao" || modo === "cartao_resposta";
+  const turmaEspecifica = selectedTurma !== "all";
 
   const resolvedNomeAplicacao = useMemo(() => {
     if (isManualMode) return manualTitle.trim();
@@ -287,7 +293,7 @@ export default function TermoCompromissoPage() {
     if (!selectedMunicipio || selectedMunicipio === "all") return "Selecione o município.";
     if (!selectedSchool || selectedSchool === "all") return "Selecione a escola.";
     if (!selectedSerie || selectedSerie === "all") return "Selecione a série.";
-    if (!selectedTurma || selectedTurma === "all") return "Selecione a turma.";
+    if (turmaEspecifica === false && turmas.length === 0) return "Nenhuma turma encontrada para a série.";
     if (isManualMode && !manualTitle.trim()) return "Informe o nome da aplicação.";
     if (isAppliedMode && selectedAplicadoId === "all") {
       return modo === "cartao_resposta" ? "Selecione o cartão-resposta." : "Selecione a avaliação.";
@@ -302,7 +308,8 @@ export default function TermoCompromissoPage() {
     selectedMunicipio,
     selectedSchool,
     selectedSerie,
-    selectedTurma,
+    turmaEspecifica,
+    turmas.length,
   ]);
 
   const buildFormData = (): TermoCompromissoFormData => ({
@@ -312,11 +319,11 @@ export default function TermoCompromissoPage() {
     nomeAplicacao: resolvedNomeAplicacao,
   });
 
-  const buildParams = () => ({
+  const buildParams = (turmaId?: string) => ({
     municipio: selectedMunicipio,
     escola: selectedSchool !== "all" ? selectedSchool : undefined,
     serie: selectedSerie !== "all" ? selectedSerie : undefined,
-    turma: selectedTurma !== "all" ? selectedTurma : undefined,
+    turma: turmaId ?? (selectedTurma !== "all" ? selectedTurma : undefined),
     modo,
     evaluation_id: modo === "avaliacao" && selectedAplicadoId !== "all" ? selectedAplicadoId : undefined,
     answer_sheet_id:
@@ -326,6 +333,10 @@ export default function TermoCompromissoPage() {
   const handlePreview = async () => {
     if (validationMessage) {
       setError(validationMessage);
+      return;
+    }
+    if (!turmaEspecifica) {
+      setError("Selecione uma turma específica para pré-visualizar o contexto.");
       return;
     }
     setLoadingPreview(true);
@@ -351,15 +362,46 @@ export default function TermoCompromissoPage() {
     setLoadingPdf(true);
     setError(null);
     try {
-      const data = preview ?? (await getTermoCompromissoDados(buildParams()));
-      setPreview(data);
+      const formData = buildFormData();
       const branding = await loadCityBrandingPdfAssets(selectedMunicipio);
-      downloadTermoCompromissoPdf(
-        data,
-        buildFormData(),
-        branding.logo
-      );
-      toast({ title: "PDF gerado", description: "O termo foi baixado com sucesso." });
+
+      if (turmaEspecifica) {
+        const data = preview ?? (await getTermoCompromissoDados(buildParams()));
+        setPreview(data);
+        await downloadTermoCompromissoPdf(data, formData, branding.logo);
+        toast({ title: "PDF gerado", description: "O termo foi baixado com sucesso." });
+        return;
+      }
+
+      if (turmas.length === 0) {
+        setError("Nenhuma turma encontrada para gerar o lote.");
+        return;
+      }
+
+      const zipEntries: Array<{ path: string; blob: Blob }> = [];
+      const schoolName = schools.find((s) => s.id === selectedSchool)?.name || "Escola";
+      const serieName = series.find((s) => s.id === selectedSerie)?.name || "Serie";
+
+      for (const turma of turmas) {
+        const data = await getTermoCompromissoDados(buildParams(turma.id));
+        const blob = await createTermoCompromissoPdfBlob(data, formData, branding.logo);
+        zipEntries.push({
+          path: buildTermoCompromissoHierarchyPath({
+            escola: data.contexto.escola || schoolName,
+            serie: data.contexto.serie || serieName,
+            turma: data.contexto.turma || turma.name,
+          }),
+          blob,
+        });
+      }
+
+      const date = new Date().toISOString().slice(0, 10);
+      const zipBlob = await generateZipBlob(zipEntries);
+      downloadBlob(zipBlob, `termo-compromisso-${date}.zip`);
+      toast({
+        title: "ZIP gerado",
+        description: `${zipEntries.length} termo(s) exportado(s).`,
+      });
     } catch (err) {
       const msg = getTermoCompromissoApiError(err, "Não foi possível gerar o PDF.");
       setError(msg);
@@ -469,7 +511,7 @@ export default function TermoCompromissoPage() {
                 <SelectValue placeholder={loadingTurmas ? "Carregando..." : "Turma"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Selecione</SelectItem>
+                <SelectItem value="all">Todas</SelectItem>
                 {turmas.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
                     {t.name}
@@ -580,15 +622,26 @@ export default function TermoCompromissoPage() {
           )}
 
           <div className="flex flex-wrap gap-2 sm:col-span-2">
-            <Button type="button" variant="outline" onClick={handlePreview} disabled={loadingPreview || !!validationMessage}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handlePreview}
+              disabled={loadingPreview || !!validationMessage || !turmaEspecifica}
+            >
               {loadingPreview ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
               Pré-visualizar contexto
             </Button>
             <Button type="button" onClick={handleGeneratePdf} disabled={loadingPdf || !!validationMessage}>
               {loadingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-              Baixar PDF
+              {turmaEspecifica ? "Baixar PDF" : "Baixar ZIP"}
             </Button>
           </div>
+          {!turmaEspecifica && (
+            <p className="text-xs text-muted-foreground sm:col-span-2">
+              Com &quot;Todas&quot; as turmas, o download gera um ZIP (um termo por turma). A pré-visualização
+              exige turma específica.
+            </p>
+          )}
         </CardContent>
       </Card>
 

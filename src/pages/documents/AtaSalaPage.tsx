@@ -262,6 +262,7 @@ export default function AtaSalaPage() {
     avaliacoes: false,
     turmasAvaliacao: false,
     lista: false,
+    pdf: false,
   });
 
   const [error, setError] = useState<string | null>(null);
@@ -736,7 +737,7 @@ export default function AtaSalaPage() {
     };
   };
 
-  const loadLista = async () => {
+  const loadLista = async (): Promise<ListaFrequenciaResponse[] | null> => {
     try {
       setError(null);
       setLoading((s) => ({ ...s, lista: true }));
@@ -746,7 +747,7 @@ export default function AtaSalaPage() {
           const data = await getListaFrequenciaPorTurma(selectedTurma, "avaliacao");
           setLoadedLista([data]);
           applyAtaAutofill([data]);
-          return;
+          return [data];
         }
 
         let classIds: string[] = [];
@@ -770,7 +771,7 @@ export default function AtaSalaPage() {
         if (classIds.length === 0) {
           setError("Nenhuma turma encontrada para os filtros selecionados.");
           setLoadedLista(null);
-          return;
+          return null;
         }
 
         const results: ListaFrequenciaResponse[] = [];
@@ -790,17 +791,17 @@ export default function AtaSalaPage() {
         if (results.length === 0) {
           setError("Não foi possível carregar os dados da lista de frequência para autopreenchimento.");
           setLoadedLista(null);
-          return;
+          return null;
         }
         setLoadedLista(results);
         applyAtaAutofill(results);
-        return;
+        return results;
       }
 
       if (!selectedAvaliacaoId || selectedAvaliacaoId === "all") {
         setError(`Selecione o(a) ${labelItemAplicado.toLowerCase()}.`);
         setLoadedLista(null);
-        return;
+        return null;
       }
 
       const classId = selectedTurma && selectedTurma !== "all" ? selectedTurma : undefined;
@@ -808,7 +809,7 @@ export default function AtaSalaPage() {
         if (!selectedMunicipio || selectedMunicipio === "all") {
           setError("Selecione o município para usar cartão resposta.");
           setLoadedLista(null);
-          return;
+          return null;
         }
         if (classId) {
           const res = await getListaFrequenciaPorGabarito(selectedAvaliacaoId, selectedMunicipio, classId, {
@@ -816,15 +817,15 @@ export default function AtaSalaPage() {
           });
           setLoadedLista([res]);
           applyAtaAutofill([res]);
-        } else {
-          const results = await getListaFrequenciaPorGabaritoTodasTurmas(selectedAvaliacaoId, selectedMunicipio, {
-            grade_id: selectedSerie !== "all" ? selectedSerie : undefined,
-            tipo: "prova_fisica",
-          });
-          setLoadedLista(results);
-          applyAtaAutofill(results);
+          return [res];
         }
-        return;
+        const results = await getListaFrequenciaPorGabaritoTodasTurmas(selectedAvaliacaoId, selectedMunicipio, {
+          grade_id: selectedSerie !== "all" ? selectedSerie : undefined,
+          tipo: "prova_fisica",
+        });
+        setLoadedLista(results);
+        applyAtaAutofill(results);
+        return results;
       }
 
       if (classId) {
@@ -833,17 +834,19 @@ export default function AtaSalaPage() {
         });
         setLoadedLista([res]);
         applyAtaAutofill([res]);
-      } else {
-        const results = await getListaFrequenciaPorAvaliacaoTodasTurmas(selectedAvaliacaoId, {
-          grade_id: selectedSerie !== "all" ? selectedSerie : undefined,
-          tipo: "avaliacao",
-        });
-        setLoadedLista(results);
-        applyAtaAutofill(results);
+        return [res];
       }
+      const results = await getListaFrequenciaPorAvaliacaoTodasTurmas(selectedAvaliacaoId, {
+        grade_id: selectedSerie !== "all" ? selectedSerie : undefined,
+        tipo: "avaliacao",
+      });
+      setLoadedLista(results);
+      applyAtaAutofill(results);
+      return results;
     } catch (_err) {
       setError("Não foi possível carregar os dados da lista de frequência para autopreenchimento.");
       setLoadedLista(null);
+      return null;
     } finally {
       setLoading((s) => ({ ...s, lista: false }));
     }
@@ -919,16 +922,34 @@ export default function AtaSalaPage() {
   const onDownload = async () => {
     warnInvalidCpf();
     const ataCityId = selectedMunicipio !== "all" ? selectedMunicipio : null;
-    const shouldZip = Boolean(loadedLista && loadedLista.length > 1 && selectedTurma === "all");
-    if (!shouldZip) {
-      await downloadAtaSalaPdf(pdfData, "ata-de-sala.pdf", ataCityId);
-      toast({ title: "PDF baixado", description: "A ata de sala foi baixada com sucesso." });
-      return;
-    }
+    const wantsBatch = selectedTurma === "all";
 
+    setLoading((s) => ({ ...s, pdf: true }));
     try {
+      let lista = loadedLista;
+      if (wantsBatch || !lista || lista.length === 0) {
+        lista = await loadLista();
+      }
+      if (!lista || lista.length === 0) {
+        toast({
+          title: "Sem dados",
+          description: "Carregue a lista de frequência antes de baixar a ata.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const shouldZip = wantsBatch && lista.length >= 1;
+      if (!shouldZip) {
+        const singleData =
+          lista.length === 1 ? buildAtaDataForClass(lista[0]) : pdfData;
+        await downloadAtaSalaPdf(singleData, "ata-de-sala.pdf", ataCityId);
+        toast({ title: "PDF baixado", description: "A ata de sala foi baixada com sucesso." });
+        return;
+      }
+
       const zipEntries: Array<{ path: string; blob: Blob }> = [];
-      for (const item of loadedLista) {
+      for (const item of lista) {
         const ataData = buildAtaDataForClass(item);
         const blob = await createAtaSalaPdfBlob(ataData, ataCityId);
         const serieTurma = getSerieTurmaDisplay(item.cabecalho);
@@ -947,10 +968,12 @@ export default function AtaSalaPage() {
       toast({ title: "ZIP baixado", description: `${zipEntries.length} atas foram exportadas.` });
     } catch {
       toast({
-        title: "Erro ao gerar ZIP",
-        description: "Não foi possível gerar o arquivo ZIP da ata de sala.",
+        title: "Erro ao gerar arquivo",
+        description: "Não foi possível gerar o PDF/ZIP da ata de sala.",
         variant: "destructive",
       });
+    } finally {
+      setLoading((s) => ({ ...s, pdf: false }));
     }
   };
 
@@ -1193,7 +1216,7 @@ export default function AtaSalaPage() {
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Selecione</SelectItem>
+                  <SelectItem value="all">Todas</SelectItem>
                   {turmaOptions.map((t) => (
                     <SelectItem key={t.id} value={t.id}>
                       {t.name}
@@ -1527,9 +1550,13 @@ export default function AtaSalaPage() {
               <Eye className="mr-2 h-4 w-4" />
               Gerar PDF
             </Button>
-            <Button onClick={onDownload}>
-              <Download className="mr-2 h-4 w-4" />
-              {loadedLista && loadedLista.length > 1 && selectedTurma === "all" ? "Baixar ZIP" : "Baixar PDF"}
+            <Button onClick={onDownload} disabled={loading.pdf || loading.lista}>
+              {loading.pdf ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              {selectedTurma === "all" ? "Baixar ZIP" : "Baixar PDF"}
             </Button>
             <Button variant="outline" onClick={onPrint}>
               <Printer className="mr-2 h-4 w-4" />

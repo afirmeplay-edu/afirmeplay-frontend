@@ -42,9 +42,16 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { FormMultiSelect, FormOption } from '@/components/ui/form-multi-select';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { FormFiltersApiService } from '@/services/formFiltersApi';
 import { api } from '@/lib/api';
+import {
+  resolveFormRecipients,
+  formatScopeLabel,
+  getFormTypeDisplayName as getFormTypeDisplayNameUtil,
+  type ResolvedRecipients,
+} from '@/services/formRecipientsApi';
 import { 
   professorQuestions, 
   diretorQuestions, 
@@ -195,6 +202,8 @@ interface ListedForm {
   selectedSchools?: string[];
   selectedGrades?: string[];
   selectedClasses?: string[];
+  cityId?: string;
+  cityName?: string;
 }
 
 const FormRegistration = () => {
@@ -257,6 +266,10 @@ const FormRegistration = () => {
   const [formToDeleteId, setFormToDeleteId] = useState<string | null>(null);
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
 
+  const [resolvedRecipients, setResolvedRecipients] = useState<Record<string, ResolvedRecipients>>({});
+  const [isResolvingNames, setIsResolvingNames] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+
   const loadForms = useCallback(async (page = 1, limit = 20) => {
     try {
       setIsLoadingForms(true);
@@ -281,6 +294,40 @@ const FormRegistration = () => {
   useEffect(() => {
     loadForms(formsPagination.page, formsPagination.limit);
   }, [loadForms]);
+
+  useEffect(() => {
+    if (formsList.length === 0) {
+      setResolvedRecipients({});
+      return;
+    }
+
+    let cancelled = false;
+    const resolveAllRecipients = async () => {
+      setIsResolvingNames(true);
+      const resolved: Record<string, ResolvedRecipients> = {};
+
+      await Promise.all(
+        formsList.map(async (form) => {
+          try {
+            resolved[form.id] = await resolveFormRecipients(form);
+          } catch (error) {
+            console.error(`Erro ao resolver destinatários do formulário ${form.id}:`, error);
+            resolved[form.id] = { states: [], cities: [], schools: [], grades: [], classes: [] };
+          }
+        })
+      );
+
+      if (!cancelled) {
+        setResolvedRecipients(resolved);
+        setIsResolvingNames(false);
+      }
+    };
+
+    resolveAllRecipients();
+    return () => {
+      cancelled = true;
+    };
+  }, [formsList]);
 
   const handleOpenDeleteConfirm = (formId: string) => {
     setFormToDeleteId(formId);
@@ -308,16 +355,22 @@ const FormRegistration = () => {
     }
   }, [formToDeleteId, loadForms, formsPagination.page, formsPagination.limit, toast]);
 
-  const getFormTypeDisplayName = (formType: string): string => {
-    const names: Record<string, string> = {
-      'aluno-jovem': 'Anos iniciais e educação infantil',
-      'aluno-velho': 'EJA e anos finais',
-      professor: 'Professores',
-      diretor: 'Diretor',
-      secretario: 'Secretário',
-    };
-    return names[formType] || formType;
-  };
+  const handleCancelCreation = useCallback(() => {
+    setSelectedFormType(null);
+    setFormTitle('');
+    setFormDescription('');
+    setFormInstructions('');
+    setFormDeadline('');
+    setSelectedState('all');
+    setSelectedMunicipality('all');
+    setSelectedSchools([]);
+    setSelectedGrades([]);
+    setSelectedClasses([]);
+    setSelectedQuestionIds(new Set());
+    setSelectedFormTypeForEditor(null);
+    setShowQuestionEditor(false);
+    setIsCreating(false);
+  }, []);
 
   // Carregar estados iniciais
   useEffect(() => {
@@ -761,7 +814,7 @@ const FormRegistration = () => {
     if (!formTitle.trim()) {
       toast({
         title: "Erro",
-        description: "O título do formulário é obrigatório.",
+        description: "O nome do questionário é obrigatório.",
         variant: "destructive",
       });
       return;
@@ -899,7 +952,8 @@ const FormRegistration = () => {
         description: successMessage,
       });
 
-      await loadForms(formsPagination.page, formsPagination.limit);
+      await loadForms(1, formsPagination.limit);
+      handleCancelCreation();
     } catch (error: any) {
       console.error('Erro ao enviar formulário:', error);
       toast({
@@ -1021,6 +1075,7 @@ const FormRegistration = () => {
       </div>
 
       {/* Formulários já cadastrados pelo usuário */}
+      {!isCreating && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -1033,69 +1088,153 @@ const FormRegistration = () => {
         </CardHeader>
         <CardContent>
           {isLoadingForms ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Card key={i} className="overflow-hidden">
+                  <CardHeader className="space-y-2">
+                    <Skeleton className="h-5 w-[75%]" />
+                    <Skeleton className="h-3 w-full" />
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-6 w-1/2" />
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           ) : formsList.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">
-              Nenhum questionário cadastrado ainda. Selecione um tipo abaixo e preencha os filtros para criar.
-            </p>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground py-6 text-center">
+                Nenhum questionário cadastrado ainda. Clique em &quot;Novo Formulário&quot; para criar.
+              </p>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                <Card
+                  className="flex h-full cursor-pointer flex-col items-center justify-center overflow-hidden border-2 border-dashed border-border/50 bg-muted/20 shadow-sm transition-all hover:border-primary/50 hover:bg-muted/30 hover:shadow-md"
+                  onClick={() => setIsCreating(true)}
+                >
+                  <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                    <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+                      <Plus className="h-8 w-8 text-primary" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-foreground">Novo Formulário</h3>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Clique para criar um novo questionário
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-3 px-2 font-medium">Título</th>
-                    <th className="text-left py-3 px-2 font-medium">Nome</th>
-                    <th className="text-left py-3 px-2 font-medium">Tipo</th>
-                    <th className="text-left py-3 px-2 font-medium">Prazo</th>
-                    <th className="text-left py-3 px-2 font-medium">Respondidos</th>
-                    <th className="text-left py-3 px-2 font-medium">Status</th>
-                    <th className="text-right py-3 px-2 font-medium">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {formsList.map((form) => {
-                    const recipientsTotal =
-                      form.statistics?.totalRecipients ?? form.recipientsCount;
-                    const completedResponses = form.statistics?.completedResponses ?? 0;
-                    const recipientsLabel =
-                      recipientsTotal != null
-                        ? `${completedResponses}/${recipientsTotal}`
-                        : '—';
-                    const recipientsTitle =
-                      recipientsTotal != null
-                        ? `${completedResponses} respondido${completedResponses === 1 ? '' : 's'} de ${recipientsTotal} destinatário${recipientsTotal === 1 ? '' : 's'}`
-                        : undefined;
-                    const formName = form.customTitle || form.name || form.nome || '—';
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {formsList.map((form) => {
+                const recipientsTotal = form.statistics?.totalRecipients ?? form.recipientsCount;
+                const completedResponses = form.statistics?.completedResponses ?? 0;
+                const recipientsLabel = recipientsTotal != null
+                  ? `${completedResponses}/${recipientsTotal}`
+                  : '—';
+                const formDisplayTitle = form.customTitle || form.title || form.name || form.nome || 'Questionário';
+                const resolved = resolvedRecipients[form.id];
 
-                    return (
-                    <tr key={form.id} className="border-b last:border-0">
-                      <td className="py-3 px-2 max-w-[200px] truncate" title={form.title}>
-                        {form.title || '—'}
-                      </td>
-                      <td className="py-3 px-2 max-w-[200px] truncate" title={formName !== '—' ? formName : undefined}>
-                        {formName}
-                      </td>
-                      <td className="py-3 px-2">{getFormTypeDisplayName(form.formType)}</td>
-                      <td className="py-3 px-2">
-                        {form.deadline
-                          ? new Date(form.deadline).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
-                          : '—'}
-                      </td>
-                      <td className="py-3 px-2" title={recipientsTitle}>
-                        {recipientsLabel}
-                      </td>
-                      <td className="py-3 px-2">
-                        <Badge variant={form.isActive ? 'default' : 'secondary'}>
+                return (
+                  <Card
+                    key={form.id}
+                    className="flex h-full flex-col overflow-hidden border-border/80 shadow-sm transition-shadow hover:shadow-md"
+                  >
+                    <CardHeader className="space-y-3 pb-3">
+                      <div className="min-w-0 space-y-1">
+                        <h3 className="line-clamp-2 text-base font-semibold leading-tight">
+                          {formDisplayTitle}
+                        </h3>
+                        {form.description && (
+                          <p className="line-clamp-2 text-xs text-muted-foreground">
+                            {form.description}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Badge variant="outline" className="text-xs">
+                          {getFormTypeDisplayNameUtil(form.formType)}
+                        </Badge>
+                        <Badge variant={form.isActive ? 'default' : 'secondary'} className="text-xs">
                           {form.isActive ? 'Ativo' : 'Inativo'}
                         </Badge>
-                      </td>
-                      <td className="py-3 px-2 text-right">
+                      </div>
+                      <div className="space-y-1 border-t border-border/60 pt-2 text-[11px] leading-snug text-muted-foreground">
+                        {isResolvingNames && !resolved ? (
+                          <>
+                            <Skeleton className="h-3 w-full" />
+                            <Skeleton className="h-3 w-3/4" />
+                            <Skeleton className="h-3 w-1/2" />
+                          </>
+                        ) : (
+                          <>
+                            {(resolved?.states?.length ?? 0) > 0 && (
+                              <div>
+                                <span className="font-medium text-foreground/80">Estado: </span>
+                                {formatScopeLabel(resolved?.states ?? [], undefined, '—', 1)}
+                              </div>
+                            )}
+                            <div>
+                              <span className="font-medium text-foreground/80">Cidade: </span>
+                              {form.cityName
+                                || formatScopeLabel(resolved?.cities ?? [], undefined, '—', 1)}
+                            </div>
+                            <div>
+                              <span className="font-medium text-foreground/80">Escolas: </span>
+                              {formatScopeLabel(resolved?.schools ?? [], form.selectedSchools, '—', 2)}
+                            </div>
+                            <div>
+                              <span className="font-medium text-foreground/80">Séries: </span>
+                              {formatScopeLabel(resolved?.grades ?? [], form.selectedGrades, 'Todas', 2)}
+                            </div>
+                            <div>
+                              <span className="font-medium text-foreground/80">Turmas: </span>
+                              {formatScopeLabel(resolved?.classes ?? [], form.selectedClasses, 'Todas', 2)}
+                            </div>
+                          </>
+                        )}
+                        {form.totalQuestions != null && (
+                          <div>
+                            <span className="font-medium text-foreground/80">Perguntas: </span>
+                            {form.totalQuestions}
+                          </div>
+                        )}
+                        <div>
+                          <span className="font-medium text-foreground/80">Prazo: </span>
+                          {form.deadline
+                            ? new Date(form.deadline).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+                            : '—'}
+                        </div>
+                        <div>
+                          <span className="font-medium text-foreground/80">Respondidos: </span>
+                          {recipientsLabel}
+                          {form.statistics?.completionRate != null && (
+                            <span className="ml-1">({Math.round(form.statistics.completionRate)}%)</span>
+                          )}
+                        </div>
+                        <div>
+                          <span className="font-medium text-foreground/80">Criado em: </span>
+                          {new Date(form.createdAt).toLocaleDateString('pt-BR')}
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <div className="mt-auto border-t bg-muted/20 px-6 pb-4 pt-4">
+                      <div className="flex items-center gap-2">
                         <Button
-                          variant="ghost"
+                          type="button"
+                          variant="secondary"
                           size="sm"
-                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          className="min-h-9 w-9 shrink-0 px-0"
+                          onClick={() => navigate(`/app/questionarios/${form.id}`)}
+                          aria-label="Visualizar questionário"
+                          title="Visualizar questionário"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
                           onClick={() => handleOpenDeleteConfirm(form.id)}
                           disabled={deletingFormId === form.id}
                         >
@@ -1106,12 +1245,26 @@ const FormRegistration = () => {
                           )}
                           <span className="ml-1.5">Excluir</span>
                         </Button>
-                      </td>
-                    </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })}
+
+              <Card
+                className="flex h-full cursor-pointer flex-col items-center justify-center overflow-hidden border-2 border-dashed border-border/50 bg-muted/20 shadow-sm transition-all hover:border-primary/50 hover:bg-muted/30 hover:shadow-md"
+                onClick={() => setIsCreating(true)}
+              >
+                <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                  <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+                    <Plus className="h-8 w-8 text-primary" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-foreground">Novo Formulário</h3>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Clique para criar um novo questionário
+                  </p>
+                </CardContent>
+              </Card>
             </div>
           )}
           {formsPagination.totalPages > 1 && (
@@ -1141,17 +1294,34 @@ const FormRegistration = () => {
           )}
         </CardContent>
       </Card>
+      )}
 
+      {/* Seções de criação de formulário (ocultas por padrão) */}
+      {isCreating && (
+      <div className="space-y-4 sm:space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
       {/* Seleção de tipo de formulário */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Filter className="h-5 w-5" />
-            Selecione o tipo de formulário
-          </CardTitle>
-          <CardDescription>
-            Primeiro escolha qual formulário socioeconômico deseja enviar e, em seguida, defina os filtros de destinatários.
-          </CardDescription>
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1.5">
+              <CardTitle className="flex items-center gap-2">
+                <Filter className="h-5 w-5" />
+                Selecione o tipo de formulário
+              </CardTitle>
+              <CardDescription>
+                Primeiro escolha qual formulário socioeconômico deseja enviar e, em seguida, defina os filtros de destinatários.
+              </CardDescription>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleCancelCreation}
+              className="shrink-0"
+            >
+              <X className="h-4 w-4 mr-1.5" />
+              Cancelar
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1296,7 +1466,7 @@ const FormRegistration = () => {
               />
               {selectedSchools.length > 0 && selectedGrades.length === 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Deixe vazio para enviar a todas as séries
+                  ✓ Deixe vazio para enviar a <strong>todas</strong> as séries das escolas selecionadas
                 </p>
               )}
             </div>
@@ -1312,7 +1482,7 @@ const FormRegistration = () => {
               />
               {selectedGrades.length > 0 && selectedClasses.length === 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Deixe vazio para enviar a todas as turmas
+                  ✓ Deixe vazio para enviar a <strong>todas</strong> as turmas das séries selecionadas
                 </p>
               )}
             </div>
@@ -1357,11 +1527,11 @@ const FormRegistration = () => {
               <div className="space-y-4 border-b pb-4">
                 <div className="space-y-2">
                   <Label htmlFor="form-title" className="text-sm font-medium">
-                    Título do Formulário <span className="text-red-500">*</span>
+                    Nome do questionário <span className="text-red-500">*</span>
                   </Label>
                   <Input
                     id="form-title"
-                    placeholder="Digite o título do formulário"
+                    placeholder="Digite o nome customizado do questionário"
                     value={formTitle}
                     onChange={(e) => setFormTitle(e.target.value)}
                     className="w-full"
@@ -1427,7 +1597,6 @@ const FormRegistration = () => {
                     ) : (
                       <>
                         Total de perguntas: {formDataToShow.questions.length}
-                        <span className="ml-1">(template completo do backend)</span>
                       </>
                     )
                   ) : (
@@ -1471,6 +1640,14 @@ const FormRegistration = () => {
                   )}
                 </Button>
                 <Button
+                  variant="outline"
+                  onClick={handleCancelCreation}
+                  className="flex items-center justify-center gap-2"
+                >
+                  <X className="h-4 w-4" />
+                  Cancelar
+                </Button>
+                <Button
                   onClick={handleSendForm}
                   disabled={isSendingForm}
                   className="flex items-center justify-center gap-2"
@@ -1508,6 +1685,8 @@ const FormRegistration = () => {
             </p>
           </CardContent>
         </Card>
+      )}
+      </div>
       )}
 
       {/* Dialog de Editor / Preview de Perguntas */}

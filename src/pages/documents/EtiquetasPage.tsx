@@ -17,7 +17,11 @@ import {
 } from "@/services/evaluation/evaluationResultsApi";
 import { EvaluationInstrumentPicker } from "@/components/filters";
 import { getEtiquetasApiError, getEtiquetasDados } from "@/services/documents/etiquetasApi";
-import { downloadEtiquetasPdf } from "@/services/reports/etiquetasPdf";
+import {
+  buildEtiquetasHierarchyPath,
+  createEtiquetasPdfBlob,
+  downloadEtiquetasPdf,
+} from "@/services/reports/etiquetasPdf";
 import type {
   EtiquetaEditItem,
   EtiquetasDadosResponse,
@@ -33,6 +37,7 @@ import {
 } from "@/utils/etiquetasDisplay";
 import { EtiquetaAlignToolbar } from "@/components/documents/EtiquetaAlignToolbar";
 import { EtiquetaPreviewDialog } from "@/components/documents/EtiquetaPreviewDialog";
+import { downloadBlob, generateZipBlob } from "@/services/reports/hierarchicalDownload";
 
 type Option = { id: string; name: string };
 type NivelOption = { id: string; name: string };
@@ -125,6 +130,7 @@ export default function EtiquetasPage() {
 
   const isManualMode = modo === "manual";
   const isAppliedMode = modo === "avaliacao" || modo === "cartao_resposta";
+  const turmaEspecifica = selectedTurma !== "all";
   const parsedQuantity = Number.parseInt(quantityInput, 10);
 
   const globalTitle = useMemo(() => {
@@ -369,8 +375,8 @@ export default function EtiquetasPage() {
     if (!selectedSchool || selectedSchool === "all") return "Selecione a escola.";
     if (!selectedNivel || selectedNivel === "all") return "Selecione o curso.";
     if (!selectedSerie || selectedSerie === "all") return "Selecione a série.";
-    if (!selectedTurma || selectedTurma === "all") return "Selecione a turma.";
-    if (!selectedTurno || selectedTurno === "all") return "Selecione o turno.";
+    if (!turmaEspecifica && turmas.length === 0) return "Nenhuma turma encontrada para a série.";
+    if (turmaEspecifica && (!selectedTurno || selectedTurno === "all")) return "Selecione o turno.";
     if (!Number.isFinite(parsedQuantity) || parsedQuantity < 1) return "Informe uma quantidade válida.";
     if (parsedQuantity > 200) return "Limite máximo de 200 etiquetas por geração.";
     if (isManualMode && !manualTitle.trim()) return "Informe o título das etiquetas.";
@@ -389,23 +395,24 @@ export default function EtiquetasPage() {
     selectedNivel,
     selectedSchool,
     selectedSerie,
-    selectedTurma,
     selectedTurno,
+    turmaEspecifica,
+    turmas.length,
   ]);
 
-  const filterLabelsForContext = () => ({
+  const filterLabelsForContext = (turmaId?: string) => ({
     serieLabel: series.find((s) => s.id === selectedSerie)?.name,
-    turmaLabel: turmas.find((t) => t.id === selectedTurma)?.name,
+    turmaLabel: turmas.find((t) => t.id === (turmaId ?? selectedTurma))?.name,
     turnoLabel: TURNO_OPTIONS.find((t) => t.id === selectedTurno)?.name,
   });
 
-  const buildParams = () => ({
+  const buildParams = (turmaId?: string) => ({
     modo,
     municipio: selectedMunicipio,
     escola: selectedSchool !== "all" ? selectedSchool : undefined,
     nivel: selectedNivel !== "all" ? selectedNivel : undefined,
     serie: selectedSerie !== "all" ? selectedSerie : undefined,
-    turma: selectedTurma !== "all" ? selectedTurma : undefined,
+    turma: turmaId ?? (selectedTurma !== "all" ? selectedTurma : undefined),
     turno: selectedTurno !== "all" ? selectedTurno : undefined,
     evaluation_id: modo === "avaliacao" && selectedAplicadoId !== "all" ? selectedAplicadoId : undefined,
     answer_sheet_id:
@@ -420,9 +427,20 @@ export default function EtiquetasPage() {
     setLabels((prev) => [...prev, createEtiquetaItem(prev.length + 1, globalTitle || previewContext?.title_reference || "")]);
   };
 
+  const buildTemplateLabels = (title: string): EtiquetaEditItem[] => {
+    if (labels.length > 0 && turmaEspecifica) return labels;
+    return Array.from({ length: parsedQuantity }).map((_, index) =>
+      createEtiquetaItem(index + 1, title)
+    );
+  };
+
   const buildPreview = async () => {
     if (validationMessage) {
       setError(validationMessage);
+      return;
+    }
+    if (!turmaEspecifica) {
+      setError("Selecione uma turma específica para montar a pré-visualização.");
       return;
     }
     setLoadingPreview(true);
@@ -464,21 +482,66 @@ export default function EtiquetasPage() {
       setError(validationMessage);
       return;
     }
-    if (!labels.length || !previewContext) {
-      setError("Monte as etiquetas antes de gerar o PDF.");
-      return;
-    }
     setLoadingPdf(true);
     setError(null);
     try {
       const branding = await loadCityBrandingPdfAssets(selectedMunicipio);
-      const context = enrichEtiquetasContext(
-        await getEtiquetasDados(buildParams()),
-        filterLabelsForContext()
-      );
-      setPreviewContext(context);
-      await downloadEtiquetasPdf(context, labels, branding.logo);
-      toast({ title: "PDF gerado", description: `${labels.length} etiqueta(s) exportada(s).` });
+      const schoolName = schools.find((s) => s.id === selectedSchool)?.name || "Escola";
+      const serieName = series.find((s) => s.id === selectedSerie)?.name || "Serie";
+
+      if (turmaEspecifica) {
+        if (!labels.length || !previewContext) {
+          setError("Monte as etiquetas antes de gerar o PDF.");
+          return;
+        }
+        const context = enrichEtiquetasContext(
+          await getEtiquetasDados(buildParams()),
+          filterLabelsForContext()
+        );
+        setPreviewContext(context);
+        await downloadEtiquetasPdf(context, labels, branding.logo);
+        toast({ title: "PDF gerado", description: `${labels.length} etiqueta(s) exportada(s).` });
+        return;
+      }
+
+      if (turmas.length === 0) {
+        setError("Nenhuma turma encontrada para gerar o lote.");
+        return;
+      }
+
+      const templateTitle = globalTitle || "";
+      const templateLabels = buildTemplateLabels(templateTitle);
+      const zipEntries: Array<{ path: string; blob: Blob }> = [];
+
+      for (const turma of turmas) {
+        const context = enrichEtiquetasContext(
+          await getEtiquetasDados(buildParams(turma.id)),
+          filterLabelsForContext(turma.id)
+        );
+        const title = globalTitle || context.title_reference || templateTitle;
+        const labelsForTurma = templateLabels.map((item, index) => ({
+          ...item,
+          id: `${turma.id}-${index}`,
+          titulo: item.titulo || title,
+        }));
+        const blob = createEtiquetasPdfBlob(context, labelsForTurma, branding.logo);
+        zipEntries.push({
+          path: buildEtiquetasHierarchyPath({
+            escola: context.contexto.escola || schoolName,
+            serie: context.contexto.serie || serieName,
+            turma: context.contexto.turma || turma.name,
+          }),
+          blob,
+        });
+      }
+
+      const date = new Date().toISOString().slice(0, 10);
+      const zipBlob = await generateZipBlob(zipEntries);
+      downloadBlob(zipBlob, `etiquetas-${date}.zip`);
+      toast({
+        title: "ZIP gerado",
+        description: `${zipEntries.length} turma(s) exportada(s).`,
+      });
     } catch (err) {
       const msg = getEtiquetasApiError(err, "Não foi possível gerar o PDF de etiquetas.");
       setError(msg);
@@ -666,7 +729,7 @@ export default function EtiquetasPage() {
                 <SelectValue placeholder={loadingTurmas ? "Carregando..." : "Turma"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Selecione</SelectItem>
+                <SelectItem value="all">Todas</SelectItem>
                 {turmas.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
                     {item.name}
@@ -677,13 +740,13 @@ export default function EtiquetasPage() {
           </div>
 
           <div className="space-y-2">
-            <Label>Turno</Label>
+            <Label>Turno{!turmaEspecifica ? " (opcional no lote)" : ""}</Label>
             <Select value={selectedTurno} onValueChange={setSelectedTurno}>
               <SelectTrigger>
                 <SelectValue placeholder="Turno" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Selecione</SelectItem>
+                <SelectItem value="all">{turmaEspecifica ? "Selecione" : "Da turma (API)"}</SelectItem>
                 {TURNO_OPTIONS.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
                     {item.name}
@@ -711,15 +774,28 @@ export default function EtiquetasPage() {
           )}
 
           <div className="flex flex-wrap gap-2 sm:col-span-2">
-            <Button type="button" variant="outline" onClick={buildPreview} disabled={loadingPreview || !!validationMessage}>
-              {loadingPreview ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
-              Montar pré-visualização
-            </Button>
+            {turmaEspecifica ? (
+              <Button type="button" variant="outline" onClick={buildPreview} disabled={loadingPreview || !!validationMessage}>
+                {loadingPreview ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
+                Montar pré-visualização
+              </Button>
+            ) : (
+              <Button type="button" onClick={handleGeneratePdf} disabled={loadingPdf || !!validationMessage}>
+                {loadingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                Baixar ZIP
+              </Button>
+            )}
           </div>
+          {!turmaEspecifica && (
+            <p className="text-xs text-muted-foreground sm:col-span-2">
+              Com &quot;Todas&quot; as turmas, o download gera um ZIP (mesmo molde de quantidade/título por
+              turma). A edição individual exige turma específica.
+            </p>
+          )}
         </CardContent>
       </Card>
 
-      {previewContext && !!labels.length && (
+      {turmaEspecifica && previewContext && !!labels.length && (
         <div className="flex flex-wrap gap-2">
           <Button type="button" onClick={handleGeneratePdf} disabled={loadingPdf}>
             {loadingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
@@ -732,7 +808,7 @@ export default function EtiquetasPage() {
         </div>
       )}
 
-      {previewContext && (
+      {turmaEspecifica && previewContext && (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Contexto aplicado</CardTitle>
@@ -761,7 +837,7 @@ export default function EtiquetasPage() {
         </Card>
       )}
 
-      {!!virtualPages.length && (
+      {turmaEspecifica && !!virtualPages.length && (
         <div className="space-y-4">
           {virtualPages.map((page, pageIndex) => (
             <Card key={`page-${pageIndex}`}>
