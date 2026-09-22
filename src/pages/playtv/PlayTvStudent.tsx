@@ -10,6 +10,9 @@ import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
 import { PlayTvVideo } from '@/types/playtv';
 import { getVideoThumbnail } from '@/lib/utils';
+import { RewardBadge } from '@/components/rewards/RewardBadge';
+import { getMyContentRewards } from '@/services/contentRewardsApi';
+import { CONTENT_REWARD_UI } from '@/constants/contentRewards';
 
 interface ApiError {
   response?: {
@@ -32,6 +35,7 @@ export default function PlayTvStudent() {
   const [selectedSubject, setSelectedSubject] = useState<string>('Todas');
   const [studentGrade, setStudentGrade] = useState<string | null>(null);
   const [studentSchool, setStudentSchool] = useState<string | null>(null);
+  const [claimedVideoIds, setClaimedVideoIds] = useState<Set<string>>(new Set());
 
   const loadVideos = useCallback(async () => {
     // Carregar vídeos mesmo sem grade (mostrará todos os vídeos disponíveis)
@@ -175,6 +179,18 @@ export default function PlayTvStudent() {
     }
   }, [studentGrade, selectedSubject, loadVideos, isLoadingStudentInfo]);
 
+  useEffect(() => {
+    let cancelled = false;
+    getMyContentRewards('video')
+      .then((res) => {
+        if (!cancelled) setClaimedVideoIds(new Set(res.content_ids || []));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
 
   const handleVideoClick = (video: PlayTvVideo) => {
     navigate(`/aluno/play-tv/${video.id}`);
@@ -294,13 +310,15 @@ export default function PlayTvStudent() {
                         onClick={() => handleVideoClick(video)}
                       >
                         <CardHeader className="pb-3">
-                          <div className="flex justify-between items-start">
+                          <div className="flex justify-between items-start gap-2">
                             <CardTitle className="text-lg line-clamp-2">{video.title || 'Vídeo sem título'}</CardTitle>
-                            <DisciplineTag
-                              subjectId={video.subject?.id}
-                              name={video.subject?.name || 'Sem disciplina'}
-                              className="ml-2 shrink-0"
-                            />
+                            <div className="flex flex-col items-end gap-1 shrink-0 ml-2">
+                              <RewardBadge claimed={claimedVideoIds.has(video.id)} coins={CONTENT_REWARD_UI.videoCoins} />
+                              <DisciplineTag
+                                subjectId={video.subject?.id}
+                                name={video.subject?.name || 'Sem disciplina'}
+                              />
+                            </div>
                           </div>
                         </CardHeader>
                         <CardContent className="space-y-4">

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -9,6 +9,8 @@ import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { AvatarPreview } from '@/components/profile/AvatarPreview';
 import { AvatarConfig, useAuth } from '@/context/authContext';
+import { storeApi } from '@/services/store/storeService';
+import { useStudentPreferences } from '@/context/StudentPreferencesContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Save, RotateCcw, Sparkles, Circle, Lock, ShoppingBag } from 'lucide-react';
@@ -189,7 +191,32 @@ const getSafeSelectValue = (arrayValue: string[] | undefined | null): string | u
 
 export const AvatarCustomizer = ({ config, onConfigChange, onSave, isSaving, hideSaveButton }: AvatarCustomizerProps) => {
     const { user } = useAuth();
-    const ownedFrames = user?.owned_frames ?? [];
+    const prefs = useStudentPreferences();
+    const [purchasedFrameIds, setPurchasedFrameIds] = useState<string[]>([]);
+    const ownedFrames = Array.from(new Set([
+        ...(user?.owned_frames ?? []),
+        ...purchasedFrameIds,
+        ...(prefs?.preferences?.frame_id ? [prefs.preferences.frame_id] : []),
+    ]));
+
+    useEffect(() => {
+        let cancelled = false;
+        storeApi
+            .getMyPurchases({ limit: 100, offset: 0 })
+            .then(({ data }) => {
+                if (cancelled) return;
+                const ids = (data.purchases ?? [])
+                    .filter((p) => String(p.reward_type ?? '').trim().toLowerCase() === 'frame' && p.reward_data)
+                    .map((p) => String(p.reward_data));
+                setPurchasedFrameIds(ids);
+            })
+            .catch(() => {
+                if (!cancelled) setPurchasedFrameIds([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [user?.id]);
     const [previewModal, setPreviewModal] = useState<{
         open: boolean;
         field: string;

@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { fetchAuthenticatedDownload } from '@/lib/fetch-authenticated-download';
-import { VideoPlayer } from '@/components/playtv/VideoPlayer';
+import { VideoPlayer, type VideoWatchProgress } from '@/components/playtv/VideoPlayer';
 import { PlayTvVideo, isPlayTvFileResource, isPlayTvLinkResource } from '@/types/playtv';
 import {
   canEditPlayTvVideo,
@@ -35,6 +35,10 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/authContext';
 import { getUserHierarchyContext } from '@/utils/userHierarchy';
 import { PlayTvVideoEditDialog } from '@/components/playtv/PlayTvVideoEditDialog';
+import { useContentReward } from '@/hooks/useContentReward';
+import { RewardEarnedModal } from '@/components/rewards/RewardEarnedModal';
+import { getMyContentRewards } from '@/services/contentRewardsApi';
+import { extractYouTubeId } from '@/lib/youtubeWatch';
 
 interface ApiError {
   response?: {
@@ -75,6 +79,9 @@ export default function PlayTvVideoView() {
   const [isUploadingAttach, setIsUploadingAttach] = useState(false);
 
   const isStudentView = location.pathname.startsWith('/aluno');
+  const [watchProgress, setWatchProgress] = useState<VideoWatchProgress | null>(null);
+  const [alreadyClaimed, setAlreadyClaimed] = useState(false);
+  const [rewardModalOpen, setRewardModalOpen] = useState(false);
 
   const fetchVideo = useCallback(async () => {
     if (!id) return;
@@ -101,6 +108,46 @@ export default function PlayTvVideoView() {
       fetchVideo();
     }
   }, [id, fetchVideo]);
+
+  useEffect(() => {
+    if (!isStudentView || !id) return;
+    let cancelled = false;
+    getMyContentRewards('video')
+      .then((res) => {
+        if (!cancelled && res.content_ids?.includes(id)) {
+          setAlreadyClaimed(true);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isStudentView, id]);
+
+  const isYoutube = Boolean(video?.url && extractYouTubeId(video.url));
+  const { visibleSeconds, requiredSeconds, claimResult, progressRatio } = useContentReward({
+    type: 'video',
+    id,
+    enabled: isStudentView && Boolean(video) && !alreadyClaimed,
+    alreadyClaimed,
+    isYoutube,
+    watchProgress: isYoutube ? watchProgress : null,
+  });
+
+  useEffect(() => {
+    if (!claimResult) return;
+    if (claimResult.status === 'granted') {
+      setAlreadyClaimed(true);
+      setRewardModalOpen(true);
+    } else if (claimResult.status === 'daily_cap_reached') {
+      toast({
+        title: 'Limite diário de moedas',
+        description: 'Você já ganhou o máximo de moedas de Jogos e Play TV hoje. Tente este vídeo amanhã.',
+      });
+    } else if (claimResult.status === 'already_claimed') {
+      setAlreadyClaimed(true);
+    }
+  }, [claimResult, toast]);
 
   useEffect(() => {
     if (isStudentView) {
@@ -312,8 +359,25 @@ export default function PlayTvVideoView() {
 
       {/* Player de Vídeo - agora com estilo próprio */}
       <div className="w-full">
-        <VideoPlayer url={video.url} title={video.title ?? undefined} />
+        <VideoPlayer
+          url={video.url}
+          title={video.title ?? undefined}
+          trackWatchProgress={isStudentView && isYoutube}
+          onWatchProgress={isStudentView ? setWatchProgress : undefined}
+        />
+        {isStudentView && !alreadyClaimed && !isYoutube && requiredSeconds > 0 && progressRatio < 1 && (
+          <p className="text-xs text-muted-foreground mt-2 text-center">
+            Continue assistindo para ganhar moedas ({Math.min(visibleSeconds, requiredSeconds)}s / {requiredSeconds}s)
+          </p>
+        )}
       </div>
+
+      <RewardEarnedModal
+        open={rewardModalOpen}
+        onOpenChange={setRewardModalOpen}
+        coins={claimResult?.coins ?? 0}
+        description="Você ganhou moedas por assistir!"
+      />
 
       {video.resources && video.resources.length > 0 && (
         <Card className="shadow-md border-primary/15">

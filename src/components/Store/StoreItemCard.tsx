@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShoppingBag, Coins, Sparkles, Palette, Shield, Gift } from 'lucide-react';
+import { ShoppingBag, Coins, Sparkles, Palette, Shield, Gift, Lock } from 'lucide-react';
 import type { StoreItem } from '@/types/store';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -41,8 +41,10 @@ export const StoreItemCard: React.FC<StoreItemCardProps> = ({
       : item.icon_color;
   const iconGradient = getStoreIconGradient(iconColorKey);
   const alreadyPurchased = item.already_purchased === true;
+  const lockedByRequirement =
+    !alreadyPurchased && Boolean(item.requirement) && item.requirement_met === false;
   const insufficientBalance = balance < item.price;
-  const canPurchase = !alreadyPurchased && !insufficientBalance && !loading;
+  const canPurchase = !alreadyPurchased && !lockedByRequirement && !insufficientBalance && !loading;
 
   const purchaseButton = (
     <Button
@@ -55,6 +57,8 @@ export const StoreItemCard: React.FC<StoreItemCardProps> = ({
         'Processando...'
       ) : alreadyPurchased ? (
         'Já comprado'
+      ) : lockedByRequirement ? (
+        'Bloqueado'
       ) : (
         <>
           <ShoppingBag className="h-4 w-4 mr-2" />
@@ -70,7 +74,9 @@ export const StoreItemCard: React.FC<StoreItemCardProps> = ({
         'overflow-hidden transition-all flex flex-col',
         alreadyPurchased
           ? 'opacity-80 border-muted'
-          : 'hover:shadow-lg hover:border-primary/30 border-primary/20'
+          : lockedByRequirement
+            ? 'opacity-90 border-muted'
+            : 'hover:shadow-lg hover:border-primary/30 border-primary/20'
       )}
     >
       <div className="relative">
@@ -84,12 +90,25 @@ export const StoreItemCard: React.FC<StoreItemCardProps> = ({
             Já comprado
           </span>
         )}
+        {lockedByRequirement && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/65">
+            <span className="rounded-full bg-muted p-2 shadow">
+              <Lock className="h-6 w-6 text-muted-foreground" />
+            </span>
+          </div>
+        )}
       </div>
       <CardContent className="p-4 flex-1 flex flex-col">
         <h3 className="font-semibold text-foreground mb-1">{item.name}</h3>
         {item.description?.trim() ? (
           <p className="text-sm text-muted-foreground flex-1 line-clamp-2">
             {item.description}
+          </p>
+        ) : null}
+        {lockedByRequirement && item.requirement_reason ? (
+          <p className="text-xs text-muted-foreground mt-2 flex items-start gap-1.5">
+            <Lock className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>{item.requirement_reason}</span>
           </p>
         ) : null}
         <div className="flex items-center gap-1.5 mt-3">
@@ -101,7 +120,7 @@ export const StoreItemCard: React.FC<StoreItemCardProps> = ({
         </div>
       </CardContent>
       <CardFooter className="p-4 pt-0">
-        {insufficientBalance && !alreadyPurchased ? (
+        {insufficientBalance && !alreadyPurchased && !lockedByRequirement ? (
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>

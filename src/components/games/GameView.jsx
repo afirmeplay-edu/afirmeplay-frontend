@@ -1,21 +1,67 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
 import { ArrowLeft, Play, Calendar, User, BookOpen } from 'lucide-react';
+import { useContentReward } from '@/hooks/useContentReward';
+import { RewardEarnedModal } from '@/components/rewards/RewardEarnedModal';
+import { getMyContentRewards } from '@/services/contentRewardsApi';
+import { useToast } from '@/hooks/use-toast';
 
 const GameView = () => {
     const { id } = useParams();
     const navigate = useNavigate();
+    const location = useLocation();
+    const { toast } = useToast();
     const [game, setGame] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
+    const [alreadyClaimed, setAlreadyClaimed] = useState(false);
+    const [modalOpen, setModalOpen] = useState(false);
+    const isStudentView = location.pathname.includes('/aluno');
 
     useEffect(() => {
         fetchGame();
     }, [id]);
+
+    useEffect(() => {
+        if (!isStudentView || !id) return;
+        let cancelled = false;
+        getMyContentRewards('game')
+            .then((res) => {
+                if (!cancelled && res.content_ids?.includes(id)) {
+                    setAlreadyClaimed(true);
+                }
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [isStudentView, id]);
+
+    const { visibleSeconds, requiredSeconds, claimResult, progressRatio } = useContentReward({
+        type: 'game',
+        id,
+        enabled: isStudentView && Boolean(id) && !alreadyClaimed,
+        alreadyClaimed,
+    });
+
+    useEffect(() => {
+        if (!claimResult) return;
+        if (claimResult.status === 'granted') {
+            setAlreadyClaimed(true);
+            setModalOpen(true);
+        } else if (claimResult.status === 'daily_cap_reached') {
+            toast({
+                title: 'Limite diário de moedas',
+                description: 'Você já ganhou o máximo de moedas de Jogos e Play TV hoje. Tente este jogo amanhã.',
+            });
+        } else if (claimResult.status === 'already_claimed') {
+            setAlreadyClaimed(true);
+        }
+    }, [claimResult, toast]);
 
     // Remover banner do Wordwall após o iframe carregar
     useEffect(() => {
@@ -231,6 +277,21 @@ const GameView = () => {
                     </CardContent>
                 </Card>
             </div>
+
+            {isStudentView && !alreadyClaimed && requiredSeconds > 0 && progressRatio < 1 && (
+                <div className="flex justify-center">
+                    <p className="text-xs text-muted-foreground">
+                        Continue jogando para ganhar moedas ({Math.min(visibleSeconds, requiredSeconds)}s / {requiredSeconds}s)
+                    </p>
+                </div>
+            )}
+
+            <RewardEarnedModal
+                open={modalOpen}
+                onOpenChange={setModalOpen}
+                coins={claimResult?.coins ?? 0}
+                description="Você ganhou moedas por jogar!"
+            />
 
         </div>
     );
