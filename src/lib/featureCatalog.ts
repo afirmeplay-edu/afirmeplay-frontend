@@ -45,6 +45,7 @@ const HREF_FEATURE_EXACT: Record<string, string> = {
   '/app/relatorios/mapa-habilidades': 'reports',
   '/app/relatorios/mapa-questoes': 'reports',
   '/app/relatorios/boletim-aluno': 'reports',
+  '/app/relatorios/relatorio-unificado': 'afirme_reading',
   '/app/relatorios/analise-avaliacoes': 'report_analysis',
   '/app/relatorios/relatorio-escolar': 'reports',
   '/app/relatorios/relatorio-geral': 'reports',
