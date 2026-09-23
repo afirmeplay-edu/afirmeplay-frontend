@@ -1,127 +1,173 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { 
-  ArrowLeft, 
-  Users, 
-  GraduationCap, 
-  UserCheck, 
-  Building2,
-  CheckCircle,
-  Circle,
-  ChevronDown,
-  ChevronRight,
-  FileText
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  ArrowLeft,
+  FileText,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { questionsAlunoJovem, questionsAlunoVelho, professorQuestions, diretorQuestions } from '@/data';
-import { Question, SubQuestion } from '@/types/forms';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useToast } from '@/hooks/use-toast';
+import { api } from '@/lib/api';
+import { Question } from '@/types/forms';
+import {
+  resolveFormRecipients,
+  formatScopeLabel,
+  getFormTypeDisplayName,
+  type ResolvedRecipients,
+} from '@/services/formRecipientsApi';
+
+interface FormData {
+  id: string;
+  title?: string;
+  customTitle?: string;
+  name?: string;
+  nome?: string;
+  description?: string;
+  instructions?: string;
+  formType: string;
+  isActive: boolean;
+  deadline?: string;
+  createdAt: string;
+  createdBy?: { name?: string };
+  selectedSchools?: string[];
+  selectedGrades?: string[];
+  selectedClasses?: string[];
+  cityId?: string;
+  cityName?: string;
+  questions?: Question[];
+  totalQuestions?: number;
+  statistics?: {
+    totalRecipients?: number;
+    completedResponses?: number;
+    completionRate?: number;
+  };
+  recipientsCount?: number;
+}
 
 const FormView = () => {
   const navigate = useNavigate();
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
-  const [formTitle, setFormTitle] = useState('');
-  const [formDescription, setFormDescription] = useState('');
+  const { id } = useParams<{ id: string }>();
+  const { toast } = useToast();
 
-  // Dados mockados do questionário selecionado
-  const formData = {
-    id: '1',
-    title: formTitle,
-    description: formDescription,
-    type: 'aluno-jovem',
-    isActive: true,
-    createdAt: new Date('2024-01-15'),
-    questions: questionsAlunoJovem
-  };
+  const [formData, setFormData] = useState<FormData | null>(null);
+  const [resolvedRecipients, setResolvedRecipients] = useState<ResolvedRecipients | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isResolvingNames, setIsResolvingNames] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const getFormIcon = (type: string) => {
-    const icons = {
-      'aluno-jovem': Users,
-      'aluno-velho': GraduationCap,
-      'professor': UserCheck,
-      'diretor': Building2
+  useEffect(() => {
+    const loadFormData = async () => {
+      if (!id) {
+        setError('ID do formulário não fornecido');
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        const response = await api.get(`/forms/${id}`, {
+          params: {
+            includeQuestions: true,
+            includeStatistics: true,
+          },
+        });
+
+        const data = response.data?.data ?? response.data;
+        setFormData(data);
+
+        if (data.selectedSchools || data.selectedGrades || data.selectedClasses || data.cityName) {
+          setIsResolvingNames(true);
+          try {
+            const resolved = await resolveFormRecipients(data);
+            setResolvedRecipients(resolved);
+          } catch (err) {
+            console.error('Erro ao resolver destinatários:', err);
+          } finally {
+            setIsResolvingNames(false);
+          }
+        }
+      } catch (err: any) {
+        console.error('Erro ao carregar formulário:', err);
+        const message = err.response?.data?.error || err.message || 'Não foi possível carregar o formulário';
+        setError(message);
+        toast({
+          title: 'Erro ao carregar',
+          description: message,
+          variant: 'destructive',
+        });
+      } finally {
+        setIsLoading(false);
+      }
     };
-    return icons[type as keyof typeof icons] || Users;
-  };
 
-  const getFormColor = (type: string) => {
-    const colors = {
-      'aluno-jovem': 'bg-blue-500',
-      'aluno-velho': 'bg-green-500',
-      'professor': 'bg-purple-500',
-      'diretor': 'bg-orange-500'
-    };
-    return colors[type as keyof typeof colors] || 'bg-gray-500';
-  };
-
-  const toggleSection = (sectionId: string) => {
-    const newExpanded = new Set(expandedSections);
-    if (newExpanded.has(sectionId)) {
-      newExpanded.delete(sectionId);
-    } else {
-      newExpanded.add(sectionId);
-    }
-    setExpandedSections(newExpanded);
-  };
+    loadFormData();
+  }, [id, toast]);
 
   const renderQuestion = (question: Question, index: number) => {
+    const questionText = question.texto || question.text || '';
+    const questionType = question.tipo || question.type || '';
+    const options = question.opcoes || question.options || [];
+    const subQuestions = question.subPerguntas || question.subQuestions || [];
+
     return (
-      <div key={question.id} className="p-4 border rounded-lg bg-gray-50">
-        <div className="flex items-start gap-3">
-          <span className="text-sm font-medium text-gray-500 mt-1">
+      <div key={question.id || index} className="rounded-md border bg-muted/30 p-2.5">
+        <div className="flex items-start gap-2">
+          <span className="mt-0.5 text-xs font-medium text-muted-foreground">
             {index + 1}.
           </span>
-          <div className="flex-1">
-            <h4 className="font-medium text-gray-900 mb-2">
-              {question.texto || question.text}
+          <div className="min-w-0 flex-1">
+            <h4 className="mb-1.5 text-sm font-medium text-foreground">
+              {questionText}
             </h4>
-            
-            {question.tipo === 'selecao_unica' && (
-              <div className="space-y-2">
-                {question.opcoes?.map((option: string, optIndex: number) => (
-                  <label key={optIndex} className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-gray-100 transition-colors duration-200">
-                    <span className="flex items-center justify-center w-6 h-6 bg-gray-100 rounded-full text-xs font-medium text-gray-600">
+
+            {questionType === 'selecao_unica' && options.length > 0 && (
+              <div className="space-y-1">
+                {options.map((option: string, optIndex: number) => (
+                  <label key={optIndex} className="flex cursor-default items-center gap-2 rounded bg-background p-1.5">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
                       {String.fromCharCode(65 + optIndex)}
                     </span>
-                    <span className="text-sm text-gray-700">{option}</span>
+                    <span className="text-xs text-foreground">{option}</span>
                   </label>
                 ))}
               </div>
             )}
 
-            {question.tipo === 'multipla_escolha' && (
-              <div className="space-y-2">
-                {question.subPerguntas?.map((subQ: SubQuestion, subIndex: number) => (
-                  <div key={subQ.id} className="ml-4">
-                    <label className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-gray-100 transition-colors duration-200">
-                      <span className="flex items-center justify-center w-6 h-6 bg-gray-100 rounded-full text-xs font-medium text-gray-600">
+            {questionType === 'multipla_escolha' && subQuestions.length > 0 && (
+              <div className="space-y-1">
+                {subQuestions.map((subQ: any, subIndex: number) => (
+                  <div key={subQ.id || subIndex} className="ml-2">
+                    <label className="flex cursor-default items-center gap-2 rounded bg-background p-1.5">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
                         {String.fromCharCode(65 + subIndex)}
                       </span>
-                      <span className="text-sm text-gray-700">{subQ.texto || subQ.text}</span>
+                      <span className="text-xs text-foreground">{subQ.texto || subQ.text}</span>
                     </label>
                   </div>
                 ))}
               </div>
             )}
 
-            {question.tipo === 'matriz_selecao' && (
-              <div className="space-y-3">
-                {question.subPerguntas?.map((subQ: SubQuestion, subIndex: number) => (
-                  <div key={subQ.id} className="ml-4">
-                    <p className="text-sm font-medium text-gray-700 mb-2">
+            {questionType === 'matriz_selecao' && subQuestions.length > 0 && (
+              <div className="space-y-2">
+                {subQuestions.map((subQ: any, subIndex: number) => (
+                  <div key={subQ.id || subIndex} className="ml-2">
+                    <p className="mb-1 text-xs font-medium text-foreground">
                       {subQ.texto || subQ.text}
                     </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {question.opcoes?.map((option: string, optIndex: number) => (
-                        <label key={optIndex} className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-gray-100 transition-colors duration-200">
-                          <span className="flex items-center justify-center w-6 h-6 bg-gray-100 rounded-full text-xs font-medium text-gray-600">
+                    <div className="grid grid-cols-2 gap-1">
+                      {options.map((option: string, optIndex: number) => (
+                        <label key={optIndex} className="flex cursor-default items-center gap-2 rounded bg-background p-1.5">
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
                             {String.fromCharCode(65 + optIndex)}
                           </span>
-                          <span className="text-sm text-gray-600">{option}</span>
+                          <span className="text-xs text-muted-foreground">{option}</span>
                         </label>
                       ))}
                     </div>
@@ -130,29 +176,29 @@ const FormView = () => {
               </div>
             )}
 
-            {question.tipo === 'slider' && (
-              <div className="space-y-2">
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div className="bg-blue-600 h-2 rounded-full" style={{ width: '50%' }}></div>
+            {questionType === 'slider' && (
+              <div className="space-y-1">
+                <div className="h-1.5 w-full rounded-full bg-muted">
+                  <div className="h-1.5 rounded-full bg-primary" style={{ width: '50%' }} />
                 </div>
-                <div className="flex justify-between text-xs text-gray-500">
+                <div className="flex justify-between text-[10px] text-muted-foreground">
                   <span>{question.min || 0}</span>
                   <span>{question.max || 100}</span>
                 </div>
               </div>
             )}
 
-            {question.tipo === 'textarea' && (
-              <textarea 
-                className="w-full p-3 border rounded-lg resize-none" 
-                rows={3}
+            {questionType === 'textarea' && (
+              <textarea
+                className="w-full resize-none rounded-md border bg-background p-2 text-xs"
+                rows={2}
                 placeholder="Digite sua resposta aqui..."
                 disabled
               />
             )}
 
             {question.obrigatoria && (
-              <Badge variant="destructive" className="mt-2 text-xs">
+              <Badge variant="destructive" className="mt-1.5 px-1.5 py-0 text-[10px]">
                 Obrigatória
               </Badge>
             )}
@@ -162,124 +208,261 @@ const FormView = () => {
     );
   };
 
-  const IconComponent = getFormIcon(formData.type);
+  const backButton = (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() => navigate('/app/questionarios/cadastro')}
+    >
+      <ArrowLeft className="mr-2 h-4 w-4" />
+      Voltar
+    </Button>
+  );
+
+  if (isLoading) {
+    return (
+      <div className="container mx-auto space-y-3 px-3 py-4 sm:space-y-4 sm:p-6">
+        <div className="flex items-center justify-between gap-3">
+          <Skeleton className="h-7 w-56" />
+          {backButton}
+        </div>
+        <Card>
+          <CardHeader className="pb-3">
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="mt-2 h-3 w-28" />
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Skeleton className="h-14 w-full" />
+            <Skeleton className="h-14 w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (error || !formData) {
+    return (
+      <div className="container mx-auto space-y-3 px-3 py-4 sm:space-y-4 sm:p-6">
+        <div className="flex justify-end">{backButton}</div>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-10">
+            <AlertCircle className="mb-3 h-10 w-10 text-destructive" />
+            <h3 className="mb-1 text-base font-medium text-foreground">
+              Erro ao carregar formulário
+            </h3>
+            <p className="max-w-md text-center text-xs text-muted-foreground">
+              {error || 'Formulário não encontrado'}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const formTitle =
+    formData.customTitle || formData.title || formData.name || formData.nome || 'Questionário';
+  const recipientsTotal = formData.statistics?.totalRecipients ?? formData.recipientsCount;
+  const completedResponses = formData.statistics?.completedResponses ?? 0;
 
   return (
-    <div className="container mx-auto px-3 py-4 sm:p-6 space-y-4 sm:space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-        <Button 
-          variant="outline" 
-          size="sm"
-          onClick={() => navigate('/app/questionarios/cadastro')}
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Voltar
-        </Button>
-        <div className="flex-1 space-y-1.5">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex flex-wrap items-center gap-2 sm:gap-3">
-            <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-primary shrink-0" />
-            Visualizar Questionário
+    <div className="container mx-auto space-y-3 px-3 py-4 sm:space-y-4 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 space-y-1">
+          <h1 className="flex flex-wrap items-center gap-2 text-xl font-bold tracking-tight sm:text-2xl">
+            <FileText className="h-6 w-6 shrink-0 text-primary" />
+            {formTitle}
           </h1>
-          <p className="text-muted-foreground text-sm sm:text-base">
-            Preencha o título e a descrição do questionário
+          <p className="text-xs text-muted-foreground sm:text-sm">
+            Detalhes e pré-visualização do questionário
           </p>
         </div>
-        <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
-          <Badge variant={formData.isActive ? "default" : "secondary"}>
+        <div className="flex shrink-0 items-center gap-2">
+          <Badge variant={formData.isActive ? 'default' : 'secondary'} className="text-xs">
             {formData.isActive ? 'Ativo' : 'Inativo'}
           </Badge>
-          <Button variant="outline" size="sm">
-            Editar
-          </Button>
+          {backButton}
         </div>
       </div>
 
-      {/* Form Info */}
       <Card>
-        <CardHeader>
-          <div className="flex items-center gap-4">
-            <div className={`p-3 rounded-lg ${getFormColor(formData.type)}`}>
-              <IconComponent className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <CardTitle>Informações do Questionário</CardTitle>
-              <CardDescription>
-                Criado em {formData.createdAt.toLocaleDateString('pt-BR')}
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4 mb-4">
-            <div className="space-y-2">
-              <Label htmlFor="form-view-title">Título do Formulário</Label>
-              <Input
-                id="form-view-title"
-                placeholder="Digite o título do formulário"
-                value={formTitle}
-                onChange={(e) => setFormTitle(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="form-view-description">Descrição</Label>
-              <Textarea
-                id="form-view-description"
-                placeholder="Digite a descrição do formulário (opcional)"
-                value={formDescription}
-                onChange={(e) => setFormDescription(e.target.value)}
-                rows={3}
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <h4 className="font-medium text-foreground">Tipo</h4>
-              <p className="text-sm text-muted-foreground">Aluno (Jovem)</p>
-            </div>
-            <div>
-              <h4 className="font-medium text-foreground">Total de Questões</h4>
-              <p className="text-sm text-muted-foreground">{formData.questions.length}</p>
-            </div>
-            <div>
-              <h4 className="font-medium text-foreground">Status</h4>
-              <p className="text-sm text-muted-foreground">
-                {formData.isActive ? 'Ativo' : 'Inativo'}
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Questions Preview */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Pré-visualização das Questões</CardTitle>
-          <CardDescription>
-            Visualize as questões que serão apresentadas aos respondentes
+        <CardHeader className="px-4 pb-2 pt-4">
+          <CardTitle className="text-base">Informações do Questionário</CardTitle>
+          <CardDescription className="text-xs">
+            Criado em {new Date(formData.createdAt).toLocaleDateString('pt-BR', { dateStyle: 'long' })}
+            {formData.createdBy?.name && ` por ${formData.createdBy.name}`}
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {formData.questions.map((question, index) => 
-              renderQuestion(question, index)
+        <CardContent className="px-4 pb-4">
+          <div className="space-y-2.5 text-xs">
+            <div>
+              <h4 className="mb-0.5 font-medium text-foreground">Nome</h4>
+              <p className="text-muted-foreground">{formTitle}</p>
+            </div>
+
+            {formData.description && (
+              <div>
+                <h4 className="mb-0.5 font-medium text-foreground">Descrição</h4>
+                <p className="text-muted-foreground">{formData.description}</p>
+              </div>
+            )}
+
+            {formData.instructions && (
+              <div>
+                <h4 className="mb-0.5 font-medium text-foreground">Instruções</h4>
+                <p className="whitespace-pre-wrap text-muted-foreground">{formData.instructions}</p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-2.5 border-t pt-2 sm:grid-cols-3">
+              <div>
+                <h4 className="font-medium text-foreground">Tipo</h4>
+                <p className="text-muted-foreground">{getFormTypeDisplayName(formData.formType)}</p>
+              </div>
+              <div>
+                <h4 className="font-medium text-foreground">Total de Questões</h4>
+                <p className="text-muted-foreground">
+                  {formData.questions?.length ?? formData.totalQuestions ?? 0}
+                </p>
+              </div>
+              <div>
+                <h4 className="font-medium text-foreground">Status</h4>
+                <p className="text-muted-foreground">
+                  {formData.isActive ? 'Ativo' : 'Inativo'}
+                </p>
+              </div>
+            </div>
+
+            {formData.deadline && (
+              <div>
+                <h4 className="mb-0.5 font-medium text-foreground">Prazo</h4>
+                <p className="text-muted-foreground">
+                  {new Date(formData.deadline).toLocaleString('pt-BR', {
+                    dateStyle: 'long',
+                    timeStyle: 'short',
+                  })}
+                </p>
+              </div>
+            )}
+
+            {recipientsTotal != null && (
+              <div>
+                <h4 className="mb-0.5 font-medium text-foreground">Respondidos</h4>
+                <p className="text-muted-foreground">
+                  {completedResponses} de {recipientsTotal} destinatário
+                  {recipientsTotal !== 1 ? 's' : ''}
+                  {formData.statistics?.completionRate != null && (
+                    <span className="ml-1.5">
+                      ({Math.round(formData.statistics.completionRate)}%)
+                    </span>
+                  )}
+                </p>
+              </div>
             )}
           </div>
         </CardContent>
       </Card>
 
-      {/* Actions */}
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-4">
-        <Button variant="outline">
-          Duplicar Questionário
-        </Button>
-        <Button variant="outline">
-          Exportar
-        </Button>
-        <Button>
-          Enviar Questionário
-        </Button>
-      </div>
+      <Card>
+        <CardHeader className="px-4 pb-2 pt-4">
+          <CardTitle className="text-base">Destinatários</CardTitle>
+          <CardDescription className="text-xs">Público-alvo do questionário</CardDescription>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          {isResolvingNames ? (
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-3/4" />
+              <Skeleton className="h-3 w-1/2" />
+            </div>
+          ) : (
+            <div className="space-y-1.5 text-xs">
+              {(resolvedRecipients?.states?.length ?? 0) > 0 && (
+                <div>
+                  <span className="font-medium text-foreground">Estado: </span>
+                  <span className="text-muted-foreground">
+                    {formatScopeLabel(resolvedRecipients?.states ?? [], undefined, '—', 1)}
+                  </span>
+                </div>
+              )}
+              <div>
+                <span className="font-medium text-foreground">Cidade: </span>
+                <span className="text-muted-foreground">
+                  {formData.cityName ||
+                    formatScopeLabel(resolvedRecipients?.cities ?? [], undefined, '—', 1)}
+                </span>
+              </div>
+              <div>
+                <span className="font-medium text-foreground">Escolas: </span>
+                <span className="text-muted-foreground">
+                  {formatScopeLabel(
+                    resolvedRecipients?.schools ?? [],
+                    formData.selectedSchools,
+                    '—',
+                    3,
+                  )}
+                </span>
+              </div>
+              <div>
+                <span className="font-medium text-foreground">Séries: </span>
+                <span className="text-muted-foreground">
+                  {formatScopeLabel(
+                    resolvedRecipients?.grades ?? [],
+                    formData.selectedGrades,
+                    'Todas',
+                    3,
+                  )}
+                </span>
+              </div>
+              <div>
+                <span className="font-medium text-foreground">Turmas: </span>
+                <span className="text-muted-foreground">
+                  {formatScopeLabel(
+                    resolvedRecipients?.classes ?? [],
+                    formData.selectedClasses,
+                    'Todas',
+                    3,
+                  )}
+                </span>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {formData.questions && formData.questions.length > 0 ? (
+        <Card>
+          <CardHeader className="px-4 pb-2 pt-4">
+            <CardTitle className="text-base">Pré-visualização das Questões</CardTitle>
+            <CardDescription className="text-xs">
+              {formData.questions.length} questão
+              {formData.questions.length !== 1 ? 'ões' : ''} apresentada
+              {formData.questions.length !== 1 ? 's' : ''} aos respondentes
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="space-y-2.5">
+              {formData.questions.map((question, index) => renderQuestion(question, index))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : formData.totalQuestions ? (
+        <Card>
+          <CardHeader className="px-4 pb-2 pt-4">
+            <CardTitle className="text-base">Questões</CardTitle>
+            <CardDescription className="text-xs">
+              Este formulário possui {formData.totalQuestions} questão
+              {formData.totalQuestions !== 1 ? 'ões' : ''} configurada
+              {formData.totalQuestions !== 1 ? 's' : ''}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5" />
+              <span>As perguntas não foram carregadas com os detalhes</span>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 };

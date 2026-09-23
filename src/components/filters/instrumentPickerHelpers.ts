@@ -8,6 +8,11 @@ type RawInstrument = {
   label?: string;
   disciplina?: string;
   disciplinas?: string[];
+  grade_id?: string;
+  gradeId?: string;
+  grade_nome?: string;
+  grade_name?: string;
+  gradeNome?: string;
 };
 
 function resolveDisciplinaBadges(item: RawInstrument): string[] {
@@ -26,12 +31,17 @@ type RawSeries = {
 export function toInstrumentPickerItems(items: RawInstrument[]): InstrumentPickerItem[] {
   return items.map((item) => {
     const badges = resolveDisciplinaBadges(item);
+    const gradeId = String(item.grade_id ?? item.gradeId ?? "").trim() || undefined;
+    const gradeName =
+      String(item.grade_nome ?? item.grade_name ?? item.gradeNome ?? "").trim() || undefined;
     return {
       id: item.id,
       label: item.label ?? item.titulo ?? item.nome ?? item.name ?? "—",
       badges,
       badge: badges[0],
       subtitle: badges.length > 1 ? badges.join(" · ") : badges[0],
+      gradeId,
+      gradeName,
     };
   });
 }

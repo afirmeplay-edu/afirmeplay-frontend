@@ -8,6 +8,9 @@ import type {
   StoreItemCreatePayload,
   StoreScopeType,
   StoreScopeFilter,
+  StoreRequirement,
+  StoreRequirementType,
+  StoreRequirementOptionsResponse,
 } from '@/types/store';
 import { getUserHierarchyContext } from '@/utils/userHierarchy';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -46,6 +49,7 @@ import {
   ChevronUp,
   ShoppingBag,
   Info,
+  Trophy,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -54,6 +58,8 @@ import {
   STORE_ICON_COLORS,
   getStoreIconGradient,
 } from '@/constants/storeIcons';
+import { BAND_COLORS, type CompetitionBand } from '@/utils/competition/competitionGamification';
+import { PROFICIENCY_LEVELS } from '@/pages/reports/niveis-proficiencia/lib/proficiencyLevelTokens';
 
 const CATEGORIES = [
   { value: 'sidebar_theme', label: 'Tema da sidebar', description: 'Cor e estilo do menu lateral', icon: Palette, color: 'from-violet-400 to-purple-600', inDevelopment: false },
@@ -137,6 +143,39 @@ function getDefaultRewardValueForCategory(category: string): string {
   }
 }
 
+const FALLBACK_BANDS = (Object.keys(BAND_COLORS) as CompetitionBand[]).map((value) => ({
+  value,
+  label: value,
+}));
+const FALLBACK_CLASSIFICATIONS = PROFICIENCY_LEVELS.map((value) => ({ value, label: value }));
+const FALLBACK_MEDALS = [
+  { value: 'bronze', label: 'Bronze' },
+  { value: 'prata', label: 'Prata' },
+  { value: 'ouro', label: 'Ouro' },
+  { value: 'platina', label: 'Platina' },
+];
+
+type RequirementTypeOrNone = 'none' | StoreRequirementType;
+
+function buildRequirementPayload(
+  type: RequirementTypeOrNone,
+  minBand: string,
+  minGrade: string,
+  minClassification: string,
+  achievementId: string,
+  medal: string,
+): StoreRequirement | null {
+  if (type === 'none') return null;
+  if (type === 'competition_band') return { type, min_band: minBand };
+  if (type === 'eval_min_grade') {
+    const n = Number(minGrade);
+    return { type, min_grade: Number.isFinite(n) ? n : 0 };
+  }
+  if (type === 'eval_classification') return { type, min_classification: minClassification };
+  if (type === 'achievement') return { type, id: achievementId, medal };
+  return null;
+}
+
 interface StateOption {
   id: string;
   name: string;
@@ -181,6 +220,13 @@ export default function StoreAdminForm() {
   const [scopeFilter, setScopeFilter] = useState<StoreScopeFilter | null>(null);
   const [icon, setIcon] = useState<string>('');
   const [iconColor, setIconColor] = useState<string>('amber');
+  const [requirementType, setRequirementType] = useState<RequirementTypeOrNone>('none');
+  const [reqMinBand, setReqMinBand] = useState<string>(FALLBACK_BANDS[0]?.value ?? 'Aprendiz');
+  const [reqMinGrade, setReqMinGrade] = useState<string>('7');
+  const [reqMinClassification, setReqMinClassification] = useState<string>(FALLBACK_CLASSIFICATIONS[2]?.value ?? 'Adequado');
+  const [reqAchievementId, setReqAchievementId] = useState<string>('');
+  const [reqMedal, setReqMedal] = useState<string>('bronze');
+  const [requirementOptions, setRequirementOptions] = useState<StoreRequirementOptionsResponse | null>(null);
   const [states, setStates] = useState<StateOption[]>([]);
   const [cities, setCities] = useState<CityOption[]>([]);
   const [schools, setSchools] = useState<SchoolOption[]>([]);
@@ -203,6 +249,18 @@ export default function StoreAdminForm() {
       .then(({ data }) => setAllowedScopes(data.allowed_scopes ?? []))
       .catch(() => setAllowedScopes(['system']))
       .finally(() => setLoadingScopes(false));
+  }, [cityIdForApi]);
+
+  useEffect(() => {
+    storeAdminApi
+      .getRequirementOptions(cityIdForApi || undefined)
+      .then(({ data }) => {
+        setRequirementOptions(data);
+        if (data.achievements?.length) {
+          setReqAchievementId((current) => current || data.achievements[0].id);
+        }
+      })
+      .catch(() => setRequirementOptions(null));
   }, [cityIdForApi]);
 
   useEffect(() => {
@@ -230,6 +288,17 @@ export default function StoreAdminForm() {
           setScopeFilter(found.scope_filter ?? null);
           setIcon(found.icon ?? '');
           setIconColor(found.icon_color ?? 'amber');
+          const req = found.requirement;
+          if (req?.type) {
+            setRequirementType(req.type);
+            if (req.min_band) setReqMinBand(req.min_band);
+            if (req.min_grade != null) setReqMinGrade(String(req.min_grade));
+            if (req.min_classification) setReqMinClassification(req.min_classification);
+            if (req.id) setReqAchievementId(req.id);
+            if (req.medal) setReqMedal(req.medal);
+          } else {
+            setRequirementType('none');
+          }
           const sf = found.scope_filter;
           if (sf?.city_ids?.length) setSelectedCityId(sf.city_ids[0]);
           if (sf?.school_ids?.length) setSelectedSchoolId(sf.school_ids[0]);
@@ -392,6 +461,14 @@ export default function StoreAdminForm() {
       sort_order: 0,
       icon: icon.trim() || null,
       icon_color: iconColor.trim() || null,
+      requirement: buildRequirementPayload(
+        requirementType,
+        reqMinBand,
+        reqMinGrade,
+        reqMinClassification,
+        reqAchievementId,
+        reqMedal,
+      ),
     };
 
     try {
@@ -634,6 +711,125 @@ export default function StoreAdminForm() {
                 })}
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="overflow-hidden border-2">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Trophy className="h-5 w-5" />
+              Requisito de desempenho
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Opcional. O item continua custando moedas; o requisito só decide se o aluno pode comprar.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-0">
+            <div className="space-y-2">
+              <Label>Tipo de requisito</Label>
+              <Select
+                value={requirementType}
+                onValueChange={(v) => setRequirementType(v as RequirementTypeOrNone)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Nenhum (disponível para todos)</SelectItem>
+                  <SelectItem value="competition_band">Faixa de competições</SelectItem>
+                  <SelectItem value="eval_min_grade">Média mínima nas avaliações</SelectItem>
+                  <SelectItem value="eval_classification">Classificação nas avaliações</SelectItem>
+                  <SelectItem value="achievement">Conquista em determinado nível</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {requirementType === 'competition_band' && (
+              <div className="space-y-2">
+                <Label>Faixa mínima</Label>
+                <Select value={reqMinBand} onValueChange={setReqMinBand}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(requirementOptions?.competition_bands?.length
+                      ? requirementOptions.competition_bands
+                      : FALLBACK_BANDS
+                    ).map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {requirementType === 'eval_min_grade' && (
+              <div className="space-y-2">
+                <Label htmlFor="req-min-grade">Média mínima (0 a 10)</Label>
+                <Input
+                  id="req-min-grade"
+                  type="number"
+                  min={0}
+                  max={10}
+                  step={0.1}
+                  value={reqMinGrade}
+                  onChange={(e) => setReqMinGrade(e.target.value)}
+                />
+              </div>
+            )}
+
+            {requirementType === 'eval_classification' && (
+              <div className="space-y-2">
+                <Label>Classificação mínima</Label>
+                <Select value={reqMinClassification} onValueChange={setReqMinClassification}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(requirementOptions?.eval_classifications?.length
+                      ? requirementOptions.eval_classifications
+                      : FALLBACK_CLASSIFICATIONS
+                    ).map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {requirementType === 'achievement' && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Conquista</Label>
+                  <Select value={reqAchievementId} onValueChange={setReqAchievementId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione a conquista" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(requirementOptions?.achievements ?? []).map((opt) => (
+                        <SelectItem key={opt.id} value={opt.id}>{opt.nome}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Nível mínimo</Label>
+                  <Select value={reqMedal} onValueChange={setReqMedal}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(requirementOptions?.medals?.length
+                        ? requirementOptions.medals
+                        : FALLBACK_MEDALS
+                      ).map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

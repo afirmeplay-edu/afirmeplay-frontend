@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
+import { formatDecimal1PtBr } from '@/utils/numberFormat';
 
 interface GeralAluno {
   id: string;
@@ -67,12 +68,11 @@ interface ResultadosAgregadosResponse {
   };
 }
 
-function formatScoreForDisplay(value: unknown, decimals = 1): string {
+function formatScoreForDisplay(value: unknown): string {
   if (value === null || value === undefined || value === '') return 'N/A';
   const n = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(n)) return 'N/A';
-  if (Number.isInteger(n)) return String(n);
-  return n.toFixed(decimals);
+  return formatDecimal1PtBr(n, 'N/A');
 }
 
 function formatProficiencyForDisplay(value: unknown): string {

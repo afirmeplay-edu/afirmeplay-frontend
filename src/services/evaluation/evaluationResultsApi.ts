@@ -123,8 +123,17 @@ interface EstatisticasGerais {
   por_disciplina?: EstatisticasGeraisPorDisciplinaItem[];
 }
 
+export type FilterEvaluationItem = {
+  id: string;
+  titulo: string;
+  disciplina?: string;
+  disciplinas?: string[];
+  grade_id?: string;
+  grade_nome?: string;
+};
+
 interface OpcoesProximosFiltros {
-  avaliacoes?: Array<{ id: string; titulo: string }>;
+  avaliacoes?: FilterEvaluationItem[];
   escolas?: Array<{ id: string; name: string }>;
   series?: Array<{ id: string; name: string }>;
   turmas?: Array<{ id: string; name: string }>;
@@ -409,9 +418,18 @@ export interface RankingItem {
   total_questoes: number;
 }
 
+export interface AvaliacaoGrupoEcho {
+  agrupado: boolean;
+  grade_id?: string;
+  grade_nome?: string;
+  test_ids?: string[];
+  disciplinas?: string[];
+}
+
 export interface NovaRespostaAPI {
   nivel_granularidade: 'municipio' | 'escola' | 'serie' | 'turma' | 'avaliacao';
   filtros_aplicados: FiltrosAplicados;
+  grupo?: AvaliacaoGrupoEcho;
   estatisticas_gerais: EstatisticasGerais;
   resultados_por_disciplina: Array<{
     disciplina: string;
@@ -694,8 +712,8 @@ interface DetailedReport {
 interface FilterOptionsResponse {
   estados?: Array<{ id: string; nome: string }>;
   municipios?: Array<{ id: string; nome: string }>;
-  avaliacoes?: Array<{ id: string; titulo: string }>;
-  gabaritos?: Array<{ id: string; titulo: string }>;
+  avaliacoes?: FilterEvaluationItem[];
+  gabaritos?: FilterEvaluationItem[];
   escolas?: Array<{ id: string; nome: string }>;
   series?: Array<{ id: string; nome: string }>;
   series_disponiveis?: Array<{ id: string; nome: string; name?: string }>;
@@ -2291,13 +2309,56 @@ export class EvaluationResultsApiService {
     }
   }
 
+  private static normalizeFilterEvaluationItem(evaluation: {
+    id: string;
+    titulo?: string;
+    title?: unknown;
+    disciplina?: string;
+    disciplinas?: string[];
+    grade_id?: string;
+    gradeId?: string;
+    grade_nome?: string;
+    grade_name?: string;
+    gradeNome?: string;
+  }): FilterEvaluationItem {
+    const disciplinas = (evaluation.disciplinas ?? [])
+      .map((d) => String(d).trim())
+      .filter(Boolean);
+    const disciplina = evaluation.disciplina?.trim();
+    const grade_id = String(evaluation.grade_id ?? evaluation.gradeId ?? "").trim() || undefined;
+    const grade_nome =
+      String(evaluation.grade_nome ?? evaluation.grade_name ?? evaluation.gradeNome ?? "").trim() ||
+      undefined;
+    return {
+      id: evaluation.id,
+      titulo: String(evaluation.titulo ?? evaluation.title ?? "Sem título"),
+      disciplina,
+      disciplinas: disciplinas.length > 0 ? disciplinas : disciplina ? [disciplina] : undefined,
+      grade_id,
+      grade_nome,
+    };
+  }
+
   /** Filtra avaliações/gabaritos retornados por `opcoes-filtros` conforme o tipo de relatório. */
   private static filterEvaluationsFromOptions(
-    avaliacoes: Array<{ id: string; titulo: string; disciplina?: string; disciplinas?: string[]; type?: unknown; tipo?: unknown; title?: unknown }>,
+    avaliacoes: Array<{
+      id: string;
+      titulo?: string;
+      disciplina?: string;
+      disciplinas?: string[];
+      grade_id?: string;
+      gradeId?: string;
+      grade_nome?: string;
+      grade_name?: string;
+      gradeNome?: string;
+      type?: unknown;
+      tipo?: unknown;
+      title?: unknown;
+    }>,
     reportEntityType?: ReportEntityTypeQuery
-  ): Array<{ id: string; titulo: string; disciplina?: string; disciplinas?: string[] }> {
+  ): FilterEvaluationItem[] {
     if (reportEntityType === REPORT_ENTITY_TYPE_ANSWER_SHEET) {
-      return avaliacoes;
+      return avaliacoes.map((evaluation) => this.normalizeFilterEvaluationItem(evaluation));
     }
 
     return avaliacoes.filter((evaluation) => {
@@ -2321,7 +2382,7 @@ export class EvaluationResultsApiService {
         return type === 'AVALIACAO' || type === 'SIMULADO';
       }
       return true;
-    });
+    }).map((evaluation) => this.normalizeFilterEvaluationItem(evaluation));
   }
 
   // ✅ REFATORADO: Buscar avaliações usando rota unificada
@@ -2334,12 +2395,7 @@ export class EvaluationResultsApiService {
     periodo?: string;
     serie_filtro?: string;
     nome?: string;
-  }): Promise<Array<{
-    id: string;
-    titulo: string;
-    disciplina?: string;
-    disciplinas?: string[];
-  }>> {
+  }): Promise<FilterEvaluationItem[]> {
     try {
       const response = await this.getFilterOptions({
         estado: filters.estado,
@@ -2368,7 +2424,7 @@ export class EvaluationResultsApiService {
     serie_filtro?: string;
     nome?: string;
   }): Promise<{
-    evaluations: Array<{ id: string; titulo: string; disciplina?: string; disciplinas?: string[] }>;
+    evaluations: FilterEvaluationItem[];
     seriesDisponiveis: Array<{ id: string; nome: string }>;
   }> {
     try {

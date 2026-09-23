@@ -9,7 +9,7 @@ import {
   analyzeHistoricalGrowth,
   buildHistoricalDisplaySeries,
   calculateGrowthNeeded,
-  filterValidIdebHistory,
+  getLastValidBiennialDiff,
   getLatestValidIdebFromHistory,
   type HistoricalDisplaySeries,
 } from '@/utils/idebCalculator';
@@ -614,16 +614,10 @@ export async function generateIdebMetaPdf(opts: GenerateIdebMetaPdfOptions): Pro
   const displaySeries = buildHistoricalDisplaySeries(historico);
   const growthInfo = analyzeHistoricalGrowth(historico);
   const latestValid = getLatestValidIdebFromHistory(historico);
-  const canCalculate = Boolean(latestValid && growthInfo.years.length > 0);
-  const validHist = filterValidIdebHistory(historico);
+  const canCalculate = Boolean(latestValid && growthInfo.canProject);
+  const previousGrowth = getLastValidBiennialDiff(historico) ?? 0;
   const calculationData = canCalculate
-    ? calculateGrowthNeeded(
-        Number(validHist[validHist.length - 1].ideb),
-        opts.customTarget,
-        validHist.length > 1
-          ? Number(validHist[validHist.length - 1].ideb) - Number(validHist[validHist.length - 2].ideb)
-          : 0
-      )
+    ? calculateGrowthNeeded(latestValid!.ideb, opts.customTarget, previousGrowth)
     : null;
 
   const entityLabel = opts.entityType === 'municipal' ? 'Rede municipal' : 'Unidade escolar';
@@ -754,11 +748,11 @@ export async function generateIdebMetaPdf(opts: GenerateIdebMetaPdfOptions): Pro
 
   if (charts?.crescimentoBienal) {
     y = addChartSnapshot(doc, margin, y, charts.crescimentoBienal);
-  } else if (canCalculate && growthInfo.diffs.length > 0) {
-    y = drawSectionTitle(doc, margin, y, 'Crescimento bienal (anos com nota válida)');
-    const crescimentoBody = growthInfo.diffs.map((diff, i) => [
-      `${growthInfo.years[i]}–${growthInfo.years[i + 1]}`,
-      diff > 0 ? `+${formatDecimal1PtBr(diff)}` : formatDecimal1PtBr(diff),
+  } else if (canCalculate && growthInfo.pairs.length > 0) {
+    y = drawSectionTitle(doc, margin, y, 'Crescimento bienal (anos consecutivos com nota)');
+    const crescimentoBody = growthInfo.pairs.map((pair) => [
+      `${pair.from}–${pair.to}`,
+      pair.diff > 0 ? `+${formatDecimal1PtBr(pair.diff)}` : formatDecimal1PtBr(pair.diff),
     ]);
 
     autoTable(doc, {
@@ -865,9 +859,9 @@ export async function generateIdebMetaPdf(opts: GenerateIdebMetaPdfOptions): Pro
       doc.setTextColor(...C.textDark);
 
       const memorialLines = [
-        `A projeção de meta em ${formatDecimal1PtBr(opts.customTarget)} baseia-se no IDEB de ${formatDecimal1PtBr(latestValid.ideb)} (${latestValid.ano}), acrescido do maior crescimento bienal histórico (+${formatDecimal1PtBr(growthInfo.maxDiff)}).`,
+        `A projeção de meta em ${formatDecimal1PtBr(opts.customTarget)} baseia-se no IDEB de ${formatDecimal1PtBr(latestValid.ideb)} (${latestValid.ano}), acrescido do maior crescimento entre anos consecutivos com nota (+${formatDecimal1PtBr(growthInfo.maxDiff)}).`,
         displaySeries.hasMissingScores
-          ? 'Períodos com nota 0,0 foram ignorados no cálculo.'
+          ? 'Períodos com nota 0,0 ou sem par bienal válido não entram no cálculo.'
           : '',
         calculationData
           ? `Para atingir a meta, é necessário um incremento de +${formatDecimal1PtBr(calculationData.difference)} (${formatPercent1PtBr(calculationData.percent)} de esforço relativo ao IDEB base).`

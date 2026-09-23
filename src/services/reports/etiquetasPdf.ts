@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
 import type { PdfImageAsset } from "@/utils/pdfCityBranding";
-import { downloadBlob } from "@/services/reports/hierarchicalDownload";
+import { downloadBlob, buildHierarchyPath } from "@/services/reports/hierarchicalDownload";
 import type {
   EtiquetaEditItem,
   EtiquetaTextoLivreAlinhamento,
@@ -503,13 +503,35 @@ export function generateEtiquetasPdf(
   return doc;
 }
 
+export function createEtiquetasPdfBlob(
+  context: EtiquetasDadosResponse,
+  labels: EtiquetaEditItem[],
+  logo: PdfImageAsset | null
+): Blob {
+  const doc = generateEtiquetasPdf(context, labels, logo);
+  return doc.output("blob");
+}
+
 export async function downloadEtiquetasPdf(
   context: EtiquetasDadosResponse,
   labels: EtiquetaEditItem[],
   logo: PdfImageAsset | null
 ): Promise<void> {
-  const doc = generateEtiquetasPdf(context, labels, logo);
+  const blob = createEtiquetasPdfBlob(context, labels, logo);
   const date = new Date().toISOString().slice(0, 10);
   const fileName = `etiquetas-${date}.pdf`;
-  downloadBlob(doc.output("blob"), fileName);
+  downloadBlob(blob, fileName);
+}
+
+export function buildEtiquetasHierarchyPath(params: {
+  escola: string;
+  serie: string;
+  turma: string;
+}): string {
+  return buildHierarchyPath({
+    escola: params.escola,
+    serie: params.serie,
+    turma: params.turma,
+    fileName: "etiquetas.pdf",
+  });
 }
