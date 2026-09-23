@@ -58,6 +58,7 @@ import {
   paintLetterheadBackground,
   urlToPngAsset,
 } from '@/utils/pdfCityBranding';
+import { formatDecimal1PtBr } from '@/utils/numberFormat';
 
 // --- Tipos da API de resultados ---
 interface DisciplinaAluno {
@@ -410,8 +411,7 @@ function drawCenteredLabeledValue(
 }
 
 function formatReportMetric(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(Number(value))) return '—';
-  return Number(value).toFixed(1);
+  return formatDecimal1PtBr(value, '—');
 }
 
 function formatRacaCorLabel(value: string): string {
@@ -1305,9 +1305,8 @@ const InseAvaliacaoReport = () => {
               d.nome.toLowerCase().includes(subjectName.toLowerCase())
             );
             const acertos = subjectRows.filter((r) => r.isCorrect === true).length;
-            const notaDisc = disc?.nota != null ? formatReportMetric(disc.nota) : '—';
-            const proficiencia =
-              disc?.proficiencia != null ? formatReportMetric(disc.proficiencia) : '—';
+            const notaDisc = formatReportMetric(disc?.nota);
+            const proficiencia = formatReportMetric(disc?.proficiencia);
             const nivel = disc?.nivel_proficiencia ?? '—';
 
             doc.setFont('helvetica', 'normal');
@@ -1341,10 +1340,9 @@ const InseAvaliacaoReport = () => {
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(10);
           const totalAcertos = rows.filter((r) => r.isCorrect === true).length;
-          const notaGeral =
-            evalData?.grade != null
-              ? formatReportMetric(Number(evalData.grade))
-              : formatReportMetric(aluno.nota);
+          const notaGeral = formatReportMetric(
+            aluno.nota ?? (evalData?.grade != null ? Number(evalData.grade) : null)
+          );
           doc.text(
             `TOTAL DE ACERTOS: ${totalAcertos} | NOTA: ${notaGeral} | MÉDIA PROFICIÊNCIA: ${formatReportMetric(aluno.proficiencia_media)}`,
             margin,
@@ -1660,12 +1658,9 @@ const InseAvaliacaoReport = () => {
       const totalRec = resumo?.total_receberam_formulario ?? totalResp;
       const faltantes = totalRec - totalResp;
       doc.text(String(totalResp), cardX1 + cardPad, y + 28);
-      const profMedia =
-        resumo?.media_proficiencia_escopo != null
-          ? Number(resumo.media_proficiencia_escopo).toFixed(1)
-          : '—';
+      const profMedia = formatReportMetric(resumo?.media_proficiencia_escopo);
       doc.text(profMedia, cardX2 + cardPad, y + 28);
-      const inseMed = resumo?.inse_medio != null ? Number(resumo.inse_medio).toFixed(1) : '—';
+      const inseMed = formatReportMetric(resumo?.inse_medio);
       doc.text(inseMed, cardX3 + cardPad, y + 28);
 
       doc.setFont('helvetica', 'normal');
@@ -1935,7 +1930,7 @@ const InseAvaliacaoReport = () => {
           doc.setFontSize(9);
           if (destaques.maior_media) {
             doc.text(
-              `Maior media: ${formatRacaCorLabel(destaques.maior_media.grupo)} (${Number(destaques.maior_media.valor).toFixed(1)})`,
+              `Maior media: ${formatRacaCorLabel(destaques.maior_media.grupo)} (${formatReportMetric(destaques.maior_media.valor)})`,
               margin,
               y
             );
@@ -1943,14 +1938,14 @@ const InseAvaliacaoReport = () => {
           }
           if (destaques.menor_media) {
             doc.text(
-              `Menor media: ${formatRacaCorLabel(destaques.menor_media.grupo)} (${Number(destaques.menor_media.valor).toFixed(1)})`,
+              `Menor media: ${formatRacaCorLabel(destaques.menor_media.grupo)} (${formatReportMetric(destaques.menor_media.valor)})`,
               margin,
               y
             );
             y += 4.5;
           }
           if (destaques.maior_gap != null) {
-            doc.text(`Maior gap: ${Number(destaques.maior_gap).toFixed(1)} pontos`, margin, y);
+            doc.text(`Maior gap: ${formatReportMetric(destaques.maior_gap)} pontos`, margin, y);
             y += 4.5;
           }
           y += 4;
@@ -1971,8 +1966,8 @@ const InseAvaliacaoReport = () => {
             formatRacaCorLabel(item.raca_cor),
             String(item.quantidade ?? 0),
             String(item.quantidade_com_resultado ?? 0),
-            item.media_proficiencia != null ? Number(item.media_proficiencia).toFixed(1) : '—',
-            item.media_nota != null ? Number(item.media_nota).toFixed(1) : '—',
+            formatReportMetric(item.media_proficiencia),
+            formatReportMetric(item.media_nota),
           ]),
           theme: 'grid',
           margin: { left: margin, right: margin },
@@ -2009,8 +2004,8 @@ const InseAvaliacaoReport = () => {
             item.label || `Nivel ${item.inse_nivel}`,
             String(item.quantidade ?? 0),
             String(item.quantidade_com_resultado ?? 0),
-            item.media_proficiencia != null ? Number(item.media_proficiencia).toFixed(1) : '—',
-            item.media_nota != null ? Number(item.media_nota).toFixed(1) : '—',
+            formatReportMetric(item.media_proficiencia),
+            formatReportMetric(item.media_nota),
           ]),
           theme: 'grid',
           margin: { left: margin, right: margin },
@@ -2050,7 +2045,7 @@ const InseAvaliacaoReport = () => {
                 formatRacaCorLabel(c.raca_cor),
                 c.inse_nivel_label || `Nivel ${c.inse_nivel}`,
                 String(c.quantidade_com_resultado ?? 0),
-                c.media_proficiencia != null ? Number(c.media_proficiencia).toFixed(1) : '—',
+                formatReportMetric(c.media_proficiencia),
               ]),
             theme: 'grid',
             margin: { left: margin, right: margin },
@@ -2696,9 +2691,7 @@ const InseAvaliacaoReport = () => {
                     <div className="flex-1 min-w-0 flex flex-col items-center">
                       <p className="text-sm text-muted-foreground w-full text-left">Proficiência Média</p>
                       <p className="text-2xl font-bold mt-1 w-full text-left">
-                        {resumo?.media_proficiencia_escopo != null
-                          ? Number(resumo.media_proficiencia_escopo).toFixed(0)
-                          : '—'}
+                        {formatReportMetric(resumo?.media_proficiencia_escopo)}
                       </p>
                       {distProf && (() => {
                         const niveis = [
@@ -2730,7 +2723,7 @@ const InseAvaliacaoReport = () => {
                     <div>
                       <p className="text-sm text-muted-foreground">INSE Médio</p>
                       <p className="text-2xl font-bold mt-1">
-                        {resumo?.inse_medio != null ? Number(resumo.inse_medio).toFixed(1) : '—'}
+                        {formatReportMetric(resumo?.inse_medio)}
                       </p>
                       <p className="text-xs text-muted-foreground mt-2">
                         {Object.values(distInse).reduce<DistribuicaoInseItem | null>(
@@ -2846,9 +2839,7 @@ const InseAvaliacaoReport = () => {
                             : '—'}
                         </p>
                         <p className="text-sm text-muted-foreground">
-                          {destaquesComparativo.maior_media?.valor != null
-                            ? Number(destaquesComparativo.maior_media.valor).toFixed(1)
-                            : '—'}
+                          {formatReportMetric(destaquesComparativo.maior_media?.valor)}
                         </p>
                       </CardContent>
                     </Card>
@@ -2863,9 +2854,7 @@ const InseAvaliacaoReport = () => {
                             : '—'}
                         </p>
                         <p className="text-sm text-muted-foreground">
-                          {destaquesComparativo.menor_media?.valor != null
-                            ? Number(destaquesComparativo.menor_media.valor).toFixed(1)
-                            : '—'}
+                          {formatReportMetric(destaquesComparativo.menor_media?.valor)}
                         </p>
                       </CardContent>
                     </Card>
@@ -2875,9 +2864,7 @@ const InseAvaliacaoReport = () => {
                           Maior gap
                         </p>
                         <p className="mt-1 text-lg font-semibold">
-                          {destaquesComparativo.maior_gap != null
-                            ? Number(destaquesComparativo.maior_gap).toFixed(1)
-                            : '—'}
+                          {formatReportMetric(destaquesComparativo.maior_gap)}
                         </p>
                         <p className="text-sm text-muted-foreground">pontos de proficiência</p>
                       </CardContent>
@@ -2913,7 +2900,7 @@ const InseAvaliacaoReport = () => {
                             <YAxis fontSize={11} tickLine={false} axisLine={false} />
                             <RechartsTooltip
                               formatter={(value: number | null, _n, ctx) => [
-                                value != null ? Number(value).toFixed(1) : '—',
+                                formatReportMetric(value),
                                 `Média (n=${ctx?.payload?.n ?? 0})`,
                               ]}
                               contentStyle={{ borderRadius: 8 }}
@@ -2955,7 +2942,7 @@ const InseAvaliacaoReport = () => {
                             <YAxis fontSize={11} tickLine={false} axisLine={false} />
                             <RechartsTooltip
                               formatter={(value: number | null, _n, ctx) => [
-                                value != null ? Number(value).toFixed(1) : '—',
+                                formatReportMetric(value),
                                 `Média (n=${ctx?.payload?.n ?? 0})`,
                               ]}
                               contentStyle={{ borderRadius: 8 }}
@@ -3036,9 +3023,7 @@ const InseAvaliacaoReport = () => {
                                 return (
                                   <TableCell key={n} className="text-center text-sm">
                                     <div className="font-semibold">
-                                      {cell.media_proficiencia != null
-                                        ? Number(cell.media_proficiencia).toFixed(1)
-                                        : '—'}
+                                      {formatReportMetric(cell.media_proficiencia)}
                                     </div>
                                     <div className="text-[11px] text-muted-foreground">
                                       n={cell.quantidade_com_resultado}
@@ -3323,7 +3308,6 @@ const InseAvaliacaoReport = () => {
                             d.nome.toLowerCase().includes(subjectName.toLowerCase())
                         );
                         const acertos = subjectRows.filter((r) => r.isCorrect === true).length;
-                        const proficiencia = disc?.proficiencia ?? 0;
                         const nivel = disc?.nivel_proficiencia ?? '—';
                         return (
                           <div key={subjectName} className="space-y-2">
@@ -3375,7 +3359,8 @@ const InseAvaliacaoReport = () => {
                             </div>
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm text-muted-foreground">
-                                ACERTOS: {acertos} | NOTA: {disc?.nota ?? '—'} | PROFICIÊNCIA: {proficiencia}
+                                ACERTOS: {acertos} | NOTA: {formatReportMetric(disc?.nota)} | PROFICIÊNCIA:{' '}
+                                {formatReportMetric(disc?.proficiencia)}
                               </span>
                               <Badge
                                 className={
@@ -3398,8 +3383,13 @@ const InseAvaliacaoReport = () => {
                         <span className="text-sm font-medium">
                           TOTAL DE ACERTOS:{' '}
                           {previewBulletinRows.filter((r) => r.isCorrect === true).length} | NOTA:{' '}
-                          {previewEvaluationResult?.grade ?? previewAluno?.nota ?? '—'} | MÉDIA
-                          PROFICIÊNCIA: {previewAluno?.proficiencia_media ?? '—'}
+                          {formatReportMetric(
+                            previewAluno?.nota ??
+                              (previewEvaluationResult?.grade != null
+                                ? Number(previewEvaluationResult.grade)
+                                : null)
+                          )}{' '}
+                          | MÉDIA PROFICIÊNCIA: {formatReportMetric(previewAluno?.proficiencia_media)}
                         </span>
                         <Badge
                           className={getProficienciaBadgeClass(

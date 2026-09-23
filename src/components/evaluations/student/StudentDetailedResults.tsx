@@ -22,6 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { EvaluationResultsApiService } from "@/services/evaluation/evaluationResultsApi";
 import StudentBulletin, { type DisciplineStatsMap } from "./StudentBulletin";
 import { loadBulletinStatsFromStorage } from "../utils/bulletinStorage";
+import { formatDecimal1PtBr } from "@/utils/numberFormat";
 
 interface StudentDetailedResultsProps {
     onBack: () => void;
@@ -67,13 +68,11 @@ interface EvaluationInfo {
     serie?: string;
 }
 
-/** Nota: 0 é válido; N/A só quando ausente ou não numérico. Inteiros sem casas decimais. */
-function formatScoreForDisplay(value: unknown, decimals = 1): string {
+function formatScoreForDisplay(value: unknown): string {
     if (value === null || value === undefined || value === "") return "N/A";
     const n = typeof value === "number" ? value : Number(value);
     if (!Number.isFinite(n)) return "N/A";
-    if (Number.isInteger(n)) return String(n);
-    return n.toFixed(decimals);
+    return formatDecimal1PtBr(n, "N/A");
 }
 
 function formatProficiencyForDisplay(value: unknown): string {
