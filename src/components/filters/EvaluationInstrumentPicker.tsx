@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   EvaluationResultsApiService,
   REPORT_ENTITY_TYPE_ANSWER_SHEET,
+  type FilterEvaluationItem,
   type ReportEntityTypeQuery,
 } from "@/services/evaluation/evaluationResultsApi";
+import { parseEvaluationSelection } from "@/utils/evaluation/evaluationGroupQuery";
 import { InstrumentPickerField } from "./InstrumentPickerField";
 import {
   buildPickerContextLines,
@@ -11,12 +13,7 @@ import {
   toInstrumentPickerSeries,
 } from "./instrumentPickerHelpers";
 
-type EvaluationItem = {
-  id: string;
-  titulo: string;
-  disciplina?: string;
-  disciplinas?: string[];
-};
+type EvaluationItem = FilterEvaluationItem;
 
 type EvaluationInstrumentPickerProps = {
   estado: string;
@@ -39,6 +36,7 @@ type EvaluationInstrumentPickerProps = {
   municipioLabel?: string;
   escolaLabel?: string;
   periodoLabel?: string;
+  multiple?: boolean;
 };
 
 export function EvaluationInstrumentPicker({
@@ -62,6 +60,7 @@ export function EvaluationInstrumentPicker({
   municipioLabel,
   escolaLabel,
   periodoLabel,
+  multiple = false,
 }: EvaluationInstrumentPickerProps) {
   const isAnswerSheet = reportEntityType === REPORT_ENTITY_TYPE_ANSWER_SHEET;
   const [fieldItems, setFieldItems] = useState<EvaluationItem[]>([]);
@@ -112,11 +111,16 @@ export function EvaluationInstrumentPicker({
       setFieldItems(evaluations);
       setSeriesDisponiveis(series);
       const currentValue = valueRef.current;
-      if (
-        !evaluations.some((e) => e.id === currentValue) &&
-        currentValue !== "all" &&
-        currentValue !== ""
-      ) {
+      if (currentValue === "all" || currentValue === "") return;
+      const selectedIds = multiple
+        ? parseEvaluationSelection(currentValue)
+        : [currentValue];
+      const stillValid = selectedIds.filter((id) => evaluations.some((e) => e.id === id));
+      if (stillValid.length === 0) {
+        onChange(allowAll ? "all" : "");
+      } else if (multiple && stillValid.length !== selectedIds.length) {
+        onChange(stillValid.join(","));
+      } else if (!multiple && !evaluations.some((e) => e.id === currentValue)) {
         onChange(allowAll ? "all" : "");
       }
     } catch {
@@ -124,7 +128,7 @@ export function EvaluationInstrumentPicker({
     } finally {
       if (requestId === fieldRequestIdRef.current) setFetchLoading(false);
     }
-  }, [geoReady, estado, municipio, escola, reportEntityType, cityId, periodo, onChange, allowAll]);
+  }, [geoReady, estado, municipio, escola, reportEntityType, cityId, periodo, onChange, allowAll, multiple]);
 
   const loadModalItems = useCallback(
     async (modalFilters?: { serieFiltro: string; nome: string }) => {
@@ -166,13 +170,19 @@ export function EvaluationInstrumentPicker({
 
   const fieldPickerItems = useMemo(() => {
     const base = toInstrumentPickerItems(fieldItems);
-    if (value === "all" || !value || base.some((item) => item.id === value)) return base;
-    const fromModal = modalItems.find((item) => item.id === value);
-    if (fromModal) {
-      return [...base, ...toInstrumentPickerItems([fromModal])];
-    }
-    return base;
-  }, [fieldItems, modalItems, value]);
+    const selectedIds =
+      value === "all" || !value
+        ? []
+        : multiple
+          ? parseEvaluationSelection(value)
+          : [value];
+    const extras = selectedIds
+      .filter((id) => !base.some((item) => item.id === id))
+      .map((id) => modalItems.find((item) => item.id === id))
+      .filter((item): item is EvaluationItem => Boolean(item));
+    if (extras.length === 0) return base;
+    return [...base, ...toInstrumentPickerItems(extras)];
+  }, [fieldItems, modalItems, value, multiple]);
 
   const modalPickerItems = useMemo(
     () => toInstrumentPickerItems(modalItems.length > 0 ? modalItems : fieldItems),
@@ -206,6 +216,7 @@ export function EvaluationInstrumentPicker({
       className={className}
       contextLines={contextLines}
       contextRequiredMessage="Selecione estado e município nos filtros antes de escolher."
+      multiple={multiple}
       emptyMessage={
         isAnswerSheet ? "Nenhum cartão resposta encontrado." : "Nenhuma avaliação encontrada."
       }

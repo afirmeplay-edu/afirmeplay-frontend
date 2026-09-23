@@ -32,6 +32,12 @@ import { format, parse } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { EvaluationResultsApiService } from "@/services/evaluation/evaluationResultsApi";
 import { EvaluationInstrumentPicker } from "@/components/filters";
+import {
+  appendAvaliacaoQuery,
+  hasEvaluationSelection,
+  isEvaluationGroup,
+  parseEvaluationSelection,
+} from "@/utils/evaluation/evaluationGroupQuery";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/authContext";
 import { getUserHierarchyContext, type UserHierarchyContext } from "@/utils/userHierarchy";
@@ -398,7 +404,7 @@ async function resultsFetchOpcoesFiltros(
   const queryParams = new URLSearchParams();
   if (params.estado && params.estado !== "all") queryParams.append("estado", params.estado);
   if (params.municipio && params.municipio !== "all") queryParams.append("municipio", params.municipio);
-  if (params.avaliacao && params.avaliacao !== "all") queryParams.append("avaliacao", params.avaliacao);
+  appendAvaliacaoQuery(queryParams, params.avaliacao);
   if (params.escola && params.escola !== "all") queryParams.append("escola", params.escola);
   if (params.serie && params.serie !== "all") queryParams.append("serie", params.serie);
   if (params.turma && params.turma !== "all") queryParams.append("turma", params.turma);
@@ -502,7 +508,7 @@ async function resultsFetchEvaluationsList(
   });
   if (filters.estado && filters.estado !== "all") params.append("estado", filters.estado);
   if (filters.municipio && filters.municipio !== "all") params.append("municipio", filters.municipio);
-  if (filters.avaliacao && filters.avaliacao !== "all") params.append("avaliacao", filters.avaliacao);
+  appendAvaliacaoQuery(params, filters.avaliacao);
   if (filters.escola && filters.escola !== "all") params.append("escola", filters.escola);
   if (filters.serie && filters.serie !== "all") params.append("serie", filters.serie);
   if (filters.turma && filters.turma !== "all") params.append("turma", filters.turma);
@@ -570,6 +576,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
     return { y: n.getFullYear(), m: n.getMonth() };
   });
   const [selectedEvaluation, setSelectedEvaluation] = useState<string>('all');
+  const evaluationIsGrouped = isEvaluationGroup(selectedEvaluation);
   const [selectedSchool, setSelectedSchool] = useState<string>('all');
   const [selectedGrade, setSelectedGrade] = useState<string>('all');
   const [selectedClass, setSelectedClass] = useState<string>('all');
@@ -1209,10 +1216,16 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
         setApiData(dataToSet);
 
         // ✅ CORRIGIDO: Usar APENAS dados de estatisticas_gerais do backend
-        if (selectedEvaluation !== 'all' && dataToSet.estatisticas_gerais) {
+        if (hasEvaluationSelection(selectedEvaluation) && dataToSet.estatisticas_gerais) {
+          const grupo = dataToSet.grupo;
+          const selectedIds = parseEvaluationSelection(selectedEvaluation);
+          const tituloGrupo =
+            grupo?.disciplinas && grupo.disciplinas.length > 0
+              ? grupo.disciplinas.join(" + ")
+              : undefined;
           const resumo: EvaluationInfoSummary = {
-            id: selectedEvaluation,
-            titulo: dataToSet.estatisticas_gerais.nome || 'Avaliação',
+            id: selectedIds[0] || selectedEvaluation,
+            titulo: tituloGrupo || dataToSet.estatisticas_gerais.nome || 'Avaliação',
             status: 'pendente',
             total_alunos: dataToSet.estatisticas_gerais.total_alunos,
             alunos_participantes: dataToSet.estatisticas_gerais.alunos_participantes,
@@ -1223,8 +1236,12 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
               ? 'Todas as Escolas' 
               : dataToSet.estatisticas_gerais.escola,
             municipio: dataToSet.estatisticas_gerais.municipio,
-            serie: dataToSet.estatisticas_gerais.serie,
+            serie: grupo?.grade_nome || dataToSet.estatisticas_gerais.serie,
           };
+          if (grupo?.disciplinas && grupo.disciplinas.length > 0) {
+            resumo.disciplinas = grupo.disciplinas;
+            resumo.disciplina = grupo.disciplinas[0];
+          }
 
         // Coletar disciplinas: prioridade `estatisticas_gerais.por_disciplina` (backend), fallback `resultados_por_disciplina`
         const fromPorDisciplina = (dataToSet.estatisticas_gerais as { por_disciplina?: { disciplina: string }[] })
@@ -1939,7 +1956,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
 
   // ✅ NOVO: Função para carregar respostas detalhadas de um aluno
   const handleLoadStudentAnswers = useCallback(async (studentId: string) => {
-    if (!selectedEvaluation || selectedEvaluation === 'all') return;
+    if (!hasEvaluationSelection(selectedEvaluation) || isEvaluationGroup(selectedEvaluation)) return;
     
     setIsLoadingStudentAnswers(true);
     setSelectedStudentForDetails(studentId);
@@ -1967,7 +1984,14 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
 
   // Função para visualizar detalhes do estudante (adaptada)
   const handleViewStudentDetails = (studentId: string) => {
-    if (selectedEvaluation && selectedEvaluation !== 'all') {
+    if (isEvaluationGroup(selectedEvaluation)) {
+      toast({
+        title: "Boletim indisponível",
+        description: "O detalhe do aluno ainda não está disponível para provas agrupadas.",
+      });
+      return;
+    }
+    if (hasEvaluationSelection(selectedEvaluation)) {
       const stats = buildDisciplineStatsForStudent(studentId);
       if (stats && Object.keys(stats).length > 0) {
         saveBulletinStatsToStorage(selectedEvaluation, studentId, stats);
@@ -1985,7 +2009,14 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
 
   // ✅ NOVO: Função para abrir página detalhada em nova guia
   const handleOpenInNewTab = (studentId: string) => {
-    if (selectedEvaluation && selectedEvaluation !== 'all') {
+    if (isEvaluationGroup(selectedEvaluation)) {
+      toast({
+        title: "Boletim indisponível",
+        description: "O detalhe do aluno ainda não está disponível para provas agrupadas.",
+      });
+      return;
+    }
+    if (hasEvaluationSelection(selectedEvaluation)) {
       const stats = buildDisciplineStatsForStudent(studentId);
       if (stats && Object.keys(stats).length > 0) {
         saveBulletinStatsToStorage(selectedEvaluation, studentId, stats);
@@ -2419,7 +2450,8 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
               loading={isLoadingFilters}
               allowAll
               allLabel="Todas"
-              placeholder="Selecione a avaliação"
+              placeholder="Selecione uma ou mais avaliações"
+              multiple
             />
 
             {/* Escola */}
@@ -2556,6 +2588,11 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
       {allRequiredFiltersSelected && !isLoadingData && apiData && (
         <>
           {/* Informações da Avaliação (resumo) */}
+          {evaluationInfo && evaluationIsGrouped && (
+            <p className="mb-3 text-sm text-muted-foreground">
+              Resultado conjunto da mesma série. O boletim do aluno não abre neste recorte.
+            </p>
+          )}
           {evaluationInfo && (
             <Card className="mb-4">
               <CardHeader>

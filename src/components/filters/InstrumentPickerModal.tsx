@@ -25,6 +25,8 @@ export type InstrumentPickerItem = {
   subtitle?: string;
   badge?: string;
   badges?: string[];
+  gradeId?: string;
+  gradeName?: string;
 };
 
 export type InstrumentPickerSeriesOption = {
@@ -39,6 +41,8 @@ export interface InstrumentPickerModalProps {
   items: InstrumentPickerItem[];
   value: string;
   onSelect: (id: string) => void;
+  /** Quando true, o usuário marca 2+ provas da mesma série. Default: uma só. */
+  multiple?: boolean;
   seriesOptions?: InstrumentPickerSeriesOption[];
   loading?: boolean;
   emptyMessage?: string;
@@ -54,6 +58,49 @@ function normalizeSearch(value: string): string {
   return value.trim().toLowerCase();
 }
 
+function parseSelectedIds(value: string): string[] {
+  if (!value || value === "all") return [];
+  return [...new Set(value.split(",").map((id) => id.trim()).filter(Boolean))];
+}
+
+function itemDisciplinas(item: InstrumentPickerItem): string[] {
+  if (item.badges && item.badges.length > 0) return item.badges;
+  return item.badge ? [item.badge] : [];
+}
+
+function isMultidisciplinary(item: InstrumentPickerItem): boolean {
+  return itemDisciplinas(item).length > 1;
+}
+
+function groupDisableReason(
+  item: InstrumentPickerItem,
+  draftIds: string[],
+  items: InstrumentPickerItem[]
+): string | undefined {
+  if (draftIds.includes(item.id)) return undefined;
+  const selected = items.filter((entry) => draftIds.includes(entry.id));
+  if (selected.length === 0) return undefined;
+
+  if (selected.some(isMultidisciplinary)) {
+    return "Já há uma prova multidisciplinar";
+  }
+  if (isMultidisciplinary(item)) {
+    return "Prova multidisciplinar não entra no grupo";
+  }
+
+  const lockedGradeId = selected.find((entry) => entry.gradeId)?.gradeId;
+  if (lockedGradeId) {
+    if (!item.gradeId) return "Série não informada";
+    if (item.gradeId !== lockedGradeId) return "Outra série";
+  }
+
+  const selectedDisciplinas = new Set(selected.flatMap(itemDisciplinas));
+  if (itemDisciplinas(item).some((disciplina) => selectedDisciplinas.has(disciplina))) {
+    return "Disciplina já selecionada";
+  }
+  return undefined;
+}
+
 function EvaluationCard({
   label,
   badges = [],
@@ -61,6 +108,8 @@ function EvaluationCard({
   isSelected,
   onClick,
   icon,
+  disabled,
+  disabledReason,
 }: {
   label: string;
   badges?: string[];
@@ -68,17 +117,23 @@ function EvaluationCard({
   isSelected: boolean;
   onClick: () => void;
   icon: ReactNode;
+  disabled?: boolean;
+  disabledReason?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
+      aria-disabled={disabled}
+      aria-pressed={isSelected}
       className={cn(
         "flex w-full items-start gap-3 rounded-xl border p-3.5 text-left transition-all duration-150",
         "bg-card hover:border-primary/45 hover:bg-primary/[0.03]",
         isSelected
           ? "border-primary bg-primary/8 ring-1 ring-primary/30"
-          : "border-border/70"
+          : "border-border/70",
+        disabled && "cursor-not-allowed opacity-55 hover:border-border/70 hover:bg-card"
       )}
     >
       <span
@@ -108,6 +163,9 @@ function EvaluationCard({
             <p className="mt-1 text-xs text-muted-foreground line-clamp-1">{subtitle}</p>
           )
         )}
+        {disabled && disabledReason && (
+          <p className="mt-1.5 text-xs text-muted-foreground">{disabledReason}</p>
+        )}
       </div>
       {isSelected && <Check className="h-5 w-5 shrink-0 text-primary mt-0.5" />}
     </button>
@@ -121,6 +179,7 @@ export function InstrumentPickerModal({
   items,
   value,
   onSelect,
+  multiple = false,
   seriesOptions = [],
   loading = false,
   emptyMessage = "Nenhum item encontrado.",
@@ -133,16 +192,29 @@ export function InstrumentPickerModal({
   const contextReady = contextLines.length > 0;
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSerie, setSelectedSerie] = useState("all");
+  const [draftIds, setDraftIds] = useState<string[]>([]);
+  const [draftAll, setDraftAll] = useState(false);
   const onFiltersChangeRef = useRef(onFiltersChange);
   onFiltersChangeRef.current = onFiltersChange;
   const skipFiltersSyncRef = useRef(false);
 
   useEffect(() => {
-    if (open) {
-      setSearchTerm("");
+    if (!open) return;
+    setSearchTerm("");
+    skipFiltersSyncRef.current = true;
+    if (multiple) {
+      const ids = parseSelectedIds(value);
+      setDraftIds(ids);
+      setDraftAll(value === "all");
+      const first = items.find((item) => ids.includes(item.id) && item.gradeId);
+      setSelectedSerie(first?.gradeId ?? "all");
+    } else {
+      setDraftIds([]);
+      setDraftAll(false);
       setSelectedSerie("all");
-      skipFiltersSyncRef.current = true;
     }
+    // Só reinicia o rascunho ao abrir. Recarregar a lista no modal não deve apagar a busca.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
@@ -175,15 +247,85 @@ export function InstrumentPickerModal({
     return [...list].sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
   }, [items, searchTerm]);
 
-  const handleSelect = (id: string) => {
+  const selectedDraftItems = useMemo(
+    () => items.filter((item) => draftIds.includes(item.id)),
+    [items, draftIds]
+  );
+  const lockedGrade = selectedDraftItems.find((item) => item.gradeId);
+  const lockedGradeName = lockedGrade?.gradeName;
+
+  useEffect(() => {
+    if (!open || !multiple || !lockedGrade?.gradeId) return;
+    if (selectedSerie !== lockedGrade.gradeId) {
+      setSelectedSerie(lockedGrade.gradeId);
+    }
+  }, [open, multiple, lockedGrade?.gradeId, selectedSerie]);
+
+  const handleSingleSelect = (id: string) => {
     onSelect(id);
     onOpenChange(false);
   };
+
+  const toggleDraft = (id: string) => {
+    const added = items.find((item) => item.id === id);
+    setDraftAll(false);
+    setDraftIds((current) => {
+      if (current.includes(id)) {
+        const next = current.filter((entry) => entry !== id);
+        if (next.length === 0) setSelectedSerie("all");
+        return next;
+      }
+      const reason = added ? groupDisableReason(added, current, items) : "Prova indisponível";
+      if (reason) return current;
+      if (current.length === 0 && added?.gradeId) {
+        setSelectedSerie(added.gradeId);
+      }
+      return [...current, id];
+    });
+  };
+
+  const selectAllDraft = () => {
+    setDraftAll(true);
+    setDraftIds([]);
+    setSelectedSerie("all");
+  };
+
+  const clearGradeLock = () => {
+    setDraftIds([]);
+    setDraftAll(false);
+    setSelectedSerie("all");
+  };
+
+  const confirmMultiple = () => {
+    if (draftAll || (draftIds.length === 0 && allowAll)) {
+      onSelect("all");
+    } else if (draftIds.length === 0) {
+      onSelect("");
+    } else {
+      onSelect(draftIds.join(","));
+    }
+    onOpenChange(false);
+  };
+
+  const confirmLabel = draftAll
+    ? `Usar ${allLabel.toLowerCase()}`
+    : draftIds.length >= 2
+      ? `Juntar ${draftIds.length} provas`
+      : draftIds.length === 1
+        ? "Usar esta prova"
+        : allowAll
+          ? `Usar ${allLabel.toLowerCase()}`
+          : "Confirmar";
 
   const totalCount = filteredItems.length + (allowAll ? 1 : 0);
 
   const footerSummary = useMemo(() => {
     if (!contextReady || loading) return null;
+    if (multiple && !draftAll && draftIds.length > 0) {
+      return draftIds.length === 1
+        ? "1 prova selecionada"
+        : `${draftIds.length} provas selecionadas`;
+    }
     if (searchTerm.trim()) {
       const n = filteredItems.length;
       const total = items.length;
@@ -191,7 +333,17 @@ export function InstrumentPickerModal({
     }
     if (totalCount === 1) return "1 opção disponível";
     return `${totalCount} opções disponíveis`;
-  }, [contextReady, loading, searchTerm, filteredItems.length, items.length, totalCount]);
+  }, [
+    contextReady,
+    loading,
+    multiple,
+    draftAll,
+    draftIds.length,
+    searchTerm,
+    filteredItems.length,
+    items.length,
+    totalCount,
+  ]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -223,18 +375,32 @@ export function InstrumentPickerModal({
 
           <div className="px-6 pb-4 flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1 min-w-0">
+              <label htmlFor="instrument-picker-search" className="sr-only">
+                Buscar avaliação
+              </label>
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/70" />
               <Input
+                id="instrument-picker-search"
+                type="search"
                 placeholder="Buscar por nome..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 disabled={!contextReady}
+                autoComplete="off"
+                spellCheck={false}
                 className="h-11 pl-10 text-base border-primary/20 bg-background/90"
               />
             </div>
             {seriesOptions.length > 0 && (
-              <Select value={selectedSerie} onValueChange={setSelectedSerie} disabled={!contextReady}>
-                <SelectTrigger className="h-11 w-full sm:w-[240px] text-base border-primary/20 bg-background/90">
+              <Select
+                value={selectedSerie}
+                onValueChange={setSelectedSerie}
+                disabled={!contextReady || Boolean(lockedGrade?.gradeId)}
+              >
+                <SelectTrigger
+                  aria-label="Filtrar por série"
+                  className="h-11 w-full sm:w-[240px] text-base border-primary/20 bg-background/90"
+                >
                   <Layers className="h-4 w-4 mr-2 text-primary/70 shrink-0" />
                   <SelectValue placeholder="Todas as séries" />
                 </SelectTrigger>
@@ -250,6 +416,17 @@ export function InstrumentPickerModal({
             )}
           </div>
         </div>
+
+        {multiple && lockedGradeName && (
+          <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 border-b border-primary/10 bg-primary/5 px-6 py-2.5">
+            <p className="text-sm text-foreground">
+              Série travada: <span className="font-medium">{lockedGradeName}</span>. Só provas desta série.
+            </p>
+            <Button type="button" variant="ghost" size="sm" onClick={clearGradeLock}>
+              Liberar série
+            </Button>
+          </div>
+        )}
 
         <div className="flex-1 min-h-0 overflow-y-auto bg-muted/15 px-6 py-4">
           {!contextReady ? (
@@ -268,8 +445,8 @@ export function InstrumentPickerModal({
                 <EvaluationCard
                   label={allLabel}
                   subtitle="Incluir todos do recorte"
-                  isSelected={value === "all"}
-                  onClick={() => handleSelect("all")}
+                  isSelected={multiple ? draftAll : value === "all"}
+                  onClick={() => (multiple ? selectAllDraft() : handleSingleSelect("all"))}
                   icon={<Layers className="h-4 w-4" />}
                 />
               )}
@@ -280,17 +457,26 @@ export function InstrumentPickerModal({
                   <p className="text-sm text-muted-foreground">{emptyMessage}</p>
                 </div>
               ) : (
-                filteredItems.map((item) => (
-                  <EvaluationCard
-                    key={item.id}
-                    label={item.label}
-                    badges={item.badges ?? (item.badge ? [item.badge] : [])}
-                    subtitle={item.subtitle}
-                    isSelected={value === item.id}
-                    onClick={() => handleSelect(item.id)}
-                    icon={<FileText className="h-4 w-4" />}
-                  />
-                ))
+                filteredItems.map((item) => {
+                  const reason = multiple
+                    ? groupDisableReason(item, draftIds, items)
+                    : undefined;
+                  return (
+                    <EvaluationCard
+                      key={item.id}
+                      label={item.label}
+                      badges={item.badges ?? (item.badge ? [item.badge] : [])}
+                      subtitle={item.subtitle}
+                      isSelected={multiple ? draftIds.includes(item.id) : value === item.id}
+                      onClick={() =>
+                        multiple ? toggleDraft(item.id) : handleSingleSelect(item.id)
+                      }
+                      disabled={Boolean(reason)}
+                      disabledReason={reason}
+                      icon={<FileText className="h-4 w-4" />}
+                    />
+                  );
+                })
               )}
             </div>
           )}
@@ -301,6 +487,11 @@ export function InstrumentPickerModal({
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
+          {multiple && (
+            <Button size="sm" onClick={confirmMultiple}>
+              {confirmLabel}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
