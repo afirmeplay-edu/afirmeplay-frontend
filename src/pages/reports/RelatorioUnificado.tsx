@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
   BookOpen,
+  Download,
   Filter,
   Loader2,
+  Percent,
   RefreshCw,
   Users,
 } from 'lucide-react';
@@ -38,6 +40,7 @@ import {
   RelatorioUnificadoApiService,
   unifiedReportEntityTypeForFlow,
 } from '@/services/reports/relatorioUnificadoApi';
+import { generateRelatorioUnificadoPdf } from '@/services/reports/relatorioUnificadoPdf';
 import type {
   RelatorioUnificadoDados,
   RelatorioUnificadoFilterAvaliacao,
@@ -45,25 +48,35 @@ import type {
   RelatorioUnificadoFilterTurma,
   RelatorioUnificadoLeituraAvaliacao,
   RelatorioUnificadoMetricas,
+  RelatorioUnificadoModoLeitura,
   RelatorioUnificadoReportFlow,
 } from '@/types/relatorio-unificado';
 
 const NAO_AVALIADO = 'não avaliado';
 const REPORT_ROLES = ['admin', 'professor', 'diretor', 'coordenador', 'tecadm'];
 
+/** Larguras das colunas sticky (Aluno + Nível + Alfabetizado). */
+const STICKY_ALUNO_W = 180;
+const STICKY_NIVEL_W = 132;
+const STICKY_ALFAB_W = 108;
+
 type RelatorioUnificadoProps = {
   flow?: RelatorioUnificadoReportFlow;
   hidePageHeading?: boolean;
 };
 
-function formatMetric(value: number | null | undefined): string {
-  if (value === null || value === undefined) return NAO_AVALIADO;
+function formatMetricNumber(value: number): string {
   return value.toLocaleString('pt-BR', {
     minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
     maximumFractionDigits: 2,
   });
 }
 
+function MutedText({ children }: { children: ReactNode }) {
+  return <span className="text-muted-foreground">{children}</span>;
+}
+
+/** Célula de métrica da prova: valor, "—" se ausente (com prova), nunca "não avaliado". */
 function MetricCell({
   value,
   kind,
@@ -72,20 +85,20 @@ function MetricCell({
   kind: 'proficiencia' | 'nota' | 'classificacao';
 }) {
   if (!value) {
-    return <span className="text-muted-foreground">{NAO_AVALIADO}</span>;
+    return <MutedText>—</MutedText>;
   }
   if (kind === 'classificacao') {
     const label = value.classificacao;
-    if (!label) return <span className="text-muted-foreground">{NAO_AVALIADO}</span>;
+    if (!label) return <MutedText>—</MutedText>;
     return (
       <span className={cn(getReportProficiencyTagClass(label), 'whitespace-nowrap')}>{label}</span>
     );
   }
   const num = kind === 'nota' ? value.nota : value.proficiencia;
   if (num === null || num === undefined) {
-    return <span className="text-muted-foreground">{NAO_AVALIADO}</span>;
+    return <MutedText>—</MutedText>;
   }
-  return <span>{formatMetric(num)}</span>;
+  return <span>{formatMetricNumber(num)}</span>;
 }
 
 function ReadingLevelBadge({
@@ -96,7 +109,7 @@ function ReadingLevelBadge({
   label: string | null;
 }) {
   if (!code) {
-    return <span className="text-muted-foreground">{NAO_AVALIADO}</span>;
+    return <MutedText>{NAO_AVALIADO}</MutedText>;
   }
   const style = getPerfilLeitorStyle(code as PerfilLeitorCode);
   return (
@@ -109,6 +122,10 @@ function ReadingLevelBadge({
       {label || code}
     </span>
   );
+}
+
+function stickyStyle(left: number, width: number): CSSProperties {
+  return { left, minWidth: width, width, maxWidth: width };
 }
 
 export default function RelatorioUnificado({
@@ -157,6 +174,7 @@ export default function RelatorioUnificado({
   const [selectedLeituraAno, setSelectedLeituraAno] = useState('all');
   const [selectedLeituraEdicao, setSelectedLeituraEdicao] = useState('all');
   const [selectedLeituraAvaliacao, setSelectedLeituraAvaliacao] = useState('all');
+  const [modoLeitura, setModoLeitura] = useState<RelatorioUnificadoModoLeitura>('avaliacao');
 
   const [loadingEstados, setLoadingEstados] = useState(false);
   const [loadingMunicipios, setLoadingMunicipios] = useState(false);
@@ -166,6 +184,7 @@ export default function RelatorioUnificado({
   const [loadingTurmas, setLoadingTurmas] = useState(false);
   const [loadingLeitura, setLoadingLeitura] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   const [report, setReport] = useState<RelatorioUnificadoDados | null>(null);
 
@@ -177,8 +196,10 @@ export default function RelatorioUnificado({
     selectedEstado !== 'all' &&
     selectedMunicipio !== 'all' &&
     selectedAvaliacao !== 'all' &&
-    selectedLeituraAvaliacao !== 'all' &&
-    (selectedEscola !== 'all' || selectedTurma !== 'all');
+    (selectedEscola !== 'all' || selectedTurma !== 'all') &&
+    (modoLeitura === 'avaliacao'
+      ? selectedLeituraAvaliacao !== 'all'
+      : selectedLeituraAno !== 'all' && selectedLeituraEdicao !== 'all');
 
   const avaliacaoPickerItems = useMemo(
     () => toInstrumentPickerItems(avaliacoesOpcoes),
@@ -509,6 +530,23 @@ export default function RelatorioUnificado({
     setReport(null);
   };
 
+  const escopoSubtitulo = useMemo(() => {
+    if (!report) return '';
+    const parts: string[] = [report.metadados.municipioNome];
+    if (selectedEscola !== 'all') {
+      const nomeEscola = escolas.find((e) => e.id === selectedEscola)?.nome;
+      if (nomeEscola) parts.push(nomeEscola);
+    }
+    if (selectedTurma !== 'all') {
+      const turma = turmas.find((t) => t.id === selectedTurma);
+      const label = turma?.label || turma?.nome;
+      if (label) parts.push(label);
+    }
+    const n = report.resumo.totalAlunos;
+    parts.push(`${n} aluno${n === 1 ? '' : 's'}`);
+    return parts.join(' · ');
+  }, [report, selectedEscola, selectedTurma, escolas, turmas]);
+
   const handleGenerate = useCallback(async () => {
     if (!canGenerate) return;
     setGenerating(true);
@@ -517,7 +555,11 @@ export default function RelatorioUnificado({
         estado: selectedEstado,
         municipio: selectedMunicipio,
         avaliacao: selectedAvaliacao,
-        avaliacao_leitura: selectedLeituraAvaliacao,
+        modo_leitura: modoLeitura,
+        avaliacao_leitura:
+          modoLeitura === 'avaliacao' ? selectedLeituraAvaliacao : undefined,
+        ano: modoLeitura === 'edicao' ? selectedLeituraAno : undefined,
+        edicao: modoLeitura === 'edicao' ? selectedLeituraEdicao : undefined,
         report_entity_type: reportEntityType,
         escola: selectedEscola !== 'all' ? selectedEscola : undefined,
         serie: selectedSerie !== 'all' ? selectedSerie : undefined,
@@ -542,11 +584,61 @@ export default function RelatorioUnificado({
     selectedEstado,
     selectedMunicipio,
     selectedAvaliacao,
+    modoLeitura,
     selectedLeituraAvaliacao,
+    selectedLeituraAno,
+    selectedLeituraEdicao,
     reportEntityType,
     selectedEscola,
     selectedSerie,
     selectedTurma,
+    toast,
+  ]);
+
+  const handleDownloadPdf = useCallback(async () => {
+    if (!report) return;
+    try {
+      setGeneratingPdf(true);
+      await generateRelatorioUnificadoPdf({
+        report,
+        escopoSubtitulo,
+        flow,
+        cityId: selectedMunicipio !== 'all' ? selectedMunicipio : null,
+        escolaNome:
+          selectedEscola !== 'all'
+            ? escolas.find((e) => e.id === selectedEscola)?.nome
+            : undefined,
+        turmaNome:
+          selectedTurma !== 'all'
+            ? turmas.find((t) => t.id === selectedTurma)?.label ||
+              turmas.find((t) => t.id === selectedTurma)?.nome
+            : undefined,
+      });
+      toast({
+        title: 'Relatório baixado',
+        description: 'O PDF do Relatório Unificado foi salvo no seu dispositivo.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Erro ao gerar PDF',
+        description: getRelatorioUnificadoApiErrorMessage(
+          error,
+          'Não foi possível gerar o PDF.'
+        ),
+        variant: 'destructive',
+      });
+    } finally {
+      setGeneratingPdf(false);
+    }
+  }, [
+    report,
+    escopoSubtitulo,
+    flow,
+    selectedMunicipio,
+    selectedEscola,
+    selectedTurma,
+    escolas,
+    turmas,
     toast,
   ]);
 
@@ -560,6 +652,9 @@ export default function RelatorioUnificado({
 
   const resumo = report?.resumo;
   const disciplinas = report?.disciplinas ?? [];
+  const provaColSpan = 3 + disciplinas.length * 3;
+  const stickyNivelLeft = STICKY_ALUNO_W;
+  const stickyAlfabLeft = STICKY_ALUNO_W + STICKY_NIVEL_W;
 
   return (
     <div className="space-y-6">
@@ -738,9 +833,39 @@ export default function RelatorioUnificado({
               <BookOpen className="h-4 w-4" />
               Avaliação de leitura (Afirme Ler)
             </p>
+            <div className="space-y-2 max-w-md">
+              <label className="text-sm font-medium">Leitura</label>
+              <Select
+                value={modoLeitura}
+                onValueChange={(v) => {
+                  const next = v as RelatorioUnificadoModoLeitura;
+                  setModoLeitura(next);
+                  if (next === 'edicao') {
+                    if (selectedLeituraAno === 'all' && leituraAnos.length === 1) {
+                      setSelectedLeituraAno(String(leituraAnos[0]));
+                    }
+                    if (selectedLeituraEdicao === 'all' && leituraEdicoes.length === 1) {
+                      setSelectedLeituraEdicao(leituraEdicoes[0].id);
+                    }
+                  }
+                  setReport(null);
+                }}
+                disabled={selectedMunicipio === 'all' || loadingLeitura}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="avaliacao">Por avaliação</SelectItem>
+                  <SelectItem value="edicao">Por edição</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Ano</label>
+                <label className="text-sm font-medium">
+                  Ano{modoLeitura === 'edicao' ? ' *' : ''}
+                </label>
                 <Select
                   value={selectedLeituraAno}
                   onValueChange={(v) => {
@@ -751,10 +876,16 @@ export default function RelatorioUnificado({
                   disabled={selectedMunicipio === 'all' || loadingLeitura}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Todos os anos" />
+                    <SelectValue
+                      placeholder={
+                        modoLeitura === 'edicao' ? 'Selecione o ano' : 'Todos os anos'
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Todos os anos</SelectItem>
+                    {modoLeitura === 'avaliacao' && (
+                      <SelectItem value="all">Todos os anos</SelectItem>
+                    )}
                     {leituraAnos.map((ano) => (
                       <SelectItem key={ano} value={String(ano)}>
                         {ano}
@@ -764,7 +895,9 @@ export default function RelatorioUnificado({
                 </Select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Edição</label>
+                <label className="text-sm font-medium">
+                  Edição{modoLeitura === 'edicao' ? ' *' : ''}
+                </label>
                 <Select
                   value={selectedLeituraEdicao}
                   onValueChange={(v) => {
@@ -775,10 +908,18 @@ export default function RelatorioUnificado({
                   disabled={selectedMunicipio === 'all' || loadingLeitura}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Todas as edições" />
+                    <SelectValue
+                      placeholder={
+                        modoLeitura === 'edicao'
+                          ? 'Selecione a edição'
+                          : 'Todas as edições'
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Todas as edições</SelectItem>
+                    {modoLeitura === 'avaliacao' && (
+                      <SelectItem value="all">Todas as edições</SelectItem>
+                    )}
                     {leituraEdicoes.map((ed) => (
                       <SelectItem key={ed.id} value={ed.id}>
                         {ed.nome}
@@ -787,30 +928,32 @@ export default function RelatorioUnificado({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Avaliação de leitura *</label>
-                <Select
-                  value={selectedLeituraAvaliacao}
-                  onValueChange={(v) => {
-                    setSelectedLeituraAvaliacao(v);
-                    setReport(null);
-                  }}
-                  disabled={selectedMunicipio === 'all' || loadingLeitura}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione a avaliação de leitura" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Selecione…</SelectItem>
-                    {leituraAvaliacoesFiltradas.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.titulo}
-                        {a.edicaoLabel ? ` (${a.edicaoLabel})` : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {modoLeitura === 'avaliacao' && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Avaliação de leitura *</label>
+                  <Select
+                    value={selectedLeituraAvaliacao}
+                    onValueChange={(v) => {
+                      setSelectedLeituraAvaliacao(v);
+                      setReport(null);
+                    }}
+                    disabled={selectedMunicipio === 'all' || loadingLeitura}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione a avaliação de leitura" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Selecione…</SelectItem>
+                      {leituraAvaliacoesFiltradas.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.titulo}
+                          {a.edicaoLabel ? ` (${a.edicaoLabel})` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           </div>
 
@@ -840,28 +983,47 @@ export default function RelatorioUnificado({
 
       {report && resumo && (
         <>
-          <header className="space-y-1">
-            <h2 className="text-xl font-semibold tracking-tight">
-              {report.metadados.rotuloCombinado}
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {report.metadados.municipioNome}
-              {report.alunos.length > 0
-                ? ` · ${report.resumo.totalAlunos} aluno${report.resumo.totalAlunos === 1 ? '' : 's'}`
-                : null}
-            </p>
-          </header>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <header className="space-y-1">
+              <h2 className="text-xl font-semibold tracking-tight">
+                {report.metadados.rotuloCombinado}
+              </h2>
+              <p className="text-sm text-muted-foreground">{escopoSubtitulo}</p>
+              {report.metadados.leitura?.escopoMensagem && (
+                <p className="text-sm text-muted-foreground">
+                  {report.metadados.leitura.escopoMensagem}
+                </p>
+              )}
+            </header>
+            <Button
+              onClick={() => void handleDownloadPdf()}
+              disabled={generatingPdf || generating || !report}
+            >
+              {generatingPdf ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Gerando PDF…
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4 mr-2" />
+                  Exportar PDF
+                </>
+              )}
+            </Button>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  <Percent className="h-4 w-4" />
                   ICA (alfabetizados)
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-2xl font-bold tracking-tight">
-                  {formatMetric(resumo.icaPctLf)}% alfabetizados
+                  {formatMetricNumber(resumo.icaPctLf)}% alfabetizados
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">
                   {resumo.alunosLf} de {resumo.alunosComLeitura} avaliados
@@ -881,7 +1043,7 @@ export default function RelatorioUnificado({
                   {resumo.alunosSemLeitura === 1 ? '' : 's'} sem leitura
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Inclui ausentes e sem sessão finalizada
+                  Inclui ausentes e leituras não concluídas
                 </p>
               </CardContent>
             </Card>
@@ -895,9 +1057,30 @@ export default function RelatorioUnificado({
                     <tr className="bg-muted/60 border-b">
                       <th
                         rowSpan={2}
-                        className="sticky left-0 z-20 bg-muted px-3 py-2 text-left font-medium border-r min-w-[180px]"
+                        className="sticky z-20 bg-muted px-3 py-2 text-left font-medium border-r"
+                        style={stickyStyle(0, STICKY_ALUNO_W)}
                       >
                         Aluno
+                      </th>
+                      <th
+                        rowSpan={2}
+                        className="sticky z-20 bg-muted px-2 py-2 text-center font-medium border-r whitespace-nowrap"
+                        style={stickyStyle(stickyNivelLeft, STICKY_NIVEL_W)}
+                      >
+                        Nível de leitura
+                      </th>
+                      <th
+                        rowSpan={2}
+                        className="sticky z-20 bg-muted px-2 py-2 text-center font-medium border-r whitespace-nowrap"
+                        style={stickyStyle(stickyAlfabLeft, STICKY_ALFAB_W)}
+                      >
+                        Alfabetizado
+                      </th>
+                      <th
+                        colSpan={3}
+                        className="px-3 py-2 text-center font-medium border-r whitespace-nowrap"
+                      >
+                        Geral
                       </th>
                       {disciplinas.map((d) => (
                         <th
@@ -908,89 +1091,99 @@ export default function RelatorioUnificado({
                           {d.nome}
                         </th>
                       ))}
-                      <th
-                        colSpan={3}
-                        className="px-3 py-2 text-center font-medium border-r whitespace-nowrap"
-                      >
-                        Geral
-                      </th>
-                      <th
-                        rowSpan={2}
-                        className="px-3 py-2 text-center font-medium border-r whitespace-nowrap"
-                      >
-                        Nível de leitura
-                      </th>
-                      <th rowSpan={2} className="px-3 py-2 text-center font-medium whitespace-nowrap">
-                        Alfabetizado
-                      </th>
                     </tr>
                     <tr className="bg-muted/40 border-b">
+                      <FragmentHeads />
                       {disciplinas.map((d) => (
                         <FragmentHeads key={d.id} />
                       ))}
-                      <FragmentHeads />
                     </tr>
                   </thead>
                   <tbody>
                     {report.alunos.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={2 + disciplinas.length * 3 + 3 + 2}
+                          colSpan={3 + provaColSpan}
                           className="px-3 py-8 text-center text-muted-foreground"
                         >
                           Nenhum aluno no recorte selecionado.
                         </td>
                       </tr>
                     ) : (
-                      report.alunos.map((aluno) => {
-                        const metricsOrEmpty = (m: RelatorioUnificadoMetricas | undefined) =>
-                          aluno.semProva
-                            ? { proficiencia: null, nota: null, classificacao: null }
-                            : m;
-
-                        return (
-                          <tr key={aluno.id} className="border-b hover:bg-muted/30">
-                            <td className="sticky left-0 z-10 bg-background px-3 py-2 font-medium border-r whitespace-nowrap">
-                              <div>{aluno.nome}</div>
-                              <div className="text-xs text-muted-foreground font-normal">
-                                {aluno.turmaNome || '—'}
-                              </div>
+                      report.alunos.map((aluno) => (
+                        <tr key={aluno.id} className="border-b hover:bg-muted/30 group">
+                          <td
+                            className="sticky z-10 bg-background group-hover:bg-muted/30 px-3 py-2 font-medium border-r whitespace-nowrap"
+                            style={stickyStyle(0, STICKY_ALUNO_W)}
+                          >
+                            <div className="truncate">{aluno.nome}</div>
+                            <div className="text-xs text-muted-foreground font-normal truncate">
+                              {aluno.turmaNome || '—'}
+                            </div>
+                          </td>
+                          <td
+                            className="sticky z-10 bg-background group-hover:bg-muted/30 px-2 py-2 text-center border-r"
+                            style={stickyStyle(stickyNivelLeft, STICKY_NIVEL_W)}
+                          >
+                            {aluno.semLeitura ? (
+                              <MutedText>{NAO_AVALIADO}</MutedText>
+                            ) : (
+                              <ReadingLevelBadge
+                                code={aluno.nivelLeitura}
+                                label={aluno.nivelLeituraLabel}
+                              />
+                            )}
+                          </td>
+                          <td
+                            className="sticky z-10 bg-background group-hover:bg-muted/30 px-2 py-2 text-center border-r"
+                            style={stickyStyle(stickyAlfabLeft, STICKY_ALFAB_W)}
+                          >
+                            {aluno.semLeitura || aluno.alfabetizado === null ? (
+                              <MutedText>{NAO_AVALIADO}</MutedText>
+                            ) : aluno.alfabetizado ? (
+                              <Badge className="bg-emerald-600 hover:bg-emerald-600">Sim</Badge>
+                            ) : (
+                              <Badge variant="secondary" className="bg-muted text-muted-foreground border-border">
+                                Não
+                              </Badge>
+                            )}
+                          </td>
+                          {aluno.semProva ? (
+                            <td
+                              colSpan={provaColSpan}
+                              className="px-3 py-2 text-center text-muted-foreground border-r"
+                            >
+                              Não fez a avaliação
                             </td>
-                            {disciplinas.map((d) => {
-                              const m = metricsOrEmpty(aluno.porDisciplina?.[d.id]);
-                              return (
-                                <FragmentCells key={d.id} metrics={m} />
-                              );
-                            })}
-                            <FragmentCells metrics={metricsOrEmpty(aluno.geral)} />
-                            <td className="px-3 py-2 text-center border-r">
-                              {aluno.semLeitura ? (
-                                <span className="text-muted-foreground">{NAO_AVALIADO}</span>
-                              ) : (
-                                <ReadingLevelBadge
-                                  code={aluno.nivelLeitura}
-                                  label={aluno.nivelLeituraLabel}
+                          ) : (
+                            <>
+                              <FragmentCells metrics={aluno.geral} />
+                              {disciplinas.map((d) => (
+                                <FragmentCells
+                                  key={d.id}
+                                  metrics={aluno.porDisciplina?.[d.id]}
                                 />
-                              )}
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              {aluno.semLeitura || aluno.alfabetizado === null ? (
-                                <span className="text-muted-foreground">{NAO_AVALIADO}</span>
-                              ) : aluno.alfabetizado ? (
-                                <Badge className="bg-emerald-600 hover:bg-emerald-600">Sim</Badge>
-                              ) : (
-                                <Badge variant="secondary">Não</Badge>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })
+                              ))}
+                            </>
+                          )}
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
               </div>
             </CardContent>
           </Card>
+
+          {report.metadados.leitura?.modo === 'edicao' &&
+            (report.metadados.leitura.avaliacoesIncluidas?.length ?? 0) > 0 && (
+              <p className="text-sm text-muted-foreground">
+                Avaliações de leitura incluídas:{' '}
+                {report.metadados.leitura.avaliacoesIncluidas!
+                  .map((a) => a.titulo || a.id)
+                  .join(' · ')}
+              </p>
+            )}
         </>
       )}
     </div>

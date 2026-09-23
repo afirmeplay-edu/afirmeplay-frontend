@@ -70,6 +70,13 @@ export type RelatorioUnificadoAluno = {
   semLeitura: boolean;
 };
 
+export type RelatorioUnificadoModoLeitura = 'avaliacao' | 'edicao';
+
+export type RelatorioUnificadoLeituraIncluida = {
+  id: string;
+  titulo: string;
+};
+
 export type RelatorioUnificadoDados = {
   metadados: {
     rotuloCombinado: string;
@@ -82,11 +89,14 @@ export type RelatorioUnificadoDados = {
       reportEntityType: string;
     };
     leitura: {
-      id: string;
+      modo?: RelatorioUnificadoModoLeitura;
+      id?: string | null;
       titulo: string;
       ano?: number | null;
       edicao?: string;
       edicaoLabel?: string;
+      escopoMensagem?: string;
+      avaliacoesIncluidas?: RelatorioUnificadoLeituraIncluida[];
     };
     escopo: {
       escolas: string[];
@@ -109,7 +119,12 @@ export type RelatorioUnificadoDadosParams = {
   estado: string;
   municipio: string;
   avaliacao: string;
-  avaliacao_leitura: string;
+  modo_leitura?: RelatorioUnificadoModoLeitura;
+  /** Obrigatório no modo avaliacao */
+  avaliacao_leitura?: string;
+  /** Obrigatórios no modo edicao */
+  ano?: number | string;
+  edicao?: string;
   report_entity_type?: 'answer_sheet';
   escola?: string;
   serie?: string;

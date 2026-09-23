@@ -41,8 +41,17 @@ function buildQuery(
   setOptionalParam(q, 'escola', params.escola);
   setOptionalParam(q, 'serie', params.serie);
   setOptionalParam(q, 'turma', params.turma);
+  if ('modo_leitura' in params && params.modo_leitura) {
+    setOptionalParam(q, 'modo_leitura', params.modo_leitura);
+  }
   if ('avaliacao_leitura' in params) {
     setOptionalParam(q, 'avaliacao_leitura', params.avaliacao_leitura);
+  }
+  if ('ano' in params) {
+    setOptionalParam(q, 'ano', params.ano);
+  }
+  if ('edicao' in params) {
+    setOptionalParam(q, 'edicao', params.edicao);
   }
   const s = q.toString();
   return s ? `?${s}` : '';
@@ -172,8 +181,15 @@ export class RelatorioUnificadoApiService {
   }
 
   static async getDados(params: RelatorioUnificadoDadosParams): Promise<RelatorioUnificadoDados> {
-    if (!params.estado || !params.municipio || !params.avaliacao || !params.avaliacao_leitura) {
-      throw new Error('Estado, município, avaliação e avaliação de leitura são obrigatórios.');
+    if (!params.estado || !params.municipio || !params.avaliacao) {
+      throw new Error('Estado, município e avaliação são obrigatórios.');
+    }
+    const modo = params.modo_leitura || 'avaliacao';
+    if (modo === 'avaliacao' && !params.avaliacao_leitura) {
+      throw new Error('Avaliação de leitura é obrigatória no modo "Por avaliação".');
+    }
+    if (modo === 'edicao' && (params.ano === undefined || params.ano === '' || !params.edicao)) {
+      throw new Error('Ano e edição são obrigatórios no modo "Por edição".');
     }
     if (!params.escola && !params.turma) {
       throw new Error('Informe ao menos escola ou turma.');
