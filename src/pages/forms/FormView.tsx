@@ -747,6 +747,12 @@ const FormView = () => {
           <h1 className="flex flex-wrap items-center gap-2 text-xl font-bold tracking-tight sm:text-2xl">
             <FileText className="h-6 w-6 shrink-0 text-primary" />
             {formTitle}
+            <Badge
+              variant={formData.isActive ? 'default' : 'secondary'}
+              className="align-middle text-xs font-medium"
+            >
+              {formData.isActive ? 'Ativo' : 'Inativo'}
+            </Badge>
           </h1>
           <p className="text-xs text-muted-foreground sm:text-sm">
             Detalhes e pré-visualização do questionário
@@ -770,9 +776,6 @@ const FormView = () => {
             <Pencil className="mr-1.5 h-4 w-4" />
             Editar
           </Button>
-          <Badge variant={formData.isActive ? 'default' : 'secondary'} className="text-xs">
-            {formData.isActive ? 'Ativo' : 'Inativo'}
-          </Badge>
           {backButton}
         </div>
       </div>
