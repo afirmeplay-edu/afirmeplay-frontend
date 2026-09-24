@@ -26,6 +26,7 @@ import {
   formatScopeLabel,
   getFormTypeDisplayName,
   getSchoolInfo,
+  type RecipientSchoolScope,
   type ResolvedRecipients,
 } from '@/services/formRecipientsApi';
 import { FormFiltersApiService } from '@/services/formFiltersApi';
@@ -86,6 +87,23 @@ interface FormData {
 
 type DetailRow = { label: string; value: React.ReactNode };
 
+type ClassFilterOption = {
+  id: string;
+  name: string;
+  schoolId: string;
+  gradeId: string;
+};
+
+type ResendScopeGroup = {
+  schoolId: string;
+  schoolName: string;
+  grades: Array<{
+    gradeId: string;
+    gradeName: string;
+    classes: ClassFilterOption[];
+  }>;
+};
+
 const DetailList = ({ rows }: { rows: DetailRow[] }) => (
   <div className="divide-y divide-border rounded-lg border border-border bg-background">
     {rows.map(({ label, value }) => (
@@ -101,6 +119,53 @@ const DetailList = ({ rows }: { rows: DetailRow[] }) => (
     ))}
   </div>
 );
+
+const RecipientsScopeTree = ({
+  scopes,
+  emptyMessage = 'Nenhum destinatário definido.',
+}: {
+  scopes: RecipientSchoolScope[];
+  emptyMessage?: string;
+}) => {
+  if (scopes.length === 0) {
+    return <p className="text-sm text-muted-foreground">{emptyMessage}</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {scopes.map((school) => (
+        <div
+          key={school.id}
+          className="rounded-lg border border-border bg-background px-3 py-2.5"
+        >
+          <p className="text-sm font-medium text-foreground">{school.name}</p>
+          <div className="mt-2 space-y-2 border-l border-border/70 pl-3">
+            {school.grades.map((grade) => (
+              <div key={`${school.id}-${grade.id}`}>
+                <p className="text-xs font-medium text-muted-foreground">{grade.name}</p>
+                {grade.allClasses ? (
+                  <p className="mt-0.5 text-xs text-foreground">Todas as turmas</p>
+                ) : grade.classes.length === 0 ? (
+                  <p className="mt-0.5 text-xs text-muted-foreground">Sem turmas específicas</p>
+                ) : (
+                  <ul className="mt-1 flex flex-wrap gap-1.5">
+                    {grade.classes.map((cls) => (
+                      <li key={cls.id}>
+                        <Badge variant="secondary" className="px-1.5 py-0 text-[11px] font-normal">
+                          {cls.name}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
 
 const toDatetimeLocalValue = (iso?: string | null): string => {
   if (!iso) return '';
@@ -143,7 +208,7 @@ const FormView = () => {
   const [filterMunicipalities, setFilterMunicipalities] = useState<Array<{ id: string; name: string }>>([]);
   const [filterSchools, setFilterSchools] = useState<Array<{ id: string; name: string }>>([]);
   const [filterGrades, setFilterGrades] = useState<Array<{ id: string; name: string }>>([]);
-  const [filterClasses, setFilterClasses] = useState<Array<{ id: string; name: string }>>([]);
+  const [filterClasses, setFilterClasses] = useState<ClassFilterOption[]>([]);
   const [isLoadingResendFilters, setIsLoadingResendFilters] = useState(false);
 
   const loadFormData = useCallback(async () => {
@@ -422,7 +487,7 @@ const FormView = () => {
     let cancelled = false;
     (async () => {
       try {
-        const all = new Map<string, { id: string; name: string }>();
+        const all = new Map<string, ClassFilterOption>();
         for (const schoolId of resendSchools) {
           for (const gradeId of resendGrades) {
             const classesData = await FormFiltersApiService.getFormFilterClasses({
@@ -432,12 +497,24 @@ const FormView = () => {
               serie: gradeId,
             } as any);
             (classesData || []).forEach((c: { id: string; nome: string }) => {
-              if (!all.has(c.id)) all.set(c.id, { id: c.id, name: c.nome });
+              if (!all.has(c.id)) {
+                all.set(c.id, {
+                  id: c.id,
+                  name: c.nome,
+                  schoolId,
+                  gradeId,
+                });
+              }
             });
           }
         }
         if (!cancelled) {
-          setFilterClasses(Array.from(all.values()).sort((a, b) => a.name.localeCompare(b.name)));
+          const next = Array.from(all.values()).sort((a, b) =>
+            a.name.localeCompare(b.name),
+          );
+          setFilterClasses(next);
+          const availableIds = new Set(next.map((c) => c.id));
+          setResendClasses((prev) => prev.filter((id) => availableIds.has(id)));
         }
       } catch {
         if (!cancelled) setFilterClasses([]);
@@ -698,7 +775,7 @@ const FormView = () => {
       : []),
   ];
 
-  const recipientRows: DetailRow[] = [
+  const locationRows: DetailRow[] = [
     ...((resolvedRecipients?.states?.length ?? 0) > 0
       ? [{
           label: 'Estado',
@@ -711,34 +788,68 @@ const FormView = () => {
         formData.cityName ||
         formatScopeLabel(resolvedRecipients?.cities ?? [], undefined, '—', 1),
     },
-    {
-      label: 'Escolas',
-      value: formatScopeLabel(
-        resolvedRecipients?.schools ?? [],
-        formData.selectedSchools,
-        '—',
-        3,
-      ),
-    },
-    {
-      label: 'Séries',
-      value: formatScopeLabel(
-        resolvedRecipients?.grades ?? [],
-        formData.selectedGrades,
-        'Todas',
-        3,
-      ),
-    },
-    {
-      label: 'Turmas',
-      value: formatScopeLabel(
-        resolvedRecipients?.classes ?? [],
-        formData.selectedClasses,
-        'Todas',
-        3,
-      ),
-    },
   ];
+
+  const recipientScopes = resolvedRecipients?.scopes ?? [];
+
+  const resendScopeGroups: ResendScopeGroup[] = (() => {
+    const schoolNameById = new Map(filterSchools.map((s) => [s.id, s.name]));
+    const gradeNameById = new Map(filterGrades.map((g) => [g.id, g.name]));
+    const bySchool = new Map<string, ResendScopeGroup>();
+
+    for (const cls of filterClasses) {
+      if (!bySchool.has(cls.schoolId)) {
+        bySchool.set(cls.schoolId, {
+          schoolId: cls.schoolId,
+          schoolName: schoolNameById.get(cls.schoolId) || 'Escola',
+          grades: [],
+        });
+      }
+      const schoolGroup = bySchool.get(cls.schoolId)!;
+      let gradeGroup = schoolGroup.grades.find((g) => g.gradeId === cls.gradeId);
+      if (!gradeGroup) {
+        gradeGroup = {
+          gradeId: cls.gradeId,
+          gradeName: gradeNameById.get(cls.gradeId) || 'Série',
+          classes: [],
+        };
+        schoolGroup.grades.push(gradeGroup);
+      }
+      gradeGroup.classes.push(cls);
+    }
+
+    const ordered: ResendScopeGroup[] = [];
+    for (const schoolId of resendSchools) {
+      const group = bySchool.get(schoolId);
+      if (group) ordered.push(group);
+    }
+    for (const [schoolId, group] of bySchool) {
+      if (!resendSchools.includes(schoolId)) ordered.push(group);
+    }
+    return ordered;
+  })();
+
+  const toggleResendClass = (classId: string, checked: boolean) => {
+    setResendClasses((prev) =>
+      checked
+        ? prev.includes(classId)
+          ? prev
+          : [...prev, classId]
+        : prev.filter((id) => id !== classId),
+    );
+  };
+
+  const toggleResendGradeClasses = (classes: ClassFilterOption[], selectAll: boolean) => {
+    const ids = classes.map((c) => c.id);
+    setResendClasses((prev) => {
+      if (selectAll) {
+        const set = new Set(prev);
+        ids.forEach((id) => set.add(id));
+        return Array.from(set);
+      }
+      return prev.filter((id) => !ids.includes(id));
+    });
+  };
 
   return (
     <div className="container mx-auto space-y-3 px-3 py-4 sm:space-y-4 sm:p-6">
@@ -803,9 +914,11 @@ const FormView = () => {
       <Card>
         <CardHeader className="px-4 pb-2 pt-4">
           <CardTitle className="text-base">Destinatários</CardTitle>
-          <CardDescription className="text-xs">Público-alvo do questionário</CardDescription>
+          <CardDescription className="text-xs">
+            Público-alvo do questionário, organizado por escola, série e turma
+          </CardDescription>
         </CardHeader>
-        <CardContent className="px-4 pb-4">
+        <CardContent className="space-y-3 px-4 pb-4">
           {isResolvingNames ? (
             <div className="space-y-2">
               <Skeleton className="h-3 w-full" />
@@ -813,7 +926,10 @@ const FormView = () => {
               <Skeleton className="h-3 w-1/2" />
             </div>
           ) : (
-            <DetailList rows={recipientRows} />
+            <>
+              {locationRows.length > 0 && <DetailList rows={locationRows} />}
+              <RecipientsScopeTree scopes={recipientScopes} />
+            </>
           )}
         </CardContent>
       </Card>
@@ -972,6 +1088,9 @@ const FormView = () => {
                     setResendState(v);
                     setResendMunicipality('all');
                     setFilterSchools([]);
+                    setResendSchools([]);
+                    setResendGrades([]);
+                    setResendClasses([]);
                   }}
                 >
                   <SelectTrigger>
@@ -989,7 +1108,12 @@ const FormView = () => {
                 <Label>Município</Label>
                 <Select
                   value={resendMunicipality}
-                  onValueChange={setResendMunicipality}
+                  onValueChange={(v) => {
+                    setResendMunicipality(v);
+                    setResendSchools([]);
+                    setResendGrades([]);
+                    setResendClasses([]);
+                  }}
                   disabled={resendState === 'all'}
                 >
                   <SelectTrigger>
@@ -1008,7 +1132,10 @@ const FormView = () => {
                 <FormMultiSelect
                   options={filterSchools}
                   selected={resendSchools}
-                  onChange={setResendSchools}
+                  onChange={(values) => {
+                    setResendSchools(values);
+                    setResendClasses([]);
+                  }}
                   placeholder="Selecione escolas"
                 />
               </div>
@@ -1017,20 +1144,123 @@ const FormView = () => {
                 <FormMultiSelect
                   options={filterGrades}
                   selected={resendGrades}
-                  onChange={setResendGrades}
+                  onChange={(values) => {
+                    setResendGrades(values);
+                    setResendClasses([]);
+                  }}
                   placeholder="Selecione séries"
                 />
               </div>
               <div className="space-y-2 sm:col-span-2">
-                <Label>Turma(s) *</Label>
-                <FormMultiSelect
-                  options={filterClasses}
-                  selected={resendClasses}
-                  onChange={setResendClasses}
-                  placeholder="Selecione turmas"
-                />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Label>Turma(s) *</Label>
+                  {filterClasses.length > 0 && (
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() =>
+                          setResendClasses(filterClasses.map((c) => c.id))
+                        }
+                      >
+                        Selecionar todas
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setResendClasses([])}
+                      >
+                        Limpar
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {resendSchools.length === 0 || resendGrades.length === 0 ? (
+                  <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
+                    Selecione escolas e séries para listar as turmas agrupadas.
+                  </p>
+                ) : filterClasses.length === 0 ? (
+                  <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
+                    Nenhuma turma encontrada para as escolas e séries selecionadas.
+                  </p>
+                ) : (
+                  <div className="max-h-64 space-y-3 overflow-y-auto rounded-md border p-3">
+                    {resendScopeGroups.map((school) => (
+                      <div key={school.schoolId} className="space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                          {school.schoolName}
+                        </p>
+                        <div className="space-y-2 border-l border-border/70 pl-3">
+                          {school.grades.map((grade) => {
+                            const selectedCount = grade.classes.filter((c) =>
+                              resendClasses.includes(c.id),
+                            ).length;
+                            const allSelected =
+                              grade.classes.length > 0 &&
+                              selectedCount === grade.classes.length;
+                            return (
+                              <div key={`${school.schoolId}-${grade.gradeId}`}>
+                                <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                                  <p className="text-xs font-medium text-foreground">
+                                    {grade.gradeName}
+                                    <span className="ml-1 font-normal text-muted-foreground">
+                                      ({selectedCount}/{grade.classes.length})
+                                    </span>
+                                  </p>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-[11px]"
+                                    onClick={() =>
+                                      toggleResendGradeClasses(
+                                        grade.classes,
+                                        !allSelected,
+                                      )
+                                    }
+                                  >
+                                    {allSelected ? 'Desmarcar' : 'Marcar série'}
+                                  </Button>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {grade.classes.map((cls) => {
+                                    const checked = resendClasses.includes(cls.id);
+                                    return (
+                                      <label
+                                        key={cls.id}
+                                        className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
+                                          checked
+                                            ? 'border-primary bg-primary/10'
+                                            : 'bg-card'
+                                        }`}
+                                      >
+                                        <Checkbox
+                                          checked={checked}
+                                          onCheckedChange={(v) =>
+                                            toggleResendClass(cls.id, v === true)
+                                          }
+                                        />
+                                        {cls.name}
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground">
-                  O mesmo questionário será aplicado a todas as turmas selecionadas.
+                  As turmas aparecem agrupadas por escola e série para deixar claro o destino
+                  do reenvio.
                 </p>
               </div>
             </div>
