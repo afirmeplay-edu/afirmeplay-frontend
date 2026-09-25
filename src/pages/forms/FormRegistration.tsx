@@ -50,6 +50,7 @@ import {
   resolveFormRecipients,
   formatScopeLabel,
   getFormTypeDisplayName as getFormTypeDisplayNameUtil,
+  getSchoolInfo,
   type ResolvedRecipients,
 } from '@/services/formRecipientsApi';
 import { 
@@ -269,6 +270,12 @@ const FormRegistration = () => {
   const [resolvedRecipients, setResolvedRecipients] = useState<Record<string, ResolvedRecipients>>({});
   const [isResolvingNames, setIsResolvingNames] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  /** config = metadados/filtros (sem turmas); classes = escolher turmas e confirmar envio */
+  const [creationPhase, setCreationPhase] = useState<'config' | 'classes'>('config');
+  const [draftFormId, setDraftFormId] = useState<string | null>(null);
+  /** True enquanto o fluxo atual veio de "Reutilizar" (banner informativo) */
+  const [isReuseMode, setIsReuseMode] = useState(false);
+  const [reusingFormId, setReusingFormId] = useState<string | null>(null);
 
   const loadForms = useCallback(async (page = 1, limit = 20) => {
     try {
@@ -355,7 +362,7 @@ const FormRegistration = () => {
     }
   }, [formToDeleteId, loadForms, formsPagination.page, formsPagination.limit, toast]);
 
-  const handleCancelCreation = useCallback(() => {
+  const resetCreationFields = useCallback(() => {
     setSelectedFormType(null);
     setFormTitle('');
     setFormDescription('');
@@ -369,8 +376,25 @@ const FormRegistration = () => {
     setSelectedQuestionIds(new Set());
     setSelectedFormTypeForEditor(null);
     setShowQuestionEditor(false);
-    setIsCreating(false);
+    setCreationPhase('config');
+    setDraftFormId(null);
+    setIsReuseMode(false);
+    setReusingFormId(null);
   }, []);
+
+  const handleCancelCreation = useCallback(async () => {
+    // Rascunho criado em "Aplicar" sem turmas: remover do banco ao cancelar
+    if (draftFormId) {
+      try {
+        await api.delete(`/forms/${draftFormId}`);
+      } catch (err) {
+        console.error('Erro ao descartar rascunho do questionário:', err);
+      }
+    }
+    resetCreationFields();
+    setIsCreating(false);
+    await loadForms(formsPagination.page, formsPagination.limit);
+  }, [draftFormId, resetCreationFields, loadForms, formsPagination.page, formsPagination.limit]);
 
   // Carregar estados iniciais
   useEffect(() => {
@@ -783,8 +807,8 @@ const FormRegistration = () => {
     });
   }, [availableQuestions, searchQuestionTerm]);
 
-  // Função para enviar formulário
-  const handleSendForm = async () => {
+  // Função para criar rascunho (Aplicar) — sem turmas; distribuição na etapa B
+  const handleApplyForm = async () => {
     if (isSendingFormRef.current) return;
 
     const formTypeToUse = selectedFormType;
@@ -792,7 +816,7 @@ const FormRegistration = () => {
     if (!formTypeToUse) {
       toast({
         title: "Erro",
-        description: "Selecione um tipo de formulário antes de enviar.",
+        description: "Selecione um tipo de formulário antes de aplicar.",
         variant: "destructive",
       });
       return;
@@ -801,13 +825,12 @@ const FormRegistration = () => {
     if (selectedState === 'all' || selectedMunicipality === 'all' || selectedSchools.length === 0) {
       toast({
         title: "Erro",
-        description: "Selecione Estado, Município e pelo menos uma Escola para enviar o formulário.",
+        description: "Selecione Estado, Município e pelo menos uma Escola para aplicar o formulário.",
         variant: "destructive",
       });
       return;
     }
 
-    // Preparar payload
     const formData = getFormData(formTypeToUse);
     if (!formData) return;
 
@@ -820,7 +843,6 @@ const FormRegistration = () => {
       return;
     }
 
-    // Validar data de expiração (obrigatória)
     if (!formDeadline.trim()) {
       toast({
         title: "Erro",
@@ -833,7 +855,6 @@ const FormRegistration = () => {
     setIsSendingForm(true);
     isSendingFormRef.current = true;
     try {
-      // Séries selecionadas devem ser compatíveis com o formType (ADAP/Educação Especial vale nos dois)
       if ((formTypeToUse === 'aluno-jovem' || formTypeToUse === 'aluno-velho')) {
         if (selectedGrades.length > 0) {
           try {
@@ -849,13 +870,13 @@ const FormRegistration = () => {
             if (incompatibleGrades.length > 0) {
               toast({
                 title: "Séries incompatíveis com o formulário selecionado",
-                description: "Remova as séries que não pertencem ao público-alvo deste formulário (anos iniciais/Educação Infantil, EJA/anos finais ou Educação Especial/ADAP) e tente novamente.",
+                description: "Remova as séries que não pertencem ao público-alvo deste formulário e tente novamente.",
                 variant: "destructive",
               });
               return;
             }
           } catch (error) {
-            console.error('Erro ao validar séries para o tipo de formulário selecionado:', error);
+            console.error('Erro ao validar séries:', error);
             toast({
               title: "Erro ao validar séries",
               description: "Não foi possível validar as séries selecionadas. Tente novamente.",
@@ -866,12 +887,11 @@ const FormRegistration = () => {
         }
       }
 
-      // Payload conforme spec POST /forms: formType + selectedSchools; séries/turmas só se preenchidos
-      // Aluno: sem questions — backend aplica o template completo (25/26)
+      // Rascunho: isActive false → backend não cria recipients ainda
       const payload: any = {
         formType: formTypeToUse,
         selectedSchools,
-        isActive: true,
+        isActive: false,
       };
 
       if (!isStudentFormType(formTypeToUse)) {
@@ -908,7 +928,7 @@ const FormRegistration = () => {
       }
 
       if (selectedGrades.length > 0) payload.selectedGrades = selectedGrades;
-      if (selectedClasses.length > 0) payload.selectedClasses = selectedClasses;
+      // Turmas ficam para a etapa B (Confirmar envio)
       payload.customTitle = formTitle.trim();
       if (formDescription.trim()) payload.description = formDescription.trim();
       if (formInstructions.trim()) payload.instructions = formInstructions.trim();
@@ -923,47 +943,244 @@ const FormRegistration = () => {
         }
       }
 
-      // Enviar para o backend usando a rota correta (admin: enviar contexto de cidade)
       const postConfig = selectedMunicipality !== 'all' ? { meta: { cityId: selectedMunicipality } } : {};
       const response = await api.post('/forms', payload, postConfig);
       const data = response.data;
 
-      let successMessage: string;
-      if (data?.forms && Array.isArray(data.forms)) {
-        const totalRecipients = data.forms.reduce((sum: number, f: any) => sum + (f.recipientsCount || 0), 0);
-        successMessage = data.message || `${data.forms.length} formulário(s) criado(s) com sucesso.`;
-        if (totalRecipients > 0) {
-          successMessage += ` ${totalRecipients} destinatário(s) notificado(s).`;
+      let createdId: string | null = null;
+      if (data?.forms && Array.isArray(data.forms) && data.forms.length > 0) {
+        createdId = data.forms[0].id;
+        if (data.forms.length > 1) {
+          toast({
+            title: 'Vários questionários criados',
+            description: `${data.forms.length} formulários foram gerados por tipo de série. Continue a aplicação no primeiro.`,
+          });
         }
-      } else {
-        const recipientsCount = data?.recipientsCount;
-        successMessage = recipientsCount
-          ? `Formulário criado e enviado com sucesso! ${recipientsCount} destinatário${recipientsCount !== 1 ? 's' : ''} notificado${recipientsCount !== 1 ? 's' : ''}.`
-          : "Formulário criado com sucesso!";
+      } else if (data?.id) {
+        createdId = data.id;
       }
 
-      const warnings = data?.warnings;
-      if (warnings && Array.isArray(warnings) && warnings.length > 0) {
-        successMessage += "\n\nAvisos: " + warnings.join(" ");
+      if (!createdId) {
+        throw new Error('Resposta do servidor sem ID do formulário');
       }
 
+      // Garantir séries (backend pode inferir) para carregar turmas na etapa B
+      const createdForm =
+        data?.forms?.[0] ||
+        (data?.id ? data : null);
+      if (createdForm?.selectedGrades?.length && selectedGrades.length === 0) {
+        setSelectedGrades(createdForm.selectedGrades);
+      } else if (selectedGrades.length === 0) {
+        try {
+          const detail = await api.get(`/forms/${createdId}`);
+          const detailData = detail.data?.data ?? detail.data;
+          if (detailData?.selectedGrades?.length) {
+            setSelectedGrades(detailData.selectedGrades);
+          }
+        } catch (err) {
+          console.error('Erro ao obter séries do rascunho:', err);
+        }
+      }
+
+      setDraftFormId(createdId);
+      setCreationPhase('classes');
+      setSelectedClasses([]);
       toast({
-        title: "Sucesso!",
-        description: successMessage,
+        title: 'Questionário preparado',
+        description: 'Selecione as turmas e confirme o envio. O mesmo questionário pode ser aplicado a várias turmas.',
       });
-
-      await loadForms(1, formsPagination.limit);
-      handleCancelCreation();
     } catch (error: any) {
-      console.error('Erro ao enviar formulário:', error);
+      console.error('Erro ao aplicar formulário:', error);
       toast({
-        title: "Erro ao enviar formulário",
-        description: error.response?.data?.message || error.response?.data?.error || "Não foi possível enviar o formulário. Tente novamente.",
+        title: "Erro ao aplicar formulário",
+        description: error.response?.data?.message || error.response?.data?.error || "Não foi possível aplicar o formulário. Tente novamente.",
         variant: "destructive",
       });
     } finally {
       isSendingFormRef.current = false;
       setIsSendingForm(false);
+    }
+  };
+
+  /** Etapa B: aplica turmas ao rascunho e cria recipients */
+  const handleConfirmSend = async () => {
+    if (!draftFormId) {
+      toast({
+        title: 'Erro',
+        description: 'Nenhum questionário em preparação. Volte e clique em Aplicar.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    const isStudent = isStudentFormType(selectedFormType);
+    if (isStudent && selectedClasses.length === 0) {
+      toast({
+        title: 'Turmas obrigatórias',
+        description: 'Selecione pelo menos uma turma para confirmar o envio.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsSendingForm(true);
+    isSendingFormRef.current = true;
+    try {
+      const payload: Record<string, unknown> = {
+        selectedSchools,
+        notifyUsers: true,
+        isActive: true,
+      };
+      if (selectedGrades.length > 0) payload.selectedGrades = selectedGrades;
+      if (isStudent && selectedClasses.length > 0) {
+        payload.selectedClasses = selectedClasses;
+      }
+
+      const applyConfig = selectedMunicipality !== 'all' ? { meta: { cityId: selectedMunicipality } } : {};
+      const { data } = await api.post(`/forms/${draftFormId}/apply`, payload, applyConfig);
+      const newRecipients = data?.apply?.newRecipients ?? data?.recipientsCount ?? 0;
+
+      toast({
+        title: 'Questionário enviado!',
+        description:
+          newRecipients > 0
+            ? `Aplicado com sucesso. ${newRecipients} destinatário(s) notificado(s).`
+            : data?.message || 'Questionário aplicado com sucesso.',
+      });
+
+      setDraftFormId(null);
+      resetCreationFields();
+      setIsCreating(false);
+      await loadForms(1, formsPagination.limit);
+    } catch (error: any) {
+      console.error('Erro ao confirmar envio:', error);
+      toast({
+        title: 'Erro ao enviar',
+        description: error.response?.data?.error || error.message || 'Não foi possível confirmar o envio.',
+        variant: 'destructive',
+      });
+    } finally {
+      isSendingFormRef.current = false;
+      setIsSendingForm(false);
+    }
+  };
+
+  const handleReuseForm = async (formId: string) => {
+    try {
+      setReusingFormId(formId);
+      const response = await api.get(`/forms/${formId}`, {
+        params: { includeQuestions: true },
+      });
+      const data = response.data?.data ?? response.data;
+
+      isRestoringFiltersRef.current = true;
+      resetCreationFields();
+      setIsCreating(true);
+      setCreationPhase('config');
+      setIsReuseMode(true);
+
+      const formType = data.formType as string;
+      setSelectedFormType(formType);
+      setFormTitle(data.customTitle || data.title || '');
+      setFormDescription(data.description || '');
+      setFormInstructions(data.instructions || '');
+
+      if (data.deadline) {
+        const deadlineDate = new Date(data.deadline);
+        if (!Number.isNaN(deadlineDate.getTime()) && deadlineDate.getTime() > Date.now()) {
+          setFormDeadline(deadlineDate.toISOString().slice(0, 16));
+        } else {
+          setFormDeadline('');
+        }
+      }
+
+      const schools: string[] = data.selectedSchools || [];
+      const grades: string[] = data.selectedGrades || [];
+      // Turmas NÃO são restauradas — usuário escolhe na etapa Aplicar
+
+      if (schools.length > 0) {
+        try {
+          const info = await getSchoolInfo(schools[0], data.cityId);
+          if (info.stateUf) {
+            setSelectedState(info.stateUf);
+            const municipalitiesData = await FormFiltersApiService.getFormFilterMunicipalities(info.stateUf);
+            setMunicipalities(
+              (municipalitiesData || []).map((m: { id: string; nome: string }) => ({
+                id: m.id,
+                name: m.nome,
+                state: info.stateUf,
+              })),
+            );
+          }
+          const schoolRes = await api.get(`/school/${schools[0]}`).catch(() => null);
+          const cityId = schoolRes?.data?.city?.id || schoolRes?.data?.city_id || data.cityId;
+          if (cityId && info.stateUf) {
+            setSelectedMunicipality(cityId);
+            const schoolsData = await FormFiltersApiService.getFormFilterSchools({
+              estado: info.stateUf,
+              municipio: cityId,
+            });
+            setSchools(
+              (schoolsData || []).map((s: { id: string; nome: string }) => ({
+                id: s.id,
+                name: s.nome,
+              })),
+            );
+          }
+        } catch (err) {
+          console.error('Erro ao restaurar filtros geográficos:', err);
+        }
+      }
+
+      setSelectedSchools(schools);
+      setSelectedGrades(grades);
+      setSelectedClasses([]);
+
+      if (!isStudentFormType(formType) && Array.isArray(data.questions)) {
+        const ids = new Set<string>(
+          data.questions.map((q: Question) => q.id).filter(Boolean),
+        );
+        setSelectedQuestionIds(ids);
+        setSelectedFormTypeForEditor(formType);
+        setAvailableQuestions(
+          data.questions.map((q: any) => ({
+            id: q.id,
+            texto: q.texto || q.text,
+            text: q.text || q.texto,
+            tipo: q.tipo || q.type,
+            type: q.type || q.tipo,
+            opcoes: q.opcoes || q.options,
+            options: q.options || q.opcoes,
+            subPerguntas: q.subPerguntas || q.subQuestions,
+            subQuestions: q.subQuestions || q.subPerguntas,
+            obrigatoria: q.obrigatoria ?? q.required,
+            required: q.required ?? q.obrigatoria,
+            min: q.min,
+            max: q.max,
+            dependsOn: q.dependsOn,
+          })),
+        );
+      }
+
+      toast({
+        title: 'Questionário reutilizado',
+        description: 'Dados preenchidos. Ajuste o que precisar, clique em Aplicar e escolha as turmas.',
+      });
+
+      // Liberar resets em cascata após os efeitos estabilizarem
+      setTimeout(() => {
+        isRestoringFiltersRef.current = false;
+      }, 800);
+    } catch (err: any) {
+      console.error('Erro ao reutilizar formulário:', err);
+      toast({
+        title: 'Erro ao reutilizar',
+        description: err.response?.data?.error || err.message || 'Não foi possível carregar o questionário.',
+        variant: 'destructive',
+      });
+      setIsCreating(false);
+      setIsReuseMode(false);
+    } finally {
+      setReusingFormId(null);
     }
   };
 
@@ -1219,7 +1436,7 @@ const FormRegistration = () => {
                       </div>
                     </CardHeader>
                     <div className="mt-auto border-t bg-muted/20 px-6 pb-4 pt-4">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Button
                           type="button"
                           variant="secondary"
@@ -1230,6 +1447,22 @@ const FormRegistration = () => {
                           title="Visualizar questionário"
                         >
                           <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => handleReuseForm(form.id)}
+                          disabled={reusingFormId === form.id}
+                          title="Reutilizar como base de um novo questionário"
+                        >
+                          {reusingFormId === form.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <RotateCcw className="h-4 w-4" />
+                          )}
+                          <span className="ml-1.5">Reutilizar</span>
                         </Button>
                         <Button
                           variant="outline"
@@ -1299,7 +1532,19 @@ const FormRegistration = () => {
       {/* Seções de criação de formulário (ocultas por padrão) */}
       {isCreating && (
       <div className="space-y-4 sm:space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
+      {isReuseMode && (
+        <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300">
+          <RotateCcw className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            Reutilizando um questionário existente. Ajuste os dados, clique em <strong>Aplicar</strong> e escolha as turmas.
+            Um novo questionário será criado (as perguntas do original não serão alteradas).
+          </p>
+        </div>
+      )}
+
       {/* Seleção de tipo de formulário */}
+      {creationPhase === 'config' && (
+      <>
       <Card>
         <CardHeader>
           <div className="flex items-start justify-between gap-4">
@@ -1374,14 +1619,14 @@ const FormRegistration = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Estado */}
             <div className="space-y-2">
               <label className="text-sm font-medium">Estado *</label>
               <Select
                 value={selectedState}
                 onValueChange={setSelectedState}
-                disabled={isLoadingFilters}
+                disabled={isLoadingFilters || creationPhase !== 'config'}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o estado" />
@@ -1466,23 +1711,7 @@ const FormRegistration = () => {
               />
               {selectedSchools.length > 0 && selectedGrades.length === 0 && (
                 <p className="text-xs text-muted-foreground">
-                  ✓ Deixe vazio para enviar a <strong>todas</strong> as séries das escolas selecionadas
-                </p>
-              )}
-            </div>
-
-            {/* Turma */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Turma(s)</label>
-              <FormMultiSelect
-                options={classes.map(classItem => ({ id: classItem.id, name: classItem.name }))}
-                selected={selectedClasses}
-                onChange={setSelectedClasses}
-                placeholder={selectedClasses.length === 0 ? "Selecione turmas (opcional)" : `${selectedClasses.length} selecionada(s)`}
-              />
-              {selectedGrades.length > 0 && selectedClasses.length === 0 && (
-                <p className="text-xs text-muted-foreground">
-                  ✓ Deixe vazio para enviar a <strong>todas</strong> as turmas das séries selecionadas
+                  ✓ Deixe vazio para incluir <strong>todas</strong> as séries das escolas selecionadas
                 </p>
               )}
             </div>
@@ -1491,13 +1720,10 @@ const FormRegistration = () => {
           {/* Informação sobre filtros */}
           <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
             <p className="text-sm text-blue-700 dark:text-blue-400">
-              💡 <strong>Hierarquia dos Filtros:</strong> Estado → Município → Escola → Série → Turma
+              💡 <strong>Hierarquia:</strong> Estado → Município → Escola → Série. As turmas são escolhidas na próxima etapa, após <strong>Aplicar</strong>.
             </p>
             <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
-              <strong>Estado</strong> e <strong>Município</strong> são obrigatórios. Você pode selecionar <strong>múltiplas Escolas, Séries e Turmas</strong>.
-            </p>
-            <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
-              Deixe <strong>Série</strong> ou <strong>Turma</strong> vazios para enviar a todas.
+              <strong>Estado</strong> e <strong>Município</strong> são obrigatórios. Você pode selecionar <strong>múltiplas Escolas e Séries</strong>.
             </p>
           </div>
         </CardContent>
@@ -1648,19 +1874,19 @@ const FormRegistration = () => {
                   Cancelar
                 </Button>
                 <Button
-                  onClick={handleSendForm}
+                  onClick={handleApplyForm}
                   disabled={isSendingForm}
                   className="flex items-center justify-center gap-2"
                 >
                   {isSendingForm ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      Enviando...
+                      Aplicando...
                     </>
                   ) : (
                     <>
                       <Send className="h-4 w-4" />
-                      Enviar Formulário
+                      Aplicar
                     </>
                   )}
                 </Button>
@@ -1683,6 +1909,110 @@ const FormRegistration = () => {
             <p className="text-muted-foreground text-center max-w-md">
               Para criar um questionário, você precisa selecionar: <strong>Estado</strong>, <strong>Município</strong> e pelo menos uma <strong>Escola</strong>.
             </p>
+          </CardContent>
+        </Card>
+      )}
+      </>
+      )}
+
+      {/* Etapa B — escolha de turmas (aluno) ou confirmação (staff) */}
+      {creationPhase === 'classes' && draftFormId && (
+        <Card className="border-2 border-primary">
+          <CardHeader>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1.5">
+                <CardTitle className="flex items-center gap-2">
+                  <Target className="h-5 w-5" />
+                  {isStudentFormType(selectedFormType)
+                    ? 'Aplicar às turmas'
+                    : 'Confirmar aplicação'}
+                </CardTitle>
+                <CardDescription>
+                  {isStudentFormType(selectedFormType)
+                    ? 'O mesmo questionário será aplicado a todas as turmas selecionadas. Não é necessário criar um formulário por turma.'
+                    : 'Confirme o envio do questionário para as escolas já selecionadas.'}
+                </CardDescription>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCancelCreation}
+                className="shrink-0"
+              >
+                <X className="h-4 w-4 mr-1.5" />
+                Cancelar
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300">
+              Questionário preparado. Revise o destino e confirme o envio.
+            </div>
+            {isStudentFormType(selectedFormType) ? (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Turma(s) *</Label>
+                <FormMultiSelect
+                  options={classes.map(classItem => ({ id: classItem.id, name: classItem.name }))}
+                  selected={selectedClasses}
+                  onChange={setSelectedClasses}
+                  placeholder={
+                    selectedClasses.length === 0
+                      ? 'Selecione uma ou mais turmas'
+                      : `${selectedClasses.length} selecionada(s)`
+                  }
+                />
+                {classes.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {selectedGrades.length === 0
+                      ? 'Aguardando carregamento das séries/turmas...'
+                      : 'Nenhuma turma encontrada para as escolas/séries selecionadas.'}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Destino: {selectedSchools.length} escola(s) selecionada(s).
+              </p>
+            )}
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  if (draftFormId) {
+                    try {
+                      await api.delete(`/forms/${draftFormId}`);
+                    } catch (err) {
+                      console.error('Erro ao descartar rascunho:', err);
+                    }
+                  }
+                  setDraftFormId(null);
+                  setSelectedClasses([]);
+                  setCreationPhase('config');
+                }}
+                disabled={isSendingForm}
+              >
+                Voltar à configuração
+              </Button>
+              <Button
+                onClick={handleConfirmSend}
+                disabled={
+                  isSendingForm ||
+                  (isStudentFormType(selectedFormType) && selectedClasses.length === 0)
+                }
+              >
+                {isSendingForm ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Enviando...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4 mr-2" />
+                    Confirmar envio
+                  </>
+                )}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
