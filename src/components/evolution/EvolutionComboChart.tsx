@@ -12,7 +12,12 @@ import {
   formatSignedEvolutionPercent,
   type EvolutionMetricKind,
 } from '@/utils/evolution/formatEvolutionMetric';
-import { EVOLUTION_DELTA_COLORS, EVOLUTION_LINE_COLOR } from '@/utils/evolution/evolutionChartColors';
+import {
+  EVOLUTION_DELTA_COLORS,
+  EVOLUTION_LINE_COLOR,
+  mixTowardWhite,
+  toRgba,
+} from '@/utils/evolution/evolutionChartColors';
 
 echarts.use([
   BarChart,
@@ -56,6 +61,15 @@ const METRIC_LABEL: Record<EvolutionChartMetric, string> = {
   quantidade: 'Alunos',
 };
 
+const LEGEND_METRIC: Record<EvolutionChartMetric, string> = {
+  nota: 'Nota',
+  proficiencia: 'Proficiência',
+  quantidade: 'Quantidade',
+};
+
+const TREND_SERIES_NAME = 'Tendência';
+const BAR_RADIUS: [number, number, number, number] = [8, 8, 0, 0];
+
 const PDF_CHART_WIDTH = 720;
 const PDF_CHART_HEIGHT = 260;
 
@@ -64,6 +78,9 @@ interface ChartThemeColors {
   border: string;
   background: string;
   card: string;
+  grid: string;
+  track: string;
+  isDark: boolean;
 }
 
 function hslTripleToHex(h: number, s: number, l: number): string {
@@ -95,6 +112,9 @@ function resolveThemeColors(mode: EvolutionChartMode): ChartThemeColors {
       border: '#e5e7eb',
       background: '#ffffff',
       card: '#ffffff',
+      grid: 'rgba(15, 23, 42, 0.08)',
+      track: 'rgba(15, 23, 42, 0.06)',
+      isDark: false,
     };
   }
   const isDark = document.documentElement.classList.contains('dark');
@@ -103,6 +123,56 @@ function resolveThemeColors(mode: EvolutionChartMode): ChartThemeColors {
     border: readCssColorHex('--border', isDark ? '#334155' : '#e5e7eb'),
     background: readCssColorHex('--background', isDark ? '#0f172a' : '#ffffff'),
     card: readCssColorHex('--card', isDark ? '#111827' : '#ffffff'),
+    grid: isDark ? 'rgba(148, 163, 184, 0.16)' : 'rgba(15, 23, 42, 0.08)',
+    track: isDark ? 'rgba(148, 163, 184, 0.14)' : 'rgba(15, 23, 42, 0.06)',
+    isDark,
+  };
+}
+
+function barFillGradient(base: string) {
+  return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+    { offset: 0, color: base },
+    { offset: 1, color: toRgba(mixTowardWhite(base, 0.55), 0.42) },
+  ]);
+}
+
+function lineAreaGradient(color: string) {
+  return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+    { offset: 0, color: toRgba(color, 0.25) },
+    { offset: 1, color: toRgba(color, 0) },
+  ]);
+}
+
+function softShadow(color: string, isDark: boolean) {
+  return {
+    shadowBlur: isDark ? 12 : 10,
+    shadowOffsetY: 3,
+    shadowColor: toRgba(color, isDark ? 0.4 : 0.28),
+  };
+}
+
+function percentPill(
+  color: string,
+  fontSize: number
+): {
+  color: string;
+  backgroundColor: string;
+  borderColor: string;
+  borderWidth: number;
+  borderRadius: number;
+  padding: [number, number];
+  fontSize: number;
+  fontWeight: 'bold';
+} {
+  return {
+    color,
+    backgroundColor: '#ffffff',
+    borderColor: '#e5e7eb',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: [3, 8],
+    fontSize,
+    fontWeight: 'bold',
   };
 }
 
@@ -173,57 +243,81 @@ export function buildEvolutionComboOption(props: EvolutionComboChartProps, theme
   const yMax = props.yDomain
     ? props.yDomain[1]
     : Math.max(0, ...values) + 5;
+  const span = Math.max(yMax - yMin, 1);
+  const screen = mode === 'screen';
+  const legendName = LEGEND_METRIC[metric];
 
   const barData = values.map((value, index) => {
     const fill = props.colors[index] ?? EVOLUTION_LINE_COLOR;
+    const fitsInside = (value - yMin) / span >= 0.18;
     return {
       value,
-      itemStyle: { color: fill, borderRadius: [4, 4, 0, 0] },
-      label: { color: contrastTextOnFill(fill) },
+      itemStyle: {
+        color: barFillGradient(fill),
+        borderRadius: BAR_RADIUS,
+        ...softShadow(fill, theme.isDark),
+      },
+      label: {
+        position: fitsInside ? ('insideTop' as const) : ('top' as const),
+        color: fitsInside ? contrastTextOnFill(fill) : theme.foreground,
+        distance: fitsInside ? 8 : 4,
+      },
     };
   });
 
-  const richBase = {
-    fontSize,
-    fontWeight: 'bold' as const,
-    padding: [2, 5] as [number, number],
-    borderRadius: 3,
-    backgroundColor: theme.card,
-    textBorderColor: theme.card,
-    textBorderWidth: 2,
-  };
-
-  const seriesName = props.seriesName ?? METRIC_LABEL[metric];
-
   const option: ComboOption = {
-    animation: mode === 'screen',
-    animationDuration: mode === 'screen' ? 800 : 0,
+    animation: screen,
+    animationDuration: screen ? 1000 : 0,
+    animationEasing: 'cubicOut',
     backgroundColor: mode === 'pdf' ? '#ffffff' : 'transparent',
     grid: {
       containLabel: true,
       left: 8,
       right: 16,
-      top: 36,
+      top: screen ? 52 : 40,
       bottom: rotate ? 12 : 8,
     },
-    tooltip: {
-      trigger: 'axis',
-      confine: true,
-      backgroundColor: theme.card,
-      borderColor: theme.border,
-      textStyle: { color: theme.foreground, fontSize },
-      formatter: (raw) => {
-        const items = Array.isArray(raw) ? raw : [raw];
-        const index = items[0]?.dataIndex ?? 0;
-        const fullName = names[index] ?? '';
-        const value = values[index];
-        const variation = variations[index] ?? null;
-        const variationText =
-          index === 0 ? '' : `<div>Variação: ${variation == null ? '—' : formatSignedEvolutionPercent(variation)}</div>`;
-        return `<div><strong>${escapeHtml(fullName)}</strong><div>${METRIC_LABEL[metric]}: ${formatEvolutionMetric(value, kind)}</div>${variationText}</div>`;
-      },
+    tooltip: screen
+      ? {
+          trigger: 'axis',
+          confine: true,
+          backgroundColor: theme.card,
+          borderColor: theme.border,
+          borderWidth: 1,
+          padding: [10, 12],
+          textStyle: { color: theme.foreground, fontSize },
+          extraCssText: theme.isDark
+            ? 'border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,0.45);'
+            : 'border-radius:12px;box-shadow:0 10px 28px rgba(15,23,42,0.12);',
+          axisPointer: {
+            type: 'cross',
+            lineStyle: { color: theme.grid, type: 'dashed' },
+            crossStyle: { color: theme.grid, type: 'dashed' },
+          },
+          formatter: (raw) => {
+            const items = Array.isArray(raw) ? raw : [raw];
+            const index = items[0]?.dataIndex ?? 0;
+            const fullName = names[index] ?? '';
+            const value = values[index];
+            const variation = variations[index] ?? null;
+            const variationText =
+              index === 0
+                ? ''
+                : `<div style="margin-top:2px">Variação: ${variation == null ? '—' : formatSignedEvolutionPercent(variation)}</div>`;
+            return `<div><strong>${escapeHtml(fullName)}</strong><div style="margin-top:4px">${METRIC_LABEL[metric]}: ${formatEvolutionMetric(value, kind)}</div>${variationText}</div>`;
+          },
+        }
+      : { show: false },
+    legend: {
+      show: screen,
+      top: 0,
+      left: 'center',
+      itemWidth: 14,
+      itemHeight: 8,
+      itemGap: 16,
+      textStyle: { color: theme.foreground, fontSize: 12 },
+      data: [legendName, TREND_SERIES_NAME],
     },
-    legend: { show: false },
     xAxis: {
       type: 'category',
       data: names,
@@ -237,54 +331,77 @@ export function buildEvolutionComboOption(props: EvolutionComboChartProps, theme
         lineHeight: fontSize + 3,
         formatter: (value: string) => wrapAxisLabel(String(value), charsPerLine),
       },
-      axisTick: { alignWithLabel: true },
+      axisTick: { alignWithLabel: true, lineStyle: { color: theme.border } },
       axisLine: { lineStyle: { color: theme.border } },
+      splitLine: { show: false },
     },
     yAxis: {
       type: 'value',
       min: yMin,
       max: yMax,
-      name: props.yAxisName,
-      nameLocation: 'middle',
-      nameGap: metric === 'nota' ? 36 : 48,
-      nameTextStyle: { color: theme.foreground, fontSize },
       minInterval: metric === 'quantidade' ? 1 : undefined,
+      axisLine: { show: false },
+      axisTick: { show: false },
       axisLabel: {
         fontSize,
         color: theme.foreground,
         formatter: (value: number) =>
           formatEvolutionMetric(value, metric === 'nota' ? 'nota' : 'inteiro'),
       },
-      splitLine: { lineStyle: { type: 'dashed', color: theme.border } },
+      splitLine: {
+        show: true,
+        lineStyle: { type: 'dashed', color: theme.grid, width: 1 },
+      },
     },
     series: [
       {
-        name: seriesName,
+        name: legendName,
         type: 'bar',
         data: barData,
-        barMaxWidth: 60,
+        barMaxWidth: 56,
+        showBackground: true,
+        backgroundStyle: {
+          color: theme.track,
+          borderRadius: BAR_RADIUS,
+        },
         label: {
           show: true,
-          position: 'inside',
           fontSize,
           fontWeight: 'bold',
           formatter: (params) => formatEvolutionMetric(Number(params.value), kind),
         },
         labelLayout: { hideOverlap: true },
+        emphasis: screen
+          ? {
+              focus: 'series',
+              itemStyle: { shadowBlur: 18, shadowOffsetY: 6 },
+            }
+          : { disabled: true },
+        animationDelay: (index: number) => index * 90,
         z: 2,
       },
       {
-        name: 'Evolução',
+        name: TREND_SERIES_NAME,
         type: 'line',
         data: values,
+        smooth: true,
         symbol: 'circle',
-        symbolSize: 8,
-        lineStyle: { width: 3, color: EVOLUTION_LINE_COLOR },
-        itemStyle: { color: EVOLUTION_LINE_COLOR, borderColor: theme.card, borderWidth: 2 },
+        symbolSize: 9,
+        lineStyle: {
+          width: 3,
+          color: EVOLUTION_LINE_COLOR,
+          ...softShadow(EVOLUTION_LINE_COLOR, theme.isDark),
+        },
+        itemStyle: {
+          color: EVOLUTION_LINE_COLOR,
+          borderColor: '#ffffff',
+          borderWidth: 2,
+        },
+        areaStyle: { color: lineAreaGradient(EVOLUTION_LINE_COLOR) },
         label: {
           show: true,
           position: 'top',
-          distance: 8,
+          distance: 10,
           fontSize,
           formatter: (params) => {
             const variation = variations[params.dataIndex] ?? null;
@@ -293,12 +410,19 @@ export function buildEvolutionComboOption(props: EvolutionComboChartProps, theme
             return `{${tone}|${formatSignedEvolutionPercent(variation)}}`;
           },
           rich: {
-            up: { ...richBase, color: EVOLUTION_DELTA_COLORS.up },
-            down: { ...richBase, color: EVOLUTION_DELTA_COLORS.down },
-            flat: { ...richBase, color: EVOLUTION_DELTA_COLORS.flat },
+            up: percentPill(EVOLUTION_DELTA_COLORS.up, fontSize),
+            down: percentPill(EVOLUTION_DELTA_COLORS.down, fontSize),
+            flat: percentPill(EVOLUTION_DELTA_COLORS.flat, fontSize),
           },
         },
         labelLayout: { hideOverlap: true },
+        emphasis: screen
+          ? {
+              focus: 'series',
+              lineStyle: { width: 4, shadowBlur: 16 },
+            }
+          : { disabled: true },
+        animationDelay: (index: number) => index * 90,
         z: 3,
       },
     ],

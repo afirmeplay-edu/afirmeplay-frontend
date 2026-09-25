@@ -98,3 +98,30 @@ export function getLevelColor(levelName: string): string {
   }
   return '#6B7280';
 }
+
+function parseColorChannels(color: string): [number, number, number] | null {
+  const hex = color.trim().match(/^#([0-9a-f]{6})$/i);
+  if (hex) {
+    const value = hex[1];
+    return [parseInt(value.slice(0, 2), 16), parseInt(value.slice(2, 4), 16), parseInt(value.slice(4, 6), 16)];
+  }
+  const rgb = color.trim().match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (!rgb) return null;
+  return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+}
+
+/** Clareia a cor base em direção ao branco, sem trocar a paleta. */
+export function mixTowardWhite(color: string, amount: number): string {
+  const channels = parseColorChannels(color);
+  if (!channels) return color;
+  const mix = (channel: number) => Math.round(channel + (255 - channel) * amount);
+  const [r, g, b] = channels;
+  return `rgb(${mix(r)}, ${mix(g)}, ${mix(b)})`;
+}
+
+export function toRgba(color: string, alpha: number): string {
+  const channels = parseColorChannels(color);
+  if (!channels) return color;
+  const [r, g, b] = channels;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
