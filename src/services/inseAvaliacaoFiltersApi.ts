@@ -7,8 +7,11 @@ interface RawInseAvaliacaoFilterOptionsResponse {
   formularios?: Array<{
     id: string;
     titulo?: string;
+    title?: string;
     customName?: string;
     custom_name?: string;
+    customTitle?: string;
+    custom_title?: string;
     nome?: string;
     name?: string;
     formType?: string;
@@ -53,6 +56,14 @@ const emptyOptions: InseAvaliacaoFilterOptions = {
 
 function normalizeName(value: string | undefined): string {
   return (value ?? '').trim() || '—';
+}
+
+function firstText(...values: Array<string | undefined | null>): string {
+  for (const value of values) {
+    const text = (value ?? '').trim();
+    if (text) return text;
+  }
+  return '';
 }
 
 /**
@@ -104,14 +115,17 @@ export class InseAvaliacaoFiltersApiService {
           id: m.id,
           name: normalizeName(m.nome ?? m.name),
         })),
-        formularios: (data.formularios ?? []).map((f) => ({
-          id: f.id,
-          customName: normalizeName(f.customName ?? f.custom_name ?? f.titulo ?? f.nome ?? f.name),
-          name: normalizeName(f.customName ?? f.custom_name ?? f.titulo ?? f.nome ?? f.name),
-          formType: f.formType,
-          selectedGrades: f.selectedGrades ?? [],
-          selectedClasses: f.selectedClasses ?? [],
-        })),
+        formularios: (data.formularios ?? []).map((f) => {
+          const customName = firstText(f.customName, f.custom_name, f.customTitle, f.custom_title);
+          return {
+            id: f.id,
+            customName,
+            name: normalizeName(f.titulo ?? f.title ?? f.nome ?? f.name),
+            formType: f.formType,
+            selectedGrades: f.selectedGrades ?? [],
+            selectedClasses: f.selectedClasses ?? [],
+          };
+        }),
         avaliacoes: (data.avaliacoes ?? []).map((a) => ({
           id: a.id,
           name: normalizeName(a.titulo ?? a.nome),

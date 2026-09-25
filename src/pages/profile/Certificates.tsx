@@ -3,14 +3,17 @@ import { useAuth } from '@/context/authContext';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { ArrowLeft, Award, CheckCircle2, Info, Upload, Loader2 } from 'lucide-react';
+import { ArrowLeft, Award, CheckCircle2, Download, Info, Upload, Loader2 } from 'lucide-react';
 import { CertificateList } from '@/components/certificates/CertificateList';
 import { StudentList } from '@/components/certificates/StudentList';
 import { CertificateStatsBadges } from '@/components/certificates/CertificateStatsBadges';
@@ -23,6 +26,11 @@ import { getCertificateStats, getStudentsAwaitingApproval } from '@/utils/certif
 import type { CertificateTemplate, ApprovedStudent, EvaluationWithCertificates } from '@/types/certificates';
 import type { CertificateArtwork } from '@/types/certificate-artwork';
 import { CertificateArtworksApiService } from '@/services/certificateArtworksApi';
+import {
+  buildPreviewCertificate,
+  certificatePdfFilename,
+  downloadCertificatePdf,
+} from '@/services/certificatePdfService';
 
 export default function Certificates() {
   const { user } = useAuth();
@@ -40,6 +48,9 @@ export default function Certificates() {
   const [artworks, setArtworks] = useState<CertificateArtwork[]>([]);
   const [isArtworkLoading, setIsArtworkLoading] = useState(false);
   const [isArtworkUploading, setIsArtworkUploading] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [previewStudentId, setPreviewStudentId] = useState('');
+  const [previewStudentName, setPreviewStudentName] = useState('');
 
   // Verificar se o usuário é o criador da avaliação
   const isEvaluationCreator = selectedEvaluationData?.created_by?.id === user.id;
@@ -96,6 +107,8 @@ export default function Certificates() {
   }, [user.id, user.role, toast]);
 
   useEffect(() => {
+    let cancelled = false;
+
     const loadTemplateAndStudents = async () => {
       if (!selectedEvaluation) return;
 
@@ -105,9 +118,11 @@ export default function Certificates() {
           CertificatesApiService.getApprovedStudents(selectedEvaluation)
         ]);
 
+        if (cancelled) return;
         setTemplate(templateData || null);
         setStudents(studentsData);
       } catch (error) {
+        if (cancelled) return;
         console.error('Erro ao carregar dados:', error);
         toast({
           title: 'Erro',
@@ -118,6 +133,9 @@ export default function Certificates() {
     };
 
     loadTemplateAndStudents();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedEvaluation, toast]);
 
   useEffect(() => {
@@ -144,6 +162,78 @@ export default function Certificates() {
       });
     } finally {
       setIsArtworkUploading(false);
+    }
+  };
+
+  const previewStudent = useMemo(
+    () => students.find((student) => student.id === previewStudentId) ?? null,
+    [students, previewStudentId]
+  );
+
+  useEffect(() => {
+    setPreviewStudentId('');
+    setPreviewStudentName('');
+    setStudents([]);
+  }, [selectedEvaluation]);
+
+  useEffect(() => {
+    if (!students.length) return;
+    const current = students.find((student) => student.id === previewStudentId);
+    if (current) return;
+    setPreviewStudentId(students[0].id);
+    setPreviewStudentName(students[0].name);
+  }, [students, previewStudentId]);
+
+  const handlePreviewStudentChange = (studentId: string) => {
+    const student = students.find((item) => item.id === studentId);
+    setPreviewStudentId(studentId);
+    setPreviewStudentName(student?.name ?? '');
+  };
+
+  const handleExportPreviewPdf = async () => {
+    if (!selectedEvaluation || !template || isExportingPdf) return;
+
+    const studentName = previewStudentName.trim();
+    if (!studentName) {
+      toast({
+        title: 'Informe o nome',
+        description: 'O certificado precisa do nome do aluno desta avaliação.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsExportingPdf(true);
+    try {
+      const evaluationTitle = selectedEvaluationData?.title || 'Avaliação';
+      await downloadCertificatePdf(
+        buildPreviewCertificate({
+          template,
+          evaluationId: selectedEvaluation,
+          evaluationTitle,
+          studentName,
+          studentId: previewStudent?.id,
+          grade: previewStudent?.grade,
+        }),
+        certificatePdfFilename(studentName),
+        {
+          brandingCityId: municipalityId,
+          hideGrade: previewStudent?.grade === undefined,
+        }
+      );
+      toast({
+        title: 'PDF exportado',
+        description: `O certificado de ${studentName} foi baixado em PDF.`,
+      });
+    } catch (error) {
+      console.error('Erro ao exportar certificado:', error);
+      toast({
+        title: 'Erro ao exportar',
+        description: 'Não foi possível gerar o PDF do certificado.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsExportingPdf(false);
     }
   };
 
@@ -328,6 +418,8 @@ export default function Certificates() {
         <CertificateCustomizer
           evaluationId={selectedEvaluation}
           initialTemplate={template || undefined}
+          evaluationTitle={selectedEvaluationData?.title}
+          students={students}
           onSave={handleSaveTemplate}
         />
       </div>
@@ -363,6 +455,20 @@ export default function Certificates() {
           </div>
         </div>
         <div className="flex flex-wrap justify-center gap-2 w-full sm:w-auto sm:justify-end">
+          {template && (
+            <Button
+              variant="outline"
+              onClick={() => void handleExportPreviewPdf()}
+              disabled={isExportingPdf}
+            >
+              {isExportingPdf ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              {isExportingPdf ? 'Exportando...' : 'Exportar PDF'}
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={() => setIsCustomizing(true)}
@@ -455,10 +561,54 @@ export default function Certificates() {
         
         {template && (
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>Preview do Certificado</CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 self-start sm:self-auto"
+                onClick={() => void handleExportPreviewPdf()}
+                disabled={isExportingPdf}
+              >
+                {isExportingPdf ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4 mr-2" />
+                )}
+                {isExportingPdf ? 'Exportando...' : 'Exportar PDF'}
+              </Button>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="preview-student">Aluno da avaliação</Label>
+                  <Select
+                    value={previewStudentId || undefined}
+                    onValueChange={handlePreviewStudentChange}
+                    disabled={students.length === 0}
+                  >
+                    <SelectTrigger id="preview-student">
+                      <SelectValue placeholder={students.length === 0 ? 'Nenhum aluno nesta avaliação' : 'Selecione o aluno'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {students.map((student) => (
+                        <SelectItem key={student.id} value={student.id}>
+                          {student.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="preview-student-name">Nome no certificado</Label>
+                  <Input
+                    id="preview-student-name"
+                    value={previewStudentName}
+                    onChange={(event) => setPreviewStudentName(event.target.value)}
+                    placeholder="Nome do aluno"
+                  />
+                </div>
+              </div>
               <div 
                 className="bg-gray-100 p-4 rounded-lg overflow-auto"
                 style={{ maxHeight: '500px' }}
@@ -473,9 +623,9 @@ export default function Certificates() {
                 >
                   <CertificateTemplateComponent
                     template={template}
-                    studentName="Nome do Aluno"
-                    evaluationTitle="Avaliação Exemplo"
-                    grade={8.5}
+                    studentName={previewStudentName}
+                    evaluationTitle={selectedEvaluationData?.title || 'Avaliação'}
+                    grade={previewStudent?.grade}
                   />
                 </div>
               </div>

@@ -1244,7 +1244,7 @@ const FormRespostasReport = () => {
                 </SelectTrigger>
                 <SelectContent>
                   {forms.map((f) => (
-                    <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                    <SelectItem key={f.id} value={f.id}>{f.customName || f.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

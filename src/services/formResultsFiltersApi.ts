@@ -7,8 +7,11 @@ interface RawFilterOptionsResponse {
   formularios?: Array<{
     id: string;
     titulo?: string;
+    title?: string;
     customName?: string;
     custom_name?: string;
+    customTitle?: string;
+    custom_title?: string;
     nome?: string;
     name?: string;
     formType?: string;
@@ -48,6 +51,14 @@ const emptyOptions: NormalizedFilterOptions = {
 
 function normalizeName(value: string | undefined): string {
   return (value ?? '').trim() || '—';
+}
+
+function firstText(...values: Array<string | undefined | null>): string {
+  for (const value of values) {
+    const text = (value ?? '').trim();
+    if (text) return text;
+  }
+  return '';
 }
 
 /**
@@ -95,14 +106,17 @@ export class FormResultsFiltersApiService {
           name: normalizeName(m.nome ?? m.name),
           state: params.estado,
         })),
-        formularios: (data.formularios ?? []).map((f) => ({
-          id: f.id,
-          customName: normalizeName(f.customName ?? f.custom_name ?? f.titulo ?? f.nome ?? f.name),
-          name: normalizeName(f.customName ?? f.custom_name ?? f.titulo ?? f.nome ?? f.name),
-          formType: f.formType,
-          selectedGrades: f.selectedGrades ?? [],
-          selectedClasses: f.selectedClasses ?? [],
-        })),
+        formularios: (data.formularios ?? []).map((f) => {
+          const customName = firstText(f.customName, f.custom_name, f.customTitle, f.custom_title);
+          return {
+            id: f.id,
+            customName,
+            name: normalizeName(f.titulo ?? f.title ?? f.nome ?? f.name),
+            formType: f.formType,
+            selectedGrades: f.selectedGrades ?? [],
+            selectedClasses: f.selectedClasses ?? [],
+          };
+        }),
         escolas: (data.escolas ?? []).map((e) => ({
           id: e.id,
           name: normalizeName(e.nome ?? e.name),

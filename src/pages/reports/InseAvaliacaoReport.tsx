@@ -666,6 +666,7 @@ const InseAvaliacaoReport = () => {
         estado: selectedState,
         municipio: selectedMunicipality,
         formulario: selectedForm,
+        customName: forms.find((form) => form.id === selectedForm)?.customName,
         avaliacao: selectedAvaliacao,
       })
         .then((options) => {
@@ -682,7 +683,7 @@ const InseAvaliacaoReport = () => {
       setGrades([]);
       setClasses([]);
     }
-  }, [selectedState, selectedMunicipality, selectedForm, selectedAvaliacao]);
+  }, [selectedState, selectedMunicipality, selectedForm, selectedAvaliacao, forms]);
 
   // Escola(s) → séries
   useEffect(() => {
@@ -2557,7 +2558,7 @@ const InseAvaliacaoReport = () => {
                 </SelectTrigger>
                 <SelectContent>
                   {forms.map((f) => (
-                    <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                    <SelectItem key={f.id} value={f.id}>{f.customName || f.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

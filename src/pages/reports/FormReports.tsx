@@ -1129,7 +1129,7 @@ const FormReports = () => {
                   <SelectItem value="all">Todos (agregado)</SelectItem>
                   {forms.map((form) => (
                     <SelectItem key={form.id} value={form.id}>
-                      {form.name}
+                      {form.customName || form.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

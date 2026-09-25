@@ -380,7 +380,7 @@ const FormView = () => {
           const schoolsData = await FormFiltersApiService.getFormFilterSchools({
             estado: info.stateUf,
             municipio: cityId,
-            customName: formData.customTitle || formData.title || formData.name || formData.nome,
+            customName: formData?.customTitle?.trim() || undefined,
           });
           setFilterSchools(
             (schoolsData || []).map((s: { id: string; nome: string }) => ({
@@ -434,7 +434,7 @@ const FormView = () => {
         const schoolsData = await FormFiltersApiService.getFormFilterSchools({
           estado: resendState,
           municipio: resendMunicipality,
-          customName: formData.customTitle || formData.title || formData.name || formData.nome,
+          customName: formData?.customTitle?.trim() || undefined,
         });
         if (cancelled) return;
         setFilterSchools(
@@ -466,7 +466,7 @@ const FormView = () => {
             estado: resendState !== 'all' ? resendState : undefined,
             municipio: resendMunicipality !== 'all' ? resendMunicipality : undefined,
             escola: schoolId,
-            customName: formData.customTitle || formData.title || formData.name || formData.nome,
+            customName: formData?.customTitle?.trim() || undefined,
           } as any);
           (gradesData || []).forEach((g: { id: string; nome: string }) => {
             if (!all.has(g.id)) all.set(g.id, { id: g.id, name: g.nome });
@@ -498,7 +498,7 @@ const FormView = () => {
               municipio: resendMunicipality !== 'all' ? resendMunicipality : undefined,
               escola: schoolId,
               serie: gradeId,
-              customName: formData.customTitle || formData.title || formData.name || formData.nome,
+              customName: formData?.customTitle?.trim() || undefined,
             } as any);
             (classesData || []).forEach((c: { id: string; nome: string }) => {
               if (!all.has(c.id)) {
