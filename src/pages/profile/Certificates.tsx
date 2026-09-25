@@ -3,14 +3,17 @@ import { useAuth } from '@/context/authContext';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { ArrowLeft, Award, CheckCircle2, Info } from 'lucide-react';
+import { ArrowLeft, Award, CheckCircle2, Download, Info, Upload, Loader2 } from 'lucide-react';
 import { CertificateList } from '@/components/certificates/CertificateList';
 import { StudentList } from '@/components/certificates/StudentList';
 import { CertificateStatsBadges } from '@/components/certificates/CertificateStatsBadges';
@@ -21,6 +24,13 @@ import { CertificatesApiService } from '@/services/certificatesApi';
 import { getUserHierarchyContext } from '@/utils/userHierarchy';
 import { getCertificateStats, getStudentsAwaitingApproval } from '@/utils/certificateStats';
 import type { CertificateTemplate, ApprovedStudent, EvaluationWithCertificates } from '@/types/certificates';
+import type { CertificateArtwork } from '@/types/certificate-artwork';
+import { CertificateArtworksApiService } from '@/services/certificateArtworksApi';
+import {
+  buildPreviewCertificate,
+  certificatePdfFilename,
+  downloadCertificatePdf,
+} from '@/services/certificatePdfService';
 
 export default function Certificates() {
   const { user } = useAuth();
@@ -35,6 +45,12 @@ export default function Certificates() {
   const [isCustomizing, setIsCustomizing] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [studentListRefreshKey, setStudentListRefreshKey] = useState(0);
+  const [artworks, setArtworks] = useState<CertificateArtwork[]>([]);
+  const [isArtworkLoading, setIsArtworkLoading] = useState(false);
+  const [isArtworkUploading, setIsArtworkUploading] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [previewStudentId, setPreviewStudentId] = useState('');
+  const [previewStudentName, setPreviewStudentName] = useState('');
 
   // Verificar se o usuário é o criador da avaliação
   const isEvaluationCreator = selectedEvaluationData?.created_by?.id === user.id;
@@ -91,6 +107,8 @@ export default function Certificates() {
   }, [user.id, user.role, toast]);
 
   useEffect(() => {
+    let cancelled = false;
+
     const loadTemplateAndStudents = async () => {
       if (!selectedEvaluation) return;
 
@@ -100,9 +118,11 @@ export default function Certificates() {
           CertificatesApiService.getApprovedStudents(selectedEvaluation)
         ]);
 
+        if (cancelled) return;
         setTemplate(templateData || null);
         setStudents(studentsData);
       } catch (error) {
+        if (cancelled) return;
         console.error('Erro ao carregar dados:', error);
         toast({
           title: 'Erro',
@@ -113,7 +133,123 @@ export default function Certificates() {
     };
 
     loadTemplateAndStudents();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedEvaluation, toast]);
+
+  useEffect(() => {
+    if (!selectedEvaluation) return;
+    setIsArtworkLoading(true);
+    CertificateArtworksApiService.list(selectedEvaluation)
+      .then(setArtworks)
+      .catch(() => setArtworks([]))
+      .finally(() => setIsArtworkLoading(false));
+  }, [selectedEvaluation]);
+
+  const handleArtworkUpload = async (file?: File) => {
+    if (!selectedEvaluation || !file) return;
+    setIsArtworkUploading(true);
+    try {
+      const artwork = await CertificateArtworksApiService.upload(selectedEvaluation, file);
+      setArtworks((current) => [artwork, ...current]);
+      toast({ title: 'Modelo enviado', description: 'O modelo A4 paisagem foi armazenado como rascunho.' });
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao enviar modelo',
+        description: error?.response?.data?.erro || 'Não foi possível enviar o arquivo.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsArtworkUploading(false);
+    }
+  };
+
+  const previewStudent = useMemo(
+    () => students.find((student) => student.id === previewStudentId) ?? null,
+    [students, previewStudentId]
+  );
+
+  useEffect(() => {
+    setPreviewStudentId('');
+    setPreviewStudentName('');
+    setStudents([]);
+  }, [selectedEvaluation]);
+
+  useEffect(() => {
+    if (!students.length) return;
+    const current = students.find((student) => student.id === previewStudentId);
+    if (current) return;
+    setPreviewStudentId(students[0].id);
+    setPreviewStudentName(students[0].name);
+  }, [students, previewStudentId]);
+
+  const handlePreviewStudentChange = (studentId: string) => {
+    const student = students.find((item) => item.id === studentId);
+    setPreviewStudentId(studentId);
+    setPreviewStudentName(student?.name ?? '');
+  };
+
+  const handleExportPreviewPdf = async () => {
+    if (!selectedEvaluation || !template || isExportingPdf) return;
+
+    const studentName = previewStudentName.trim();
+    if (!studentName) {
+      toast({
+        title: 'Informe o nome',
+        description: 'O certificado precisa do nome do aluno desta avaliação.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsExportingPdf(true);
+    try {
+      const evaluationTitle = selectedEvaluationData?.title || 'Avaliação';
+      await downloadCertificatePdf(
+        buildPreviewCertificate({
+          template,
+          evaluationId: selectedEvaluation,
+          evaluationTitle,
+          studentName,
+          studentId: previewStudent?.id,
+          grade: previewStudent?.grade,
+        }),
+        certificatePdfFilename(studentName),
+        {
+          brandingCityId: municipalityId,
+          hideGrade: previewStudent?.grade === undefined,
+        }
+      );
+      toast({
+        title: 'PDF exportado',
+        description: `O certificado de ${studentName} foi baixado em PDF.`,
+      });
+    } catch (error) {
+      console.error('Erro ao exportar certificado:', error);
+      toast({
+        title: 'Erro ao exportar',
+        description: 'Não foi possível gerar o PDF do certificado.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
+  const handleActivateArtwork = async (artworkId: string) => {
+    if (!selectedEvaluation) return;
+    try {
+      const active = await CertificateArtworksApiService.activate(selectedEvaluation, artworkId);
+      setArtworks((current) => current.map((item) => ({
+        ...item,
+        status: item.id === active.id ? 'active' : 'inactive',
+      })));
+      toast({ title: 'Modelo ativado', description: 'O modelo ficará disponível para a próxima etapa de composição.' });
+    } catch {
+      toast({ title: 'Erro', description: 'Não foi possível ativar o modelo.', variant: 'destructive' });
+    }
+  };
 
   const handleSelectEvaluation = (evaluationId: string, evaluationData?: EvaluationWithCertificates) => {
     setSelectedEvaluation(evaluationId);
@@ -282,6 +418,8 @@ export default function Certificates() {
         <CertificateCustomizer
           evaluationId={selectedEvaluation}
           initialTemplate={template || undefined}
+          evaluationTitle={selectedEvaluationData?.title}
+          students={students}
           onSave={handleSaveTemplate}
         />
       </div>
@@ -317,6 +455,20 @@ export default function Certificates() {
           </div>
         </div>
         <div className="flex flex-wrap justify-center gap-2 w-full sm:w-auto sm:justify-end">
+          {template && (
+            <Button
+              variant="outline"
+              onClick={() => void handleExportPreviewPdf()}
+              disabled={isExportingPdf}
+            >
+              {isExportingPdf ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              {isExportingPdf ? 'Exportando...' : 'Exportar PDF'}
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={() => setIsCustomizing(true)}
@@ -352,6 +504,36 @@ export default function Certificates() {
         </div>
       </div>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Upload className="h-5 w-5" /> Modelo gráfico opcional</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">Envie um PDF ou imagem em A4 paisagem. O customizador atual continua disponível como fallback.</p>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted">
+            {isArtworkUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            Enviar modelo
+            <input
+              type="file"
+              accept="application/pdf,image/png,image/jpeg"
+              className="sr-only"
+              disabled={isArtworkUploading}
+              onChange={(event) => {
+                void handleArtworkUpload(event.target.files?.[0]);
+                event.currentTarget.value = '';
+              }}
+            />
+          </label>
+          {isArtworkLoading ? <p className="text-sm text-muted-foreground">Carregando modelos...</p> : null}
+          {artworks.map((artwork) => (
+            <div key={artwork.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
+              <span>{artwork.name} <span className="text-muted-foreground">({artwork.status})</span></span>
+              {artwork.status !== 'active' && <Button size="sm" variant="outline" onClick={() => void handleActivateArtwork(artwork.id)}>Ativar</Button>}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
       {/* Aviso quando o usuário não é o criador da avaliação */}
       {!isEvaluationCreator && selectedEvaluationData?.created_by && (
         <Alert>
@@ -379,10 +561,54 @@ export default function Certificates() {
         
         {template && (
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>Preview do Certificado</CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 self-start sm:self-auto"
+                onClick={() => void handleExportPreviewPdf()}
+                disabled={isExportingPdf}
+              >
+                {isExportingPdf ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4 mr-2" />
+                )}
+                {isExportingPdf ? 'Exportando...' : 'Exportar PDF'}
+              </Button>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="preview-student">Aluno da avaliação</Label>
+                  <Select
+                    value={previewStudentId || undefined}
+                    onValueChange={handlePreviewStudentChange}
+                    disabled={students.length === 0}
+                  >
+                    <SelectTrigger id="preview-student">
+                      <SelectValue placeholder={students.length === 0 ? 'Nenhum aluno nesta avaliação' : 'Selecione o aluno'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {students.map((student) => (
+                        <SelectItem key={student.id} value={student.id}>
+                          {student.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="preview-student-name">Nome no certificado</Label>
+                  <Input
+                    id="preview-student-name"
+                    value={previewStudentName}
+                    onChange={(event) => setPreviewStudentName(event.target.value)}
+                    placeholder="Nome do aluno"
+                  />
+                </div>
+              </div>
               <div 
                 className="bg-gray-100 p-4 rounded-lg overflow-auto"
                 style={{ maxHeight: '500px' }}
@@ -397,9 +623,9 @@ export default function Certificates() {
                 >
                   <CertificateTemplateComponent
                     template={template}
-                    studentName="Nome do Aluno"
-                    evaluationTitle="Avaliação Exemplo"
-                    grade={8.5}
+                    studentName={previewStudentName}
+                    evaluationTitle={selectedEvaluationData?.title || 'Avaliação'}
+                    grade={previewStudent?.grade}
                   />
                 </div>
               </div>

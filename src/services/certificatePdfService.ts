@@ -15,6 +15,7 @@ export interface GenerateCertificatePdfOptions {
   brandingCityId?: string | null;
   scale?: number;
   resolvedImages?: ResolvedCertificateImages;
+  hideGrade?: boolean;
 }
 
 export async function preloadTemplateImages(
@@ -33,7 +34,8 @@ export async function preloadTemplateImages(
 async function renderCertificateToElement(
   certificate: Certificate,
   container: HTMLElement,
-  resolvedImages?: ResolvedCertificateImages
+  resolvedImages?: ResolvedCertificateImages,
+  hideGrade?: boolean
 ): Promise<() => void> {
   const root: Root = createRoot(container);
   const usedTemplate = certificate.template;
@@ -47,7 +49,7 @@ async function renderCertificateToElement(
       template: { ...usedTemplate, text_content: textContent },
       studentName: certificate.student_name,
       evaluationTitle: certificate.evaluation_title,
-      grade: certificate.grade,
+      grade: hideGrade ? undefined : certificate.grade,
       className: 'w-full h-full',
       resolvedImages,
     })
@@ -81,7 +83,12 @@ export async function generateCertificatePdfBlob(
       options.resolvedImages ??
       (await preloadTemplateImages(certificate.template, options.brandingCityId));
 
-    unmount = await renderCertificateToElement(certificate, inner, resolvedImages);
+    unmount = await renderCertificateToElement(
+      certificate,
+      inner,
+      resolvedImages,
+      options.hideGrade
+    );
 
     const canvas = await html2canvas(inner, {
       scale: options.scale ?? 2,
@@ -123,4 +130,36 @@ export async function downloadCertificatePdf(
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+export function certificatePdfFilename(label: string): string {
+  const safe = label
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9-_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80);
+  return `certificado-${safe || 'avaliacao'}.pdf`;
+}
+
+export function buildPreviewCertificate(params: {
+  template: CertificateTemplate;
+  evaluationId: string;
+  evaluationTitle: string;
+  studentName: string;
+  studentId?: string;
+  grade?: number;
+}): Certificate {
+  return {
+    id: params.template.id || `preview-${params.evaluationId}`,
+    student_id: params.studentId || 'preview',
+    student_name: params.studentName.trim(),
+    evaluation_id: params.evaluationId,
+    evaluation_title: params.evaluationTitle,
+    grade: params.grade ?? 0,
+    template: params.template,
+    issued_at: new Date().toISOString(),
+    status: 'approved',
+  };
 }

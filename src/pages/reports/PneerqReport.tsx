@@ -80,7 +80,7 @@ export default function PneerqReport() {
 
   const [states, setStates] = useState<Array<{ id: string; name: string }>>([]);
   const [municipalities, setMunicipalities] = useState<Array<{ id: string; name: string }>>([]);
-  const [forms, setForms] = useState<Array<{ id: string; name: string }>>([]);
+  const [forms, setForms] = useState<Array<{ id: string; name: string; customName?: string }>>([]);
   const [avaliacoes, setAvaliacoes] = useState<Array<{ id: string; name: string }>>([]);
   const [schools, setSchools] = useState<Array<{ id: string; name: string }>>([]);
   const [grades, setGrades] = useState<Array<{ id: string; name: string }>>([]);
@@ -200,6 +200,7 @@ export default function PneerqReport() {
         estado: selectedState,
         municipio: selectedMunicipality,
         formulario: selectedForm,
+        customName: forms.find((form) => form.id === selectedForm)?.customName,
         avaliacao: selectedAvaliacao,
       })
         .then((options) => {
@@ -216,7 +217,7 @@ export default function PneerqReport() {
       setGrades([]);
       setClasses([]);
     }
-  }, [selectedState, selectedMunicipality, selectedForm, selectedAvaliacao]);
+  }, [selectedState, selectedMunicipality, selectedForm, selectedAvaliacao, forms]);
 
   useEffect(() => {
     if (
@@ -237,6 +238,7 @@ export default function PneerqReport() {
             estado: selectedState,
             municipio: selectedMunicipality,
             formulario: selectedForm,
+            customName: forms.find((form) => form.id === selectedForm)?.customName,
             avaliacao: selectedAvaliacao,
             escola: schoolId,
           })
@@ -260,7 +262,7 @@ export default function PneerqReport() {
     } else {
       setGrades([]);
     }
-  }, [selectedState, selectedMunicipality, selectedForm, selectedAvaliacao, selectedSchools]);
+  }, [selectedState, selectedMunicipality, selectedForm, selectedAvaliacao, selectedSchools, forms]);
 
   useEffect(() => {
     if (
@@ -284,6 +286,7 @@ export default function PneerqReport() {
               estado: selectedState,
               municipio: selectedMunicipality,
               formulario: selectedForm,
+              customName: forms.find((form) => form.id === selectedForm)?.customName,
               avaliacao: selectedAvaliacao,
               escola: schoolId,
               serie: gradeId,
@@ -309,7 +312,7 @@ export default function PneerqReport() {
     } else {
       setClasses([]);
     }
-  }, [selectedState, selectedMunicipality, selectedForm, selectedAvaliacao, selectedSchools, selectedGrades]);
+  }, [selectedState, selectedMunicipality, selectedForm, selectedAvaliacao, selectedSchools, selectedGrades, forms]);
 
   const requestConfigForCity = useMemo(
     () =>
@@ -588,7 +591,7 @@ export default function PneerqReport() {
                 <SelectContent>
                   {forms.map((f) => (
                     <SelectItem key={f.id} value={f.id}>
-                      {f.name}
+                      {f.customName || f.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

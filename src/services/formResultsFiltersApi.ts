@@ -4,7 +4,20 @@ import { api } from '@/lib/api';
 interface RawFilterOptionsResponse {
   estados?: Array<{ id: string; nome?: string; name?: string }>;
   municipios?: Array<{ id: string; nome?: string; name?: string; estado_id?: string }>;
-  formularios?: Array<{ id: string; titulo?: string; nome?: string; name?: string; formType?: string }>;
+  formularios?: Array<{
+    id: string;
+    titulo?: string;
+    title?: string;
+    customName?: string;
+    custom_name?: string;
+    customTitle?: string;
+    custom_title?: string;
+    nome?: string;
+    name?: string;
+    formType?: string;
+    selectedGrades?: string[];
+    selectedClasses?: string[];
+  }>;
   escolas?: Array<{ id: string; nome?: string; name?: string; city_id?: string; municipio_id?: string }>;
   series?: Array<{ id: string; nome?: string; name?: string; education_stage_id?: string; educationStageId?: string }>;
   turmas?: Array<{ id: string; nome?: string; name?: string; grade_id?: string; school_id?: string }>;
@@ -14,7 +27,14 @@ interface RawFilterOptionsResponse {
 export interface NormalizedFilterOptions {
   estados: Array<{ id: string; name: string; uf?: string }>;
   municipios: Array<{ id: string; name: string; state?: string }>;
-  formularios: Array<{ id: string; name: string; formType?: string }>;
+  formularios: Array<{
+    id: string;
+    name: string;
+    customName: string;
+    formType?: string;
+    selectedGrades: string[];
+    selectedClasses: string[];
+  }>;
   escolas: Array<{ id: string; name: string }>;
   series: Array<{ id: string; name: string }>;
   turmas: Array<{ id: string; name: string }>;
@@ -33,6 +53,14 @@ function normalizeName(value: string | undefined): string {
   return (value ?? '').trim() || '—';
 }
 
+function firstText(...values: Array<string | undefined | null>): string {
+  for (const value of values) {
+    const text = (value ?? '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
 /**
  * Serviço para opções de filtro da tela de **resultados** de formulários.
  * Usa apenas GET /forms/results/filter-options (cascata: Estado → Município → Formulário → Escola → Série → Turma).
@@ -46,6 +74,7 @@ export class FormResultsFiltersApiService {
     estado?: string;
     municipio?: string;
     formulario?: string;
+    customName?: string;
     escola?: string;
     serie?: string;
     turma?: string;
@@ -55,6 +84,7 @@ export class FormResultsFiltersApiService {
       if (params.estado && params.estado !== 'all') queryParams.append('estado', params.estado);
       if (params.municipio && params.municipio !== 'all') queryParams.append('municipio', params.municipio);
       if (params.formulario && params.formulario !== 'all') queryParams.append('formulario', params.formulario);
+      if (params.customName?.trim()) queryParams.append('customName', params.customName.trim());
       if (params.escola && params.escola !== 'all') queryParams.append('escola', params.escola);
       if (params.serie && params.serie !== 'all') queryParams.append('serie', params.serie);
       if (params.turma && params.turma !== 'all') queryParams.append('turma', params.turma);
@@ -76,11 +106,17 @@ export class FormResultsFiltersApiService {
           name: normalizeName(m.nome ?? m.name),
           state: params.estado,
         })),
-        formularios: (data.formularios ?? []).map((f) => ({
-          id: f.id,
-          name: normalizeName(f.titulo ?? f.nome ?? f.name),
-          formType: f.formType,
-        })),
+        formularios: (data.formularios ?? []).map((f) => {
+          const customName = firstText(f.customName, f.custom_name, f.customTitle, f.custom_title);
+          return {
+            id: f.id,
+            customName,
+            name: normalizeName(f.titulo ?? f.title ?? f.nome ?? f.name),
+            formType: f.formType,
+            selectedGrades: f.selectedGrades ?? [],
+            selectedClasses: f.selectedClasses ?? [],
+          };
+        }),
         escolas: (data.escolas ?? []).map((e) => ({
           id: e.id,
           name: normalizeName(e.nome ?? e.name),

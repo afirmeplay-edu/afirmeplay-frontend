@@ -17,6 +17,8 @@ import { loadCertificateImage, getAccessToken, getCityId, revokeCertificateImage
 interface CertificateCustomizerProps {
   evaluationId: string;
   initialTemplate?: CertificateTemplate;
+  evaluationTitle?: string;
+  students?: Array<{ id: string; name: string; grade: number }>;
   onSave: (template: CertificateTemplate) => void;
   onPreview?: (template: CertificateTemplate) => void;
 }
@@ -24,12 +26,16 @@ interface CertificateCustomizerProps {
 export function CertificateCustomizer({
   evaluationId,
   initialTemplate,
+  evaluationTitle,
+  students = [],
   onSave,
   onPreview
 }: CertificateCustomizerProps) {
   const { toast } = useToast();
   const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | undefined>(undefined);
   const [signaturePreviewUrl, setSignaturePreviewUrl] = useState<string | undefined>(undefined);
+  const [previewStudentId, setPreviewStudentId] = useState(students[0]?.id ?? '');
+  const [previewStudentName, setPreviewStudentName] = useState(students[0]?.name ?? '');
   
   const [template, setTemplate] = useState<CertificateTemplate>({
     evaluation_id: evaluationId,
@@ -75,6 +81,22 @@ export function CertificateCustomizer({
       }
     };
   }, [template.logo_url, template.signature_url]);
+
+  useEffect(() => {
+    if (!students.length) return;
+    const current = students.find((student) => student.id === previewStudentId);
+    if (current) return;
+    setPreviewStudentId(students[0].id);
+    setPreviewStudentName(students[0].name);
+  }, [students, previewStudentId]);
+
+  const previewStudent = students.find((student) => student.id === previewStudentId) ?? null;
+
+  const handlePreviewStudentChange = (studentId: string) => {
+    const student = students.find((item) => item.id === studentId);
+    setPreviewStudentId(studentId);
+    setPreviewStudentName(student?.name ?? '');
+  };
 
   const editor = useEditor({
     extensions: [
@@ -178,8 +200,39 @@ export function CertificateCustomizer({
                   {editor && <EditorContent editor={editor} />}
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Use <strong>{'{{nome_aluno}}'}</strong> para inserir o nome do aluno dinamicamente.
+                  Use <strong>{'{{nome_aluno}}'}</strong> para inserir o nome do aluno. No preview e no PDF, esse campo usa o nome do aluno da avaliação e pode ser alterado abaixo.
                 </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="student-source">Aluno da avaliação</Label>
+                  <Select
+                    value={previewStudentId || undefined}
+                    onValueChange={handlePreviewStudentChange}
+                    disabled={students.length === 0}
+                  >
+                    <SelectTrigger id="student-source">
+                      <SelectValue placeholder={students.length === 0 ? 'Nenhum aluno nesta avaliação' : 'Selecione o aluno'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {students.map((student) => (
+                        <SelectItem key={student.id} value={student.id}>
+                          {student.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="certificate-student-name">Nome no certificado</Label>
+                  <Input
+                    id="certificate-student-name"
+                    value={previewStudentName}
+                    onChange={(event) => setPreviewStudentName(event.target.value)}
+                    placeholder="Nome do aluno"
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -341,13 +394,16 @@ export function CertificateCustomizer({
             <CardHeader>
               <CardTitle>Preview do Certificado</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                O nome exibido vem do aluno selecionado na avaliação. Você pode ajustá-lo na aba Conteúdo antes de exportar.
+              </p>
               <div className="bg-gray-100 p-4 rounded-lg overflow-auto">
                 <CertificateTemplateComponent
                   template={template}
-                  studentName="Nome do Aluno"
-                  evaluationTitle="Avaliação Exemplo"
-                  grade={8.5}
+                  studentName={previewStudentName}
+                  evaluationTitle={evaluationTitle || 'Avaliação'}
+                  grade={previewStudent?.grade}
                 />
               </div>
             </CardContent>

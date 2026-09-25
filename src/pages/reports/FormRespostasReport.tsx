@@ -63,6 +63,9 @@ interface Class {
 interface FormOption {
   id: string;
   name: string;
+  customName?: string;
+  selectedGrades?: string[];
+  selectedClasses?: string[];
 }
 
 interface Student {
@@ -254,6 +257,7 @@ const FormRespostasReport = () => {
       FormResultsFiltersApiService.getFilterOptions({
         estado: selectedState,
         municipio: selectedMunicipality,
+        customName: forms.find((form) => form.id === selectedForm)?.customName,
         formulario: selectedForm,
       })
         .then((options) => {
@@ -266,7 +270,14 @@ const FormRespostasReport = () => {
       setSchools([]);
       setSelectedSchools([]);
     }
-  }, [selectedState, selectedMunicipality, selectedForm]);
+  }, [selectedState, selectedMunicipality, selectedForm, forms]);
+
+  useEffect(() => {
+    const selected = forms.find((form) => form.id === selectedForm);
+    if (!selected) return;
+    setSelectedGrades(selected.selectedGrades ?? []);
+    setSelectedClasses(selected.selectedClasses ?? []);
+  }, [forms, selectedForm]);
 
   useEffect(() => {
     if (
@@ -284,6 +295,7 @@ const FormRespostasReport = () => {
           FormResultsFiltersApiService.getFilterOptions({
             estado: selectedState,
             municipio: selectedMunicipality,
+            customName: forms.find((form) => form.id === selectedForm)?.customName,
             formulario: selectedForm,
             escola: schoolId,
           })
@@ -327,6 +339,7 @@ const FormRespostasReport = () => {
             FormResultsFiltersApiService.getFilterOptions({
               estado: selectedState,
               municipio: selectedMunicipality,
+              customName: forms.find((form) => form.id === selectedForm)?.customName,
               formulario: selectedForm,
               escola: schoolId,
               serie: gradeId,
@@ -1231,7 +1244,7 @@ const FormRespostasReport = () => {
                 </SelectTrigger>
                 <SelectContent>
                   {forms.map((f) => (
-                    <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                    <SelectItem key={f.id} value={f.id}>{f.customName || f.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
