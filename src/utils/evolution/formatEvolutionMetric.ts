@@ -24,6 +24,16 @@ export function formatEvolutionMetric(
   });
 }
 
+/** Sinal + percentual na mesma formatação do restante do relatório. Ex.: "+9,9%", "−3,2%", "0,0%". */
+export function formatSignedEvolutionPercent(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  const numeric = Number(value);
+  const body = formatEvolutionMetric(Math.abs(numeric), 'percentual');
+  if (numeric > 0) return `+${body}%`;
+  if (numeric < 0) return `\u2212${body}%`;
+  return `${body}%`;
+}
+
 export function calcEvolution(
   from: number,
   to: number

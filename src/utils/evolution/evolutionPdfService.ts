@@ -9,6 +9,8 @@ import {
   formatEvaluationGradeNames,
   sortEvaluationsByOrder,
 } from '@/utils/evolution/evaluationScopeLabels';
+import { formatEvolutionMetric, formatSignedEvolutionPercent } from '@/utils/evolution/formatEvolutionMetric';
+import { readGeneralGradeStats } from '@/utils/evolution/evolutionSeries';
 
 export interface FilterInfo {
   state?: { id: string; name: string };
@@ -329,40 +331,7 @@ function addFiltersInfoPage(
   // Seção de Análise Estatística / Análise de Evolução
   if (processedData) {
     // Calcular estatísticas gerais
-    const calculateGeneralStats = (data: ProcessedEvolutionData) => {
-      if (!data.generalData || data.generalData.length === 0) return null;
-      
-      const merged = data.generalData.reduce((acc, item) => {
-        const key = (item.name || 'Geral').trim();
-        if (!acc[key]) acc[key] = { name: key, etapas: [] };
-        
-        for (let i = 1; i <= 10; i++) {
-          const etapaKey = `etapa${i}` as keyof typeof item;
-          const value = (item as any)[etapaKey];
-          if (value !== undefined && value !== null && typeof value === 'number') {
-            acc[key].etapas.push(value);
-          }
-        }
-        return acc;
-      }, {} as Record<string, { name: string; etapas: number[] }>);
-
-      const geral = Object.values(merged)[0];
-      if (!geral || geral.etapas.length === 0) return null;
-
-      const etapas = geral.etapas;
-      const media = etapas.reduce((sum, val) => sum + val, 0) / etapas.length;
-      const variacaoTotal = etapas.length > 1 
-        ? ((etapas[etapas.length - 1] - etapas[0]) / etapas[0]) * 100
-        : 0;
-
-      return {
-        media,
-        variacaoTotal,
-        totalAvaliacoes: etapas.length,
-      };
-    };
-
-    const generalStats = calculateGeneralStats(processedData);
+    const generalStats = readGeneralGradeStats(processedData.generalData || []);
 
     if (generalStats) {
       // Título da seção
@@ -395,7 +364,7 @@ function addFiltersInfoPage(
       pdf.setFontSize(16);
       pdf.setTextColor(...COLORS.textDark);
       pdf.setFont('helvetica', 'bold');
-      pdf.text(`${generalStats.media.toFixed(1).replace('.', ',')}`, leftColX + 8, currentY + 18);
+      pdf.text(formatEvolutionMetric(generalStats.media, 'nota'), leftColX + 8, currentY + 18);
       
       pdf.setFontSize(8);
       pdf.setTextColor(...COLORS.textGray);
@@ -414,11 +383,20 @@ function addFiltersInfoPage(
       pdf.setFont('helvetica', 'normal');
       pdf.text('Variação Total', rightColX + 8, currentY + 8);
       
-      const variacaoColor = generalStats.variacaoTotal > 0 ? [16, 185, 129] : generalStats.variacaoTotal < 0 ? [239, 68, 68] : COLORS.textGray;
+      const variacaoColor =
+        generalStats.variacaoTotal != null && generalStats.variacaoTotal > 0
+          ? [16, 185, 129]
+          : generalStats.variacaoTotal != null && generalStats.variacaoTotal < 0
+            ? [239, 68, 68]
+            : COLORS.textGray;
       pdf.setFontSize(16);
       pdf.setTextColor(variacaoColor[0], variacaoColor[1], variacaoColor[2]);
       pdf.setFont('helvetica', 'bold');
-      pdf.text(`${generalStats.variacaoTotal > 0 ? '+' : ''}${generalStats.variacaoTotal.toFixed(1).replace('.', ',')}%`, rightColX + 8, currentY + 18);
+      pdf.text(
+        formatSignedEvolutionPercent(generalStats.variacaoTotal).replace('\u2212', '-'),
+        rightColX + 8,
+        currentY + 18
+      );
       
       pdf.setFontSize(8);
       pdf.setTextColor(...COLORS.textGray);
@@ -1081,23 +1059,38 @@ export async function generateEvolutionPDFFromHTML(
       }
 
       root.render(React.createElement(EvolutionPDFLayout, layoutProps));
-      
-      // Aguardar para garantir que o React renderizou completamente
-      // e que os gráficos Recharts foram renderizados
-      setTimeout(() => {
-        const checkCharts = () => {
-          const svgElements = container.querySelectorAll('svg');
-          const expectedSections = container.querySelectorAll('[data-pdf-section]').length;
-          // Verificar se temos SVGs e se temos pelo menos algumas seções renderizadas
-          if (svgElements.length > 0 && expectedSections > 0) {
-            // Tempo de espera para garantir que todos os gráficos foram renderizados
-            setTimeout(resolve, 500);
-          } else {
-            setTimeout(checkCharts, 200);
-          }
-        };
-        checkCharts();
-      }, 300);
+
+      const started = Date.now();
+      const safetyMs = 8000;
+      const tick = () => {
+        const sections = container.querySelectorAll('[data-pdf-section]');
+        const charts = container.querySelectorAll('[data-evolution-chart]');
+        const ready = container.querySelectorAll('[data-evolution-chart][data-chart-ready="true"]');
+        const chartsReady = charts.length === 0 || ready.length === charts.length;
+        if (sections.length > 0 && chartsReady) {
+          window.setTimeout(() => {
+            const chartsNow = container.querySelectorAll('[data-evolution-chart]');
+            const readyNow = container.querySelectorAll('[data-evolution-chart][data-chart-ready="true"]');
+            const stillReady = chartsNow.length === 0 || readyNow.length === chartsNow.length;
+            if (stillReady && chartsNow.length === charts.length) {
+              resolve();
+              return;
+            }
+            tick();
+          }, 200);
+          return;
+        }
+        if (Date.now() - started >= safetyMs) {
+          console.warn('PDF da evolução: tempo esgotado aguardando os gráficos.', {
+            charts: charts.length,
+            ready: ready.length,
+          });
+          resolve();
+          return;
+        }
+        window.setTimeout(tick, 200);
+      };
+      window.setTimeout(tick, 300);
     });
 
     // Criar PDF
