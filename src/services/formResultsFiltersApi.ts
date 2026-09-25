@@ -4,7 +4,17 @@ import { api } from '@/lib/api';
 interface RawFilterOptionsResponse {
   estados?: Array<{ id: string; nome?: string; name?: string }>;
   municipios?: Array<{ id: string; nome?: string; name?: string; estado_id?: string }>;
-  formularios?: Array<{ id: string; titulo?: string; nome?: string; name?: string; formType?: string }>;
+  formularios?: Array<{
+    id: string;
+    titulo?: string;
+    customName?: string;
+    custom_name?: string;
+    nome?: string;
+    name?: string;
+    formType?: string;
+    selectedGrades?: string[];
+    selectedClasses?: string[];
+  }>;
   escolas?: Array<{ id: string; nome?: string; name?: string; city_id?: string; municipio_id?: string }>;
   series?: Array<{ id: string; nome?: string; name?: string; education_stage_id?: string; educationStageId?: string }>;
   turmas?: Array<{ id: string; nome?: string; name?: string; grade_id?: string; school_id?: string }>;
@@ -14,7 +24,14 @@ interface RawFilterOptionsResponse {
 export interface NormalizedFilterOptions {
   estados: Array<{ id: string; name: string; uf?: string }>;
   municipios: Array<{ id: string; name: string; state?: string }>;
-  formularios: Array<{ id: string; name: string; formType?: string }>;
+  formularios: Array<{
+    id: string;
+    name: string;
+    customName: string;
+    formType?: string;
+    selectedGrades: string[];
+    selectedClasses: string[];
+  }>;
   escolas: Array<{ id: string; name: string }>;
   series: Array<{ id: string; name: string }>;
   turmas: Array<{ id: string; name: string }>;
@@ -46,6 +63,7 @@ export class FormResultsFiltersApiService {
     estado?: string;
     municipio?: string;
     formulario?: string;
+    customName?: string;
     escola?: string;
     serie?: string;
     turma?: string;
@@ -55,6 +73,7 @@ export class FormResultsFiltersApiService {
       if (params.estado && params.estado !== 'all') queryParams.append('estado', params.estado);
       if (params.municipio && params.municipio !== 'all') queryParams.append('municipio', params.municipio);
       if (params.formulario && params.formulario !== 'all') queryParams.append('formulario', params.formulario);
+      if (params.customName?.trim()) queryParams.append('customName', params.customName.trim());
       if (params.escola && params.escola !== 'all') queryParams.append('escola', params.escola);
       if (params.serie && params.serie !== 'all') queryParams.append('serie', params.serie);
       if (params.turma && params.turma !== 'all') queryParams.append('turma', params.turma);
@@ -78,8 +97,11 @@ export class FormResultsFiltersApiService {
         })),
         formularios: (data.formularios ?? []).map((f) => ({
           id: f.id,
-          name: normalizeName(f.titulo ?? f.nome ?? f.name),
+          customName: normalizeName(f.customName ?? f.custom_name ?? f.titulo ?? f.nome ?? f.name),
+          name: normalizeName(f.customName ?? f.custom_name ?? f.titulo ?? f.nome ?? f.name),
           formType: f.formType,
+          selectedGrades: f.selectedGrades ?? [],
+          selectedClasses: f.selectedClasses ?? [],
         })),
         escolas: (data.escolas ?? []).map((e) => ({
           id: e.id,

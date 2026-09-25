@@ -10,7 +10,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { ArrowLeft, Award, CheckCircle2, Info } from 'lucide-react';
+import { ArrowLeft, Award, CheckCircle2, Info, Upload, Loader2 } from 'lucide-react';
 import { CertificateList } from '@/components/certificates/CertificateList';
 import { StudentList } from '@/components/certificates/StudentList';
 import { CertificateStatsBadges } from '@/components/certificates/CertificateStatsBadges';
@@ -21,6 +21,8 @@ import { CertificatesApiService } from '@/services/certificatesApi';
 import { getUserHierarchyContext } from '@/utils/userHierarchy';
 import { getCertificateStats, getStudentsAwaitingApproval } from '@/utils/certificateStats';
 import type { CertificateTemplate, ApprovedStudent, EvaluationWithCertificates } from '@/types/certificates';
+import type { CertificateArtwork } from '@/types/certificate-artwork';
+import { CertificateArtworksApiService } from '@/services/certificateArtworksApi';
 
 export default function Certificates() {
   const { user } = useAuth();
@@ -35,6 +37,9 @@ export default function Certificates() {
   const [isCustomizing, setIsCustomizing] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [studentListRefreshKey, setStudentListRefreshKey] = useState(0);
+  const [artworks, setArtworks] = useState<CertificateArtwork[]>([]);
+  const [isArtworkLoading, setIsArtworkLoading] = useState(false);
+  const [isArtworkUploading, setIsArtworkUploading] = useState(false);
 
   // Verificar se o usuário é o criador da avaliação
   const isEvaluationCreator = selectedEvaluationData?.created_by?.id === user.id;
@@ -114,6 +119,47 @@ export default function Certificates() {
 
     loadTemplateAndStudents();
   }, [selectedEvaluation, toast]);
+
+  useEffect(() => {
+    if (!selectedEvaluation) return;
+    setIsArtworkLoading(true);
+    CertificateArtworksApiService.list(selectedEvaluation)
+      .then(setArtworks)
+      .catch(() => setArtworks([]))
+      .finally(() => setIsArtworkLoading(false));
+  }, [selectedEvaluation]);
+
+  const handleArtworkUpload = async (file?: File) => {
+    if (!selectedEvaluation || !file) return;
+    setIsArtworkUploading(true);
+    try {
+      const artwork = await CertificateArtworksApiService.upload(selectedEvaluation, file);
+      setArtworks((current) => [artwork, ...current]);
+      toast({ title: 'Modelo enviado', description: 'O modelo A4 paisagem foi armazenado como rascunho.' });
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao enviar modelo',
+        description: error?.response?.data?.erro || 'Não foi possível enviar o arquivo.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsArtworkUploading(false);
+    }
+  };
+
+  const handleActivateArtwork = async (artworkId: string) => {
+    if (!selectedEvaluation) return;
+    try {
+      const active = await CertificateArtworksApiService.activate(selectedEvaluation, artworkId);
+      setArtworks((current) => current.map((item) => ({
+        ...item,
+        status: item.id === active.id ? 'active' : 'inactive',
+      })));
+      toast({ title: 'Modelo ativado', description: 'O modelo ficará disponível para a próxima etapa de composição.' });
+    } catch {
+      toast({ title: 'Erro', description: 'Não foi possível ativar o modelo.', variant: 'destructive' });
+    }
+  };
 
   const handleSelectEvaluation = (evaluationId: string, evaluationData?: EvaluationWithCertificates) => {
     setSelectedEvaluation(evaluationId);
@@ -351,6 +397,36 @@ export default function Certificates() {
           )}
         </div>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Upload className="h-5 w-5" /> Modelo gráfico opcional</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">Envie um PDF ou imagem em A4 paisagem. O customizador atual continua disponível como fallback.</p>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted">
+            {isArtworkUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            Enviar modelo
+            <input
+              type="file"
+              accept="application/pdf,image/png,image/jpeg"
+              className="sr-only"
+              disabled={isArtworkUploading}
+              onChange={(event) => {
+                void handleArtworkUpload(event.target.files?.[0]);
+                event.currentTarget.value = '';
+              }}
+            />
+          </label>
+          {isArtworkLoading ? <p className="text-sm text-muted-foreground">Carregando modelos...</p> : null}
+          {artworks.map((artwork) => (
+            <div key={artwork.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
+              <span>{artwork.name} <span className="text-muted-foreground">({artwork.status})</span></span>
+              {artwork.status !== 'active' && <Button size="sm" variant="outline" onClick={() => void handleActivateArtwork(artwork.id)}>Ativar</Button>}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       {/* Aviso quando o usuário não é o criador da avaliação */}
       {!isEvaluationCreator && selectedEvaluationData?.created_by && (

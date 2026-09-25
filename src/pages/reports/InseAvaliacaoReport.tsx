@@ -521,7 +521,13 @@ const InseAvaliacaoReport = () => {
 
   const [states, setStates] = useState<Array<{ id: string; name: string }>>([]);
   const [municipalities, setMunicipalities] = useState<Array<{ id: string; name: string }>>([]);
-  const [forms, setForms] = useState<Array<{ id: string; name: string }>>([]);
+  const [forms, setForms] = useState<Array<{
+    id: string;
+    name: string;
+    customName?: string;
+    selectedGrades?: string[];
+    selectedClasses?: string[];
+  }>>([]);
   const [avaliacoes, setAvaliacoes] = useState<Array<{ id: string; name: string }>>([]);
   const [schools, setSchools] = useState<Array<{ id: string; name: string }>>([]);
   const [grades, setGrades] = useState<Array<{ id: string; name: string }>>([]);
@@ -698,6 +704,7 @@ const InseAvaliacaoReport = () => {
             estado: selectedState,
             municipio: selectedMunicipality,
             formulario: selectedForm,
+            customName: forms.find((form) => form.id === selectedForm)?.customName,
             avaliacao: selectedAvaliacao,
             escola: schoolId,
           })
@@ -721,7 +728,7 @@ const InseAvaliacaoReport = () => {
     } else {
       setGrades([]);
     }
-  }, [selectedState, selectedMunicipality, selectedForm, selectedAvaliacao, selectedSchools]);
+  }, [selectedState, selectedMunicipality, selectedForm, selectedAvaliacao, selectedSchools, forms]);
 
   // Série(s) → turmas
   useEffect(() => {
@@ -746,6 +753,7 @@ const InseAvaliacaoReport = () => {
               estado: selectedState,
               municipio: selectedMunicipality,
               formulario: selectedForm,
+              customName: forms.find((form) => form.id === selectedForm)?.customName,
               avaliacao: selectedAvaliacao,
               escola: schoolId,
               serie: gradeId,
@@ -771,7 +779,14 @@ const InseAvaliacaoReport = () => {
     } else {
       setClasses([]);
     }
-  }, [selectedState, selectedMunicipality, selectedForm, selectedAvaliacao, selectedSchools, selectedGrades]);
+  }, [selectedState, selectedMunicipality, selectedForm, selectedAvaliacao, selectedSchools, selectedGrades, forms]);
+
+  useEffect(() => {
+    const selected = forms.find((form) => form.id === selectedForm);
+    if (!selected) return;
+    setSelectedGrades(selected.selectedGrades ?? []);
+    setSelectedClasses(selected.selectedClasses ?? []);
+  }, [forms, selectedForm]);
 
   const fetchReport = useCallback(async (page: number = 1) => {
     if (

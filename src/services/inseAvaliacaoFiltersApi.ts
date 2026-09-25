@@ -4,7 +4,17 @@ import { api } from '@/lib/api';
 interface RawInseAvaliacaoFilterOptionsResponse {
   estados?: Array<{ id: string; nome?: string; name?: string; uf?: string }>;
   municipios?: Array<{ id: string; nome?: string; name?: string; estado_id?: string }>;
-  formularios?: Array<{ id: string; titulo?: string; nome?: string; name?: string; formType?: string }>;
+  formularios?: Array<{
+    id: string;
+    titulo?: string;
+    customName?: string;
+    custom_name?: string;
+    nome?: string;
+    name?: string;
+    formType?: string;
+    selectedGrades?: string[];
+    selectedClasses?: string[];
+  }>;
   avaliacoes?: Array<{ id: string; titulo?: string; nome?: string }>;
   escolas?: Array<{ id: string; nome?: string; name?: string; city_id?: string; municipio_id?: string }>;
   series?: Array<{ id: string; nome?: string; name?: string; education_stage_id?: string; educationStageId?: string }>;
@@ -15,7 +25,14 @@ interface RawInseAvaliacaoFilterOptionsResponse {
 export interface InseAvaliacaoFilterOptions {
   estados: Array<{ id: string; name: string; uf?: string }>;
   municipios: Array<{ id: string; name: string }>;
-  formularios: Array<{ id: string; name: string; formType?: string }>;
+  formularios: Array<{
+    id: string;
+    name: string;
+    customName: string;
+    formType?: string;
+    selectedGrades: string[];
+    selectedClasses: string[];
+  }>;
   avaliacoes: Array<{ id: string; name: string }>;
   escolas: Array<{ id: string; name: string }>;
   series: Array<{ id: string; name: string }>;
@@ -48,6 +65,7 @@ export class InseAvaliacaoFiltersApiService {
     estado?: string;
     municipio?: string;
     formulario?: string;
+    customName?: string;
     avaliacao?: string;
     escola?: string;
     serie?: string;
@@ -60,6 +78,7 @@ export class InseAvaliacaoFiltersApiService {
       if (params.estado && params.estado !== 'all') queryParams.append('estado', params.estado);
       if (params.municipio && params.municipio !== 'all') queryParams.append('municipio', params.municipio);
       if (params.formulario && params.formulario !== 'all') queryParams.append('formulario', params.formulario);
+      if (params.customName?.trim()) queryParams.append('customName', params.customName.trim());
       if (params.avaliacao && params.avaliacao !== 'all') queryParams.append('avaliacao', params.avaliacao);
       if (params.escola && params.escola !== 'all') queryParams.append('escola', params.escola);
       if (params.serie && params.serie !== 'all') queryParams.append('serie', params.serie);
@@ -87,8 +106,11 @@ export class InseAvaliacaoFiltersApiService {
         })),
         formularios: (data.formularios ?? []).map((f) => ({
           id: f.id,
-          name: normalizeName(f.titulo ?? f.nome ?? f.name),
+          customName: normalizeName(f.customName ?? f.custom_name ?? f.titulo ?? f.nome ?? f.name),
+          name: normalizeName(f.customName ?? f.custom_name ?? f.titulo ?? f.nome ?? f.name),
           formType: f.formType,
+          selectedGrades: f.selectedGrades ?? [],
+          selectedClasses: f.selectedClasses ?? [],
         })),
         avaliacoes: (data.avaliacoes ?? []).map((a) => ({
           id: a.id,
