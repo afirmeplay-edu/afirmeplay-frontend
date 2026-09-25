@@ -146,6 +146,7 @@ export interface EvolucaoOpcoesFiltrosParams {
   municipio?: string;
   escola?: string;
   serie?: string;
+  tipo_area?: string;
 }
 
 /** Resposta de GET /evaluation-results/evolucao/opcoes-filtros */
@@ -803,6 +804,7 @@ export class EvaluationResultsApiService {
     if (params.municipio != null && params.municipio !== '') search.set('municipio', params.municipio);
     if (params.escola != null && params.escola !== '') search.set('escola', params.escola);
     if (params.serie != null && params.serie !== '') search.set('serie', params.serie);
+    if (params.tipo_area && params.tipo_area !== 'all') search.set('tipo_area', params.tipo_area);
     const query = search.toString();
     const url = `/evaluation-results/evolucao/opcoes-filtros${query ? `?${query}` : ''}`;
     const requestConfig = params.municipio ? { meta: { cityId: params.municipio } } : {};
@@ -853,6 +855,7 @@ export class EvaluationResultsApiService {
       data_inicio?: string;
       data_fim?: string;
       nome?: string;
+      tipo_area?: string;
     },
     page: number = 1,
     perPage: number = 100
@@ -865,6 +868,7 @@ export class EvaluationResultsApiService {
         municipio: filters.municipio,
       });
       if (filters.escola != null && filters.escola !== '' && filters.escola !== 'all') params.append('escola', filters.escola);
+      if (filters.tipo_area && filters.tipo_area !== 'all') params.append('tipo_area', filters.tipo_area);
       if (filters.serie != null && filters.serie !== '' && filters.serie !== 'all') params.append('serie', filters.serie);
       if (filters.turma != null && filters.turma !== '' && filters.turma !== 'all') params.append('turma', filters.turma);
       if (filters.data_inicio) params.append('data_inicio', filters.data_inicio);
@@ -908,6 +912,7 @@ export class EvaluationResultsApiService {
       city_id?: string;
       /** YYYY-MM: aplicação (online) ou corrected_at (cartão). */
       periodo?: string;
+      tipo_area?: string;
     } = {}
   ): Promise<NovaRespostaAPI | null> {
     try {
@@ -938,6 +943,9 @@ export class EvaluationResultsApiService {
       }
       if (filters.turma && filters.turma !== 'all') {
         params.append('turma', filters.turma);
+      }
+      if (filters.tipo_area && filters.tipo_area !== 'all') {
+        params.append('tipo_area', filters.tipo_area);
       }
       if (filters.report_entity_type) {
         params.append('report_entity_type', filters.report_entity_type);
@@ -1021,6 +1029,7 @@ export class EvaluationResultsApiService {
       report_entity_type?: ReportEntityTypeQuery;
       city_id?: string;
       periodo?: string;
+      tipo_area?: string;
     } = {}
   ): Promise<AnaliseIaRouteResponse | null> {
     try {
@@ -1042,6 +1051,9 @@ export class EvaluationResultsApiService {
       }
       if (filters.turma && filters.turma !== 'all') {
         params.append('turma', filters.turma);
+      }
+      if (filters.tipo_area && filters.tipo_area !== 'all') {
+        params.append('tipo_area', filters.tipo_area);
       }
       if (filters.report_entity_type) {
         params.append('report_entity_type', filters.report_entity_type);
@@ -2060,6 +2072,7 @@ export class EvaluationResultsApiService {
     serie_filtro?: string;
     /** Filtro do modal de seleção: busca por nome. */
     nome?: string;
+    tipo_area?: string;
   }): Promise<FilterOptionsResponse> {
     try {
       const isAnswerSheet = params.report_entity_type === REPORT_ENTITY_TYPE_ANSWER_SHEET;
@@ -2089,6 +2102,9 @@ export class EvaluationResultsApiService {
       }
       if (params.nome?.trim()) {
         queryParams.append('nome', params.nome.trim());
+      }
+      if (params.tipo_area && params.tipo_area !== 'all') {
+        queryParams.append('tipo_area', params.tipo_area);
       }
 
       const basePath = isAnswerSheet
@@ -2226,6 +2242,7 @@ export class EvaluationResultsApiService {
     report_entity_type?: ReportEntityTypeQuery;
     city_id?: string;
     periodo?: string;
+    tipo_area?: string;
   }): Promise<Array<{
     id: string;
     nome: string;
@@ -2243,6 +2260,7 @@ export class EvaluationResultsApiService {
         ...(params.report_entity_type ? { report_entity_type: params.report_entity_type } : {}),
         ...(params.city_id ? { city_id: params.city_id } : {}),
         ...(params.periodo?.trim() ? { periodo: params.periodo } : {}),
+        ...(params.tipo_area && params.tipo_area !== 'all' ? { tipo_area: params.tipo_area } : {}),
       });
       return response.escolas || [];
     } catch (error) {
@@ -2455,6 +2473,7 @@ export class EvaluationResultsApiService {
     report_entity_type?: ReportEntityTypeQuery;
     city_id?: string;
     periodo?: string;
+    tipo_area?: string;
   }): Promise<Array<{
     id: string;
     nome: string;
@@ -2467,6 +2486,7 @@ export class EvaluationResultsApiService {
         ...(filters.report_entity_type ? { report_entity_type: filters.report_entity_type } : {}),
         ...(filters.city_id ? { city_id: filters.city_id } : {}),
         ...(filters.periodo?.trim() ? { periodo: filters.periodo } : {}),
+        ...(filters.tipo_area && filters.tipo_area !== 'all' ? { tipo_area: filters.tipo_area } : {}),
       });
       return response.escolas || [];
     } catch (error) {

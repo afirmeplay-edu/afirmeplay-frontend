@@ -18,6 +18,7 @@ import { EvolutionCharts } from '@/components/evolution/EvolutionCharts';
 import type { ProcessedEvolutionData } from '@/components/evolution/EvolutionCharts';
 import { processComparisonData } from '@/utils/evolution/evolutionDataProcessor';
 import { generateEvolutionPDFFromHTML } from '@/utils/evolution/evolutionPdfService';
+import { AREA_TYPE_FILTER_OPTIONS, areaTypeFilterLabel, canFilterByAreaType } from '@/lib/schoolAreaType';
 import { EvolutionScopeMetaLines } from '@/components/evolution/EvolutionEvaluationsScopeList';
 
 // Interfaces para os filtros
@@ -69,13 +70,14 @@ type EvolutionProps = {
 };
 
 export default function Evolution({ hidePageHeading = false, includeGroupsTab = false }: EvolutionProps) {
-  const { autoLogin } = useAuth();
+  const { autoLogin, user } = useAuth();
   const { toast } = useToast();
 
   // Estados dos filtros (simplificados)
   const [selectedState, setSelectedState] = useState<string>('all');
   const [selectedMunicipality, setSelectedMunicipality] = useState<string>('all');
   const [selectedSchool, setSelectedSchool] = useState<string>('all');
+  const [selectedAreaType, setSelectedAreaType] = useState<string>('all');
   const [selectedGrade, setSelectedGrade] = useState<string>('all');
   const [selectedClass, setSelectedClass] = useState<string>('all');
   const [periodStart, setPeriodStart] = useState<string>('');
@@ -336,6 +338,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
             estado: selectedState,
             municipio: selectedMunicipality,
             escola: selectedSchool === 'all' ? undefined : selectedSchool,
+            ...(selectedAreaType !== 'all' ? { tipo_area: selectedAreaType } : {}),
             serie: selectedGrade === 'all' ? undefined : selectedGrade,
             turma: selectedClass === 'all' ? undefined : selectedClass,
             data_inicio: periodStart || undefined,
@@ -426,7 +429,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     };
 
     loadEvaluations();
-  }, [selectedState, selectedMunicipality, selectedSchool, selectedGrade, selectedClass, periodStart, periodEnd, evaluationSearch, toast]);
+  }, [selectedState, selectedMunicipality, selectedSchool, selectedAreaType, selectedGrade, selectedClass, periodStart, periodEnd, evaluationSearch, toast]);
 
   // Filtro por busca: só mostrar avaliações cujo título ou id contenha o termo (backend pode não filtrar corretamente)
   const filteredEvaluations = useMemo(() => {
@@ -464,12 +467,15 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
           const response = await EvaluationResultsApiService.getEvolucaoOpcoesFiltros({
             estado: selectedState,
             municipio: selectedMunicipality,
+            ...(selectedAreaType !== 'all' ? { tipo_area: selectedAreaType } : {}),
           });
           const list = response.escolas ?? [];
-          setSchools(list.map((s: { id: string; nome?: string; name?: string }) => ({
+          const mapped = list.map((s: { id: string; nome?: string; name?: string }) => ({
             id: s.id,
             name: s.nome ?? s.name ?? s.id,
-          })));
+          }));
+          setSchools(mapped);
+          setSelectedSchool((prev) => (prev !== 'all' && !mapped.some((school) => school.id === prev) ? 'all' : prev));
         } catch (error) {
           console.error("Erro ao carregar escolas:", error);
           setSchools([]);
@@ -482,7 +488,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     };
 
     loadSchools();
-  }, [selectedState, selectedMunicipality]);
+  }, [selectedState, selectedMunicipality, selectedAreaType]);
 
   // Carregar séries: GET /evolucao/opcoes-filtros?estado=X&municipio=id&escola=id (só séries com avaliações)
   useEffect(() => {
@@ -553,8 +559,9 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
       escola: selectedSchool !== 'all' ? selectedSchool : null,
       serie: selectedGrade !== 'all' ? selectedGrade : null,
       turma: selectedClass !== 'all' ? selectedClass : null,
+      tipo_area: selectedAreaType !== 'all' ? selectedAreaType : null,
     }),
-    [selectedState, selectedMunicipality, selectedSchool, selectedGrade, selectedClass]
+    [selectedState, selectedMunicipality, selectedSchool, selectedAreaType, selectedGrade, selectedClass]
   );
 
   const handleCompareEvaluations = useCallback(async () => {
@@ -966,6 +973,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                         : undefined,
                       // Adicionar array de escolas quando houver múltiplas
                       schools: schoolsArray.length > 0 ? schoolsArray : undefined,
+                      areaTypeLabel: areaTypeFilterLabel(selectedAreaType),
                       grade: selectedGrade !== 'all'
                         ? grades.find(g => g.id === selectedGrade)
                           ? { id: selectedGrade, name: grades.find(g => g.id === selectedGrade)!.name }
@@ -1037,6 +1045,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                       escola: selectedSchool !== 'all' ? selectedSchool : null,
                       serie: selectedGrade !== 'all' ? selectedGrade : null,
                       turma: selectedClass !== 'all' ? selectedClass : null,
+                      tipo_area: selectedAreaType !== 'all' ? selectedAreaType : null,
                     };
 
                     // Fazer requisição POST para o backend
@@ -1175,6 +1184,30 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
               </Select>
             </div>
 
+            {canFilterByAreaType(user?.role) && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Tipo de área</label>
+                <Select
+                  value={selectedAreaType}
+                  onValueChange={(value) => {
+                    setSelectedAreaType(value);
+                    setSelectedSchool('all');
+                  }}
+                  disabled={isLoadingFilters || selectedMunicipality === 'all'}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AREA_TYPE_FILTER_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {/* Escola */}
             <div className="space-y-2">
               <label className="text-sm font-medium">Escola</label>

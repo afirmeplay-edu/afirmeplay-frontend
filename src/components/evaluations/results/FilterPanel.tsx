@@ -241,6 +241,23 @@ export function FilterPanel({
                 </Select>
               </div>
 
+              <div className="space-y-2">
+                <Label>Tipo de área</Label>
+                <Select
+                  value={filters.areaType || ""}
+                  onValueChange={(value) => updateFilter('areaType', value || undefined)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Todas</SelectItem>
+                    <SelectItem value="urbana">Zona urbana</SelectItem>
+                    <SelectItem value="rural">Zona rural</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               {/* Escola */}
               <div className="space-y-2">
                 <Label>Escola</Label>

@@ -16,6 +16,7 @@ import { REPORT_ENTITY_TYPE_ANSWER_SHEET } from '@/services/evaluation/evaluatio
 import { getClassShiftLabel } from '@/lib/classShift';
 import { cn } from '@/lib/utils';
 import { PROFICIENCY_LEVELS } from '../lib/proficiencyLevelTokens';
+import { AREA_TYPE_FILTER_OPTIONS } from '@/lib/schoolAreaType';
 
 export type FilterEntity = { id: string; nome: string; shift?: string };
 
@@ -36,6 +37,9 @@ type FiltrosPainelProps = {
   municipio: string;
   instrumento: string;
   escola: string;
+  tipoArea: string;
+  showAreaType: boolean;
+  onTipoAreaChange: (v: string) => void;
   serie: string;
   turma: string;
   turno: string;
@@ -184,6 +188,23 @@ export function FiltrosPainel(props: FiltrosPainelProps) {
             reportEntityType={isOnline ? undefined : REPORT_ENTITY_TYPE_ANSWER_SHEET}
           />
 
+          {props.showAreaType && (
+            <div>
+              <FieldLabel>Tipo de área</FieldLabel>
+              <Select value={props.tipoArea} onValueChange={props.onTipoAreaChange} disabled={props.instrumento === 'all'}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  {AREA_TYPE_FILTER_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div>
             <FieldLabel>Escola</FieldLabel>
             <Select

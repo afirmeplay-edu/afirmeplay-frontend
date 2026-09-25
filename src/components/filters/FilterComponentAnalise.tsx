@@ -12,6 +12,7 @@ import {
 } from "@/services/evaluation/evaluationResultsApi";
 import { useToast } from "@/hooks/use-toast";
 import { InstrumentPickerField } from "./InstrumentPickerField";
+import { AREA_TYPE_FILTER_OPTIONS, canFilterByAreaType } from "@/lib/schoolAreaType";
 import {
   buildPickerContextLines,
   toInstrumentPickerItems,
@@ -84,6 +85,10 @@ interface FilterComponentAnaliseProps {
   onPeriodChange?: (period: string) => void;
   /** Conteúdo extra no mesmo card (ex.: Série / Turma), abaixo da grade principal. */
   extraFilters?: ReactNode;
+  /** Filtro de Tipo de área. Só o relatório escolar liga isso. */
+  showAreaTypeFilter?: boolean;
+  selectedAreaType?: string;
+  onAreaTypeChange?: (value: string) => void;
 }
 
 export function FilterComponentAnalise({
@@ -112,6 +117,9 @@ export function FilterComponentAnalise({
   selectedPeriod = "all",
   onPeriodChange = () => {},
   extraFilters,
+  showAreaTypeFilter = false,
+  selectedAreaType = "all",
+  onAreaTypeChange = () => {},
 }: FilterComponentAnaliseProps) {
   const { toast } = useToast();
   const periodoForApi = useMemo(() => {
@@ -310,6 +318,7 @@ export function FilterComponentAnalise({
               ...(reportEntityType ? { report_entity_type: reportEntityType } : {}),
               ...(adminCityIdQuery ? { city_id: adminCityIdQuery } : {}),
               ...(periodoForApi ? { periodo: periodoForApi } : {}),
+              ...(showAreaTypeFilter && selectedAreaType !== "all" ? { tipo_area: selectedAreaType } : {}),
             }),
             20000,
             'Tempo esgotado ao carregar escolas.'
@@ -321,7 +330,7 @@ export function FilterComponentAnalise({
             municipality: selectedMunicipality,
           }));
 
-          if (formattedSchools.length === 0 && fallbackSchools.length > 0) {
+          if (!(showAreaTypeFilter && selectedAreaType !== "all") && formattedSchools.length === 0 && fallbackSchools.length > 0) {
             const fallbackMatches = fallbackSchools.filter(
               (school) =>
                 !school.municipalityId || school.municipalityId === selectedMunicipality
@@ -331,7 +340,7 @@ export function FilterComponentAnalise({
               name: school.name,
               municipality: selectedMunicipality,
             }));
-          } else if (fallbackSchools.length > 0) {
+          } else if (!(showAreaTypeFilter && selectedAreaType !== "all") && fallbackSchools.length > 0) {
             const existingIds = new Set(formattedSchools.map((school) => school.id));
             fallbackSchools.forEach((fallbackSchool) => {
               const matchesMunicipality =
@@ -386,6 +395,8 @@ export function FilterComponentAnalise({
     adminCityIdQuery,
     periodoForApi,
     onLoadingChange,
+    selectedAreaType,
+    showAreaTypeFilter,
   ]);
 
   // Carregar escolas quando `loadSchoolsAfterEvaluation=false` (modo original dependente de Estado/Município)
@@ -405,6 +416,7 @@ export function FilterComponentAnalise({
               ...(reportEntityType ? { report_entity_type: reportEntityType } : {}),
               ...(adminCityIdQuery ? { city_id: adminCityIdQuery } : {}),
               ...(periodoForApi ? { periodo: periodoForApi } : {}),
+              ...(showAreaTypeFilter && selectedAreaType !== "all" ? { tipo_area: selectedAreaType } : {}),
             }),
             20000,
             'Tempo esgotado ao carregar escolas.'
@@ -416,7 +428,7 @@ export function FilterComponentAnalise({
             municipality: selectedMunicipality,
           }));
 
-          if (formattedSchools.length === 0 && fallbackSchools.length > 0) {
+          if (!(showAreaTypeFilter && selectedAreaType !== "all") && formattedSchools.length === 0 && fallbackSchools.length > 0) {
             const fallbackMatches = fallbackSchools.filter(
               (school) =>
                 !school.municipalityId || school.municipalityId === selectedMunicipality
@@ -426,7 +438,7 @@ export function FilterComponentAnalise({
               name: school.name,
               municipality: selectedMunicipality,
             }));
-          } else if (fallbackSchools.length > 0) {
+          } else if (!(showAreaTypeFilter && selectedAreaType !== "all") && fallbackSchools.length > 0) {
             const existingIds = new Set(formattedSchools.map((school) => school.id));
             fallbackSchools.forEach((fallbackSchool) => {
               const matchesMunicipality =
@@ -484,6 +496,8 @@ export function FilterComponentAnalise({
     adminCityIdQuery,
     periodoForApi,
     onLoadingChange,
+    selectedAreaType,
+    showAreaTypeFilter,
   ]);
 
   const mapEvaluationsResponse = useCallback(
@@ -755,6 +769,31 @@ export function FilterComponentAnalise({
             <>
               {renderEvaluationPicker(evaluationPickerDisabled)}
 
+              {showAreaTypeFilter && canFilterByAreaType(userRole) && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Tipo de área</label>
+                  <Select
+                    value={selectedAreaType}
+                    onValueChange={(value) => {
+                      onAreaTypeChange(value);
+                      onSchoolChange("all");
+                    }}
+                    disabled={isLoadingFilters || selectedMunicipality === "all" || (selectedEvaluationRequiredForSchools && selectedEvaluation === "all")}
+                  >
+                    <SelectTrigger className="w-full min-w-0">
+                      <SelectValue placeholder="Todas" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AREA_TYPE_FILTER_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
               {/* Escola */}
               <div className="space-y-2">
                 <label className="text-sm font-medium flex items-center gap-2">
@@ -791,6 +830,30 @@ export function FilterComponentAnalise({
             </>
           ) : (
             <>
+              {showAreaTypeFilter && canFilterByAreaType(userRole) && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Tipo de área</label>
+                  <Select
+                    value={selectedAreaType}
+                    onValueChange={(value) => {
+                      onAreaTypeChange(value);
+                      onSchoolChange("all");
+                    }}
+                    disabled={isLoadingFilters || selectedMunicipality === "all"}
+                  >
+                    <SelectTrigger className="w-full min-w-0">
+                      <SelectValue placeholder="Todas" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AREA_TYPE_FILTER_OPTIONS.map((option) => (
+                        <SelectItem key={`zone-${option.value}`} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               {/* Escola */}
               <div className="space-y-2">
                 <label className="text-sm font-medium flex items-center gap-2">

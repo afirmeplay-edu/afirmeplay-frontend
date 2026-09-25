@@ -81,6 +81,7 @@ export type EvaluationFilterParams = {
   serie?: string;
   turma?: string;
   periodo?: string;
+  tipo_area?: string;
 };
 
 export async function fetchEvaluationFilterOptions(params: EvaluationFilterParams) {
@@ -91,6 +92,7 @@ export async function fetchEvaluationFilterOptions(params: EvaluationFilterParam
   if (params.escola && params.escola !== 'all') q.set('escola', params.escola);
   if (params.serie && params.serie !== 'all') q.set('serie', params.serie);
   if (params.turma && params.turma !== 'all') q.set('turma', params.turma);
+  if (params.tipo_area && params.tipo_area !== 'all') q.set('tipo_area', params.tipo_area);
   appendPeriodo(q, params.periodo);
   const url = `/evaluation-results/opcoes-filtros${q.toString() ? `?${q}` : ''}`;
   const { data } = await api.get(url, withCityMeta(params.municipio));
@@ -105,6 +107,7 @@ export type AnswerSheetFilterParams = {
   serie?: string;
   turma?: string;
   periodo?: string;
+  tipo_area?: string;
 };
 
 export async function fetchAnswerSheetFilterOptions(params: AnswerSheetFilterParams) {
@@ -115,6 +118,7 @@ export async function fetchAnswerSheetFilterOptions(params: AnswerSheetFilterPar
   if (params.escola && params.escola !== 'all') q.set('escola', params.escola);
   if (params.serie && params.serie !== 'all') q.set('serie', params.serie);
   if (params.turma && params.turma !== 'all') q.set('turma', params.turma);
+  if (params.tipo_area && params.tipo_area !== 'all') q.set('tipo_area', params.tipo_area);
   appendPeriodo(q, params.periodo);
   const url = `/answer-sheets/opcoes-filtros-results${q.toString() ? `?${q}` : ''}`;
   const { data } = await api.get(url, withCityMeta(params.municipio));

@@ -23,6 +23,7 @@ import type { RelatorioConsolidadoItemOption } from '@/components/reports/relato
 import { RelatorioConsolidadoReportSections } from '@/components/reports/relatorio-geral/RelatorioConsolidadoReportSections';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/authContext';
+import { AREA_TYPE_FILTER_OPTIONS, canFilterByAreaType } from '@/lib/schoolAreaType';
 import {
   getUserHierarchyContext,
   getRestrictionMessage,
@@ -68,6 +69,7 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
   const [selectedEstado, setSelectedEstado] = useState('all');
   const [selectedMunicipio, setSelectedMunicipio] = useState('all');
   const [selectedEscola, setSelectedEscola] = useState('all');
+  const [selectedAreaType, setSelectedAreaType] = useState('all');
   const [selectedPeriodo, setSelectedPeriodo] = useState('');
   const [selectedItens, setSelectedItens] = useState<string[]>([]);
   const [tituloAvaliacao, setTituloAvaliacao] = useState('');
@@ -193,6 +195,7 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
     RelatorioConsolidadoApiService.getOpcoesFiltros(flow, {
       estado: selectedEstado,
       municipio: selectedMunicipio,
+      ...(selectedAreaType !== 'all' ? { tipo_area: selectedAreaType } : {}),
     })
       .then((data) => {
         if (cancelled) return;
@@ -207,7 +210,7 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
     return () => {
       cancelled = true;
     };
-  }, [flow, selectedEstado, selectedMunicipio]);
+  }, [flow, selectedEstado, selectedMunicipio, selectedAreaType]);
 
   useEffect(() => {
     if (selectedEstado === 'all' || selectedMunicipio === 'all') {
@@ -326,6 +329,7 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
         escola: selectedEscola,
         estado: selectedEstado,
         itemIds: selectedItens,
+        ...(selectedAreaType !== 'all' ? { tipo_area: selectedAreaType } : {}),
       });
       setReport(data);
       if (
@@ -454,6 +458,30 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
               </Select>
             </div>
 
+            {canFilterByAreaType(user?.role) && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Tipo de área</label>
+                <Select
+                  value={selectedAreaType}
+                  onValueChange={(value) => {
+                    setSelectedAreaType(value);
+                    setSelectedEscola('all');
+                  }}
+                  disabled={selectedMunicipio === 'all'}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AREA_TYPE_FILTER_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
               <label className="text-sm font-medium">Escola</label>
               <Select

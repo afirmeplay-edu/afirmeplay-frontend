@@ -10,6 +10,7 @@ import { ManageClassModal } from "./ManageClassModal";
 import { ClassShiftBadge } from "./ClassShiftBadge";
 import { EditClassShiftDialog } from "./EditClassShiftDialog";
 import type { ClassShiftCanonical } from "@/lib/classShift";
+import { schoolAreaTypeLabel } from "@/lib/schoolAreaType";
 import { LinkDirectorCoordinatorModal } from "./LinkDirectorCoordinatorModal";
 import { ManageSchoolLinksModal } from "./ManageSchoolLinksModal";
 import { BulkUploadStudentsModal } from "./BulkUploadStudentsModal";
@@ -74,6 +75,7 @@ interface School {
   city_id: string;
   address: string;
   domain: string;
+  area_type?: string | null;
   created_at: string;
   city: City;
 }
@@ -757,6 +759,10 @@ export default function SchoolDetails() {
                 <span className="inline-flex items-start gap-1.5 min-w-0 pt-2 sm:pt-2">
                   <MapPin className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                   <span className="break-words">{school.address || "Endereço não informado"}</span>
+                </span>
+                <span className="inline-flex items-start gap-1.5 min-w-0 sm:pt-2">
+                  <span className="font-medium">Tipo de área:</span>
+                  <span>{schoolAreaTypeLabel(school.area_type)}</span>
                 </span>
                 <span className="inline-flex items-start gap-1.5 min-w-0 sm:pt-2">
                   <Globe className="h-3.5 w-3.5 mt-0.5 shrink-0" />

@@ -12,6 +12,7 @@ export type OpcoesFiltrosParams = {
   municipio?: string;
   escola?: string;
   periodo?: string;
+  tipo_area?: string;
 };
 
 export type RelatorioConsolidadoParams = {
@@ -19,6 +20,7 @@ export type RelatorioConsolidadoParams = {
   escola?: string;
   estado?: string;
   itemIds: string[];
+  tipo_area?: string;
 };
 
 function withCityMeta(municipio?: string) {
@@ -39,6 +41,7 @@ function buildQuery(params: OpcoesFiltrosParams): string {
   if (params.municipio && params.municipio !== 'all') q.set('municipio', params.municipio);
   if (params.escola) q.set('escola', params.escola);
   if (params.periodo) q.set('periodo', params.periodo);
+  if (params.tipo_area && params.tipo_area !== 'all') q.set('tipo_area', params.tipo_area);
   const s = q.toString();
   return s ? `?${s}` : '';
 }
@@ -101,6 +104,7 @@ export class RelatorioConsolidadoApiService {
     q.set('municipio', params.municipio);
     q.set('escola', params.escola && params.escola !== 'all' ? params.escola : 'all');
     if (params.estado && params.estado !== 'all') q.set('estado', params.estado);
+    if (params.tipo_area && params.tipo_area !== 'all') q.set('tipo_area', params.tipo_area);
     q.set(flow === 'cartao' ? 'gabarito_ids' : 'avaliacao_ids', ids.join(','));
 
     const url = `${basePath(flow)}?${q.toString()}`;
