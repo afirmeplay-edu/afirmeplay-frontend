@@ -40,6 +40,7 @@ import {
 } from "@/utils/evaluation/evaluationGroupQuery";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/authContext";
+import { AREA_TYPE_FILTER_OPTIONS, canFilterByAreaType } from "@/lib/schoolAreaType";
 import { getUserHierarchyContext, type UserHierarchyContext } from "@/utils/userHierarchy";
 import { ResultsCharts } from "@/components/evaluations/results/ResultsCharts";
 import { ClassStatistics } from "@/components/evaluations/results/ClassStatistics";
@@ -370,6 +371,7 @@ type ResultsOpcoesFiltrosParams = {
   serie?: string;
   turma?: string;
   periodo?: string;
+  tipo_area?: string;
 };
 
 interface ResultsFilterOptionsResponse {
@@ -410,6 +412,9 @@ async function resultsFetchOpcoesFiltros(
   if (params.turma && params.turma !== "all") queryParams.append("turma", params.turma);
   if (params.periodo && /^\d{4}-\d{2}$/.test(params.periodo)) {
     queryParams.append("periodo", params.periodo);
+  }
+  if (params.tipo_area && params.tipo_area !== "all") {
+    queryParams.append("tipo_area", params.tipo_area);
   }
   const url = `/evaluation-results/opcoes-filtros${queryParams.toString() ? `?${queryParams.toString()}` : ""}`;
   const requestConfig =
@@ -495,6 +500,7 @@ type ResultsEvaluationsListFilters = {
   turma?: string;
   avaliacao?: string;
   periodo?: string;
+  tipo_area?: string;
 };
 
 async function resultsFetchEvaluationsList(
@@ -514,6 +520,9 @@ async function resultsFetchEvaluationsList(
   if (filters.turma && filters.turma !== "all") params.append("turma", filters.turma);
   if (filters.periodo && /^\d{4}-\d{2}$/.test(filters.periodo)) {
     params.append("periodo", filters.periodo);
+  }
+  if (filters.tipo_area && filters.tipo_area !== "all") {
+    params.append("tipo_area", filters.tipo_area);
   }
   const requestConfig =
     filters.municipio && filters.municipio !== "all"
@@ -578,6 +587,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
   const [selectedEvaluation, setSelectedEvaluation] = useState<string>('all');
   const evaluationIsGrouped = isEvaluationGroup(selectedEvaluation);
   const [selectedSchool, setSelectedSchool] = useState<string>('all');
+  const [selectedAreaType, setSelectedAreaType] = useState<string>('all');
   const [selectedGrade, setSelectedGrade] = useState<string>('all');
   const [selectedClass, setSelectedClass] = useState<string>('all');
 
@@ -1064,12 +1074,17 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
             municipio: selectedMunicipality,
             avaliacao: selectedEvaluation,
             ...(periodoApi ? { periodo: periodoApi } : {}),
+            ...(selectedAreaType !== "all" ? { tipo_area: selectedAreaType } : {}),
           });
           const schoolsData = opSc.escolas || [];
-          setSchools(schoolsData.map(school => ({
+          const mappedSchools = schoolsData.map(school => ({
             id: school.id,
             name: school.nome
-          })));
+          }));
+          setSchools(mappedSchools);
+          setSelectedSchool((prev) =>
+            prev !== "all" && !mappedSchools.some((school) => school.id === prev) ? "all" : prev
+          );
 
           // ✅ CORRIGIDO: Não resetar em cascata se estamos restaurando filtros
           if (!isRestoringFiltersRef.current) {
@@ -1092,7 +1107,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
     };
 
     loadSchools();
-  }, [selectedEvaluation, selectedState, selectedMunicipality, resetAfterSchool, periodoApi, toastFilterOptionsError]);
+  }, [selectedEvaluation, selectedState, selectedMunicipality, selectedAreaType, resetAfterSchool, periodoApi, toastFilterOptionsError]);
 
   // Carregar séries quando escola for selecionada
   useEffect(() => {
@@ -1201,6 +1216,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
         serie: selectedGrade !== 'all' ? selectedGrade : undefined,
         turma: selectedClass !== 'all' ? selectedClass : undefined,
         ...(periodoApi ? { periodo: periodoApi } : {}),
+        ...(selectedAreaType !== "all" ? { tipo_area: selectedAreaType } : {}),
       };
 
       // 🚀 CARREGAMENTO UNIFICADO: tenta buscar já filtrado (inclui escola/série/turma quando selecionados)
@@ -1299,6 +1315,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
     selectedSchool,
     selectedGrade,
     selectedClass,
+    selectedAreaType,
     periodoApi,
     schools,
     grades,
@@ -2453,6 +2470,32 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
               placeholder="Selecione uma ou mais avaliações"
               multiple
             />
+
+            {canFilterByAreaType(user?.role) && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Tipo de área</label>
+                <Select
+                  value={selectedAreaType}
+                  onValueChange={(value) => {
+                    setSelectedAreaType(value);
+                    setSelectedSchool("all");
+                    resetAfterSchool();
+                  }}
+                  disabled={isLoadingFilters || selectedEvaluation === "all"}
+                >
+                  <SelectTrigger className="w-full min-w-0">
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AREA_TYPE_FILTER_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {/* Escola */}
             <div className="space-y-2">

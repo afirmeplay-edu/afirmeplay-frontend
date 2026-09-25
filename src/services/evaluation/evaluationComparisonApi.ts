@@ -160,6 +160,7 @@ export interface EvolutionCompareScopeFilters {
   escola?: string | null;
   serie?: string | null;
   turma?: string | null;
+  tipo_area?: string | null;
 }
 
 export type EvolutionGroupViewBy = 'turma' | 'serie' | 'escola';
@@ -318,6 +319,7 @@ export class EvaluationComparisonApiService {
         escola: scopeFilters?.escola ?? null,
         serie: scopeFilters?.serie ?? null,
         turma: scopeFilters?.turma ?? null,
+        tipo_area: scopeFilters?.tipo_area && scopeFilters.tipo_area !== 'all' ? scopeFilters.tipo_area : null,
       };
 
       const requestConfig = scopeFilters?.municipio
@@ -353,6 +355,7 @@ export class EvaluationComparisonApiService {
       escola: scopeFilters?.escola ?? null,
       serie: scopeFilters?.serie ?? null,
       turma: scopeFilters?.turma ?? null,
+      tipo_area: scopeFilters?.tipo_area && scopeFilters.tipo_area !== 'all' ? scopeFilters.tipo_area : null,
     };
 
     const requestConfig = scopeFilters?.municipio

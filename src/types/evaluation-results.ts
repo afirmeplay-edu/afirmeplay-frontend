@@ -93,6 +93,7 @@ export interface ResultsFilters {
   subject?: string;
   class?: string;
   school?: string;
+  areaType?: string;
   state?: string;
   municipality?: string;
   grade?: string;

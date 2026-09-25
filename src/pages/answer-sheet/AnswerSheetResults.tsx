@@ -37,6 +37,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/authContext';
+import { AREA_TYPE_FILTER_OPTIONS, canFilterByAreaType } from '@/lib/schoolAreaType';
 import {
   EvaluationResultsApiService,
   REPORT_ENTITY_TYPE_ANSWER_SHEET,
@@ -456,6 +457,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   });
   const [gabarito, setGabarito] = useState<string>('all');
   const [escola, setEscola] = useState<string>('all');
+  const [tipoArea, setTipoArea] = useState<string>('all');
   const [serie, setSerie] = useState<string>('all');
   const [turma, setTurma] = useState<string>('all');
 
@@ -660,6 +662,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     if (municipio && municipio !== 'all') params.set('municipio', municipio);
     if (periodoApi) params.set('periodo', periodoApi);
     if (gabarito && gabarito !== 'all') params.set('gabarito', gabarito);
+    if (tipoArea !== 'all') params.set('tipo_area', tipoArea);
     if (escola && escola !== 'all') params.set('escola', escola);
     if (serie && serie !== 'all') params.set('serie', serie);
     if (turma && turma !== 'all') params.set('turma', turma);
@@ -682,7 +685,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     } finally {
       setIsLoadingFilters(false);
     }
-  }, [estado, municipio, periodoApi, gabarito, escola, serie, turma, toast]);
+  }, [estado, municipio, periodoApi, gabarito, tipoArea, escola, serie, turma, toast]);
 
   // Lista do modal: apenas estado, município e período (filtros anteriores)
   const fetchPickerGabaritos = useCallback(
@@ -768,6 +771,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     params.set('page', '1');
     params.set('per_page', String(RESULTADOS_AGREGADOS_PER_PAGE));
     if (periodoApi) params.set('periodo', periodoApi);
+    if (tipoArea !== 'all') params.set('tipo_area', tipoArea);
     if (escola && escola !== 'all') params.set('escola', escola);
     if (serie && serie !== 'all') params.set('serie', serie);
     if (turma && turma !== 'all') params.set('turma', turma);
@@ -800,7 +804,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     } finally {
       setIsLoadingData(false);
     }
-  }, [estado, municipio, gabarito, periodoApi, escola, serie, turma, toast, adminCityIdQuery]);
+  }, [estado, municipio, gabarito, periodoApi, tipoArea, escola, serie, turma, toast, adminCityIdQuery]);
 
   useEffect(() => {
     loadResultadosAgregados();
@@ -1583,6 +1587,30 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
               onModalFiltersChange={(filters) => void fetchPickerGabaritos(filters)}
             />
             <div className="space-y-2">
+              {canFilterByAreaType(user?.role) && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Tipo de área</label>
+                  <Select
+                    value={tipoArea}
+                    onValueChange={(value) => {
+                      setTipoArea(value);
+                      setEscola('all');
+                    }}
+                    disabled={isLoadingFilters || gabarito === 'all'}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Todas" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AREA_TYPE_FILTER_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <label className="text-sm font-medium">Escola</label>
               <Select value={escola} onValueChange={setEscolaAndReset} disabled={isLoadingFilters || gabarito === 'all'}>
                 <SelectTrigger className="w-full min-w-0">

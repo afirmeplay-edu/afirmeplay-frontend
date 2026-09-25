@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { TrendingUp, Users, Filter, RefreshCw, Download, X, Check, AlertCircle, Search, Calendar, List, Table } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/authContext';
+import { AREA_TYPE_FILTER_OPTIONS, areaTypeFilterLabel, canFilterByAreaType } from '@/lib/schoolAreaType';
 import { AnswerSheetComparisonApiService } from '@/services/answer-sheet/answerSheetComparisonApi';
 import type { ComparisonResponse } from '@/services/evaluation/evaluationComparisonApi';
 import { EvolutionCharts } from '@/components/evolution/EvolutionCharts';
@@ -73,12 +74,13 @@ function extractApiError(error: unknown): string {
 type EvolutionCartaoRespostaProps = { hidePageHeading?: boolean };
 
 export default function EvolutionCartaoResposta({ hidePageHeading = false }: EvolutionCartaoRespostaProps) {
-  const { autoLogin } = useAuth();
+  const { autoLogin, user } = useAuth();
   const { toast } = useToast();
 
   const [selectedState, setSelectedState] = useState<string>('all');
   const [selectedMunicipality, setSelectedMunicipality] = useState<string>('all');
   const [selectedSchool, setSelectedSchool] = useState<string>('all');
+  const [selectedAreaType, setSelectedAreaType] = useState<string>('all');
   const [selectedGrade, setSelectedGrade] = useState<string>('all');
   const [selectedClass, setSelectedClass] = useState<string>('all');
   const [periodStart, setPeriodStart] = useState<string>('');
@@ -252,6 +254,7 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
           const response = await AnswerSheetComparisonApiService.getEvolucaoOpcoesFiltros({
             estado: selectedState,
             municipio: selectedMunicipality,
+            ...(selectedAreaType !== 'all' ? { tipo_area: selectedAreaType } : {}),
           });
           const list = response.escolas ?? [];
           setSchools(
@@ -272,7 +275,7 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
     };
 
     loadSchools();
-  }, [selectedState, selectedMunicipality]);
+  }, [selectedState, selectedMunicipality, selectedAreaType]);
 
   useEffect(() => {
     const loadGrades = async () => {
@@ -358,6 +361,7 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
           estado: selectedState,
           municipio: selectedMunicipality,
           escola: selectedSchool === 'all' ? undefined : selectedSchool,
+          ...(selectedAreaType !== 'all' ? { tipo_area: selectedAreaType } : {}),
           serie: selectedGrade === 'all' ? undefined : selectedGrade,
           turma: selectedClass === 'all' ? undefined : selectedClass,
           data_inicio: periodStart ? isoDateToBR(periodStart) : undefined,
@@ -399,6 +403,7 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
     selectedState,
     selectedMunicipality,
     selectedSchool,
+    selectedAreaType,
     selectedGrade,
     selectedClass,
     periodStart,
@@ -525,8 +530,9 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
       escola: selectedSchool !== 'all' ? selectedSchool : null,
       serie: selectedGrade !== 'all' ? selectedGrade : null,
       turma: selectedClass !== 'all' ? selectedClass : null,
+      tipo_area: selectedAreaType !== 'all' ? selectedAreaType : null,
     }),
-    [selectedState, selectedMunicipality, selectedSchool, selectedGrade, selectedClass]
+    [selectedState, selectedMunicipality, selectedSchool, selectedAreaType, selectedGrade, selectedClass]
   );
 
   const comparisonRequestKey = useMemo(
@@ -632,6 +638,7 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
           selectedSchool !== 'all'
             ? { id: selectedSchool, name: schools.find((s) => s.id === selectedSchool)?.name ?? selectedSchool }
             : undefined,
+        areaTypeLabel: areaTypeFilterLabel(selectedAreaType),
         grade:
           selectedGrade !== 'all'
             ? { id: selectedGrade, name: grades.find((g) => g.id === selectedGrade)?.name ?? selectedGrade }
@@ -899,6 +906,30 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
               </Select>
             </div>
 
+            {canFilterByAreaType(user?.role) && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Tipo de área</label>
+                <Select
+                  value={selectedAreaType}
+                  onValueChange={(value) => {
+                    setSelectedAreaType(value);
+                    setSelectedSchool('all');
+                  }}
+                  disabled={isLoadingFilters || selectedMunicipality === 'all'}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AREA_TYPE_FILTER_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
               <label className="text-sm font-medium">Escola</label>
               <Select

@@ -19,6 +19,7 @@ export interface FilterInfo {
   schools?: Array<{ id?: string; name: string }>; // Múltiplas escolas
   grade?: { id: string; name: string };
   class?: { id: string; name: string };
+  areaTypeLabel?: string;
   periodStart?: string;
   periodEnd?: string;
   /** Relatório da aba Evolução por aluno */
@@ -264,6 +265,7 @@ function addFiltersInfoPage(
     filterLines.push({ label: 'TURMA', value: studentClass });
   }
 
+  if (filterInfo?.areaTypeLabel) filterLines.push({ label: 'TIPO DE ÁREA', value: filterInfo.areaTypeLabel });
   if (filterInfo?.state?.name) filterLines.push({ label: 'ESTADO', value: filterInfo.state.name });
   if (filterInfo?.municipality?.name) filterLines.push({ label: 'MUNICÍPIO', value: filterInfo.municipality.name });
   const schoolsToDisplay = filterInfo?.schools && filterInfo.schools.length > 0
