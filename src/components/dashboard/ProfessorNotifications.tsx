@@ -16,7 +16,7 @@ import {
   ExternalLink
 } from "lucide-react";
 import { api } from "@/lib/api";
-import { getFilteredAvisos } from "@/services/avisosApi";
+import { avisoPreviewDateRange, getFilteredAvisos } from "@/services/avisosApi";
 import { CalendarApi } from "@/services/calendarApi";
 import { useAuth } from "@/context/authContext";
 import { useNavigate } from "react-router-dom";
@@ -69,7 +69,7 @@ export default function ProfessorNotifications() {
       try {
         let avisoNotifs: Notification[] = [];
         try {
-          const avisosLista = await getFilteredAvisos();
+          const avisosLista = await getFilteredAvisos(undefined, avisoPreviewDateRange());
           avisoNotifs = avisosLista.slice(0, 15).map((a) => {
             const preview =
               a.mensagem.length > 220 ? `${a.mensagem.slice(0, 220)}…` : a.mensagem;
@@ -94,92 +94,7 @@ export default function ProfessorNotifications() {
           avisoNotifs = [];
         }
 
-        const [evaluationsRes, studentsRes] = await Promise.allSettled([
-          api.get("/test/"),
-          api.get("/students"),
-        ]);
-
-        const smartNotifications: Notification[] = [];
-
-        if (evaluationsRes.status === "fulfilled") {
-          const evaluations = evaluationsRes.value.data?.data || evaluationsRes.value.data || [];
-
-          const nearDeadline = evaluations.filter((evaluation: any) => {
-            if (!evaluation.due_date) return false;
-            const dueDate = new Date(evaluation.due_date);
-            const today = new Date();
-            const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-            return diffDays <= 2 && diffDays >= 0;
-          });
-
-          nearDeadline.forEach((evaluation: any) => {
-            smartNotifications.push({
-              id: `deadline-${evaluation.id}`,
-              type: "warning",
-              title: "Prazo próximo",
-              message: `A avaliação "${evaluation.title}" vence em breve`,
-              created_at: new Date().toISOString(),
-              is_read: false,
-              action_url: `/app/avaliacoes/${evaluation.id}`,
-              action_text: "Ver avaliação",
-              priority: "high",
-              category: "deadline",
-            });
-          });
-
-          const pendingCorrections = evaluations.filter((evaluation: any) => {
-            return evaluation.status === "pending" || evaluation.needs_correction;
-          });
-
-          if (pendingCorrections.length > 0) {
-            smartNotifications.push({
-              id: "pending-corrections",
-              type: "info",
-              title: "Correções pendentes",
-              message:
-                pendingCorrections.length === 1
-                  ? 'Você tem 1 avaliação aguardando correção'
-                  : `Você tem ${pendingCorrections.length} avaliações aguardando correção`,
-              created_at: new Date().toISOString(),
-              is_read: false,
-              action_url: "/app/avaliacoes?status=pending",
-              action_text: "Ver pendências",
-              priority: "medium",
-              category: "evaluation",
-            });
-          }
-        }
-
-        if (studentsRes.status === "fulfilled") {
-          const students = studentsRes.value.data?.data || studentsRes.value.data || [];
-
-          const recentStudents = students.filter((student: any) => {
-            if (!student.created_at) {
-              return false;
-            }
-            const createdDate = new Date(student.created_at);
-            const weekAgo = new Date();
-            weekAgo.setDate(weekAgo.getDate() - 7);
-            return createdDate > weekAgo;
-          });
-
-          if (recentStudents.length > 0) {
-            smartNotifications.push({
-              id: "new-students",
-              type: "success",
-              title: "Novos alunos",
-              message: `${recentStudents.length} novo(s) aluno(s) foram cadastrados`,
-              created_at: new Date().toISOString(),
-              is_read: false,
-              action_url: "/app/alunos",
-              action_text: "Ver alunos",
-              priority: "low",
-              category: "student",
-            });
-          }
-        }
-
-        const merged = [...avisoNotifs, ...smartNotifications].sort(
+        const merged = [...avisoNotifs].sort(
           (x, y) => new Date(y.created_at).getTime() - new Date(x.created_at).getTime()
         );
         setNotifications(merged.slice(0, 8));

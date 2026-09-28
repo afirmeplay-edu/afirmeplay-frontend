@@ -18,6 +18,15 @@ export function avisoListDateRange(): { start: string; end: string } {
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
+/** Intervalo curto para o sino e o painel. A listagem completa continua em avisoListDateRange. */
+export function avisoPreviewDateRange(): { start: string; end: string } {
+  const end = new Date();
+  end.setMonth(end.getMonth() + 1);
+  const start = new Date();
+  start.setMonth(start.getMonth() - 6);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 export function mapCalendarDtoToAviso(dto: CalendarEventDTO): Aviso {
   const ep = dto.extendedProps ?? {};
   const meta = ep.metadata as { destinatarios?: Aviso['destinatarios'] } | undefined;
@@ -86,8 +95,11 @@ export function buildTargetsAndVisibility(dest: CreateAvisoDTO['destinatarios'])
   };
 }
 
-export async function getFilteredAvisos(_filters?: AvisosFilters): Promise<Aviso[]> {
-  const { start, end } = avisoListDateRange();
+export async function getFilteredAvisos(
+  _filters?: AvisosFilters,
+  range?: { start: string; end: string }
+): Promise<Aviso[]> {
+  const { start, end } = range ?? avisoListDateRange();
   const { data } = await api.get<CalendarEventDTO[]>('/calendar/my-events', {
     params: { start, end, kind: 'aviso' },
   });

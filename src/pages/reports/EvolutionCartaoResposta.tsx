@@ -215,7 +215,9 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
     };
 
     loadMunicipalities();
-  }, [selectedState, selectedMunicipality, toast]);
+    // selectedMunicipality é lido só para validar a opção atual; incluí-lo reexecutava o efeito ao limpar o município.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedState, toast]);
 
   useEffect(() => {
     if (prevMunicipalityRef.current !== selectedMunicipality) {
@@ -593,7 +595,6 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
         const errorMessage = extractApiError(error);
         if (selectedIdsRef.current !== requestedKey) return;
         handleComparisonError(errorMessage);
-        lastComparisonIdsRef.current = '';
       } finally {
         if (selectedIdsRef.current === requestedKey) {
           setIsLoadingComparison(false);
@@ -602,13 +603,9 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
     }, 450);
 
     return () => window.clearTimeout(timer);
-  }, [
-    comparisonRequestKey,
-    selectedGabaritosForComparison,
-    scopeFilters,
-    toast,
-    handleComparisonError,
-  ]);
+    // A chave já resume gabaritos e escopo. Uma lista nova com os mesmos ids não pode reiniciar o spinner.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comparisonRequestKey]);
 
   const handleExportPdf = async () => {
     if (!processedData || !comparisonData) {

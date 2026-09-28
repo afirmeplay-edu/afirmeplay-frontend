@@ -244,8 +244,8 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
   const getAllQuestions = useMemo(() => {
     const allQuestions: QuestaoConsolidada[] = [];
 
-    tabelaDetalhada.disciplinas.forEach((disciplina, disciplinaIndex) => {
-      disciplina.questoes.forEach((questao, questaoIndex) => {
+    tabelaDetalhada.disciplinas?.forEach((disciplina) => {
+      (disciplina.questoes ?? []).forEach((questao) => {
         allQuestions.push({
           numero: questao.numero,
           habilidade: questao.habilidade,
@@ -264,18 +264,20 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
 
   // ✅ NOVO: Consolidar dados dos alunos de todas as disciplinas (com memoização para performance)
   const getConsolidatedStudents = useMemo(() => {
-    if (!tabelaDetalhada.disciplinas.length) return [];
+    if (!tabelaDetalhada.disciplinas?.length) return [];
 
-    // Pegar alunos da primeira disciplina como base (todos devem ter os mesmos alunos)
-    const baseStudents = tabelaDetalhada.disciplinas[0].alunos;
-    
-    // ✅ CORRIGIDO: Filtrar apenas alunos que responderam pelo menos uma questão
-    const studentsWithAnswers = baseStudents.filter(aluno => {
-      // Verificar se o aluno respondeu pelo menos uma questão em qualquer disciplina
-      return tabelaDetalhada.disciplinas.some(disciplina => {
-        const disciplinaAluno = disciplina.alunos.find(a => a.id === aluno.id);
-        return disciplinaAluno && disciplinaAluno.respostas_por_questao.some(resposta => resposta.respondeu);
-      });
+    const baseStudents = tabelaDetalhada.disciplinas[0].alunos ?? [];
+    const answersOf = (aluno: TabelaDetalhadaAluno) => aluno.respostas_por_questao ?? [];
+
+    const studentsWithAnswers = baseStudents.filter((aluno) => {
+      if (!aluno?.nome && !aluno?.id) return false;
+      return tabelaDetalhada.disciplinas.some((disciplina) => {
+        const disciplinaAluno = (disciplina.alunos ?? []).find((a) => a.id === aluno.id);
+        if (!disciplinaAluno) return false;
+        const answers = answersOf(disciplinaAluno);
+        if (answers.some((resposta) => resposta?.respondeu || resposta?.acertou)) return true;
+        return (disciplinaAluno.total_respondidas ?? 0) > 0 || (disciplinaAluno.nota ?? 0) > 0;
+      }) || answersOf(aluno).length > 0 || Boolean(aluno.nome);
     });
     
     return studentsWithAnswers.map(aluno => {
@@ -291,7 +293,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
       tabelaDetalhada.disciplinas.forEach(disciplina => {
         const disciplinaAluno = disciplina.alunos.find(a => a.id === aluno.id);
         if (disciplinaAluno) {
-          allResponses.push(...disciplinaAluno.respostas_por_questao);
+          allResponses.push(...(disciplinaAluno.respostas_por_questao ?? []));
         }
       });
 
@@ -365,7 +367,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
           nivel: nivelProficiencia,
         },
       };
-    }).sort((a, b) => a.nome.localeCompare(b.nome));
+    }).sort((a, b) => (a.nome ?? '').localeCompare(b.nome ?? '', 'pt-BR'));
   }, [tabelaDetalhada.disciplinas, tabelaDetalhada.geral?.alunos]);
 
   // ✅ NOVO: Dados consolidados para a visão geral (já memoizados)
@@ -524,8 +526,8 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                 colorScheme="purple"
               />
             )}
-            <div className="max-w-full results-table-scroll results-table-body-scroll">
-              <table className="min-w-full border border-border text-center text-xs sm:text-sm shadow-md rounded-lg border-separate border-spacing-0 bg-card">
+            <div className="max-w-full overflow-x-auto results-table-scroll">
+              <table className="min-w-full border border-border text-center text-xs sm:text-sm shadow-md border-collapse bg-card text-card-foreground">
                 <TableHeader
                   totalQuestions={allQuestions.length > MAX_QUESTIONS_FOR_FULL_VIEW 
                     ? getQuestionWindow(allQuestions, currentQuestionWindow).length 
@@ -569,7 +571,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                     acertos: aluno.total_acertos,
                     erros: aluno.total_erros,
                     em_branco: aluno.total_questoes_disciplina - aluno.total_respondidas,
-                    respostas: aluno.respostas_por_questao.map(resposta => ({
+                    respostas: (aluno.respostas_por_questao ?? []).map(resposta => ({
                       questao_id: `q${resposta.questao}`,
                       questao_numero: resposta.questao,
                       resposta_correta: resposta.acertou,
@@ -597,7 +599,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                         tempo_gasto: 0,
                         status: 'concluida' as const,
                         moedas_ganhas: aluno.moedas_ganhas,
-                        respostas: aluno.respostas_por_questao.map(resposta => ({
+                        respostas: (aluno.respostas_por_questao ?? []).map(resposta => ({
                           questao_id: `q${resposta.questao}`,
                           questao_numero: resposta.questao,
                           resposta_correta: resposta.acertou,
@@ -665,7 +667,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
 
 
       {/* Tabelas por Disciplina */}
-      {tabelaDetalhada.disciplinas.map((disciplina) => (
+      {(tabelaDetalhada.disciplinas ?? []).map((disciplina) => (
         <Collapsible
           key={disciplina.id}
           open={!isTableCollapsed(disciplina.id)}
@@ -683,7 +685,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
             <CardTitle className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-4 sm:px-6 gap-3 sm:gap-0">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
-                  <span className="text-lg font-bold">{disciplina.nome.charAt(0)}</span>
+                  <span className="text-lg font-bold">{(disciplina.nome || '?').charAt(0)}</span>
                 </div>
                 <div className="min-w-0 flex-1">
                   <h2 className="text-lg sm:text-xl font-bold truncate">{disciplina.nome}</h2>
@@ -727,8 +729,8 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                 colorScheme="blue"
               />
             )}
-            <div className="max-w-full results-table-scroll results-table-body-scroll">
-              <table className="min-w-full border border-border text-center text-xs sm:text-sm shadow-md rounded-lg border-separate border-spacing-0 bg-card">
+            <div className="max-w-full overflow-x-auto results-table-scroll">
+              <table className="min-w-full border border-border text-center text-xs sm:text-sm shadow-md border-collapse bg-card text-card-foreground">
                 <TableHeader
                   totalQuestions={disciplina.questoes.length > MAX_QUESTIONS_FOR_FULL_VIEW 
                     ? getQuestionWindow(disciplina.questoes, getCurrentWindowForDiscipline(disciplina.id)).length 
@@ -760,7 +762,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                     acertos: aluno.total_acertos,
                     erros: aluno.total_erros,
                     em_branco: aluno.total_questoes_disciplina - aluno.total_respondidas,
-                    respostas: aluno.respostas_por_questao.map(resposta => ({
+                    respostas: (aluno.respostas_por_questao ?? []).map(resposta => ({
                       questao_id: `q${resposta.questao}`,
                       questao_numero: resposta.questao,
                       resposta_correta: resposta.acertou,
@@ -772,10 +774,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                   showCoins={showCoins}
                 />
                 <tbody>
-                  {disciplina.alunos.filter(aluno => {
-                    // ✅ CORRIGIDO: Filtrar apenas alunos que responderam pelo menos uma questão
-                    return aluno.respostas_por_questao.some(resposta => resposta.respondeu);
-                  }).sort((a, b) => a.nome.localeCompare(b.nome)).map((aluno, studentIndex) => (
+                  {(disciplina.alunos ?? []).filter((aluno) => Boolean(aluno?.id || aluno?.nome)).sort((a, b) => (a.nome ?? '').localeCompare(b.nome ?? '', 'pt-BR')).map((aluno, studentIndex) => (
                     <TableRow
                       key={`${disciplina.id}-${aluno.id}`}
                       student={{
@@ -792,7 +791,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                         tempo_gasto: 0,
                         status: 'concluida' as const,
                         moedas_ganhas: aluno.moedas_ganhas,
-                        respostas: aluno.respostas_por_questao.map(resposta => ({
+                        respostas: (aluno.respostas_por_questao ?? []).map(resposta => ({
                           questao_id: `q${resposta.questao}`,
                           questao_numero: resposta.questao,
                           resposta_correta: resposta.acertou,

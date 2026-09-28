@@ -671,6 +671,7 @@ export function FilterComponentAnalise({
 
   const renderEvaluationPicker = (disabled: boolean) => (
     <InstrumentPickerField
+      className="sm:col-span-2 md:col-span-3 lg:col-span-5"
       label={evaluationFilterLabel}
       value={selectedEvaluation}
       onChange={onEvaluationChange}
@@ -764,128 +765,67 @@ export function FilterComponentAnalise({
             disabled={isLoadingFilters || selectedMunicipality === "all"}
           />
 
-          {/* Renderizar Avaliação antes de Escola quando uiEvaluationFirst for true */}
-          {uiEvaluationFirst ? (
-            <>
-              {renderEvaluationPicker(evaluationPickerDisabled)}
-
-              {showAreaTypeFilter && canFilterByAreaType(userRole) && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Tipo de área</label>
-                  <Select
-                    value={selectedAreaType}
-                    onValueChange={(value) => {
-                      onAreaTypeChange(value);
-                      onSchoolChange("all");
-                    }}
-                    disabled={isLoadingFilters || selectedMunicipality === "all" || (selectedEvaluationRequiredForSchools && selectedEvaluation === "all")}
-                  >
-                    <SelectTrigger className="w-full min-w-0">
-                      <SelectValue placeholder="Todas" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {AREA_TYPE_FILTER_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              {/* Escola */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  Escola
-                  {!canSelectSchool && (
-                    <Badge variant="secondary" className="text-xs">Pré-selecionado</Badge>
-                  )}
-                </label>
-                <Select
-                  value={selectedSchool}
-                  onValueChange={onSchoolChange}
-                  disabled={
-                    isLoadingFilters ||
-                    selectedMunicipality === 'all' ||
-                    (selectedEvaluationRequiredForSchools && selectedEvaluation === 'all') ||
-                    !canSelectSchool
-                  }
-                >
-                  <SelectTrigger className="w-full min-w-0">
-                    <SelectValue placeholder="Selecione a escola" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {!mustSelectSpecificSchool && (
-                      <SelectItem value="all">Todas</SelectItem>
-                    )}
-                    {schoolsForSelect.map(school => (
-                      <SelectItem key={school.id} value={school.id}>
-                        {school.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </>
-          ) : (
-            <>
-              {showAreaTypeFilter && canFilterByAreaType(userRole) && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Tipo de área</label>
-                  <Select
-                    value={selectedAreaType}
-                    onValueChange={(value) => {
-                      onAreaTypeChange(value);
-                      onSchoolChange("all");
-                    }}
-                    disabled={isLoadingFilters || selectedMunicipality === "all"}
-                  >
-                    <SelectTrigger className="w-full min-w-0">
-                      <SelectValue placeholder="Todas" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {AREA_TYPE_FILTER_OPTIONS.map((option) => (
-                        <SelectItem key={`zone-${option.value}`} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              {/* Escola */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  Escola
-                  {!canSelectSchool && (
-                    <Badge variant="secondary" className="text-xs">Pré-selecionado</Badge>
-                  )}
-                </label>
-                <Select
-                  value={selectedSchool}
-                  onValueChange={onSchoolChange}
-                  disabled={isLoadingFilters || selectedMunicipality === 'all' || !canSelectSchool}
-                >
-                  <SelectTrigger className="w-full min-w-0">
-                    <SelectValue placeholder="Selecione a escola" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {!mustSelectSpecificSchool && (
-                      <SelectItem value="all">Todas</SelectItem>
-                    )}
-                    {schoolsForSelect.map(school => (
-                      <SelectItem key={school.id} value={school.id}>
-                        {school.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {renderEvaluationPicker(evaluationPickerDisabledWithSchool)}
-            </>
+          {showAreaTypeFilter && canFilterByAreaType(userRole) && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Tipo de área</label>
+              <Select
+                value={selectedAreaType}
+                onValueChange={(value) => {
+                  onAreaTypeChange(value);
+                  onSchoolChange("all");
+                }}
+                disabled={
+                  isLoadingFilters ||
+                  selectedMunicipality === "all" ||
+                  (uiEvaluationFirst && selectedEvaluationRequiredForSchools && selectedEvaluation === "all")
+                }
+              >
+                <SelectTrigger className="w-full min-w-0">
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  {AREA_TYPE_FILTER_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium flex items-center gap-2">
+              Escola
+              {!canSelectSchool && (
+                <Badge variant="secondary" className="text-xs">Pré-selecionado</Badge>
+              )}
+            </label>
+            <Select
+              value={selectedSchool}
+              onValueChange={onSchoolChange}
+              disabled={
+                isLoadingFilters ||
+                selectedMunicipality === "all" ||
+                !canSelectSchool ||
+                (uiEvaluationFirst && selectedEvaluationRequiredForSchools && selectedEvaluation === "all")
+              }
+            >
+              <SelectTrigger className="w-full min-w-0">
+                <SelectValue placeholder="Selecione a escola" />
+              </SelectTrigger>
+              <SelectContent>
+                {!mustSelectSpecificSchool && (
+                  <SelectItem value="all">Todas</SelectItem>
+                )}
+                {schoolsForSelect.map(school => (
+                  <SelectItem key={school.id} value={school.id}>
+                    {school.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {extraFilters != null && extraFilters !== false && (
@@ -896,12 +836,16 @@ export function FilterComponentAnalise({
           </div>
         )}
 
+        <div className="mt-4">
+          {renderEvaluationPicker(
+            uiEvaluationFirst ? evaluationPickerDisabled : evaluationPickerDisabledWithSchool
+          )}
+        </div>
+
         {/* Informação sobre filtros */}
         <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
           <p className="text-sm text-blue-700 dark:text-blue-400">
-            💡 <strong>Hierarquia dos Filtros:</strong> {uiEvaluationFirst 
-              ? `Estado → Município → ${hierarchyEvaluationStep} → Escola`
-              : `Estado → Município → Escola → ${hierarchyEvaluationStep}`}
+            💡 <strong>Hierarquia dos Filtros:</strong> Estado → Município → Escola → {hierarchyEvaluationStep}
           </p>
           <p className="text-sm text-blue-700 mt-1 dark:text-blue-400">
             <strong>Estado</strong> e <strong>Município</strong> são obrigatórios. 

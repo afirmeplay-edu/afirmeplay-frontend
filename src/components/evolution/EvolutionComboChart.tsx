@@ -448,7 +448,13 @@ export function EvolutionComboChart({
   useEffect(() => {
     if (mode !== 'screen') return;
     const target = document.documentElement;
-    const observer = new MutationObserver(() => setThemeTick((tick) => tick + 1));
+    let dark = target.classList.contains('dark');
+    const observer = new MutationObserver(() => {
+      const nextDark = target.classList.contains('dark');
+      if (nextDark === dark) return;
+      dark = nextDark;
+      setThemeTick((tick) => tick + 1);
+    });
     observer.observe(target, { attributes: true, attributeFilter: ['class'] });
     return () => observer.disconnect();
   }, [mode]);
@@ -516,10 +522,21 @@ export function EvolutionComboChart({
     chart.on('finished', onFinished);
     chart.setOption(option, true);
 
+    let lastWidth = 0;
+    let lastHeight = 0;
     const observer =
       mode === 'screen'
-        ? new ResizeObserver(() => {
-            chart?.resize();
+        ? new ResizeObserver((entries) => {
+            if (!chart) return;
+            const rect = entries[0]?.contentRect;
+            if (!rect) return;
+            const width = Math.round(rect.width);
+            const height = Math.round(rect.height);
+            if (width < 2 || height < 2) return;
+            if (Math.abs(width - lastWidth) <= 1 && Math.abs(height - lastHeight) <= 1) return;
+            lastWidth = width;
+            lastHeight = height;
+            chart.resize({ width, height });
           })
         : null;
     observer?.observe(host);

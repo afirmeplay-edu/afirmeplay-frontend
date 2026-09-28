@@ -790,7 +790,6 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
             variant: "destructive",
           });
         }
-        lastComparisonIdsRef.current = '';
       } finally {
         if (selectedIdsRef.current === requestedKey) {
           setIsLoadingComparison(false);
@@ -799,7 +798,9 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     }, debounceMs);
 
     return () => window.clearTimeout(timer);
-  }, [comparisonRequestKey, comparisonPoints, scopeFilters, toast, rememberInvalidIds]);
+    // A chave já resume pontos e escopo. Arrays novos com o mesmo conteúdo não podem reiniciar o spinner.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comparisonRequestKey]);
 
   // Controles de visibilidade agora são por gráfico, definidos em EvolutionCharts
 
@@ -884,6 +885,14 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
   }, [grades, availableEvaluationsForPicker]);
 
   const geoReady = selectedState !== 'all' && selectedMunicipality !== 'all';
+  const groupTestIds = useMemo(
+    () => (includeGroupsTab ? comparisonPoints.flatMap((point) => point.ids) : undefined),
+    [includeGroupsTab, comparisonPoints]
+  );
+  const groupPoints = useMemo(
+    () => (includeGroupsTab ? comparisonPoints.map((point) => point.ids) : undefined),
+    [includeGroupsTab, comparisonPoints]
+  );
 
   return (
     <div className={hidePageHeading ? 'space-y-6' : 'container mx-auto px-4 py-6 space-y-6'}>
@@ -1457,16 +1466,8 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
           isLoading={false}
           instrumentLabel="avaliações"
           defaultTab={includeGroupsTab ? 'groups' : 'general'}
-          groupTestIds={
-            includeGroupsTab
-              ? comparisonPoints.flatMap((point) => point.ids)
-              : undefined
-          }
-          groupPoints={
-            includeGroupsTab
-              ? comparisonPoints.map((point) => point.ids)
-              : undefined
-          }
+          groupTestIds={groupTestIds}
+          groupPoints={groupPoints}
           groupScopeFilters={includeGroupsTab ? scopeFilters : undefined}
           groupRefreshKey={includeGroupsTab ? comparisonRequestKey : undefined}
         />

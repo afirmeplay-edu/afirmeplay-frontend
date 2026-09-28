@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowDownRight, ArrowRight, ArrowUpRight, Building2, GraduationCap, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -40,41 +40,59 @@ export function EvolutionGroupsView({ testIds, grupos, scopeFilters, refreshKey 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    if (testIds.length < 2) {
-      setData(null);
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await EvaluationComparisonApiService.compareEvaluationsByGroups(
-        testIds,
-        viewBy,
-        scopeFilters,
-        grupos
-      );
-      setData(response);
-    } catch (err: unknown) {
-      console.error(err);
-      let message = 'Não foi possível carregar a evolução por grupos.';
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosError = err as { response?: { data?: { error?: string } } };
-        if (axiosError.response?.data?.error) message = axiosError.response.data.error;
-      }
-      setError(message);
-      setData(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [testIds, grupos, viewBy, scopeFilters]);
+  // Chave pelo conteúdo. O pai recria os arrays a cada render; depender da
+  // referência fazia o efeito recomeçar o pedido e o spinner não parava.
+  const requestKey = JSON.stringify({
+    testIds,
+    grupos: grupos ?? [],
+    viewBy,
+    scope: scopeFilters,
+    refreshKey: refreshKey ?? '',
+  });
 
   useEffect(() => {
+    if (testIds.length < 2) {
+      setData(null);
+      setIsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
     const timer = window.setTimeout(() => {
-      void load();
+      void (async () => {
+        setIsLoading(true);
+        setError(null);
+        try {
+          const response = await EvaluationComparisonApiService.compareEvaluationsByGroups(
+            testIds,
+            viewBy,
+            scopeFilters,
+            grupos
+          );
+          if (!cancelled) setData(response);
+        } catch (err: unknown) {
+          console.error(err);
+          if (cancelled) return;
+          let message = 'Não foi possível carregar a evolução por grupos.';
+          if (err && typeof err === 'object' && 'response' in err) {
+            const axiosError = err as { response?: { data?: { error?: string } } };
+            if (axiosError.response?.data?.error) message = axiosError.response.data.error;
+          }
+          setError(message);
+          setData(null);
+        } finally {
+          if (!cancelled) setIsLoading(false);
+        }
+      })();
     }, 400);
-    return () => window.clearTimeout(timer);
-  }, [load, refreshKey]);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // requestKey já resume ids, grupos, escopo e visualização.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestKey]);
 
   const viewLabel = useMemo(() => {
     if (viewBy === 'escola') return 'escola';
