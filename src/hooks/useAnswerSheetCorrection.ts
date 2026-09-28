@@ -5,15 +5,20 @@ import type { OmrCorrectionResult } from '@/types/answer-sheet';
 import {
   alunoAusenteMessage,
   formatOmrBatchSummaryText,
+  formatOmrOutcomeLine,
   isAlunoAusente,
+  omrCorrectionStudentLabel,
+  readOmrCorrectionFailure,
   summarizeOmrBatchResults,
 } from '@/utils/omrCorrectionResult';
 
 export interface AnswerSheetCorrectionItem {
   status: 'pending' | 'processing' | 'done' | 'error';
-  student_name?: string;
+  student_name?: string | null;
   student_id?: string;
   correct?: number;
+  wrong?: number;
+  invalid?: number;
   total?: number;
   percentage?: number;
   grade?: number;
@@ -132,34 +137,37 @@ export function useAnswerSheetCorrection() {
         isCompleted: true,
       }));
 
+      const outcomeLine = formatOmrOutcomeLine(data);
+      const studentName = data.student_name?.trim() || null;
       if (isAlunoAusente(data)) {
         toast({
           title: 'Aluno ausente',
-          description: `${data.student_name ? `${data.student_name}. ` : ''}${alunoAusenteMessage(data)}`,
+          description: [studentName, alunoAusenteMessage(data).replace(/\.+$/, ''), outcomeLine]
+            .filter(Boolean)
+            .join('. '),
         });
       } else {
         toast({
-          title: 'Correção processada!',
-          description: `Aluno: ${data.student_name || 'N/A'}. Acertos: ${data.correct}/${data.total} (${data.percentage?.toFixed(1)}%)`,
+          title: 'Correção processada',
+          description: [studentName || 'Aluno', outcomeLine].filter(Boolean).join('. '),
         });
       }
 
       return data;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Erro ao processar correção única:", error);
-      
-      const errorMessage = error.response?.data?.error || error.message || "Não foi possível processar a correção.";
-      
+      const failure = readOmrCorrectionFailure(error);
+
       setState(prev => ({
         ...prev,
         isProcessing: false,
         isFailed: true,
-        error: errorMessage,
+        error: failure.message,
       }));
 
       toast({
-        title: "Erro ao processar correção",
-        description: errorMessage,
+        title: omrCorrectionStudentLabel(failure.studentName),
+        description: failure.message,
         variant: "destructive",
       });
 

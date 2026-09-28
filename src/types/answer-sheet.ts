@@ -410,17 +410,27 @@ export type OmrCorrectionStatus = 'corrigido' | 'aluno_ausente';
 export interface OmrCorrectionResult {
   message?: string;
   student_id?: string;
-  student_name?: string;
+  /** Null quando o QR não foi lido e o aluno ainda não foi identificado. */
+  student_name?: string | null;
   correct?: number;
   wrong?: number;
   blank?: number;
+  /** Total de questões com marcação inválida. Quais são: detailed_answers com marked "INVALID". */
+  invalid?: number;
   total?: number;
+  /** Nota de 0 a 100: porcentagem de acertos. Não há outra nota, de 0 a 10. */
   score?: number;
   percentage?: number;
   grade?: number;
   aluno_ausente?: boolean;
   saved?: boolean;
   status?: OmrCorrectionStatus;
+}
+
+/** Erro do POST /answer-sheets/correct-new e do item que falhou no lote. */
+export interface OmrCorrectionFailure {
+  studentName: string | null;
+  message: string;
 }
 
 
