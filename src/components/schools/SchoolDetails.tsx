@@ -190,6 +190,7 @@ export default function SchoolDetails() {
   const [currentTeacherUserId, setCurrentTeacherUserId] = useState<string | null>(null);
   const [showStudentsDialog, setShowStudentsDialog] = useState(false);
   const [studentsDialogClass, setStudentsDialogClass] = useState<Class | null>(null);
+  const [subturmaBadges, setSubturmaBadges] = useState<Record<string, string>>({});
   
   // Estados para gerenciamento de turmas
   const [showDeleteClassDialog, setShowDeleteClassDialog] = useState(false);
@@ -218,6 +219,33 @@ export default function SchoolDetails() {
   }, [classes]);
 
   const sortedClasses = useMemo(() => [...classes].sort(compareClassesForDisplay), [classes]);
+
+  useEffect(() => {
+    const classId = studentsDialogClass?.id;
+    if (!classId) {
+      setSubturmaBadges({});
+      return;
+    }
+    let cancelled = false;
+    api
+      .get(`/classes/${classId}/subturmas`)
+      .then((response) => {
+        if (cancelled) return;
+        const map: Record<string, string> = {};
+        for (const item of response.data?.subturmas || []) {
+          for (const aluno of item.alunos || []) {
+            map[aluno.id] = item.display_name;
+          }
+        }
+        setSubturmaBadges(map);
+      })
+      .catch(() => {
+        if (!cancelled) setSubturmaBadges({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [studentsDialogClass?.id]);
 
   useEffect(() => {
     const fetchSchool = async () => {
@@ -1785,8 +1813,11 @@ export default function SchoolDetails() {
               ) : (
                 <div className="space-y-2">
                   {(classStudents[studentsDialogClass.id] || []).map((s) => (
-                    <div key={s.id} className="text-sm text-foreground">
-                      {upperDisplay(s.name)}
+                    <div key={s.id} className="flex items-center gap-2 text-sm text-foreground">
+                      <span>{upperDisplay(s.name)}</span>
+                      {subturmaBadges[s.id] ? (
+                        <Badge variant="secondary">{subturmaBadges[s.id]}</Badge>
+                      ) : null}
                     </div>
                   ))}
                 </div>
