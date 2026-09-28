@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { ChevronsUpDown, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -103,77 +102,59 @@ export function InstrumentPickerField({
         </label>
       )}
       {multiple ? (
-        <div
-          className={cn(
-            "flex w-full min-h-11 min-w-0 items-center gap-2 rounded-md border border-input bg-background px-3 py-2",
-            !triggerDisabled && "cursor-pointer",
-            triggerDisabled && "pointer-events-none opacity-50"
-          )}
-          onClick={handleOpen}
-        >
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+        <div className="space-y-2">
+          <Button
+            id={id}
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            aria-haspopup="dialog"
+            aria-label={modalTitle}
+            disabled={triggerDisabled}
+            onClick={handleOpen}
+            className="h-10 w-full min-w-0 justify-between px-3 font-normal"
+          >
+            <span className="min-w-0 flex-1 truncate text-left text-muted-foreground">
+              {loading
+                ? "Carregando..."
+                : selectedItems.length > 0
+                  ? "Adicionar ou alterar seleção"
+                  : value === "all" && allowAll
+                    ? allLabel
+                    : placeholder}
+            </span>
             {loading ? (
-              <span className="text-sm text-muted-foreground">Carregando...</span>
-            ) : selectedItems.length > 0 ? (
-              <>
-                {selectedItems.slice(0, 2).map((item) => (
-                  <Badge
-                    key={item.id}
-                    variant="secondary"
-                    className="gap-1 text-xs max-w-[160px] font-normal"
-                    title={item.label}
-                  >
-                    <span className="truncate">{item.label}</span>
-                    <button
-                      type="button"
-                      className="rounded-full p-0.5 hover:bg-destructive/20"
-                      aria-label={`Remover ${item.label}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleRemove(item.id);
-                      }}
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  </Badge>
-                ))}
-                {selectedItems.length > 2 && (
-                  <Badge variant="outline" className="text-xs tabular-nums">
-                    +{selectedItems.length - 2}
-                  </Badge>
-                )}
-              </>
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin opacity-50" />
             ) : (
-              <span className="truncate text-sm text-muted-foreground">
-                {value === "all" && allowAll ? allLabel : placeholder}
-              </span>
+              <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
             )}
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            {selectedItems.length > 0 && (
-              <Badge variant="secondary" className="text-xs tabular-nums">
-                {selectedItems.length}
-              </Badge>
-            )}
-            <Button
-              id={id}
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              aria-expanded={open}
-              aria-haspopup="dialog"
-              aria-label={modalTitle}
-              disabled={triggerDisabled}
-              onClick={handleOpen}
-            >
-              {loading ? (
-                <Loader2 className="h-4 w-4 animate-spin opacity-50" />
-              ) : (
-                <ChevronsUpDown className="h-4 w-4 opacity-50" />
-              )}
-            </Button>
-          </div>
+          </Button>
+          {selectedItems.length > 0 && (
+            <ul className="space-y-1.5">
+              {selectedItems.map((item, index) => (
+                <li
+                  key={item.id}
+                  className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5"
+                >
+                  <span className="w-6 shrink-0 text-center text-xs font-semibold tabular-nums text-muted-foreground">
+                    {index + 1}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm text-foreground" title={item.label}>
+                    {item.label}
+                  </span>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    aria-label={`Remover ${item.label}`}
+                    onClick={() => handleRemove(item.id)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       ) : (
         <Button

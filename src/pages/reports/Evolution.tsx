@@ -4,11 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { TrendingUp, Users, Target, Award, Filter, RefreshCw, Download, Plus, X, Check, AlertCircle, Search, Calendar, List, Table, ExternalLink, Eye } from 'lucide-react';
+import { TrendingUp, Filter, RefreshCw, Download, X, AlertCircle, List, Table } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/authContext';
 import { api } from '@/lib/api';
@@ -20,6 +18,9 @@ import { processComparisonData } from '@/utils/evolution/evolutionDataProcessor'
 import { generateEvolutionPDFFromHTML } from '@/utils/evolution/evolutionPdfService';
 import { AREA_TYPE_FILTER_OPTIONS, areaTypeFilterLabel, canFilterByAreaType } from '@/lib/schoolAreaType';
 import { EvolutionScopeMetaLines } from '@/components/evolution/EvolutionEvaluationsScopeList';
+import { InstrumentPickerModal } from '@/components/filters/InstrumentPickerModal';
+import { buildPickerContextLines, toInstrumentPickerItems } from '@/components/filters/instrumentPickerHelpers';
+import { formatTurmasFromRefs } from '@/utils/evolution/formatTurmasAgrupadas';
 
 // Interfaces para os filtros
 interface State {
@@ -49,15 +50,57 @@ interface Class {
   name: string; 
 }
 
+interface EvaluationTurma {
+  id: string;
+  nome: string;
+}
+
 interface Evaluation {
   id: string;
   titulo: string;
   disciplina: string;
+  disciplinas: string[];
   status: string;
   data_aplicacao: string | null;
   escola?: string | null;
   serie?: string | null;
+  serieId?: string | null;
+  serieNome?: string | null;
   turma?: string | null;
+  turmas: EvaluationTurma[];
+}
+
+interface EvolutionPoint {
+  ids: string[];
+  members: Evaluation[];
+}
+
+function pointTitle(point: EvolutionPoint): string {
+  if (point.members.length <= 1) return point.members[0]?.titulo ?? 'Avaliação';
+  const subjects = point.members.flatMap((member) =>
+    member.disciplinas.length > 0 ? member.disciplinas : member.disciplina ? [member.disciplina] : []
+  );
+  const unique = [...new Set(subjects.map((name) => name.trim()).filter(Boolean))];
+  if (unique.length > 0) return unique.join(' + ');
+  return point.members.map((member) => member.titulo).join(' + ');
+}
+
+function pointClasses(point: EvolutionPoint): { id: string; name: string }[] {
+  const seen = new Set<string>();
+  const classes: { id: string; name: string }[] = [];
+  for (const member of point.members) {
+    for (const turma of member.turmas) {
+      const id = turma.id?.trim();
+      const name = turma.nome?.trim();
+      if (!name) continue;
+      if (id) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+      }
+      classes.push({ id: id || name, name });
+    }
+  }
+  return classes;
 }
 
 type EvolutionProps = {
@@ -85,7 +128,8 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
   const [evaluationSearch, setEvaluationSearch] = useState<string>('');
   
   // Estados do carrinho de avaliações
-  const [selectedEvaluationsForComparison, setSelectedEvaluationsForComparison] = useState<Evaluation[]>([]);
+  const [comparisonPoints, setComparisonPoints] = useState<EvolutionPoint[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [availableEvaluationsForPicker, setAvailableEvaluationsForPicker] = useState<Evaluation[]>([]);
   const [selectedEvaluationToPick, setSelectedEvaluationToPick] = useState<string>('all');
   const [invalidEvaluationIds, setInvalidEvaluationIds] = useState<Set<string>>(new Set());
@@ -178,63 +222,65 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
   // Limite máximo de avaliações para comparação (suportado pelo sistema)
   const MAX_EVALUATIONS = 10;
 
-  // Função para adicionar avaliação ao carrinho (validação acontece apenas quando há 2+ avaliações)
-  const handleAddEvaluation = useCallback((evaluationId: string) => {
-    const evaluation = availableEvaluationsForPicker.find(e => e.id === evaluationId);
-    if (!evaluation) return;
-    
-    // Adicionar diretamente ao carrinho com verificação atômica dentro do setState
-    // Isso previne race conditions em cliques rápidos
-    setSelectedEvaluationsForComparison(prev => {
-      // Verificar limite máximo
+  const rememberInvalidIds = useCallback((message: string) => {
+    const found = message.match(/[0-9a-fA-F-]{8,}/g) ?? [];
+    if (found.length === 0) return;
+    setInvalidEvaluationIds((prev) => {
+      const next = new Set(prev);
+      found.forEach((id) => next.add(id));
+      return next;
+    });
+  }, []);
+
+  const confirmComparisonPoint = useCallback((rawIds: string) => {
+    const ids = [...new Set(rawIds.split(',').map((id) => id.trim()).filter(Boolean))];
+    if (ids.length === 0) return;
+    const members = ids
+      .map((id) => availableEvaluationsForPicker.find((item) => item.id === id))
+      .filter((item): item is Evaluation => Boolean(item));
+    if (members.length !== ids.length) return;
+
+    setComparisonPoints((prev) => {
       if (prev.length >= MAX_EVALUATIONS) {
         toast({
-          title: "Limite de avaliações atingido",
-          description: `Você pode comparar no máximo ${MAX_EVALUATIONS} avaliações por vez. Remova uma avaliação antes de adicionar outra.`,
-          variant: "destructive",
+          title: 'Limite de avaliações atingido',
+          description: `Você pode comparar no máximo ${MAX_EVALUATIONS} pontos por vez. Remova um antes de adicionar outro.`,
+          variant: 'destructive',
         });
-        return prev; // Retornar estado inalterado
+        return prev;
       }
-      
-      // Verificar duplicata dentro do setState (garantido que usa o estado mais recente)
-      if (prev.some(e => e.id === evaluationId)) {
-        // Se já existe, retornar estado inalterado e mostrar toast
+      const used = new Set(prev.flatMap((point) => point.ids));
+      if (ids.some((id) => used.has(id))) {
         toast({
-          title: "Avaliação já adicionada",
-          description: "Esta avaliação já está na lista de comparação.",
-          variant: "destructive",
+          title: 'Avaliação já adicionada',
+          description: 'Esta avaliação já está na comparação.',
+          variant: 'destructive',
         });
-        return prev; // Retornar estado inalterado
+        return prev;
       }
-      
-      // Se não existe, adicionar e mostrar toast de sucesso
-      const newState = [...prev, evaluation];
-      const remaining = MAX_EVALUATIONS - newState.length;
-      const message = prev.length === 0
-        ? `"${evaluation.titulo}" foi adicionada à comparação. Selecione mais uma avaliação para comparar.${remaining > 0 ? ` (${remaining} restantes)` : ''}`
-        : `"${evaluation.titulo}" foi adicionada à comparação.${remaining > 0 ? ` (${remaining} restantes)` : ' (limite atingido)'}`;
-      
+      const point: EvolutionPoint = { ids, members };
+      const remaining = MAX_EVALUATIONS - (prev.length + 1);
       toast({
-        title: "Avaliação adicionada",
-        description: message,
+        title: ids.length > 1 ? 'Avaliações mescladas' : 'Avaliação adicionada',
+        description:
+          ids.length > 1
+            ? `${pointTitle(point)} entrou como um único ponto.${remaining > 0 ? ` (${remaining} restantes)` : ''}`
+            : `"${pointTitle(point)}" foi adicionada à comparação.${remaining > 0 ? ` (${remaining} restantes)` : ''}`,
       });
-      
-      return newState;
+      return [...prev, point];
     });
   }, [availableEvaluationsForPicker, toast]);
 
-  // Função para remover avaliação do carrinho
-  const handleRemoveEvaluation = useCallback((evaluationId: string) => {
-    setSelectedEvaluationsForComparison(prev => prev.filter(e => e.id !== evaluationId));
-    
+  const handleRemovePoint = useCallback((index: number) => {
+    setComparisonPoints((prev) => prev.filter((_, pointIndex) => pointIndex !== index));
     toast({
-      title: "Avaliação removida",
-      description: "A avaliação foi removida da comparação.",
+      title: 'Avaliação removida',
+      description: 'A avaliação foi removida da comparação.',
     });
   }, [toast]);
 
   const handleClearEvaluations = useCallback(() => {
-    setSelectedEvaluationsForComparison([]);
+    setComparisonPoints([]);
     setInvalidEvaluationIds(new Set());
     lastComparisonIdsRef.current = '';
     toast({
@@ -293,7 +339,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
       setSelectedSchool('all');
       setSelectedGrade('all');
       setSelectedClass('all');
-      setSelectedEvaluationsForComparison([]);
+      setComparisonPoints([]);
       setInvalidEvaluationIds(new Set());
       lastComparisonIdsRef.current = '';
     }
@@ -305,7 +351,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
       prevSchoolRef.current = selectedSchool;
       setSelectedGrade('all');
       setSelectedClass('all');
-      setSelectedEvaluationsForComparison([]);
+      setComparisonPoints([]);
       setInvalidEvaluationIds(new Set());
       lastComparisonIdsRef.current = '';
     }
@@ -316,7 +362,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     if (prevGradeRef.current !== selectedGrade) {
       prevGradeRef.current = selectedGrade;
       setSelectedClass('all');
-      setSelectedEvaluationsForComparison([]);
+      setComparisonPoints([]);
       setInvalidEvaluationIds(new Set());
       lastComparisonIdsRef.current = '';
     }
@@ -365,14 +411,16 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
             ? (rd.avaliacoes as { items: unknown[] }).items
             : [];
         const opcoes = response?.opcoes_proximos_filtros?.avaliacoes ?? [];
-        const raiz = Array.isArray((response as { avaliacoes?: unknown[] })?.avaliacoes)
-          ? (response as { avaliacoes: unknown[] }).avaliacoes
-          : [];
+        const raizPayload = response as unknown as { avaliacoes?: unknown[] };
+        const raiz = Array.isArray(raizPayload?.avaliacoes) ? raizPayload.avaliacoes : [];
         const rawList = detalhes.length > 0 ? detalhes : opcoes.length > 0 ? opcoes : raiz;
         type Item = {
           id?: string; titulo?: string; title?: string; test_id?: string; avaliacao_id?: string;
           data_aplicacao?: string | null; data?: string | null; applied_at?: string | null;
           created_at?: string | null; createdAt?: string | null;
+          disciplina?: string; disciplinas?: string[];
+          grade_id?: string; grade_nome?: string; serie_id?: string; serie_nome?: string;
+          turmas?: Array<{ id?: string; nome?: string; name?: string }>;
         };
         // Backend pode enviar "data" em dd/mm/yyyy; converter para ISO para exibição correta
         const pickDate = (a: Item): string | null => {
@@ -404,16 +452,34 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
             seen.add(key);
             return true;
           })
-          .map((a) => ({
-            id: String(a.test_id ?? a.avaliacao_id ?? a.id ?? ''),
-            titulo: (a.titulo ?? a.title ?? 'Sem título').toString(),
-            disciplina: '',
-            status: 'concluida',
-            data_aplicacao: pickDate(a),
-            escola: null,
-            serie: null,
-            turma: null,
-          }));
+          .map((a) => {
+            const disciplinas = (a.disciplinas ?? [])
+              .map((name) => String(name).trim())
+              .filter(Boolean);
+            const disciplina = String(a.disciplina ?? disciplinas[0] ?? '').trim();
+            const turmas = (a.turmas ?? [])
+              .map((turma) => ({
+                id: String(turma.id ?? '').trim(),
+                nome: String(turma.nome ?? turma.name ?? '').trim(),
+              }))
+              .filter((turma) => turma.nome);
+            const serieId = String(a.serie_id ?? a.grade_id ?? '').trim() || null;
+            const serieNome = String(a.serie_nome ?? a.grade_nome ?? '').trim() || null;
+            return {
+              id: String(a.test_id ?? a.avaliacao_id ?? a.id ?? ''),
+              titulo: (a.titulo ?? a.title ?? 'Sem título').toString(),
+              disciplina,
+              disciplinas: disciplinas.length > 0 ? disciplinas : disciplina ? [disciplina] : [],
+              status: 'concluida',
+              data_aplicacao: pickDate(a),
+              escola: null,
+              serie: serieNome,
+              serieId,
+              serieNome,
+              turma: null,
+              turmas,
+            };
+          });
         setAvailableEvaluationsForPicker(list);
       } catch (error) {
         console.error('Erro ao carregar avaliações:', error);
@@ -430,33 +496,6 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
 
     loadEvaluations();
   }, [selectedState, selectedMunicipality, selectedSchool, selectedAreaType, selectedGrade, selectedClass, periodStart, periodEnd, evaluationSearch, toast]);
-
-  // Filtro por busca: só mostrar avaliações cujo título ou id contenha o termo (backend pode não filtrar corretamente)
-  const filteredEvaluations = useMemo(() => {
-    const term = evaluationSearch.trim().toLowerCase();
-    if (!term) return [...availableEvaluationsForPicker];
-    return availableEvaluationsForPicker.filter((e) => {
-      const titulo = (e.titulo ?? '').toLowerCase();
-      const id = (e.id ?? '').toLowerCase();
-      return titulo.includes(term) || id.includes(term);
-    });
-  }, [availableEvaluationsForPicker, evaluationSearch]);
-
-  const handleSelectAllEvaluations = useCallback(() => {
-    const candidates = filteredEvaluations.filter((e) => !invalidEvaluationIds.has(e.id));
-    if (candidates.length === 0) return;
-
-    const toSelect = candidates.slice(0, MAX_EVALUATIONS);
-    setSelectedEvaluationsForComparison(toSelect);
-
-    const truncated = candidates.length > MAX_EVALUATIONS;
-    toast({
-      title: truncated ? 'Seleção limitada' : 'Provas selecionadas',
-      description: truncated
-        ? `Foram selecionadas as primeiras ${MAX_EVALUATIONS} de ${candidates.length} provas disponíveis (limite por comparação).`
-        : `${toSelect.length} prova(s) selecionada(s) para comparação.`,
-    });
-  }, [filteredEvaluations, invalidEvaluationIds, toast]);
 
   // Carregar escolas: GET /evolucao/opcoes-filtros?estado=X&municipio=id (só escolas com avaliações)
   useEffect(() => {
@@ -565,7 +604,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
   );
 
   const handleCompareEvaluations = useCallback(async () => {
-    if (selectedEvaluationsForComparison.length < 2) {
+    if (comparisonPoints.length < 2) {
       toast({
         title: "Selecione pelo menos 2 avaliações",
         description: "Para comparar, você precisa adicionar pelo menos 2 avaliações.",
@@ -579,13 +618,13 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
       setComparisonError(null);
 
       // Remover duplicatas usando Set para garantir IDs únicos
-      const evaluationIds = Array.from(
-        new Set(selectedEvaluationsForComparison.map(e => e.id))
-      );
+      const evaluationIds = comparisonPoints.flatMap((point) => point.ids);
+      const grupos = comparisonPoints.map((point) => point.ids);
 
       const comparison = await EvaluationComparisonApiService.compareEvaluations(
         evaluationIds,
-        scopeFilters
+        scopeFilters,
+        grupos
       );
       setComparisonData(comparison);
 
@@ -613,6 +652,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
         }
       }
       
+      if (errorMessage) rememberInvalidIds(errorMessage);
       if (errorMessage.includes('não possui resultados calculados')) {
         setComparisonError('Avaliação sem resultados calculados');
         toast({
@@ -638,12 +678,12 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     } finally {
       setIsLoadingComparison(false);
     }
-  }, [selectedEvaluationsForComparison, scopeFilters, toast]);
+  }, [comparisonPoints, scopeFilters, toast, rememberInvalidIds]);
 
   // Chave estável da seleção atual + escopo (mudança de filtro dispara nova comparação)
   const selectedIdsKey = useMemo(
-    () => selectedEvaluationsForComparison.map(e => e.id).sort().join(','),
-    [selectedEvaluationsForComparison]
+    () => comparisonPoints.map((point) => [...point.ids].sort().join(',')).sort().join('|'),
+    [comparisonPoints]
   );
 
   const comparisonRequestKey = useMemo(
@@ -664,7 +704,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
   useEffect(() => {
     selectedIdsRef.current = comparisonRequestKey;
 
-    if (selectedEvaluationsForComparison.length < 2) {
+    if (comparisonPoints.length < 2) {
       setComparisonData(null);
       setProcessedData(null);
       setComparisonError(null);
@@ -685,10 +725,12 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
       setComparisonError(null);
 
       try {
-        const evaluationIds = Array.from(new Set(selectedEvaluationsForComparison.map(e => e.id)));
+        const evaluationIds = comparisonPoints.flatMap((point) => point.ids);
+        const grupos = comparisonPoints.map((point) => point.ids);
         const comparison = await EvaluationComparisonApiService.compareEvaluations(
           evaluationIds,
-          scopeFilters
+          scopeFilters,
+          grupos
         );
 
         if (selectedIdsRef.current !== requestedKey) return;
@@ -722,6 +764,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
           }
         }
         if (selectedIdsRef.current !== requestedKey) return;
+        if (errorMessage) rememberInvalidIds(errorMessage);
         if (errorMessage.includes('não possui resultados calculados')) {
           setComparisonError('Avaliação sem resultados calculados');
           toast({
@@ -747,7 +790,6 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
             variant: "destructive",
           });
         }
-        lastComparisonIdsRef.current = '';
       } finally {
         if (selectedIdsRef.current === requestedKey) {
           setIsLoadingComparison(false);
@@ -756,7 +798,9 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     }, debounceMs);
 
     return () => window.clearTimeout(timer);
-  }, [comparisonRequestKey, selectedEvaluationsForComparison, scopeFilters, toast]);
+    // A chave já resume pontos e escopo. Arrays novos com o mesmo conteúdo não podem reiniciar o spinner.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comparisonRequestKey]);
 
   // Controles de visibilidade agora são por gráfico, definidos em EvolutionCharts
 
@@ -786,6 +830,70 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     }
   };
 
+  const pickerItems = useMemo(
+    () =>
+      availableEvaluationsForPicker.map((evaluation) => {
+        const base = toInstrumentPickerItems([
+          {
+            id: evaluation.id,
+            titulo: evaluation.titulo,
+            disciplinas: evaluation.disciplinas,
+            disciplina: evaluation.disciplina,
+            grade_id: evaluation.serieId ?? undefined,
+            grade_nome: evaluation.serieNome ?? undefined,
+          },
+        ])[0];
+        const turmas = formatTurmasFromRefs(
+          evaluation.turmas.map((turma) => ({ id: turma.id, name: turma.nome }))
+        );
+        return {
+          ...base,
+          subtitle: turmas ? `Turmas: ${turmas}` : base.subtitle,
+        };
+      }),
+    [availableEvaluationsForPicker]
+  );
+
+  const pickerContextLines = useMemo(
+    () =>
+      buildPickerContextLines({
+        estado:
+          states.find((state) => state.id === selectedState)?.name
+          ?? (selectedState !== 'all' ? selectedState : undefined),
+        municipio:
+          municipalities.find((city) => city.id === selectedMunicipality)?.name
+          ?? (selectedMunicipality !== 'all' ? selectedMunicipality : undefined),
+        escola:
+          selectedSchool !== 'all'
+            ? schools.find((school) => school.id === selectedSchool)?.name
+            : undefined,
+        periodo:
+          periodStart || periodEnd
+            ? `${periodStart || '…'} — ${periodEnd || '…'}`
+            : undefined,
+      }),
+    [states, selectedState, municipalities, selectedMunicipality, schools, selectedSchool, periodStart, periodEnd]
+  );
+
+  const pickerSeries = useMemo(() => {
+    if (grades.length > 0) return grades.map((grade) => ({ id: grade.id, name: grade.name }));
+    const unique = new Map<string, string>();
+    for (const evaluation of availableEvaluationsForPicker) {
+      if (evaluation.serieId && evaluation.serieNome) unique.set(evaluation.serieId, evaluation.serieNome);
+    }
+    return [...unique.entries()].map(([id, name]) => ({ id, name }));
+  }, [grades, availableEvaluationsForPicker]);
+
+  const geoReady = selectedState !== 'all' && selectedMunicipality !== 'all';
+  const groupTestIds = useMemo(
+    () => (includeGroupsTab ? comparisonPoints.flatMap((point) => point.ids) : undefined),
+    [includeGroupsTab, comparisonPoints]
+  );
+  const groupPoints = useMemo(
+    () => (includeGroupsTab ? comparisonPoints.map((point) => point.ids) : undefined),
+    [includeGroupsTab, comparisonPoints]
+  );
+
   return (
     <div className={hidePageHeading ? 'space-y-6' : 'container mx-auto px-4 py-6 space-y-6'}>
       {!hidePageHeading && (
@@ -812,112 +920,6 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
             Atualizar
           </Button>
         
-        {/* Botão para ver avaliações selecionadas */}
-        {selectedEvaluationsForComparison.length > 0 && (
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button 
-                  variant="outline"
-                  className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white border-0"
-                >
-                  <Eye className="h-4 w-4 mr-2" />
-                  Ver avaliações ({selectedEvaluationsForComparison.length})
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-3 text-xl">
-                    <div className="p-2 bg-muted rounded-lg">
-                      <List className="h-5 w-5 text-foreground" />
-                    </div>
-                    Avaliações selecionadas
-                  </DialogTitle>
-                  <DialogDescription>
-                    {selectedEvaluationsForComparison.length} de {MAX_EVALUATIONS}{' '}
-                    {selectedEvaluationsForComparison.length === 1
-                      ? 'avaliação na comparação'
-                      : 'avaliações na comparação'}
-                    {selectedEvaluationsForComparison.length >= MAX_EVALUATIONS && (
-                      <span className="block mt-1 text-amber-600 dark:text-amber-400 text-xs">
-                        Limite máximo atingido. Remova uma avaliação para adicionar outra.
-                      </span>
-                    )}
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-3 mt-4">
-                  <div className="rounded-lg border border-border overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead className="bg-muted/60">
-                        <tr className="text-left text-muted-foreground">
-                          <th className="px-3 py-2 font-medium w-10">#</th>
-                          <th className="px-3 py-2 font-medium">Avaliação</th>
-                          <th className="px-3 py-2 font-medium hidden sm:table-cell">Data</th>
-                          <th className="px-3 py-2 font-medium text-right">Ações</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedEvaluationsForComparison.map((evaluation, index) => (
-                          <tr
-                            key={evaluation.id}
-                            className="border-t border-border hover:bg-muted/40"
-                          >
-                            <td className="px-3 py-3 text-muted-foreground">{index + 1}</td>
-                            <td className="px-3 py-3">
-                              <div className="font-medium text-foreground leading-tight">
-                                {evaluation.titulo}
-                              </div>
-                              {(() => {
-                                const scopeMeta = comparisonData?.evaluations?.find((e) => e.id === evaluation.id);
-                                return scopeMeta ? <EvolutionScopeMetaLines evaluation={scopeMeta} /> : null;
-                              })()}
-                            </td>
-                            <td className="px-3 py-3 text-muted-foreground hidden sm:table-cell whitespace-nowrap">
-                              {formatDate(evaluation.data_aplicacao)}
-                            </td>
-                            <td className="px-3 py-3">
-                              <div className="flex items-center justify-end gap-1">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8"
-                                  onClick={() =>
-                                    window.open(`/app/avaliacao/${evaluation.id}`, '_blank', 'noopener,noreferrer')
-                                  }
-                                >
-                                  <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-                                  Ver avaliação
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleRemoveEvaluation(evaluation.id)}
-                                  className="h-8 hover:bg-red-100 dark:hover:bg-red-950/30 hover:text-red-600"
-                                  aria-label="Remover da comparação"
-                                >
-                                  <X className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {selectedEvaluationsForComparison.length < 2 && (
-                    <div className="pt-2">
-                      <div className="text-center py-3">
-                        <p className="text-sm text-muted-foreground">
-                          Selecione pelo menos 2 avaliações para iniciar a comparação automática
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </DialogContent>
-            </Dialog>
-          )}
-          
           {comparisonData && processedData && (
             <>
               <Button 
@@ -938,7 +940,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                     // Extrair escolas únicas das avaliações selecionadas
                     const uniqueSchools = new Map<string, { id?: string; name: string }>();
                     
-                    selectedEvaluationsForComparison.forEach(evaluation => {
+                    comparisonPoints.forEach((point) => point.members.forEach(evaluation => {
                       if (evaluation.escola) {
                         // Se já não existe, adicionar
                         if (!uniqueSchools.has(evaluation.escola)) {
@@ -950,7 +952,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                           });
                         }
                       }
-                    });
+                    }));
                     
                     const schoolsArray = Array.from(uniqueSchools.values());
                     
@@ -1020,7 +1022,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
               <Button 
                 onClick={async () => {
                   // Validar se há avaliações selecionadas
-                  if (selectedEvaluationsForComparison.length < 2) {
+                  if (comparisonPoints.length < 2) {
                     toast({
                       title: "Selecione pelo menos 2 avaliações",
                       description: "Para exportar, você precisa ter pelo menos 2 avaliações selecionadas.",
@@ -1034,12 +1036,12 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
 
                     // Preparar payload com os IDs das avaliações selecionadas
                     // Remover duplicatas usando Set para garantir IDs únicos
-                    const uniqueTestIds = Array.from(
-                      new Set(selectedEvaluationsForComparison.map(e => e.id))
-                    );
+                    const uniqueTestIds = comparisonPoints.flatMap((point) => point.ids);
+                    const grupos = comparisonPoints.map((point) => point.ids);
                     
                     const payload = {
                       test_ids: uniqueTestIds,
+                      grupos,
                       estado: selectedState !== 'all' ? selectedState : null,
                       municipio: selectedMunicipality !== 'all' ? selectedMunicipality : null,
                       escola: selectedSchool !== 'all' ? selectedSchool : null,
@@ -1083,9 +1085,9 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                     toast({
                       title: "Excel exportado com sucesso!",
                       description:
-                        selectedEvaluationsForComparison.length === 1
+                        comparisonPoints.length === 1
                           ? 'Arquivo gerado com sucesso para 1 avaliação.'
-                          : `Arquivo gerado com sucesso para ${selectedEvaluationsForComparison.length} avaliações.`,
+                          : `Arquivo gerado com sucesso para ${comparisonPoints.length} avaliações.`,
                     });
                   } catch (error: any) {
                     console.error('Erro ao exportar Excel:', error);
@@ -1120,7 +1122,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                     setIsExportingExcel(false);
                   }
                 }}
-                disabled={isGeneratingPDF || isExportingExcel || selectedEvaluationsForComparison.length < 2}
+                disabled={isGeneratingPDF || isExportingExcel || comparisonPoints.length < 2}
                 className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
               >
                 <Table className={`h-4 w-4 mr-2 ${isExportingExcel ? 'animate-spin' : ''}`} />
@@ -1301,169 +1303,41 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
           )}
 
           {/* Seção de Avaliações */}
-          {selectedMunicipality !== 'all' && (
-            <div className="mt-6 pt-6 border-t border-border">
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold text-foreground mb-1">Avaliações Disponíveis</h3>
-                <p className="text-sm text-muted-foreground">
-                  Selecione as avaliações para comparação
-                </p>
-              </div>
-              <div className="flex items-center gap-3 mb-4">
-                {isLoadingFilters && (
-                  <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                    <span className="text-sm">Carregando avaliações...</span>
-                  </div>
-                )}
-                {!isLoadingFilters && filteredEvaluations.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800">
-                      {filteredEvaluations.length} encontrada(s)
-                    </Badge>
-                    {selectedEvaluationsForComparison.length > 0 && (
-                      <Badge variant="outline" className="bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800">
-                        {selectedEvaluationsForComparison.length}/{MAX_EVALUATIONS} selecionada(s)
-                      </Badge>
-                    )}
-                  </div>
-                )}
-                {!isLoadingFilters && filteredEvaluations.length === 0 && availableEvaluationsForPicker.length === 0 && (
-                  <Badge variant="outline" className="bg-muted text-muted-foreground">
-                    Nenhuma avaliação encontrada
-                  </Badge>
-                )}
-              </div>
-
-              {/* Busca de avaliações */}
-              {!isLoadingFilters && availableEvaluationsForPicker.length > 0 && (
-                <div className="mb-4 flex flex-col sm:flex-row gap-3 sm:items-center">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      type="text"
-                      placeholder="Buscar por nome ou número da avaliação..."
-                      value={evaluationSearch}
-                      onChange={(e) => setEvaluationSearch(e.target.value)}
-                      className="pl-9 h-10"
-                    />
-                  </div>
-                  <div className="flex gap-2 shrink-0">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-10"
-                      onClick={handleSelectAllEvaluations}
-                      disabled={filteredEvaluations.length === 0}
-                    >
-                      Selecionar todas
-                      {filteredEvaluations.length > MAX_EVALUATIONS
-                        ? ` (máx. ${MAX_EVALUATIONS})`
-                        : ''}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-10"
-                      onClick={handleClearEvaluations}
-                      disabled={selectedEvaluationsForComparison.length === 0}
-                    >
-                      Limpar
-                    </Button>
-                  </div>
-                </div>
+          <div className="mt-6 pt-6 border-t border-border">
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                onClick={() => {
+                  setEvaluationSearch('');
+                  setPickerOpen(true);
+                }}
+                disabled={!geoReady}
+                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
+              >
+                <List className="h-4 w-4 mr-2" />
+                Selecionar avaliações
+              </Button>
+              <Badge variant="outline">
+                {comparisonPoints.length}/{MAX_EVALUATIONS} selecionada(s)
+              </Badge>
+              {pickerContextLines.map((line) => (
+                <Badge key={line} variant="secondary" className="font-normal">
+                  {line}
+                </Badge>
+              ))}
+              {comparisonPoints.length > 0 && (
+                <Button type="button" variant="ghost" size="sm" onClick={handleClearEvaluations}>
+                  Limpar
+                </Button>
               )}
-
-              {isLoadingFilters ? (
-                  <div className="flex items-center justify-center py-12 border-2 border-dashed border-border rounded-xl bg-muted/50">
-                    <div className="text-center">
-                      <RefreshCw className="h-8 w-8 animate-spin text-blue-600 dark:text-blue-400 mx-auto mb-3" />
-                      <p className="text-sm text-muted-foreground">Carregando avaliações...</p>
-                    </div>
-                  </div>
-                ) : filteredEvaluations.length > 0 ? (
-                  <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
-                    {filteredEvaluations.map((evaluation) => {
-                      const isAlreadyAdded = selectedEvaluationsForComparison.some(e => e.id === evaluation.id);
-                      const isInvalid = invalidEvaluationIds.has(evaluation.id);
-                      
-                      return (
-                        <div
-                          key={evaluation.id}
-                          className={`group relative p-4 rounded-lg border transition-all duration-200 ${
-                            isAlreadyAdded
-                              ? 'bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-800'
-                              : isInvalid
-                              ? 'bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800 opacity-60'
-                              : selectedEvaluationsForComparison.length >= MAX_EVALUATIONS
-                              ? 'bg-muted/50 border-border opacity-50 cursor-not-allowed'
-                              : 'bg-card border-border hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-md'
-                          }`}
-                        >
-                          <div className="flex items-start gap-3">
-                            <Checkbox
-                              checked={isAlreadyAdded}
-                              disabled={isInvalid || (!isAlreadyAdded && selectedEvaluationsForComparison.length >= MAX_EVALUATIONS)}
-                              onCheckedChange={(checked) => {
-                                if (checked && !isAlreadyAdded) {
-                                  handleAddEvaluation(evaluation.id);
-                                } else if (!checked && isAlreadyAdded) {
-                                  handleRemoveEvaluation(evaluation.id);
-                                }
-                              }}
-                              className="mt-1"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex-1">
-                                  <h4 className="font-semibold text-foreground text-sm leading-tight mb-1">
-                                    {evaluation.titulo}
-                                  </h4>
-                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                    <Calendar className="h-3 w-3" />
-                                    {formatDate(evaluation.data_aplicacao)}
-                                  </div>
-                                  {(() => {
-                                    const scopeMeta = comparisonData?.evaluations?.find((e) => e.id === evaluation.id);
-                                    return scopeMeta ? <EvolutionScopeMetaLines evaluation={scopeMeta} /> : null;
-                                  })()}
-                                </div>
-                                {isAlreadyAdded && (
-                                  <Badge variant="outline" className="bg-green-100 dark:bg-green-950/30 text-green-800 dark:text-green-400 border-green-300 dark:border-green-800">
-                                    <Check className="h-3 w-3 mr-1" />
-                                    Selecionada
-                                  </Badge>
-                                )}
-                                {isInvalid && (
-                                  <Badge variant="outline" className="bg-red-100 dark:bg-red-950/30 text-red-800 dark:text-red-400 border-red-300 dark:border-red-800">
-                                    <AlertCircle className="h-3 w-3 mr-1" />
-                                    Sem resultados
-                                  </Badge>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-12 border-2 border-dashed border-border rounded-xl bg-muted/50">
-                    <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
-                      <TrendingUp className="h-8 w-8 text-muted-foreground" />
-                    </div>
-                    <h4 className="text-lg font-medium text-foreground mb-2">Nenhuma avaliação encontrada</h4>
-                    <p className="text-sm text-muted-foreground text-center max-w-sm">
-                      {evaluationSearch || periodStart || periodEnd
-                        ? 'Tente ajustar os filtros de busca ou período.'
-                        : 'Tente ajustar os filtros ou verifique se existem avaliações para os critérios selecionados.'}
-                    </p>
-                  </div>
-                )}
-              </div>
+            </div>
+            {comparisonPoints.length > 0 && comparisonPoints.length < 2 && (
+              <p className="mt-3 text-sm text-muted-foreground">
+                Selecione pelo menos 2 pontos para iniciar a comparação. Avaliações da mesma série e de disciplinas diferentes podem ser mescladas em um único ponto.
+              </p>
             )}
+          </div>
+
           </CardContent>
         </Card>
 
@@ -1515,6 +1389,76 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
         </Card>
       )}
 
+      <InstrumentPickerModal
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        title="Selecionar avaliações"
+        items={pickerItems}
+        value=""
+        multiple
+        maxSelection={MAX_EVALUATIONS}
+        excludeIds={comparisonPoints.flatMap((point) => point.ids)}
+        invalidIds={[...invalidEvaluationIds]}
+        seriesOptions={pickerSeries}
+        seriesFilterMode="local"
+        loading={isLoadingFilters}
+        emptyMessage="Nenhuma avaliação encontrada."
+        contextLines={geoReady ? pickerContextLines : []}
+        contextRequiredMessage="Selecione estado e município antes de buscar avaliações."
+        onSelect={confirmComparisonPoint}
+        onViewItem={(id) => window.open(`/app/avaliacao/${id}`, "_blank", "noopener,noreferrer")}
+        onFiltersChange={({ nome }) => setEvaluationSearch(nome)}
+        committedSection={
+          comparisonPoints.length === 0 ? undefined : (
+            <div className="mb-4 space-y-2">
+              <p className="text-sm font-medium">Selecionadas ({comparisonPoints.length})</p>
+              {comparisonPoints.map((point, index) => {
+                const scopeMeta =
+                  comparisonData?.evaluations?.find((item) => item.id === point.ids.join(",")) ??
+                  comparisonData?.evaluations?.find((item) => point.ids.includes(item.id));
+                const localScope = {
+                  title: pointTitle(point),
+                  order: index + 1,
+                  grade_name: point.members.find((member) => member.serieNome)?.serieNome ?? undefined,
+                  classes: pointClasses(point),
+                };
+                return (
+                  <div key={point.ids.join(",")} className="rounded-lg border border-border bg-background p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold">
+                          {index + 1}. {pointTitle(point)}
+                        </p>
+                        {point.ids.length > 1 && (
+                          <Badge variant="secondary" className="mt-1">Mesclada</Badge>
+                        )}
+                        <EvolutionScopeMetaLines evaluation={scopeMeta ?? localScope} />
+                      </div>
+                      <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                        {point.members.map((member) => (
+                          <Button
+                            key={member.id}
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => window.open(`/app/avaliacao/${member.id}`, "_blank", "noopener,noreferrer")}
+                          >
+                            Ver avaliação
+                          </Button>
+                        ))}
+                        <Button type="button" variant="ghost" size="sm" onClick={() => handleRemovePoint(index)} aria-label="Remover da comparação">
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        }
+      />
+
       {/* Mesmos gráficos da Avaliação online; com includeGroupsTab, inclui sub-aba Escola/Série/Turma */}
       {processedData && !isLoadingComparison && (
         <EvolutionCharts
@@ -1522,11 +1466,8 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
           isLoading={false}
           instrumentLabel="avaliações"
           defaultTab={includeGroupsTab ? 'groups' : 'general'}
-          groupTestIds={
-            includeGroupsTab
-              ? selectedEvaluationsForComparison.map((e) => e.id)
-              : undefined
-          }
+          groupTestIds={groupTestIds}
+          groupPoints={groupPoints}
           groupScopeFilters={includeGroupsTab ? scopeFilters : undefined}
           groupRefreshKey={includeGroupsTab ? comparisonRequestKey : undefined}
         />

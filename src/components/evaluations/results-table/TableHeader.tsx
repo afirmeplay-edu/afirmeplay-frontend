@@ -106,8 +106,8 @@ export const TableHeader: React.FC<TableHeaderProps> = ({
     }> = [];
 
     // Coletar todas as questões de todas as disciplinas
-    tabelaDetalhada.disciplinas.forEach((disciplina, disciplinaIndex) => {
-      disciplina.questoes.forEach((questao, questaoIndex) => {
+    tabelaDetalhada.disciplinas.forEach((disciplina) => {
+      (disciplina.questoes ?? []).forEach((questao) => {
         
         allQuestions.push({
           numero: questao.numero,

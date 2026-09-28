@@ -2453,24 +2453,6 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
               </Popover>
             </div>
 
-            <EvaluationInstrumentPicker
-              label="Avaliações"
-              estado={selectedState}
-              municipio={selectedMunicipality}
-              value={selectedEvaluation}
-              onChange={setSelectedEvaluation}
-              periodo={periodoApi}
-              estadoLabel={states.find((s) => s.id === selectedState)?.name}
-              municipioLabel={municipalities.find((m) => m.id === selectedMunicipality)?.name}
-              periodoLabel={periodoApi}
-              disabled={isLoadingFilters}
-              loading={isLoadingFilters}
-              allowAll
-              allLabel="Todas"
-              placeholder="Selecione uma ou mais avaliações"
-              multiple
-            />
-
             {canFilterByAreaType(user?.role) && (
               <div className="space-y-2">
                 <label className="text-sm font-medium">Tipo de área</label>
@@ -2570,12 +2552,31 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                 </SelectContent>
               </Select>
             </div>
+
+            <EvaluationInstrumentPicker
+              className="sm:col-span-2 lg:col-span-7"
+              label="Avaliações"
+              estado={selectedState}
+              municipio={selectedMunicipality}
+              value={selectedEvaluation}
+              onChange={setSelectedEvaluation}
+              periodo={periodoApi}
+              estadoLabel={states.find((s) => s.id === selectedState)?.name}
+              municipioLabel={municipalities.find((m) => m.id === selectedMunicipality)?.name}
+              periodoLabel={periodoApi}
+              disabled={isLoadingFilters}
+              loading={isLoadingFilters}
+              allowAll
+              allLabel="Todas"
+              placeholder="Selecione uma ou mais avaliações"
+              multiple
+            />
           </div>
 
           {/* Informação sobre filtros */}
           <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
             <p className="text-sm text-blue-700 dark:text-blue-400">
-              💡 <strong>Hierarquia dos Filtros:</strong> Estado → Município → Período (opcional) → Avaliação → Escola → Série → Turma
+              💡 <strong>Hierarquia dos Filtros:</strong> Estado → Município → Período (opcional) → Escola → Série → Turma → Avaliação
             </p>
             <p className="text-sm text-blue-700 mt-1">
               {isRestrictedUser ? (
@@ -2638,10 +2639,20 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
           )}
           {evaluationInfo && (
             <Card className="mb-4">
-              <CardHeader>
+              <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
                 <CardTitle>
                   <span>Informações da Avaliação</span>
                 </CardTitle>
+                {backendStats.pendentes > 0 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setShowPendingStudentsModal(true)}
+                    className="shrink-0 bg-red-600 text-white hover:bg-red-700 dark:bg-red-100 dark:text-red-950 dark:hover:bg-red-200"
+                  >
+                    Ver lista
+                  </Button>
+                )}
               </CardHeader>
               <CardContent>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -2696,21 +2707,8 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                     <div className="text-2xl font-bold text-green-600">{backendStats.participantes}</div>
                   </div>
                   <div className="space-y-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="text-sm font-medium text-muted-foreground leading-tight">
-                        Faltosos /<br />Pendentes
-                      </div>
-                      {backendStats.pendentes > 0 && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setShowPendingStudentsModal(true)}
-                          className="h-auto p-0 text-sm font-semibold text-red-600 hover:text-red-700 hover:bg-transparent"
-                        >
-                          Ver lista
-                        </Button>
-                      )}
+                    <div className="text-sm font-medium text-muted-foreground leading-tight">
+                      Faltosos /<br />Pendentes
                     </div>
                     <div className="text-2xl font-bold text-red-600">{backendStats.pendentes}</div>
                   </div>
@@ -2973,7 +2971,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                             isTableReady && !isLoadingStudents && apiData?.tabela_detalhada ? (
                               <DisciplineTables
                                 tabelaDetalhada={{
-                                  disciplinas: apiData.tabela_detalhada.disciplinas,
+                                  disciplinas: apiData.tabela_detalhada.disciplinas ?? [],
                                   geral: apiData.tabela_detalhada.geral ? {
                                     alunos: apiData.tabela_detalhada.geral.alunos.map(aluno => ({
                                       id: aluno.id,

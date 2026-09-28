@@ -1562,30 +1562,6 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                 </PopoverContent>
               </Popover>
             </div>
-            <InstrumentPickerField
-              label="Cartão resposta"
-              value={gabarito}
-              onChange={setGabaritoAndReset}
-              items={toInstrumentPickerItems(
-                pickerGabaritoItems.map((g) => ({ id: g.id, titulo: norm(g) }))
-              )}
-              seriesOptions={toInstrumentPickerSeries(
-                pickerSeriesDisponiveis.length > 0
-                  ? pickerSeriesDisponiveis
-                  : (opcoes.series_disponiveis ?? [])
-              )}
-              disabled={isLoadingFilters || municipio === 'all'}
-              loading={isLoadingFilters}
-              modalLoading={pickerModalLoading}
-              placeholder="Selecione o cartão resposta"
-              modalTitle="Selecionar cartão resposta"
-              allowAll
-              allLabel="Todos"
-              contextLines={pickerContextLines}
-              contextRequiredMessage="Selecione estado e município nos filtros antes de escolher."
-              onModalOpen={() => void fetchPickerGabaritos()}
-              onModalFiltersChange={(filters) => void fetchPickerGabaritos(filters)}
-            />
             <div className="space-y-2">
               {canFilterByAreaType(user?.role) && (
                 <div className="space-y-2">
@@ -1665,9 +1641,34 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                 </SelectContent>
               </Select>
             </div>
+            <InstrumentPickerField
+              className="sm:col-span-2 lg:col-span-7"
+              label="Cartão resposta"
+              value={gabarito}
+              onChange={setGabaritoAndReset}
+              items={toInstrumentPickerItems(
+                pickerGabaritoItems.map((g) => ({ id: g.id, titulo: norm(g) }))
+              )}
+              seriesOptions={toInstrumentPickerSeries(
+                pickerSeriesDisponiveis.length > 0
+                  ? pickerSeriesDisponiveis
+                  : (opcoes.series_disponiveis ?? [])
+              )}
+              disabled={isLoadingFilters || municipio === 'all'}
+              loading={isLoadingFilters}
+              modalLoading={pickerModalLoading}
+              placeholder="Selecione o cartão resposta"
+              modalTitle="Selecionar cartão resposta"
+              allowAll
+              allLabel="Todos"
+              contextLines={pickerContextLines}
+              contextRequiredMessage="Selecione estado e município nos filtros antes de escolher."
+              onModalOpen={() => void fetchPickerGabaritos()}
+              onModalFiltersChange={(filters) => void fetchPickerGabaritos(filters)}
+            />
             <div className="mt-4 p-3 rounded-lg bg-muted/50 border border-border col-span-full">
               <p className="text-sm text-muted-foreground">
-                <strong>Ordem dos filtros:</strong> Estado → Município → Período (opcional) → Cartão resposta → Escola → Série → Turma
+                <strong>Ordem dos filtros:</strong> Estado → Município → Período (opcional) → Escola → Série → Turma → Cartão resposta
               </p>
             </div>
           </div>
@@ -1714,14 +1715,27 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
         <>
           {/* Card Informações do Cartão Resposta */}
           <Card className="border-0 shadow-sm bg-muted/30 dark:bg-muted/20">
-            <CardHeader>
-              <CardTitle className="text-lg">Informações do Cartão Resposta</CardTitle>
-              <CardDescription>
-                {tituloGabarito} ·{' '}
-                {isMunicipioScope
-                  ? (apiData.estatisticas_gerais.municipio || apiData.estatisticas_gerais.nome || 'Município selecionado')
-                  : (apiData.estatisticas_gerais.escola || apiData.estatisticas_gerais.nome || 'Escopo selecionado')}
-              </CardDescription>
+            <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+              <div className="min-w-0 space-y-1">
+                <CardTitle className="text-lg">Informações do Cartão Resposta</CardTitle>
+                <CardDescription>
+                  {tituloGabarito} ·{' '}
+                  {isMunicipioScope
+                    ? (apiData.estatisticas_gerais.municipio || apiData.estatisticas_gerais.nome || 'Município selecionado')
+                    : (apiData.estatisticas_gerais.escola || apiData.estatisticas_gerais.nome || 'Escopo selecionado')}
+                </CardDescription>
+              </div>
+              {backendStats.pendentes > 0 && (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setShowAbsentStudentsModal(true)}
+                  className="shrink-0 bg-red-600 text-white hover:bg-red-700 dark:bg-red-100 dark:text-red-950 dark:hover:bg-red-200"
+                  aria-label="Ver faltosos"
+                >
+                  Ver lista
+                </Button>
+              )}
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -1757,18 +1771,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                   <div className="text-2xl font-bold text-green-600">{backendStats.participantes}</div>
                 </div>
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between gap-1">
-                    <div className="text-sm font-medium text-muted-foreground">Faltosos / Pendentes</div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowAbsentStudentsModal(true)}
-                      className="h-7 px-2 text-xs text-red-600 hover:text-red-700 dark:hover:text-red-400"
-                      aria-label="Ver faltosos"
-                    >
-                      Ver lista
-                    </Button>
-                  </div>
+                  <div className="text-sm font-medium text-muted-foreground">Faltosos / Pendentes</div>
                   <div className="text-2xl font-bold text-red-600">{backendStats.pendentes}</div>
                 </div>
                 <div className="space-y-1">
