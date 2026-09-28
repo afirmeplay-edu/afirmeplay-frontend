@@ -52,6 +52,17 @@ export interface InstrumentPickerModalProps {
   /** Filtros já escolhidos na página (estado, município, etc.). */
   contextLines?: string[];
   contextRequiredMessage?: string;
+  /** Limite de marcas neste rascunho. Resultados não envia. */
+  maxSelection?: number;
+  /** IDs já usados em outro ponto. */
+  excludeIds?: string[];
+  /** Avaliações sem resultado calculado. */
+  invalidIds?: string[];
+  onViewItem?: (id: string) => void;
+  /** Pontos já confirmados, exibidos no mesmo modal. */
+  committedSection?: ReactNode;
+  /** `local` filtra a série na lista já carregada. Resultados continua no servidor. */
+  seriesFilterMode?: "server" | "local";
 }
 
 function normalizeSearch(value: string): string {
@@ -75,8 +86,22 @@ function isMultidisciplinary(item: InstrumentPickerItem): boolean {
 function groupDisableReason(
   item: InstrumentPickerItem,
   draftIds: string[],
-  items: InstrumentPickerItem[]
+  items: InstrumentPickerItem[],
+  options?: { excludeIds?: string[]; invalidIds?: string[]; maxSelection?: number }
 ): string | undefined {
+  if (options?.invalidIds?.includes(item.id) && !draftIds.includes(item.id)) {
+    return "Sem resultados";
+  }
+  if (options?.excludeIds?.includes(item.id) && !draftIds.includes(item.id)) {
+    return "Já selecionada";
+  }
+  if (
+    options?.maxSelection &&
+    !draftIds.includes(item.id) &&
+    draftIds.length >= options.maxSelection
+  ) {
+    return `Limite de ${options.maxSelection} avaliações`;
+  }
   if (draftIds.includes(item.id)) return undefined;
   const selected = items.filter((entry) => draftIds.includes(entry.id));
   if (selected.length === 0) return undefined;
@@ -110,6 +135,7 @@ function EvaluationCard({
   icon,
   disabled,
   disabledReason,
+  onView,
 }: {
   label: string;
   badges?: string[];
@@ -119,6 +145,7 @@ function EvaluationCard({
   icon: ReactNode;
   disabled?: boolean;
   disabledReason?: string;
+  onView?: () => void;
 }) {
   return (
     <button
@@ -158,10 +185,28 @@ function EvaluationCard({
               </Badge>
             ))}
           </div>
-        ) : (
-          subtitle && (
-            <p className="mt-1 text-xs text-muted-foreground line-clamp-1">{subtitle}</p>
-          )
+        ) : null}
+        {subtitle && subtitle !== badges.join(" · ") && (
+          <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{subtitle}</p>
+        )}
+        {onView && (
+          <span
+            role="link"
+            tabIndex={0}
+            className="mt-1.5 inline-flex text-xs font-medium text-primary hover:underline"
+            onClick={(event) => {
+              event.stopPropagation();
+              onView();
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.stopPropagation();
+                onView();
+              }
+            }}
+          >
+            Ver avaliação
+          </span>
         )}
         {disabled && disabledReason && (
           <p className="mt-1.5 text-xs text-muted-foreground">{disabledReason}</p>
@@ -188,6 +233,12 @@ export function InstrumentPickerModal({
   onFiltersChange,
   contextLines = [],
   contextRequiredMessage = "Selecione estado e município antes de buscar.",
+  maxSelection,
+  excludeIds = [],
+  invalidIds = [],
+  onViewItem,
+  committedSection,
+  seriesFilterMode = "server",
 }: InstrumentPickerModalProps) {
   const contextReady = contextLines.length > 0;
   const [searchTerm, setSearchTerm] = useState("");
@@ -244,8 +295,11 @@ export function InstrumentPickerModal({
           (item.badges?.some((b) => b.toLowerCase().includes(term)) ?? false)
       );
     }
+    if (seriesFilterMode === "local" && selectedSerie !== "all") {
+      list = list.filter((item) => item.gradeId === selectedSerie);
+    }
     return [...list].sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
-  }, [items, searchTerm]);
+  }, [items, searchTerm, seriesFilterMode, selectedSerie]);
 
   const selectedDraftItems = useMemo(
     () => items.filter((item) => draftIds.includes(item.id)),
@@ -275,7 +329,9 @@ export function InstrumentPickerModal({
         if (next.length === 0) setSelectedSerie("all");
         return next;
       }
-      const reason = added ? groupDisableReason(added, current, items) : "Prova indisponível";
+      const reason = added
+        ? groupDisableReason(added, current, items, { excludeIds, invalidIds, maxSelection })
+        : "Prova indisponível";
       if (reason) return current;
       if (current.length === 0 && added?.gradeId) {
         setSelectedSerie(added.gradeId);
@@ -429,6 +485,7 @@ export function InstrumentPickerModal({
         )}
 
         <div className="flex-1 min-h-0 overflow-y-auto bg-muted/15 px-6 py-4">
+          {committedSection}
           {!contextReady ? (
             <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
               <FileText className="h-8 w-8 text-muted-foreground/50" />
@@ -459,8 +516,14 @@ export function InstrumentPickerModal({
               ) : (
                 filteredItems.map((item) => {
                   const reason = multiple
-                    ? groupDisableReason(item, draftIds, items)
-                    : undefined;
+                    ? groupDisableReason(item, draftIds, items, {
+                        excludeIds,
+                        invalidIds,
+                        maxSelection,
+                      })
+                    : invalidIds.includes(item.id)
+                      ? "Sem resultados"
+                      : undefined;
                   return (
                     <EvaluationCard
                       key={item.id}
@@ -473,6 +536,7 @@ export function InstrumentPickerModal({
                       }
                       disabled={Boolean(reason)}
                       disabledReason={reason}
+                      onView={onViewItem ? () => onViewItem(item.id) : undefined}
                       icon={<FileText className="h-4 w-4" />}
                     />
                   );

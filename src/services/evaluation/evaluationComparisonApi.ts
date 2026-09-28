@@ -305,7 +305,8 @@ export class EvaluationComparisonApiService {
    */
   static async compareEvaluations(
     testIds: string[],
-    scopeFilters?: EvolutionCompareScopeFilters
+    scopeFilters?: EvolutionCompareScopeFilters,
+    grupos?: string[][]
   ): Promise<ComparisonResponse> {
     try {
       if (testIds.length < 2) {
@@ -314,6 +315,7 @@ export class EvaluationComparisonApiService {
 
       const payload = {
         test_ids: testIds,
+        ...(grupos && grupos.some((group) => group.length > 1) ? { grupos } : {}),
         estado: scopeFilters?.estado ?? null,
         municipio: scopeFilters?.municipio ?? null,
         escola: scopeFilters?.escola ?? null,
@@ -341,7 +343,8 @@ export class EvaluationComparisonApiService {
   static async compareEvaluationsByGroups(
     testIds: string[],
     viewBy: EvolutionGroupViewBy,
-    scopeFilters?: EvolutionCompareScopeFilters
+    scopeFilters?: EvolutionCompareScopeFilters,
+    grupos?: string[][]
   ): Promise<EvolutionGroupsResponse> {
     if (testIds.length < 2) {
       throw new Error('Mínimo de 2 avaliações necessário para comparação');
@@ -349,6 +352,7 @@ export class EvaluationComparisonApiService {
 
     const payload = {
       test_ids: testIds,
+      ...(grupos && grupos.some((group) => group.length > 1) ? { grupos } : {}),
       visualizar_por: viewBy,
       estado: scopeFilters?.estado ?? null,
       municipio: scopeFilters?.municipio ?? null,

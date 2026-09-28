@@ -18,6 +18,7 @@ import {
 
 interface EvolutionGroupsViewProps {
   testIds: string[];
+  grupos?: string[][];
   scopeFilters: EvolutionCompareScopeFilters;
   /** Recarrega quando a comparação principal muda */
   refreshKey?: string;
@@ -33,7 +34,7 @@ function levelStyles(level: string | null | undefined) {
   return { hex: EVOLUTION_LEVEL_COLORS[level], soft: EVOLUTION_LEVEL_SOFT[level] };
 }
 
-export function EvolutionGroupsView({ testIds, scopeFilters, refreshKey }: EvolutionGroupsViewProps) {
+export function EvolutionGroupsView({ testIds, grupos, scopeFilters, refreshKey }: EvolutionGroupsViewProps) {
   const [viewBy, setViewBy] = useState<EvolutionGroupViewBy>('turma');
   const [data, setData] = useState<EvolutionGroupsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -50,7 +51,8 @@ export function EvolutionGroupsView({ testIds, scopeFilters, refreshKey }: Evolu
       const response = await EvaluationComparisonApiService.compareEvaluationsByGroups(
         testIds,
         viewBy,
-        scopeFilters
+        scopeFilters,
+        grupos
       );
       setData(response);
     } catch (err: unknown) {
@@ -65,7 +67,7 @@ export function EvolutionGroupsView({ testIds, scopeFilters, refreshKey }: Evolu
     } finally {
       setIsLoading(false);
     }
-  }, [testIds, viewBy, scopeFilters]);
+  }, [testIds, grupos, viewBy, scopeFilters]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
