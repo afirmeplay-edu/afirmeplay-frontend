@@ -114,6 +114,17 @@ interface CreateClassFormProps {
   availableSchools?: Array<{ id: string; name: string }>;
 }
 
+const EDUCACAO_ESPECIAL_STAGE_ID = "247c4af5-2688-41b0-95fa-443f503a9d87";
+
+function isEducacaoEspecialStage(stage: { id?: string; name?: string }): boolean {
+  if (String(stage.id || "") === EDUCACAO_ESPECIAL_STAGE_ID) return true;
+  const name = (stage.name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return name.includes("educacao especial");
+}
+
 interface ClassPreview {
   /** Nome exibido no preview (série + sufixo, quando aplicável). */
   name: string;
@@ -255,7 +266,8 @@ export function CreateClassForm({ schoolId, schoolName, onSuccess, showSchoolSel
       if (user?.role === 'admin') {
         try {
           const response = await api.get("/education_stages/all");
-          setEducationStages(Array.isArray(response.data) ? response.data : []);
+          const list = Array.isArray(response.data) ? response.data : [];
+          setEducationStages(list.filter((stage) => !isEducacaoEspecialStage(stage)));
         } catch (error) {
           toast({
             title: "Erro",
@@ -280,7 +292,7 @@ export function CreateClassForm({ schoolId, schoolName, onSuccess, showSchoolSel
         
         // A resposta tem formato: { school_id, school_name, courses: [...] }
         if (data?.courses && Array.isArray(data.courses)) {
-          setEducationStages(data.courses);
+          setEducationStages(data.courses.filter((stage: { id?: string; name?: string }) => !isEducacaoEspecialStage(stage)));
         } else {
           setEducationStages([]);
         }
@@ -616,7 +628,7 @@ export function CreateClassForm({ schoolId, schoolName, onSuccess, showSchoolSel
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
-                                {educationStages.filter(stage => stage.id && stage.name).map((stage) => (
+                                {educationStages.filter(stage => stage.id && stage.name && !isEducacaoEspecialStage(stage)).map((stage) => (
                                   <SelectItem key={stage.id} value={stage.id}>
                                     {stage.name}
                                   </SelectItem>
