@@ -1,13 +1,20 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, type MouseEvent } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, CheckCircle2, Clock, Users, Search, Trophy, ClipboardList, User } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { FileText, CheckCircle2, Clock, Download, Loader2, Users, Search, Trophy, ClipboardList, User } from 'lucide-react';
 import { CertificatesApiService } from '@/services/certificatesApi';
+import {
+  buildPreviewCertificate,
+  certificatePdfFilename,
+  downloadCertificatePdf,
+} from '@/services/certificatePdfService';
 import { useAuth } from '@/context/authContext';
+import { useToast } from '@/hooks/use-toast';
 import type { EvaluationWithCertificates } from '@/types/certificates';
 
 function isOlimpiadaEvaluation(evaluation: EvaluationWithCertificates) {
@@ -34,8 +41,10 @@ interface CertificateListProps {
 
 export function CertificateList({ schoolId, municipalityId, isAdmin = false, onSelectEvaluation }: CertificateListProps) {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [evaluations, setEvaluations] = useState<EvaluationWithCertificates[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [exportingId, setExportingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'avaliacoes' | 'olimpiadas'>('avaliacoes');
   
   // Filtros para Avaliações
@@ -275,8 +284,68 @@ export function CertificateList({ schoolId, municipalityId, isAdmin = false, onS
     }
   };
 
+  const handleExportPdf = async (
+    evaluation: EvaluationWithCertificates,
+    event: MouseEvent
+  ) => {
+    event.stopPropagation();
+    event.preventDefault();
+    if (exportingId) return;
+
+    setExportingId(evaluation.id);
+    try {
+      const template = await CertificatesApiService.getCertificateTemplate(evaluation.id);
+      if (!template) {
+        toast({
+          title: 'Sem certificado',
+          description: 'Esta avaliação ainda não tem um certificado para exportar.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const participants = await CertificatesApiService.getApprovedStudents(evaluation.id);
+      const student = participants.find((item) => item.name?.trim());
+      if (!student) {
+        toast({
+          title: 'Sem aluno',
+          description: 'Não há aluno nesta avaliação para preencher o nome do certificado.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      await downloadCertificatePdf(
+        buildPreviewCertificate({
+          template,
+          evaluationId: evaluation.id,
+          evaluationTitle: evaluation.title,
+          studentName: student.name,
+          studentId: student.id,
+          grade: student.grade,
+        }),
+        certificatePdfFilename(student.name),
+        { brandingCityId: municipalityId }
+      );
+      toast({
+        title: 'PDF exportado',
+        description: `O certificado de ${student.name} foi baixado em PDF.`,
+      });
+    } catch (error) {
+      console.error('Erro ao exportar certificado:', error);
+      toast({
+        title: 'Erro ao exportar',
+        description: 'Não foi possível gerar o PDF do certificado.',
+        variant: 'destructive',
+      });
+    } finally {
+      setExportingId(null);
+    }
+  };
+
   const renderEvaluationCard = (evaluation: EvaluationWithCertificates) => {
     const isMine = evaluation.created_by?.id === user?.id;
+    const isExporting = exportingId === evaluation.id;
     
     return (
       <Card
@@ -320,6 +389,22 @@ export function CertificateList({ schoolId, municipalityId, isAdmin = false, onS
           </div>
           <div className="text-xs text-muted-foreground mt-2">
             Criada em: {formatDate(evaluation.applied_at)}
+          </div>
+          <div className="flex justify-end pt-3 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={Boolean(exportingId)}
+              onClick={(event) => void handleExportPdf(evaluation, event)}
+            >
+              {isExporting ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              {isExporting ? 'Exportando...' : 'Exportar PDF'}
+            </Button>
           </div>
         </CardContent>
       </Card>

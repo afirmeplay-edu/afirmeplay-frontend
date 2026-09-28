@@ -16,8 +16,8 @@ interface CertificateTemplateProps {
 
 export function CertificateTemplateComponent({
   template,
-  studentName = 'Nome do Aluno',
-  evaluationTitle = 'Avaliação',
+  studentName,
+  evaluationTitle,
   grade,
   className = '',
   resolvedImages,
@@ -114,6 +114,10 @@ export function CertificateTemplateComponent({
   };
   
   const fontSize = fontSizeConfig[template.font_size || 'medium'];
+  const resolvedStudentName = studentName?.trim() || '';
+  const textContent = resolvedStudentName
+    ? template.text_content.replace(/\{\{nome_aluno\}\}/g, resolvedStudentName)
+    : template.text_content;
 
   return (
     <div
@@ -230,11 +234,11 @@ export function CertificateTemplateComponent({
             color: template.text_color || '#000000',
             maxWidth: '90%'
           }}
-          dangerouslySetInnerHTML={{ __html: template.text_content }}
+          dangerouslySetInnerHTML={{ __html: textContent }}
         />
 
         {/* Student information */}
-        {studentName && (
+        {resolvedStudentName && (
           <div style={{ width: '100%' }}>
             <div
               style={{
@@ -249,7 +253,7 @@ export function CertificateTemplateComponent({
                 maxWidth: '80%'
               }}
             >
-              {studentName}
+              {resolvedStudentName}
             </div>
             <div style={{ fontSize: fontSize.details, marginTop: '10px' }}>
               {evaluationTitle && (

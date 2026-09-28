@@ -65,6 +65,9 @@ interface Class {
 interface FormOption {
   id: string;
   name: string;
+  customName?: string;
+  selectedGrades?: string[];
+  selectedClasses?: string[];
 }
 
 interface Student {
@@ -289,6 +292,7 @@ const FormReports = () => {
           const options = await FormResultsFiltersApiService.getFilterOptions({
             estado: selectedState,
             municipio: selectedMunicipality,
+            customName: forms.find((form) => form.id === selectedForm)?.customName,
             formulario: selectedForm,
           });
           const sorted = [...options.escolas].sort((a, b) => a.name.localeCompare(b.name));
@@ -331,7 +335,14 @@ const FormReports = () => {
     };
 
     loadSchools();
-  }, [selectedState, selectedMunicipality, selectedForm]);
+  }, [selectedState, selectedMunicipality, selectedForm, forms]);
+
+  useEffect(() => {
+    const selected = forms.find((form) => form.id === selectedForm);
+    if (!selected) return;
+    setSelectedGrades(selected.selectedGrades ?? []);
+    setSelectedClasses(selected.selectedClasses ?? []);
+  }, [forms, selectedForm]);
 
   // Carregar séries quando escola(s) for(em) selecionada(s)
   useEffect(() => {
@@ -373,6 +384,7 @@ const FormReports = () => {
                 const options = await FormResultsFiltersApiService.getFilterOptions({
                   estado: selectedState,
                   municipio: selectedMunicipality,
+                  customName: forms.find((form) => form.id === selectedForm)?.customName,
                   formulario: selectedForm,
                   escola: schoolId,
                 });
@@ -406,7 +418,7 @@ const FormReports = () => {
     };
 
     loadGrades();
-  }, [selectedSchools, selectedState, selectedMunicipality, selectedForm]);
+  }, [selectedSchools, selectedState, selectedMunicipality, selectedForm, forms]);
 
   // Carregar turmas quando série(s) for(em) selecionada(s)
   useEffect(() => {
@@ -456,6 +468,7 @@ const FormReports = () => {
                   const options = await FormResultsFiltersApiService.getFilterOptions({
                     estado: selectedState,
                     municipio: selectedMunicipality,
+                    customName: forms.find((form) => form.id === selectedForm)?.customName,
                     formulario: selectedForm,
                     escola: schoolId,
                     serie: gradeId,
@@ -1116,7 +1129,7 @@ const FormReports = () => {
                   <SelectItem value="all">Todos (agregado)</SelectItem>
                   {forms.map((form) => (
                     <SelectItem key={form.id} value={form.id}>
-                      {form.name}
+                      {form.customName || form.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
