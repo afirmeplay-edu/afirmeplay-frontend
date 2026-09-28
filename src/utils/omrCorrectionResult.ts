@@ -1,6 +1,7 @@
-import type { OmrCorrectionResult } from '@/types/answer-sheet';
+import type { OmrCorrectionFailure, OmrCorrectionResult } from '@/types/answer-sheet';
 
 export const ALUNO_AUSENTE_LABEL = 'Ausente — nota não lançada';
+export const ALUNO_NAO_IDENTIFICADO_LABEL = 'Aluno não identificado';
 export const ALUNO_AUSENTE_FALLBACK_MESSAGE =
   'Aluno marcado como ausente. O cartão não gerou nota.';
 
@@ -70,6 +71,66 @@ export function summarizeOmrBatchResults(
     ausentes,
     failed,
   };
+}
+
+export function formatOmrCount(value?: number | null): string | null {
+  if (typeof value !== 'number' || Number.isNaN(value)) return null;
+  return new Intl.NumberFormat('pt-BR').format(value);
+}
+
+export function formatOmrPercentage(value?: number | null): string | null {
+  if (typeof value !== 'number' || Number.isNaN(value)) return null;
+  const formatted = new Intl.NumberFormat('pt-BR', {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+  }).format(value);
+  return `${formatted}%`;
+}
+
+/** Nota de 0 a 100. `score` é a fonte; `percentage` só entra se score não vier. */
+export function omrScoreValue(result: { score?: number | null; percentage?: number | null }): number | undefined {
+  if (typeof result.score === 'number' && !Number.isNaN(result.score)) return result.score;
+  if (typeof result.percentage === 'number' && !Number.isNaN(result.percentage)) return result.percentage;
+  return undefined;
+}
+
+export function omrCorrectionStudentLabel(studentName?: string | null): string {
+  const name = studentName?.trim();
+  return name || ALUNO_NAO_IDENTIFICADO_LABEL;
+}
+
+/** Erro da correção de um cartão: só nome (ou null) e o motivo. */
+export function readOmrCorrectionFailure(error: unknown): OmrCorrectionFailure {
+  const data = (error as { response?: { data?: { student_name?: string | null; error?: string } } })?.response?.data;
+  const fromBody = typeof data?.error === 'string' ? data.error.trim() : '';
+  const fallback = (error as { message?: string })?.message?.trim() || '';
+  const rawName = data?.student_name;
+  return {
+    studentName: typeof rawName === 'string' && rawName.trim() ? rawName.trim() : null,
+    message: fromBody || fallback || 'Não foi possível processar a correção.',
+  };
+}
+
+/** Nome, acertos, errados, inválidos e nota. Não inclui o gabarito questão a questão. */
+export function formatOmrOutcomeLine(result: {
+  correct?: number;
+  wrong?: number;
+  invalid?: number;
+  score?: number | null;
+  percentage?: number | null;
+  aluno_ausente?: boolean;
+  status?: string;
+}): string {
+  const parts: string[] = [];
+  const correct = formatOmrCount(result.correct);
+  const wrong = formatOmrCount(result.wrong);
+  const invalid = formatOmrCount(result.invalid);
+  const score = isAlunoAusente(result) ? null : formatOmrPercentage(omrScoreValue(result));
+  if (correct != null) parts.push(`${correct} ${result.correct === 1 ? 'acerto' : 'acertos'}`);
+  if (wrong != null) parts.push(`${wrong} ${result.wrong === 1 ? 'errado' : 'errados'}`);
+  if (invalid != null) parts.push(`${invalid} ${result.invalid === 1 ? 'inválido' : 'inválidos'}`);
+  if (score) parts.push(`nota ${score}`);
+  return parts.join(' · ');
 }
 
 export function formatOmrBatchSummaryText(summary: {

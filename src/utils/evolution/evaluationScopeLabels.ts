@@ -1,4 +1,5 @@
 import type { EvaluationClassRef, EvaluationInfo } from '@/services/evaluation/evaluationComparisonApi';
+import { formatTurmasFromRefs } from '@/utils/evolution/formatTurmasAgrupadas';
 
 export type EvaluationScopeLike = Pick<
   EvaluationInfo,
@@ -17,10 +18,12 @@ export function formatEvaluationGradeNames(
 export function formatEvaluationClassNames(
   evaluation: Pick<EvaluationScopeLike, 'classes'>
 ): string {
-  return (evaluation.classes ?? [])
-    .map((c: EvaluationClassRef) => c.name?.trim())
-    .filter(Boolean)
-    .join(', ');
+  return formatTurmasFromRefs(
+    (evaluation.classes ?? []).map((c: EvaluationClassRef) => ({
+      id: c.id,
+      name: c.name,
+    }))
+  );
 }
 
 export function formatEvaluationScopeDate(dateString?: string | null): string {

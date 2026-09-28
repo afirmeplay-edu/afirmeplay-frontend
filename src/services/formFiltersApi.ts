@@ -15,6 +15,7 @@ export class FormFiltersApiService {
     escola?: string;
     serie?: string;
     turma?: string;
+    customName?: string;
   }): Promise<{
     estados?: Array<{ id: string; nome: string; name?: string }>;
     municipios?: Array<{ id: string; nome: string; name?: string; estado_id?: string }>;
@@ -30,6 +31,7 @@ export class FormFiltersApiService {
       if (params.escola && params.escola !== 'all') queryParams.append('escola', params.escola);
       if (params.serie && params.serie !== 'all') queryParams.append('serie', params.serie);
       if (params.turma && params.turma !== 'all') queryParams.append('turma', params.turma);
+      if (params.customName?.trim()) queryParams.append('customName', params.customName.trim());
 
       const url = `/forms/filter-options${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
       const requestConfig = params.municipio && params.municipio !== 'all' ? { meta: { cityId: params.municipio } } : {};
@@ -77,6 +79,7 @@ export class FormFiltersApiService {
   static async getFormFilterSchools(params: {
     estado: string;
     municipio: string;
+    customName?: string;
   }): Promise<Array<{
     id: string;
     nome: string;
@@ -85,7 +88,8 @@ export class FormFiltersApiService {
       // Tentar primeiro a rota unificada
       const response = await this.getFormFilterOptions({
         estado: params.estado,
-        municipio: params.municipio
+        municipio: params.municipio,
+        customName: params.customName,
       });
       
       if (response.escolas && response.escolas.length > 0) {
@@ -113,6 +117,7 @@ export class FormFiltersApiService {
     estado: string;
     municipio: string;
     escola: string;
+    customName?: string;
   }): Promise<Array<{
     id: string;
     nome: string;
@@ -124,7 +129,8 @@ export class FormFiltersApiService {
       const response = await this.getFormFilterOptions({
         estado: params.estado,
         municipio: params.municipio,
-        escola: params.escola
+        escola: params.escola,
+        customName: params.customName,
       });
       
       if (response.series && response.series.length > 0) {
@@ -155,6 +161,7 @@ export class FormFiltersApiService {
     municipio: string;
     escola: string;
     serie: string;
+    customName?: string;
   }): Promise<Array<{
     id: string;
     nome: string;
@@ -165,7 +172,8 @@ export class FormFiltersApiService {
         estado: params.estado,
         municipio: params.municipio,
         escola: params.escola,
-        serie: params.serie
+        serie: params.serie,
+        customName: params.customName,
       });
       
       if (response.turmas && response.turmas.length > 0) {

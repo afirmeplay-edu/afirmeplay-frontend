@@ -75,6 +75,7 @@ interface EvolutionChartsProps {
   defaultTab?: 'general' | 'subjects' | 'levels' | 'groups';
   /** IDs das provas para a sub-aba de evolução por grupos. */
   groupTestIds?: string[];
+  groupPoints?: string[][];
   groupScopeFilters?: EvolutionCompareScopeFilters;
   groupRefreshKey?: string;
 }
@@ -160,6 +161,7 @@ export function EvolutionCharts({
   scopeDisplayMode = 'full',
   defaultTab = 'general',
   groupTestIds,
+  groupPoints,
   groupScopeFilters,
   groupRefreshKey,
 }: EvolutionChartsProps) {
@@ -323,6 +325,7 @@ export function EvolutionCharts({
           <TabsContent value="groups" className="space-y-6">
             <EvolutionGroupsView
               testIds={groupTestIds}
+              grupos={groupPoints}
               scopeFilters={groupScopeFilters}
               refreshKey={groupRefreshKey}
             />
@@ -660,6 +663,7 @@ export function EvolutionCharts({
         <TabsContent value="groups" className="space-y-6">
           <EvolutionGroupsView
             testIds={groupTestIds}
+            grupos={groupPoints}
             scopeFilters={groupScopeFilters}
             refreshKey={groupRefreshKey}
           />

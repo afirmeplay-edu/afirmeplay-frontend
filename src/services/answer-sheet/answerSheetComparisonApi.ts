@@ -18,6 +18,7 @@ export interface AnswerSheetEvolucaoOpcoesFiltrosParams {
   municipio?: string;
   escola?: string;
   serie?: string;
+  tipo_area?: string;
 }
 
 /** Resposta de GET /answer-sheets/evolucao/opcoes-filtros (mesmo shape do online) */
@@ -38,6 +39,7 @@ export interface AnswerSheetEvolucaoGabaritosFilters {
   nome?: string;
   data_inicio?: string;
   data_fim?: string;
+  tipo_area?: string;
 }
 
 export interface AnswerSheetEvolucaoGabaritosResponse {
@@ -106,6 +108,7 @@ export class AnswerSheetComparisonApiService {
     if (params.municipio) search.set('municipio', params.municipio);
     if (params.escola) search.set('escola', params.escola);
     if (params.serie) search.set('serie', params.serie);
+    if (params.tipo_area && params.tipo_area !== 'all') search.set('tipo_area', params.tipo_area);
     const query = search.toString();
     const url = `/answer-sheets/evolucao/opcoes-filtros${query ? `?${query}` : ''}`;
     const requestConfig = params.municipio ? { meta: { cityId: params.municipio } } : {};
@@ -153,6 +156,7 @@ export class AnswerSheetComparisonApiService {
       municipio: filters.municipio,
     });
     if (filters.escola && filters.escola !== 'all') params.set('escola', filters.escola);
+    if (filters.tipo_area && filters.tipo_area !== 'all') params.set('tipo_area', filters.tipo_area);
     if (filters.serie && filters.serie !== 'all') params.set('serie', filters.serie);
     if (filters.turma && filters.turma !== 'all') params.set('turma', filters.turma);
     if (filters.nome?.trim()) params.set('nome', filters.nome.trim());
@@ -190,6 +194,8 @@ export class AnswerSheetComparisonApiService {
         escola: scopeFilters?.escola ?? null,
         serie: scopeFilters?.serie ?? null,
         turma: scopeFilters?.turma ?? null,
+        tipo_area:
+          scopeFilters?.tipo_area && scopeFilters.tipo_area !== 'all' ? scopeFilters.tipo_area : null,
       },
       requestConfig
     );

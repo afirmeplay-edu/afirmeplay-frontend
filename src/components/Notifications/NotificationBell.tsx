@@ -18,7 +18,8 @@ import { api } from '@/lib/api';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
-import { getFilteredAvisos } from '@/services/avisosApi';
+import { avisoPreviewDateRange, getFilteredAvisos } from '@/services/avisosApi';
+import { DashboardApiService } from '@/services/dashboardApi';
 import type { Aviso } from '@/types/avisos';
 import { computeAvisoUnread } from '@/utils/avisosRead';
 import { useUnreadAvisos, AVISOS_UPDATE_EVENT } from '@/hooks/useUnreadAvisos';
@@ -118,6 +119,7 @@ export function NotificationBell() {
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [competitionsLoaded, setCompetitionsLoaded] = useState(false);
+  const [avisoCount, setAvisoCount] = useState(0);
 
   const loadAvisos = useCallback(async () => {
     if (!user?.id) {
@@ -125,7 +127,7 @@ export function NotificationBell() {
       return;
     }
     try {
-      const list = await getFilteredAvisos();
+      const list = await getFilteredAvisos(undefined, avisoPreviewDateRange());
       setAvisosList(list.slice(0, 15));
     } catch {
       setAvisosList([]);
@@ -133,11 +135,27 @@ export function NotificationBell() {
   }, [user?.id]);
 
   useEffect(() => {
-    loadAvisos();
-    const onSync = () => loadAvisos();
-    window.addEventListener(AVISOS_UPDATE_EVENT, onSync);
-    return () => window.removeEventListener(AVISOS_UPDATE_EVENT, onSync);
-  }, [loadAvisos]);
+    if (!user?.id) {
+      setAvisoCount(0);
+      return;
+    }
+    let cancelled = false;
+    const loadCount = () => {
+      DashboardApiService.getAvisosQuantidade()
+        .then((qtd) => {
+          if (!cancelled) setAvisoCount(qtd);
+        })
+        .catch(() => {
+          if (!cancelled) setAvisoCount(0);
+        });
+    };
+    loadCount();
+    window.addEventListener(AVISOS_UPDATE_EVENT, loadCount);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(AVISOS_UPDATE_EVENT, loadCount);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     setCompetitionsLoaded(false);
@@ -211,7 +229,8 @@ export function NotificationBell() {
   const competitionUnreadCount = competitionNotifications.filter((n) => !n.is_read).length;
 
   const unreadCount =
-    avisosUnreadCount + (competitionsLoaded ? competitionUnreadCount : 0);
+    (avisosList.length > 0 ? avisosUnreadCount : avisoCount) +
+    (competitionsLoaded ? competitionUnreadCount : 0);
 
   const markCompetitionAsRead = useCallback((notificationId: string) => {
     setCompetitionNotifications((prev) =>

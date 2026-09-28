@@ -31,6 +31,7 @@ import { useToast } from "@/hooks/use-toast";
 import SchoolForm from "./SchoolForm";
 import { api } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
+import { schoolAreaTypeLabel } from "@/lib/schoolAreaType";
 
 interface City {
   id: string;
@@ -45,6 +46,7 @@ interface School {
   city_id: string;
   address: string;
   domain: string;
+  area_type?: string | null;
   created_at: string;
   students_count?: number;
   classes_count?: number;
@@ -232,6 +234,7 @@ export default function SchoolsTable() {
             <TableRow>
               <TableHead>Nome</TableHead>
               <TableHead>Município</TableHead>
+              <TableHead>Tipo de área</TableHead>
               <TableHead>Endereço</TableHead>
               <TableHead>Domínio</TableHead>
               <TableHead className="hidden lg:table-cell">Alunos</TableHead>
@@ -242,7 +245,7 @@ export default function SchoolsTable() {
           <TableBody>
             {!filteredSchools || filteredSchools.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-6">
+                <TableCell colSpan={8} className="text-center py-6">
                   <div className="flex flex-col items-center gap-2">
                     <Building className="h-10 w-10 text-gray-400" />
                     <h3 className="font-medium text-lg">
@@ -261,6 +264,7 @@ export default function SchoolsTable() {
                 <TableRow key={school.id}>
                   <TableCell className="font-medium">{school.name}</TableCell>
                   <TableCell>{school.city?.name || "Não informado"} - {school.city?.state || ""}</TableCell>
+                  <TableCell>{schoolAreaTypeLabel(school.area_type)}</TableCell>
                   <TableCell className="max-w-xs truncate" title={school.address}>
                     {school.address || "Não informado"}
                   </TableCell>

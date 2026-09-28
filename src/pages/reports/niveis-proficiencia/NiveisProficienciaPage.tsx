@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAuth } from '@/context/authContext';
+import { canFilterByAreaType } from '@/lib/schoolAreaType';
 import { Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { CLASS_SHIFT_OPTIONS } from '@/lib/classShift';
@@ -68,6 +70,7 @@ type BranchState = {
   municipio: string;
   instrumento: string;
   escola: string;
+  tipoArea: string;
   serie: string;
   turma: string;
   turno: string;
@@ -85,6 +88,7 @@ const initialBranch = (): BranchState => ({
   municipio: 'all',
   instrumento: 'all',
   escola: 'all',
+  tipoArea: 'all',
   serie: 'all',
   turma: 'all',
   turno: 'all',
@@ -99,6 +103,7 @@ const initialBranch = (): BranchState => ({
 
 export default function NiveisProficienciaPage() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [fonte, setFonte] = useState<FonteTab>('online');
   const [selectedPeriod, setSelectedPeriod] = useState('all');
   const periodoYm = useMemo(() => {
@@ -231,12 +236,14 @@ export default function NiveisProficienciaPage() {
                 municipio: branch.municipio,
                 avaliacao: branch.instrumento,
                 ...(periodoYm ? { periodo: periodoYm } : {}),
+                ...(branch.tipoArea !== 'all' ? { tipo_area: branch.tipoArea } : {}),
               }
             : {
                 estado: branch.estado,
                 municipio: branch.municipio,
                 gabarito: branch.instrumento,
                 ...(periodoYm ? { periodo: periodoYm } : {}),
+                ...(branch.tipoArea !== 'all' ? { tipo_area: branch.tipoArea } : {}),
               };
         const data =
           fonte === 'online'
@@ -262,7 +269,7 @@ export default function NiveisProficienciaPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branch.estado, branch.municipio, branch.instrumento, fonte, periodoYm]);
+  }, [branch.estado, branch.municipio, branch.instrumento, branch.tipoArea, fonte, periodoYm]);
 
   // Cascade: turmas when serie/escola change
   useEffect(() => {
@@ -342,6 +349,7 @@ export default function NiveisProficienciaPage() {
         nivel: branch.nivel,
         disciplina: branch.disciplina,
         ...(periodoYm ? { periodo: periodoYm } : {}),
+        ...(branch.tipoArea !== 'all' ? { tipo_area: branch.tipoArea } : {}),
         ...(fonte === 'online'
           ? { avaliacao: branch.instrumento }
           : { gabarito: branch.instrumento }),
@@ -368,6 +376,7 @@ export default function NiveisProficienciaPage() {
     branch.municipio,
     branch.instrumento,
     branch.escola,
+    branch.tipoArea,
     branch.serie,
     branch.turma,
     branch.turno,
@@ -439,6 +448,11 @@ export default function NiveisProficienciaPage() {
         municipio={branch.municipio}
         instrumento={branch.instrumento}
         escola={branch.escola}
+        tipoArea={branch.tipoArea}
+        showAreaType={canFilterByAreaType(user?.role)}
+        onTipoAreaChange={(v) => {
+          patchBranch({ tipoArea: v, escola: 'all', serie: 'all', turma: 'all' });
+        }}
         serie={branch.serie}
         turma={branch.turma}
         turno={branch.turno}

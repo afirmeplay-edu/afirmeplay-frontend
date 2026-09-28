@@ -114,6 +114,7 @@ export type ProficiencyLevelsFilterParams = {
   avaliacao?: string;
   gabarito?: string;
   escola?: string;
+  tipo_area?: string;
   serie?: string;
   turma?: string;
   periodo?: string;
@@ -132,6 +133,7 @@ function buildQuery(params: ProficiencyLevelsFilterParams, mode: 'online' | 'car
     q.set('gabarito', params.gabarito);
   }
   if (params.escola && params.escola !== 'all') q.set('escola', params.escola);
+  if (params.tipo_area && params.tipo_area !== 'all') q.set('tipo_area', params.tipo_area);
   if (params.serie && params.serie !== 'all') q.set('serie', params.serie);
   if (params.turma && params.turma !== 'all') q.set('turma', params.turma);
   if (params.turno && params.turno !== 'all') q.set('turno', params.turno);

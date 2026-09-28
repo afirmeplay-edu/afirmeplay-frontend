@@ -7,6 +7,12 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlusCircle, Search, Trash2, Building, Loader2, GraduationCap, Settings, School, Users, FileDown, Printer } from "lucide-react";
 import { api } from "@/lib/api";
+import {
+  GESTAO_AREA_TYPE_FILTER_ALL,
+  GESTAO_AREA_TYPE_FILTER_OPTIONS,
+  matchesGestaoAreaTypeFilter,
+  schoolAreaTypeLabel,
+} from "@/lib/schoolAreaType";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -65,6 +71,7 @@ interface Instituicao {
   name: string;
   address?: string;
   domain?: string;
+  area_type?: string | null;
   city_id?: string;
   city?: {
     id: string;
@@ -76,7 +83,7 @@ interface Instituicao {
 
 function normalizeSchoolWritePayload(
   instituicao: Partial<Instituicao>
-): { name: string; address: string; city_id: string; domain?: string } {
+): { name: string; address: string; city_id: string; area_type: string; domain?: string } {
   const domainRaw = instituicao.domain?.trim();
   const domain =
     domainRaw && domainRaw.length > 0 ? domainRaw.replace(/\/+$/, "") : undefined;
@@ -84,6 +91,7 @@ function normalizeSchoolWritePayload(
     name: instituicao.name!.trim(),
     address: instituicao.address!.trim(),
     city_id: instituicao.city_id!,
+    area_type: instituicao.area_type!,
     ...(domain ? { domain } : {}),
   };
 }
@@ -316,6 +324,7 @@ export default function Gestao() {
   const [selectedState, setSelectedState] = useState<string>("ALL");
   const [selectedCityId, setSelectedCityId] = useState<string>("ALL");
   const [selectedSchoolId, setSelectedSchoolId] = useState<string>("ALL");
+  const [selectedAreaType, setSelectedAreaType] = useState<string>(GESTAO_AREA_TYPE_FILTER_ALL);
   const [searchParams] = useSearchParams();
   const tabParam = searchParams.get("tab");
   const [activeTab, setActiveTab] = useState<string>(
@@ -557,10 +566,10 @@ export default function Gestao() {
   const handleSaveInstituicao = async (instituicao: Partial<Instituicao>) => {
     setIsSaving(true);
     try {
-      if (!instituicao.name?.trim() || !instituicao.address?.trim() || !instituicao.city_id) {
+      if (!instituicao.name?.trim() || !instituicao.address?.trim() || !instituicao.city_id || !instituicao.area_type) {
         toast({
           title: "Campos obrigatórios",
-          description: "Informe nome, endereço e município antes de salvar.",
+          description: "Informe nome, endereço, município e tipo de área antes de salvar.",
           variant: "destructive",
         });
         setIsSaving(false);
@@ -1255,6 +1264,7 @@ export default function Gestao() {
   const availableSchools: Instituicao[] = instituicoes
     .filter((i) => (selectedState === 'ALL' || i.city?.state === selectedState))
     .filter((i) => (selectedCityId === 'ALL' || i.city_id === selectedCityId))
+    .filter((i) => matchesGestaoAreaTypeFilter(i.area_type, selectedAreaType))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const filteredAndSortedInstituicoes = sortInstituicoes(
@@ -1268,6 +1278,7 @@ export default function Gestao() {
       .filter((i) => (selectedState === 'ALL' || i.city?.state === selectedState))
       .filter((i) => (selectedCityId === 'ALL' || i.city_id === selectedCityId))
       .filter((i) => (selectedSchoolId === 'ALL' || i.id === selectedSchoolId))
+      .filter((i) => matchesGestaoAreaTypeFilter(i.area_type, selectedAreaType))
   );
 
   if (isLoading) {
@@ -1425,6 +1436,36 @@ export default function Gestao() {
                 ))}
               </SelectContent>
             </Select>
+
+            <Select
+              value={selectedAreaType}
+              onValueChange={(value) => {
+                setSelectedAreaType(value);
+                if (
+                  selectedSchoolId !== "ALL" &&
+                  !instituicoes.some(
+                    (school) =>
+                      school.id === selectedSchoolId &&
+                      matchesGestaoAreaTypeFilter(school.area_type, value) &&
+                      (selectedState === "ALL" || school.city?.state === selectedState) &&
+                      (selectedCityId === "ALL" || school.city_id === selectedCityId)
+                  )
+                ) {
+                  setSelectedSchoolId("ALL");
+                }
+              }}
+            >
+              <SelectTrigger className="h-10 w-full sm:w-auto sm:min-w-[180px]">
+                <SelectValue placeholder="Tipo de área" />
+              </SelectTrigger>
+              <SelectContent>
+                {GESTAO_AREA_TYPE_FILTER_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Sort and View Options */}
@@ -1502,6 +1543,9 @@ export default function Gestao() {
                       <div>
                         <p className="text-xs md:text-sm text-muted-foreground">
                           {instituicao.city?.name ? `${instituicao.city.name} - ${instituicao.city.state}` : "Localização não definida"}
+                        </p>
+                        <p className="text-xs md:text-sm text-muted-foreground">
+                          Tipo de área: {schoolAreaTypeLabel(instituicao.area_type)}
                         </p>
                         {instituicao.domain && (
                           <p className="text-xs md:text-sm text-muted-foreground">

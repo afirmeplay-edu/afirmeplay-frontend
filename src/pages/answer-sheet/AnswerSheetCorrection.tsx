@@ -13,11 +13,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useAnswerSheetCorrection } from '@/hooks/useAnswerSheetCorrection';
 import ManualCorrectionPanel from '@/components/answer-sheet/ManualCorrectionPanel';
-import { OmrCorrectionOutcomeAlert } from '@/components/answer-sheet/OmrCorrectionOutcomeAlert';
-import type { OmrCorrectionResult } from '@/types/answer-sheet';
+import { OmrCorrectionFailureAlert, OmrCorrectionOutcomeAlert } from '@/components/answer-sheet/OmrCorrectionOutcomeAlert';
+import type { OmrCorrectionFailure, OmrCorrectionResult } from '@/types/answer-sheet';
 import {
   ALUNO_AUSENTE_LABEL,
+  findOmrResultForBatchItem,
+  formatOmrOutcomeLine,
   isBatchItemAlunoAusente,
+  omrCorrectionStudentLabel,
+  readOmrCorrectionFailure,
   summarizeOmrBatchResults,
 } from '@/utils/omrCorrectionResult';
 import {
@@ -50,6 +54,7 @@ export default function AnswerSheetCorrection() {
   const [correctionProgress, setCorrectionProgress] = useState(0);
   const [isDragOverSingle, setIsDragOverSingle] = useState(false);
   const [lastSingleResult, setLastSingleResult] = useState<OmrCorrectionResult | null>(null);
+  const [singleFailure, setSingleFailure] = useState<OmrCorrectionFailure | null>(null);
 
   // Correção em lote
   const [showBatchDialog, setShowBatchDialog] = useState(false);
@@ -71,6 +76,7 @@ export default function AnswerSheetCorrection() {
     (file: File | null) => {
       if (!file || !file.type.startsWith('image/')) return;
       setLastSingleResult(null);
+      setSingleFailure(null);
       setUploadedImage(file);
       const reader = new FileReader();
       reader.onload = (e) => setPreviewImage(e.target?.result as string);
@@ -105,6 +111,7 @@ export default function AnswerSheetCorrection() {
     }
     try {
       setIsProcessingSingle(true);
+      setSingleFailure(null);
       setCorrectionProgress(0);
       const progressInterval = setInterval(() => {
         setCorrectionProgress((prev) => Math.min(prev + 15, 90));
@@ -119,10 +126,11 @@ export default function AnswerSheetCorrection() {
       clearInterval(progressInterval);
       setCorrectionProgress(100);
       setLastSingleResult(data ?? null);
+      setSingleFailure(null);
       setUploadedImage(null);
       setPreviewImage(null);
-    } catch {
-      // hook já exibe toast
+    } catch (error) {
+      setSingleFailure(readOmrCorrectionFailure(error));
     } finally {
       setIsProcessingSingle(false);
       setCorrectionProgress(0);
@@ -133,6 +141,7 @@ export default function AnswerSheetCorrection() {
     setUploadedImage(null);
     setPreviewImage(null);
     setLastSingleResult(null);
+    setSingleFailure(null);
   };
 
   const batchSummary = useMemo(
@@ -337,7 +346,10 @@ export default function AnswerSheetCorrection() {
                 )}
               </div>
             )}
-            {lastSingleResult && !previewImage && (
+            {singleFailure && (
+              <OmrCorrectionFailureAlert failure={singleFailure} />
+            )}
+            {lastSingleResult && !previewImage && !singleFailure && (
               <OmrCorrectionOutcomeAlert result={lastSingleResult} />
             )}
           </CardContent>
@@ -485,20 +497,32 @@ export default function AnswerSheetCorrection() {
                         </span>
                       </div>
                       <Progress value={batchProgress.percentage} className="h-2" />
-                      <ScrollArea className="h-48 rounded-lg border">
+                      <ScrollArea className="h-72 rounded-lg border">
                         <div className="p-2 space-y-1">
                           {Object.entries(batchProgress.items || {}).map(([idx, item]) => {
+                            const matched = findOmrResultForBatchItem(
+                              batchProgress.results,
+                              item,
+                              idx
+                            );
+                            const detail = { ...item, ...matched };
                             const ausente = isBatchItemAlunoAusente(
                               item,
                               batchProgress.results,
                               idx,
                               isBatchCompleted
                             );
+                            const outcomeLine = formatOmrOutcomeLine(detail);
+                            const cardLabel = `Cartão ${Number(idx) + 1}`;
+                            const studentName = item.status === 'error'
+                              ? omrCorrectionStudentLabel(detail.student_name ?? item.student_name)
+                              : (detail.student_name?.trim() || cardLabel);
+                            const errorMessage = item.error || detail.error;
                             return (
                             <div
                               key={idx}
                               className={`
-                                flex items-center justify-between p-2 rounded text-sm
+                                flex flex-wrap items-start justify-between gap-x-3 gap-y-1 p-2 rounded text-sm
                                 ${item.status === 'pending' ? 'bg-muted/50' : ''}
                                 ${item.status === 'processing' ? 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200' : ''}
                                 ${item.status === 'done' && !ausente ? 'bg-green-50 dark:bg-green-950/30 border border-green-200' : ''}
@@ -506,19 +530,38 @@ export default function AnswerSheetCorrection() {
                                 ${item.status === 'error' ? 'bg-destructive/10 border border-destructive/30' : ''}
                               `}
                             >
-                              <span className="flex items-center gap-2 min-w-0">
-                                {item.status === 'pending' && <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />}
-                                {item.status === 'processing' && <Loader2 className="h-4 w-4 shrink-0 animate-spin" />}
-                                {item.status === 'done' && !ausente && <CheckCircle className="h-4 w-4 shrink-0 text-green-600" />}
-                                {item.status === 'done' && ausente && <UserX className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />}
-                                {item.status === 'error' && <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />}
-                                <span className="truncate">
-                                  {item.status === 'done' && item.student_name
-                                    ? item.student_name
-                                    : `Cartão ${Number(idx) + 1}`}
-                                  {item.status === 'pending' && ' — Aguardando'}
-                                  {item.status === 'processing' && ' — Processando'}
-                                  {item.status === 'error' && item.error && ` — ${item.error}`}
+                              <span className="flex items-start gap-2 min-w-0">
+                                {item.status === 'pending' && <Clock className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />}
+                                {item.status === 'processing' && <Loader2 className="h-4 w-4 mt-0.5 shrink-0 animate-spin" />}
+                                {item.status === 'done' && !ausente && <CheckCircle className="h-4 w-4 mt-0.5 shrink-0 text-green-700 dark:text-green-400" />}
+                                {item.status === 'done' && ausente && <UserX className="h-4 w-4 mt-0.5 shrink-0 text-amber-700 dark:text-amber-400" />}
+                                {item.status === 'error' && <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />}
+                                <span className="min-w-0">
+                                  <span className={`block break-words font-medium ${
+                                    item.status === 'done' && ausente
+                                      ? 'text-amber-950 dark:text-amber-50'
+                                      : item.status === 'done'
+                                        ? 'text-green-950 dark:text-green-50'
+                                        : ''
+                                  }`}>
+                                    {item.status === 'error' ? `${cardLabel}: ${studentName}` : item.status === 'done' ? studentName : cardLabel}
+                                    {item.status === 'pending' && ' — Aguardando'}
+                                    {item.status === 'processing' && ' — Processando'}
+                                  </span>
+                                  {item.status === 'done' && outcomeLine && (
+                                    <span className={`mt-0.5 block text-xs leading-5 ${
+                                      ausente
+                                        ? 'text-amber-900 dark:text-amber-100'
+                                        : 'text-green-800 dark:text-green-200'
+                                    }`}>
+                                      {outcomeLine}
+                                    </span>
+                                  )}
+                                  {item.status === 'error' && errorMessage && (
+                                    <span className="mt-0.5 block text-xs leading-5 text-destructive break-words">
+                                      {errorMessage}
+                                    </span>
+                                  )}
                                 </span>
                               </span>
                               {item.status === 'done' && ausente && (
@@ -528,11 +571,6 @@ export default function AnswerSheetCorrection() {
                                 >
                                   {ALUNO_AUSENTE_LABEL}
                                 </Badge>
-                              )}
-                              {item.status === 'done' && !ausente && (
-                                <span className="shrink-0 text-xs font-medium text-green-700 dark:text-green-400">
-                                  {item.correct}/{item.total} ({item.percentage?.toFixed(0)}%)
-                                </span>
                               )}
                             </div>
                             );

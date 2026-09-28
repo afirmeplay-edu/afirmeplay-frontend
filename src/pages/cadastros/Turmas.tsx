@@ -46,6 +46,7 @@ import { CreateClassForm } from "@/components/schools/CreateClassForm";
 import { ClassShiftBadge } from "@/components/schools/ClassShiftBadge";
 import { ClassShiftSelector } from "@/components/schools/ClassShiftSelector";
 import { EditClassShiftDialog } from "@/components/schools/EditClassShiftDialog";
+import { SubturmasAdapSection } from "@/components/schools/SubturmasAdapSection";
 import { type ClassShiftCanonical, toApiShiftValue } from "@/lib/classShift";
 
 interface School {
@@ -157,6 +158,7 @@ export default function Turmas({ embedded = false }: TurmasProps) {
   const [viewingClass, setViewingClass] = useState<Turma | null>(null);
   const [shiftEditTurma, setShiftEditTurma] = useState<Turma | null>(null);
   const [viewStudents, setViewStudents] = useState<Student[]>([]);
+  const [subturmaBadges, setSubturmaBadges] = useState<Record<string, string>>({});
   /** Aba de escola ativa (modo embedded: turmas separadas por escola) */
   const [activeSchoolTab, setActiveSchoolTab] = useState<string>("");
   const [showFilters, setShowFilters] = useState(true);
@@ -165,6 +167,9 @@ export default function Turmas({ embedded = false }: TurmasProps) {
   const { toast } = useToast();
   const { user } = useAuth();
   const canDeleteTurma = user?.role !== "professor";
+  const canManageSubturma = ["admin", "tecadm", "diretor", "coordenador"].includes(
+    String(user?.role || "").toLowerCase()
+  );
   const classNameCollator = useMemo(
     () => new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" }),
     []
@@ -1281,6 +1286,7 @@ export default function Turmas({ embedded = false }: TurmasProps) {
         if (!open) {
           setViewingClass(null);
           setViewStudents([]);
+          setSubturmaBadges({});
         }
       }}>
         <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-y-auto">
@@ -1308,6 +1314,16 @@ export default function Turmas({ embedded = false }: TurmasProps) {
             </DialogDescription>
           </DialogHeader>
 
+          {viewingClass ? (
+            <SubturmasAdapSection
+              classId={viewingClass.id}
+              grade={viewingClass.grade}
+              students={viewStudents}
+              canManage={canManageSubturma}
+              onBadges={setSubturmaBadges}
+            />
+          ) : null}
+
           {isLoadingViewStudents ? (
             <div className="space-y-2">
               <Skeleton className="h-12 w-full" />
@@ -1330,10 +1346,17 @@ export default function Turmas({ embedded = false }: TurmasProps) {
                       <TableHead>Matrícula</TableHead>
                     </TableRow>
                   </TableHeader>
-                                       <TableBody>
-                       {viewStudents.map((student) => (
-                         <TableRow key={student.id}>
-                           <TableCell className="font-medium">{student.name}</TableCell>
+                       <TableBody>
+                         {viewStudents.map((student) => (
+                           <TableRow key={student.id}>
+                           <TableCell className="font-medium">
+                             <span className="inline-flex items-center gap-2">
+                               {student.name}
+                               {subturmaBadges[student.id] ? (
+                                 <Badge variant="secondary">{subturmaBadges[student.id]}</Badge>
+                               ) : null}
+                             </span>
+                           </TableCell>
                            <TableCell>{student.user?.email || '-'}</TableCell>
                            <TableCell>{student.registration || '-'}</TableCell>
                          </TableRow>

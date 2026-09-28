@@ -13,6 +13,7 @@ import {
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Building } from "lucide-react";
+import { AREA_TYPE_FORM_OPTIONS, type SchoolAreaTypeCode } from "@/lib/schoolAreaType";
 
 interface City {
   id: string;
@@ -27,6 +28,7 @@ interface School {
   city_id: string;
   address: string;
   domain: string;
+  area_type?: SchoolAreaTypeCode | null;
   created_at: string;
   city: City;
 }
@@ -57,6 +59,7 @@ export default function SchoolForm({
       school?.city_id ||
       (!school && lockedMunicipality ? lockedMunicipality.id : "") ||
       "",
+    area_type: school?.area_type || "",
   });
   const [cities, setCities] = useState<City[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -71,6 +74,7 @@ export default function SchoolForm({
         address: school.address || "",
         domain: school.domain || "",
         city_id: school.city_id || "",
+        area_type: school.area_type || "",
       });
     }
   }, [school]);
@@ -119,10 +123,10 @@ export default function SchoolForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.name.trim() || !formData.address.trim() || !formData.city_id) {
+    if (!formData.name.trim() || !formData.address.trim() || !formData.city_id || !formData.area_type) {
       toast({
         title: "Campos obrigatórios",
-        description: "Preencha nome, endereço e município antes de salvar.",
+        description: "Preencha nome, endereço, município e tipo de área antes de salvar.",
         variant: "destructive",
       });
       return;
@@ -137,6 +141,7 @@ export default function SchoolForm({
           domain: formData.domain?.trim() || undefined,
           address: formData.address.trim(),
           city_id: formData.city_id,
+          area_type: formData.area_type,
         };
         await api.put(`/school/${school.id}`, payload);
         const updatedCity = cities.find((c) => c.id === formData.city_id) || school.city;
@@ -263,8 +268,30 @@ export default function SchoolForm({
               disabled={isLoading || isDeleting || isSaving}
               autoComplete="off"
               className="h-11"
-              placeholder="Endereço completo da escola"
-            />
+            placeholder="Endereço completo da escola"
+          />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="area_type" className="flex items-center gap-1">
+              Tipo de área
+              <span className="text-red-500">*</span>
+            </Label>
+            <Select
+              value={formData.area_type || undefined}
+              onValueChange={(value) => setFormData({ ...formData, area_type: value })}
+              disabled={isLoading || isDeleting || isSaving}
+            >
+              <SelectTrigger id="area_type" className="h-11">
+                <SelectValue placeholder="Selecione o tipo de área" />
+              </SelectTrigger>
+              <SelectContent>
+                {AREA_TYPE_FORM_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
             <Label htmlFor="city" className="flex items-center gap-1">

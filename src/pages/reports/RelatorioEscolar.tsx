@@ -82,6 +82,7 @@ import {
   urlToPngAsset,
 } from "@/utils/pdfCityBranding";
 import { getDisciplinaAnaliseFromIaRoot } from "@/utils/report/analiseIaPdfText";
+import { AREA_TYPE_FILTER_OPTIONS, areaTypeFilterLabel, canFilterByAreaType } from "@/lib/schoolAreaType";
 import {
   buildDisciplineRecordToBlocks,
   buildGenericIaFallbackBlocks,
@@ -1237,6 +1238,7 @@ export default function RelatorioEscolar({
   const [selectedState, setSelectedState] = useState<string>('all');
   const [selectedMunicipality, setSelectedMunicipality] = useState<string>('all');
   const [selectedSchool, setSelectedSchool] = useState<string>('all');
+  const [selectedAreaType, setSelectedAreaType] = useState<string>('all');
   const [selectedEvaluation, setSelectedEvaluation] = useState<string>('all');
   const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
   const reportEntityTypeParam =
@@ -1781,6 +1783,7 @@ export default function RelatorioEscolar({
     if (asEstado && asEstado !== 'all') params.set('estado', asEstado);
     if (asMunicipio && asMunicipio !== 'all') params.set('municipio', asMunicipio);
     if (asGabarito && asGabarito !== 'all') params.set('gabarito', asGabarito);
+    if (selectedAreaType !== 'all') params.set('tipo_area', selectedAreaType);
     if (asEscola && asEscola !== 'all') params.set('escola', asEscola);
     if (asSerie && asSerie !== 'all') params.set('serie', asSerie);
     if (asTurma && asTurma !== 'all') params.set('turma', asTurma);
@@ -1819,6 +1822,7 @@ export default function RelatorioEscolar({
     asMunicipio,
     asGabarito,
     asEscola,
+    selectedAreaType,
     asSerie,
     asTurma,
     periodoYmRelatorio,
@@ -3562,6 +3566,13 @@ export default function RelatorioEscolar({
           doc.text(escolaLines, leftColX + labelWidth, cardY);
           cardY += Math.max(7, escolaLines.length * 5);
         }
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.primary);
+        doc.text('TIPO DE ÁREA:', leftColX, cardY);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(...COLORS.textDark);
+        doc.text(areaTypeFilterLabel(selectedAreaType).toUpperCase(), leftColX + labelWidth, cardY);
+        cardY += 7;
 
         // SÉRIE
         if (serieFromApi) {
@@ -4388,6 +4399,7 @@ export default function RelatorioEscolar({
             ...(adminCityIdQuery ? { city_id: adminCityIdQuery } : {}),
             ...(reportEntityTypeParam ? { report_entity_type: reportEntityTypeParam } : {}),
             ...(periodoYmRelatorio ? { periodo: periodoYmRelatorio } : {}),
+            ...(selectedAreaType !== 'all' ? { tipo_area: selectedAreaType } : {}),
           };
 
           const evaluationsResponse = await EvaluationResultsApiService.getEvaluationsList(1, 200, filters);
@@ -4528,6 +4540,7 @@ export default function RelatorioEscolar({
     selectedState,
     selectedMunicipality,
     selectedSchool,
+    selectedAreaType,
     selectedEvaluation,
     periodoYmRelatorio,
     adminCityIdQuery,
@@ -4561,6 +4574,7 @@ export default function RelatorioEscolar({
       ...(adminCityIdQuery ? { city_id: adminCityIdQuery } : {}),
       ...(reportEntityTypeParam ? { report_entity_type: reportEntityTypeParam } : {}),
       ...(periodoYmRelatorio ? { periodo: periodoYmRelatorio } : {}),
+      ...(selectedAreaType !== 'all' ? { tipo_area: selectedAreaType } : {}),
     };
 
     const applyIaErrorMessage = (ia: AnaliseIaRouteResponse) => {
@@ -4639,6 +4653,7 @@ export default function RelatorioEscolar({
     selectedState,
     selectedMunicipality,
     selectedSchool,
+    selectedAreaType,
     selectedEvaluation,
     periodoYmRelatorio,
     adminCityIdQuery,
@@ -4675,6 +4690,7 @@ export default function RelatorioEscolar({
         params.set('estado', asEstado);
         params.set('municipio', asMunicipio);
         params.set('gabarito', asGabarito);
+        if (selectedAreaType !== 'all') params.set('tipo_area', selectedAreaType);
         if (asEscola !== 'all') params.set('escola', asEscola);
         if (asSerie !== 'all') params.set('serie', asSerie);
         if (asTurma !== 'all') params.set('turma', asTurma);
@@ -4733,6 +4749,7 @@ export default function RelatorioEscolar({
     asMunicipio,
     asGabarito,
     asEscola,
+    selectedAreaType,
     asSerie,
     asTurma,
     periodoYmRelatorio,
@@ -4761,6 +4778,7 @@ export default function RelatorioEscolar({
     iaParams.set('estado', asEstado);
     iaParams.set('municipio', asMunicipio);
     iaParams.set('gabarito', asGabarito);
+    if (selectedAreaType !== 'all') iaParams.set('tipo_area', selectedAreaType);
     if (asEscola !== 'all') iaParams.set('escola', asEscola);
     if (asSerie !== 'all') iaParams.set('serie', asSerie);
     if (asTurma !== 'all') iaParams.set('turma', asTurma);
@@ -4857,6 +4875,7 @@ export default function RelatorioEscolar({
     asMunicipio,
     asGabarito,
     asEscola,
+    selectedAreaType,
     asSerie,
     asTurma,
     periodoYmRelatorio,
@@ -5499,6 +5518,30 @@ export default function RelatorioEscolar({
                 onModalOpen={() => void fetchPickerGabaritos()}
                 onModalFiltersChange={(filters) => void fetchPickerGabaritos(filters)}
               />
+              {canFilterByAreaType(user?.role) && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Tipo de área</label>
+                  <Select
+                    value={selectedAreaType}
+                    onValueChange={(value) => {
+                      setSelectedAreaType(value);
+                      setAsEscola('all');
+                    }}
+                    disabled={isLoadingFilters || asGabarito === 'all'}
+                  >
+                    <SelectTrigger className="w-full min-w-0">
+                      <SelectValue placeholder="Todas" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AREA_TYPE_FILTER_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
                 <label className="text-sm font-medium">Escola</label>
                 <Select value={asEscola} onValueChange={setAsEscolaAndReset} disabled={isLoadingFilters || asGabarito === 'all'}>
@@ -5589,6 +5632,9 @@ export default function RelatorioEscolar({
           onLoadingChange={setIsLoadingFilters}
           adminCityIdQuery={adminCityIdQuery}
           userRole={user?.role}
+          showAreaTypeFilter
+          selectedAreaType={selectedAreaType}
+          onAreaTypeChange={setSelectedAreaType}
           canSelectState={userHierarchyContext?.restrictions.canSelectState}
           canSelectMunicipality={userHierarchyContext?.restrictions.canSelectMunicipality}
           canSelectSchool={userHierarchyContext?.restrictions.canSelectSchool}
