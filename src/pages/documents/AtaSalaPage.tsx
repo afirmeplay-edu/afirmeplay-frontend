@@ -67,11 +67,6 @@ type Q712Field =
   | "q11SpecialRegularRoom"
   | "q12SpecialSupportRoom";
 
-function clamp99(n: number): number {
-  if (!Number.isFinite(n)) return 0;
-  return Math.min(99, Math.max(0, Math.round(n)));
-}
-
 function digitsOnlyMax2(raw: string): string {
   return raw.replace(/\D/g, "").slice(0, Q712_MAX_DIGITS);
 }
@@ -674,15 +669,6 @@ export default function AtaSalaPage() {
       return;
     }
     const header = results[0].cabecalho;
-    const allStudents = results.flatMap((r) => r.estudantes);
-
-    const count = (status: string) =>
-      allStudents.filter((s) => (s.status || "").toUpperCase() === status).length;
-    const responded = count("P");
-    const nRegularExtra = count("SE");
-    const nSupportExtra = count("SS");
-    const nStayed = count("NE") + count("I");
-    const notResponded = Math.max(allStudents.length - responded - count("A") - count("T"), 0);
 
     if (header.nome_prova_ano && (!isModoAplicada || selectedAvaliacaoId === "all")) {
       setNomeAvaliacao(header.nome_prova_ano);
@@ -696,28 +682,10 @@ export default function AtaSalaPage() {
     setDisciplina(header.disciplina || "");
     setRede(header.rede || "MUNICIPAL");
     setMunicipioUf(header.municipio_uf || municipioUf);
-    setOptions((prev) => ({
-      ...prev,
-      q7Responded: String(clamp99(responded)),
-      q8NotResponded: String(clamp99(notResponded)),
-      q9Tablets: String(clamp99(responded)),
-      q10SpecialStayed: String(clamp99(nStayed)),
-      q11SpecialRegularRoom: String(clamp99(nRegularExtra)),
-      q12SpecialSupportRoom: String(clamp99(nSupportExtra)),
-    }));
   };
 
   const buildAtaDataForClass = (item: ListaFrequenciaResponse): AtaSalaPdfData => {
     const header = item.cabecalho;
-    const responded = item.estudantes.filter((s) => (s.status || "").toUpperCase() === "P").length;
-    const absent = item.estudantes.filter((s) => (s.status || "").toUpperCase() === "A").length;
-    const transferred = item.estudantes.filter((s) => (s.status || "").toUpperCase() === "T").length;
-    const nRegularExtra = item.estudantes.filter((s) => (s.status || "").toUpperCase() === "SE").length;
-    const nSupportExtra = item.estudantes.filter((s) => (s.status || "").toUpperCase() === "SS").length;
-    const nStayed =
-      item.estudantes.filter((s) => (s.status || "").toUpperCase() === "NE").length +
-      item.estudantes.filter((s) => (s.status || "").toUpperCase() === "I").length;
-    const notResponded = Math.max(item.estudantes.length - responded - absent - transferred, 0);
     const serieTurmaDisplay = getSerieTurmaDisplay(header);
 
     return {
@@ -730,37 +698,12 @@ export default function AtaSalaPage() {
       serieTurma: `${serieTurmaDisplay.serie} ${serieTurmaDisplay.turma}`.trim(),
       turno: header.turno || pdfData.turno,
       disciplina: header.disciplina || pdfData.disciplina,
-      options: {
-        ...pdfData.options,
-        q7Responded: String(clamp99(responded)),
-        q8NotResponded: String(clamp99(notResponded)),
-        q9Tablets: String(clamp99(responded)),
-        q10SpecialStayed: String(clamp99(nStayed)),
-        q11SpecialRegularRoom: String(clamp99(nRegularExtra)),
-        q12SpecialSupportRoom: String(clamp99(nSupportExtra)),
-      },
     };
   };
 
   const buildAtaDataFromLista = (results: ListaFrequenciaResponse[]): AtaSalaPdfData => {
     if (results.length === 1) return buildAtaDataForClass(results[0]);
-    const allStudents = results.flatMap((item) => item.estudantes);
-    const count = (status: string) =>
-      allStudents.filter((student) => (student.status || "").toUpperCase() === status).length;
-    const responded = count("P");
-    const notResponded = Math.max(allStudents.length - responded - count("A") - count("T"), 0);
-    return {
-      ...pdfData,
-      options: {
-        ...pdfData.options,
-        q7Responded: String(clamp99(responded)),
-        q8NotResponded: String(clamp99(notResponded)),
-        q9Tablets: String(clamp99(responded)),
-        q10SpecialStayed: String(clamp99(count("NE") + count("I"))),
-        q11SpecialRegularRoom: String(clamp99(count("SE"))),
-        q12SpecialSupportRoom: String(clamp99(count("SS"))),
-      },
-    };
+    return pdfData;
   };
 
   const loadLista = async (): Promise<ListaFrequenciaResponse[] | null> => {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -100,6 +100,7 @@ interface ManageClassModalProps {
   classData: ClassData;
   onSuccess: () => void;
   onAdapLevels?: (levels: string[]) => void;
+  onSubturmaBadges?: (badges: Record<string, string>) => void;
   /** ID do município da escola (obrigatório para admin/tecadm criarem professor já na escola) */
   schoolCityId?: string;
 }
@@ -112,6 +113,7 @@ export function ManageClassModal({
   classData,
   onSuccess,
   onAdapLevels,
+  onSubturmaBadges,
   schoolCityId,
 }: ManageClassModalProps) {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
@@ -122,7 +124,8 @@ export function ManageClassModal({
   const [showLinkStudentModal, setShowLinkStudentModal] = useState(false);
   const [showBulkStudentsModal, setShowBulkStudentsModal] = useState(false);
   const [transferStudent, setTransferStudent] = useState<Student | null>(null);
-  const [studentSearchQuery, setStudentSearchQuery] = useState("");
+  const [rosterView, setRosterView] = useState<"teachers" | "students">("students");
+  const [rosterSearchQuery, setRosterSearchQuery] = useState("");
   const [viewingStudent, setViewingStudent] = useState<Student | null>(null);
   const [viewingTeacher, setViewingTeacher] = useState<Teacher | null>(null);
   const [activeTab, setActiveTab] = useState("manage");
@@ -138,6 +141,12 @@ export function ManageClassModal({
   const [supportLevel, setSupportLevel] = useState("regular");
   const [subturmaBadges, setSubturmaBadges] = useState<Record<string, string>>({});
   const [subturmaReload, setSubturmaReload] = useState(0);
+  const onSubturmaBadgesRef = useRef(onSubturmaBadges);
+  onSubturmaBadgesRef.current = onSubturmaBadges;
+  const handleSubturmaBadges = useCallback((badges: Record<string, string>) => {
+    setSubturmaBadges(badges);
+    onSubturmaBadgesRef.current?.(badges);
+  }, []);
   const { toast } = useToast();
 
   const gradeForAdap = useMemo(() => {
@@ -241,19 +250,28 @@ export function ManageClassModal({
   }, [isOpen, fetchClassData]);
 
   useEffect(() => {
-    if (!isOpen) setStudentSearchQuery("");
+    if (!isOpen) {
+      setRosterSearchQuery("");
+      setRosterView("students");
+    }
   }, [isOpen]);
 
+  const filteredTeachers = useMemo(() => {
+    const q = rosterSearchQuery.trim().toLowerCase();
+    if (!q || rosterView !== "teachers") return teachers;
+    return teachers.filter((teacher) => String(teacher.name ?? "").toLowerCase().includes(q));
+  }, [teachers, rosterSearchQuery, rosterView]);
+
   const filteredStudents = useMemo(() => {
-    const q = studentSearchQuery.trim().toLowerCase();
-    if (!q) return students;
-    return students.filter((s) => {
-      const name = String(s.name ?? "").toLowerCase();
-      const email = String(s.email ?? s.user?.email ?? "").toLowerCase();
-      const reg = String(s.registration ?? "").toLowerCase();
-      return name.includes(q) || email.includes(q) || reg.includes(q);
-    });
-  }, [students, studentSearchQuery]);
+    const q = rosterSearchQuery.trim().toLowerCase();
+    if (!q || rosterView !== "students") return students;
+    return students.filter((student) => String(student.name ?? "").toLowerCase().includes(q));
+  }, [students, rosterSearchQuery, rosterView]);
+
+  const selectRosterView = (view: "teachers" | "students") => {
+    setRosterView(view);
+    setRosterSearchQuery("");
+  };
 
   const handleRemoveTeacher = async (teacherId: string) => {
     setIsRemoving(`teacher-${teacherId}`);
@@ -492,41 +510,119 @@ export function ManageClassModal({
                     <span className="text-sm sm:text-base text-muted-foreground">Carregando dados da turma...</span>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6 h-full overflow-y-auto pr-2 pb-4 scroll-smooth scrollbar-thin scrollbar-thumb-blue-300 dark:scrollbar-thumb-blue-700 scrollbar-track-transparent">
+                  <div className="flex h-full flex-col gap-4 overflow-y-auto pr-2 pb-4 scroll-smooth scrollbar-thin scrollbar-thumb-blue-300 dark:scrollbar-thumb-blue-700 scrollbar-track-transparent">
                     {!specialClass ? (
-                      <div className="xl:col-span-2">
-                        <SubturmasAdapSection
-                          classId={classData.id}
-                          grade={gradeForAdap}
-                          students={students.map((student) => ({ id: student.id, name: student.name }))}
-                          canManage
-                          onBadges={setSubturmaBadges}
-                          onLevels={onAdapLevels}
-                          reloadToken={subturmaReload}
-                        />
-                      </div>
+                      <SubturmasAdapSection
+                        classId={classData.id}
+                        grade={gradeForAdap}
+                        students={students.map((student) => ({ id: student.id, name: student.name }))}
+                        canManage
+                        onBadges={handleSubturmaBadges}
+                        onLevels={onAdapLevels}
+                        reloadToken={subturmaReload}
+                      />
                     ) : null}
-                    {/* Teachers Section */}
-                    <div className="flex flex-col min-h-0">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-                        <h3 className="font-semibold text-base sm:text-lg flex items-center gap-2 text-foreground">
+
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                      <div className="flex items-center gap-6 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => selectRosterView("teachers")}
+                          className={`inline-flex items-center gap-2 text-base sm:text-lg transition-opacity ${
+                            rosterView === "teachers"
+                              ? "font-semibold text-foreground opacity-100"
+                              : "font-medium text-muted-foreground opacity-40 hover:opacity-70"
+                          }`}
+                        >
                           <GraduationCap className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600 dark:text-blue-400" />
-                          <span>Professores</span>
+                          Professores
                           <Badge variant="secondary" className="text-xs px-2 py-0.5">
                             {teachers.length}
                           </Badge>
-                        </h3>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowLinkTeacherModal(true)}
-                          className="w-full sm:w-auto text-xs sm:text-sm"
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => selectRosterView("students")}
+                          className={`inline-flex items-center gap-2 text-base sm:text-lg transition-opacity ${
+                            rosterView === "students"
+                              ? "font-semibold text-foreground opacity-100"
+                              : "font-medium text-muted-foreground opacity-40 hover:opacity-70"
+                          }`}
                         >
-                          <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                          Vincular Professor
-                        </Button>
+                          <Users className="h-4 w-4 sm:h-5 sm:w-5 text-green-600 dark:text-green-400" />
+                          Alunos
+                          <Badge variant="secondary" className="text-xs px-2 py-0.5">
+                            {students.length}
+                          </Badge>
+                        </button>
                       </div>
 
+                      <div className="flex flex-wrap gap-2">
+                        {rosterView === "teachers" ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowLinkTeacherModal(true)}
+                            className="text-xs sm:text-sm"
+                          >
+                            <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                            Vincular Professor
+                          </Button>
+                        ) : (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setShowLinkStudentModal(true)}
+                              className="text-xs sm:text-sm"
+                            >
+                              <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                              Vincular Aluno
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setShowBulkStudentsModal(true)}
+                              className="text-xs sm:text-sm"
+                            >
+                              <Upload className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                              Alunos em lote
+                            </Button>
+                          </>
+                        )}
+                      </div>
+
+                      <div className="relative w-full lg:ml-auto lg:w-72">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                        <Input
+                          id="roster-search"
+                          type="search"
+                          placeholder={rosterView === "teachers" ? "Pesquisar professor…" : "Pesquisar aluno…"}
+                          value={rosterSearchQuery}
+                          onChange={(e) => setRosterSearchQuery(e.target.value)}
+                          className="h-10 pl-9"
+                          autoComplete="off"
+                          aria-label={rosterView === "teachers" ? "Pesquisar professor na turma" : "Pesquisar aluno na turma"}
+                        />
+                      </div>
+                    </div>
+
+                    {rosterSearchQuery.trim() !== "" && (
+                      <p className="text-xs text-muted-foreground -mt-2">
+                        Mostrando {rosterView === "teachers" ? filteredTeachers.length : filteredStudents.length} de{" "}
+                        {rosterView === "teachers" ? teachers.length : students.length}{" "}
+                        {rosterView === "teachers"
+                          ? teachers.length === 1
+                            ? "professor"
+                            : "professores"
+                          : students.length === 1
+                            ? "aluno"
+                            : "alunos"}
+                      </p>
+                    )}
+
+                    {rosterView === "teachers" ? (
+                    <div className="flex min-h-0 flex-1 flex-col">
                       <div className="border rounded-lg flex-1 overflow-hidden bg-card border-border">
                         {teachers.length === 0 ? (
                           <div className="flex flex-col items-center justify-center p-6 sm:p-8 h-full min-h-[200px]">
@@ -540,10 +636,25 @@ export function ManageClassModal({
                               Clique em "Vincular Professor" para vincular
                             </p>
                           </div>
+                        ) : filteredTeachers.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center p-6 sm:p-8 h-full min-h-[160px]">
+                            <p className="text-sm text-muted-foreground text-center">
+                              Nenhum professor corresponde à pesquisa.
+                            </p>
+                            <Button
+                              type="button"
+                              variant="link"
+                              size="sm"
+                              className="text-xs mt-1"
+                              onClick={() => setRosterSearchQuery("")}
+                            >
+                              Limpar pesquisa
+                            </Button>
+                          </div>
                         ) : (
                           <div className="p-3 sm:p-4 h-full overflow-y-auto scrollbar-thin scrollbar-thumb-blue-300 dark:scrollbar-thumb-blue-700 scrollbar-track-transparent scroll-smooth">
                             <div className="space-y-2 sm:space-y-3">
-                              {teachers.map((teacher) => (
+                              {filteredTeachers.map((teacher) => (
                                 <div
                                   key={teacher.id}
                                   className="flex items-center gap-3 p-3 sm:p-4 border rounded-lg hover:bg-muted transition-colors border-border"
@@ -591,59 +702,8 @@ export function ManageClassModal({
                         )}
                       </div>
                     </div>
-
-                    {/* Students Section */}
-                    <div className="flex flex-col min-h-0">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-                        <h3 className="font-semibold text-base sm:text-lg flex items-center gap-2 text-foreground">
-                          <Users className="h-4 w-4 sm:h-5 sm:w-5 text-green-600 dark:text-green-400" />
-                          <span>Alunos</span>
-                          <Badge variant="secondary" className="text-xs px-2 py-0.5">
-                            {students.length}
-                          </Badge>
-                        </h3>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowLinkStudentModal(true)}
-                          className="w-full sm:w-auto text-xs sm:text-sm"
-                        >
-                          <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                          Vincular Aluno
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowBulkStudentsModal(true)}
-                          className="w-full sm:w-auto text-xs sm:text-sm"
-                        >
-                          <Upload className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                          Alunos em lote
-                        </Button>
-                      </div>
-
-                      {students.length > 0 && (
-                        <div className="relative mb-3">
-                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                          <Input
-                            id="student-search"
-                            type="search"
-                            placeholder="Pesquisar por nome, e-mail ou matrícula…"
-                            value={studentSearchQuery}
-                            onChange={(e) => setStudentSearchQuery(e.target.value)}
-                            className="h-10 pl-9"
-                            autoComplete="off"
-                            aria-label="Pesquisar aluno na turma"
-                          />
-                          {studentSearchQuery.trim() !== "" && (
-                            <p className="text-xs text-muted-foreground mt-1.5">
-                              Mostrando {filteredStudents.length} de {students.length} aluno
-                              {students.length === 1 ? "" : "s"}
-                            </p>
-                          )}
-                        </div>
-                      )}
-
+                    ) : (
+                    <div className="flex min-h-0 flex-1 flex-col">
                       <div className="border rounded-lg flex-1 overflow-hidden bg-card border-border">
                         {students.length === 0 ? (
                           <div className="flex flex-col items-center justify-center p-6 sm:p-8 h-full min-h-[200px]">
@@ -667,7 +727,7 @@ export function ManageClassModal({
                               variant="link"
                               size="sm"
                               className="text-xs mt-1"
-                              onClick={() => setStudentSearchQuery("")}
+                              onClick={() => setRosterSearchQuery("")}
                             >
                               Limpar pesquisa
                             </Button>
@@ -742,6 +802,7 @@ export function ManageClassModal({
                         )}
                       </div>
                     </div>
+                    )}
                   </div>
                 )}
               </TabsContent>
@@ -993,9 +1054,11 @@ export function ManageClassModal({
             : String(classData.grade || "")
         }
         allowSupportLevel={!specialClass}
+        existingNames={students.map((student) => student.name)}
         onSuccess={() => {
           setSubturmaReload((current) => current + 1);
-          fetchClassData();
+          void fetchClassData();
+          onSuccess();
         }}
       />
 

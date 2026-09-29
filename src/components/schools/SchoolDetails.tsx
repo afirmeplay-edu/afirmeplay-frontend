@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -189,10 +189,13 @@ export default function SchoolDetails() {
     useState<BulkTeachersModalInitialEntry>("import");
   const [showPasswordReportModal, setShowPasswordReportModal] = useState(false);
   const [currentTeacherUserId, setCurrentTeacherUserId] = useState<string | null>(null);
-  const [showStudentsDialog, setShowStudentsDialog] = useState(false);
-  const [studentsDialogClass, setStudentsDialogClass] = useState<Class | null>(null);
+  const [rosterPreview, setRosterPreview] = useState<{
+    classItem: Class;
+    kind: "teachers" | "students";
+  } | null>(null);
   const [subturmaBadges, setSubturmaBadges] = useState<Record<string, string>>({});
   const [classAdapLevels, setClassAdapLevels] = useState<Record<string, string[]>>({});
+  const subturmaOwnerIdsRef = useRef<Record<string, string[]>>({});
   
   // Estados para gerenciamento de turmas
   const [showDeleteClassDialog, setShowDeleteClassDialog] = useState(false);
@@ -223,7 +226,7 @@ export default function SchoolDetails() {
   const sortedClasses = useMemo(() => [...classes].sort(compareClassesForDisplay), [classes]);
 
   useEffect(() => {
-    const classId = studentsDialogClass?.id;
+    const classId = rosterPreview?.kind === "students" ? rosterPreview.classItem.id : undefined;
     if (!classId) return;
     let cancelled = false;
     api
@@ -239,7 +242,7 @@ export default function SchoolDetails() {
     return () => {
       cancelled = true;
     };
-  }, [studentsDialogClass?.id]);
+  }, [rosterPreview]);
 
   useEffect(() => {
     const fetchSchool = async () => {
@@ -408,13 +411,16 @@ export default function SchoolDetails() {
       // Organizar dados por turma
       const badges: Record<string, string> = {};
       const levelsByClass: Record<string, string[]> = {};
+      const owners: Record<string, string[]> = {};
       results.forEach(({ classId, teachers, students, adap, levels }) => {
         teachersData[classId] = teachers;
         studentsData[classId] = students;
         Object.assign(badges, adap);
+        owners[classId] = Object.keys(adap);
         if (levels.length > 0) levelsByClass[classId] = levels;
       });
 
+      subturmaOwnerIdsRef.current = owners;
       setClassTeachers(teachersData);
       setClassStudents(studentsData);
       setSubturmaBadges(badges);
@@ -1358,8 +1364,7 @@ export default function SchoolDetails() {
                               variant="outline"
                               size="sm"
                               onClick={() => {
-                                setStudentsDialogClass(classItem);
-                                setShowStudentsDialog(true);
+                                setRosterPreview({ classItem, kind: "students" });
                               }}
                               title="Visualizar alunos desta turma"
                             >
@@ -1442,9 +1447,15 @@ export default function SchoolDetails() {
                                 </div>
                               ))}
                               {classTeachers[classItem.id]?.length > 3 && (
-                                <div className="text-xs text-primary">
-                                  +{classTeachers[classItem.id].length - 3} mais
-                                </div>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="mt-1 h-7 px-2 text-xs"
+                                  onClick={() => setRosterPreview({ classItem, kind: "teachers" })}
+                                >
+                                  Ver mais (+{classTeachers[classItem.id].length - 3})
+                                </Button>
                               )}
                             </div>
                           )}
@@ -1477,9 +1488,15 @@ export default function SchoolDetails() {
                               ))}
                               {classStudents[classItem.id] &&
                                 classStudents[classItem.id].length > 3 && (
-                                  <div className="text-xs text-primary">
-                                    +{classStudents[classItem.id].length - 3} mais
-                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="mt-1 h-7 px-2 text-xs"
+                                    onClick={() => setRosterPreview({ classItem, kind: "students" })}
+                                  >
+                                    Ver mais (+{classStudents[classItem.id].length - 3})
+                                  </Button>
                                 )}
                             </div>
                           )}
@@ -1548,6 +1565,24 @@ export default function SchoolDetails() {
               if (levels.length === 0) delete next[selectedClass.id];
               else next[selectedClass.id] = levels;
               return next;
+            });
+          }}
+          onSubturmaBadges={(badges) => {
+            const classId = selectedClass.id;
+            setSubturmaBadges((prev) => {
+              const next = { ...prev };
+              for (const studentId of subturmaOwnerIdsRef.current[classId] || []) {
+                delete next[studentId];
+              }
+              for (const student of classStudents[classId] || []) {
+                delete next[student.id];
+              }
+              Object.assign(next, badges);
+              subturmaOwnerIdsRef.current[classId] = Object.keys(badges);
+              const keys = Object.keys(next);
+              const unchanged =
+                keys.length === Object.keys(prev).length && keys.every((key) => prev[key] === next[key]);
+              return unchanged ? prev : next;
             });
           }}
           onSuccess={async () => {
@@ -1821,36 +1856,48 @@ export default function SchoolDetails() {
         </DialogContent>
       </Dialog>
 
-      {/* Students Dialog (somente para professor na própria turma) */}
       <Dialog
-        open={showStudentsDialog}
+        open={rosterPreview !== null}
         onOpenChange={(open) => {
-          setShowStudentsDialog(open);
-          if (!open) setStudentsDialogClass(null);
+          if (!open) setRosterPreview(null);
         }}
       >
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>
-              Alunos da turma{" "}
-              {studentsDialogClass?.name ? `"${upperDisplay(studentsDialogClass.name)}"` : ""}
+              {rosterPreview?.kind === "teachers" ? "Professores" : "Alunos"} da turma{" "}
+              {rosterPreview?.classItem.name ? `"${upperDisplay(rosterPreview.classItem.name)}"` : ""}
             </DialogTitle>
             <DialogDescription>
-              Lista completa de alunos vinculados à sua turma.
+              {rosterPreview?.kind === "teachers"
+                ? "Lista completa de professores vinculados a esta turma."
+                : "Lista completa de alunos vinculados a esta turma."}
             </DialogDescription>
           </DialogHeader>
 
           <div className="border rounded-lg p-3 max-h-[55vh] overflow-y-auto">
-            {studentsDialogClass ? (
-              (classStudents[studentsDialogClass.id] || []).length === 0 ? (
+            {rosterPreview?.kind === "teachers" ? (
+              (classTeachers[rosterPreview.classItem.id] || []).length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center">Nenhum professor vinculado</p>
+              ) : (
+                <div className="space-y-2">
+                  {(classTeachers[rosterPreview.classItem.id] || []).map((teacher) => (
+                    <p key={teacher.id} className="text-sm text-foreground">
+                      {upperDisplay(teacher.name)}
+                    </p>
+                  ))}
+                </div>
+              )
+            ) : rosterPreview?.kind === "students" ? (
+              (classStudents[rosterPreview.classItem.id] || []).length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center">Nenhum aluno vinculado</p>
               ) : (
                 <div className="space-y-2">
-                  {(classStudents[studentsDialogClass.id] || []).map((s) => (
-                    <div key={s.id} className="flex items-center gap-2 text-sm text-foreground">
-                      <span>{upperDisplay(s.name)}</span>
-                      {subturmaBadges[s.id] ? (
-                        <Badge variant="secondary">{subturmaBadges[s.id]}</Badge>
+                  {(classStudents[rosterPreview.classItem.id] || []).map((student) => (
+                    <div key={student.id} className="flex items-center gap-2 text-sm text-foreground">
+                      <span>{upperDisplay(student.name)}</span>
+                      {subturmaBadges[student.id] ? (
+                        <Badge variant="secondary">{subturmaBadges[student.id]}</Badge>
                       ) : null}
                     </div>
                   ))}
