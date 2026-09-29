@@ -10,6 +10,17 @@ import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { generateEmailFromName, generatePasswordFromName } from "@/hooks/useEmailCheck";
 import { CheckCircle2, AlertCircle, Loader2, Users, GraduationCap } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  extractCreatedId,
+  linkStudentToSupportLevel,
+} from "@/lib/subturma";
 
 interface BulkCreateStudentsByListModalProps {
   isOpen: boolean;
@@ -19,6 +30,7 @@ interface BulkCreateStudentsByListModalProps {
   className: string;
   gradeId?: string;
   gradeName?: string;
+  allowSupportLevel?: boolean;
   onSuccess: () => void;
 }
 
@@ -28,6 +40,7 @@ interface StudentBulkResult {
   senha: string;
   success: boolean;
   error?: string;
+  adap?: string;
 }
 
 const getTodayDate = (): string => {
@@ -58,10 +71,12 @@ export function BulkCreateStudentsByListModal({
   className,
   gradeId,
   gradeName,
+  allowSupportLevel = true,
   onSuccess,
 }: BulkCreateStudentsByListModalProps) {
   const { toast } = useToast();
   const [input, setInput] = useState("");
+  const [supportLevel, setSupportLevel] = useState("regular");
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [results, setResults] = useState<StudentBulkResult[]>([]);
@@ -80,6 +95,7 @@ export function BulkCreateStudentsByListModal({
   useEffect(() => {
     if (!isOpen) {
       setInput("");
+      setSupportLevel("regular");
       setIsProcessing(false);
       setProgress({ current: 0, total: 0 });
       setResults([]);
@@ -117,13 +133,14 @@ export function BulkCreateStudentsByListModal({
     setProgress({ current: 0, total: parsedNames.length });
     const today = getTodayDate();
     const output: StudentBulkResult[] = [];
+    const level = allowSupportLevel && supportLevel !== "regular" ? Number(supportLevel) : null;
 
     for (const nome of parsedNames) {
       try {
         const email = await resolveEmail(nome);
         const senha = generatePasswordFromName(nome);
 
-        await api.post("/students", {
+        const response = await api.post("/students", {
           name: nome,
           email,
           password: senha,
@@ -132,7 +149,22 @@ export function BulkCreateStudentsByListModal({
           grade_id: gradeId,
         });
 
-        output.push({ nome, email, senha, success: true });
+        let adap: string | undefined;
+        if (level) {
+          const studentId = extractCreatedId(response.data);
+          if (!studentId) {
+            adap = "Ficou na turma regular. O nível ADAP não foi vinculado.";
+          } else {
+            try {
+              await linkStudentToSupportLevel(classId, studentId, level);
+              adap = `ADAP ${level}`;
+            } catch (linkError: unknown) {
+              adap = getApiMessage(linkError, "Ficou na turma regular. O nível ADAP não foi vinculado.");
+            }
+          }
+        }
+
+        output.push({ nome, email, senha, success: true, adap });
       } catch (error: unknown) {
         output.push({
           nome,
@@ -150,15 +182,20 @@ export function BulkCreateStudentsByListModal({
     setIsProcessing(false);
 
     const successCount = output.filter((item) => item.success).length;
+    const adapMissed = output.filter((item) => item.success && item.adap && !item.adap.startsWith("ADAP")).length;
     if (successCount > 0) {
       onSuccess();
-      onClose();
     }
 
     toast({
       title: "Processo finalizado",
-      description: `${successCount} de ${output.length} aluno(s) criado(s) na turma.`,
-      variant: successCount > 0 ? "default" : "destructive",
+      description:
+        adapMissed > 0
+          ? `${successCount} de ${output.length} aluno(s) na turma regular. ${adapMissed} sem o nível ADAP.`
+          : level
+            ? `${successCount} de ${output.length} aluno(s) criado(s) em ADAP ${level}.`
+            : `${successCount} de ${output.length} aluno(s) criado(s) na turma.`,
+      variant: successCount > 0 && adapMissed === 0 ? "default" : "destructive",
     });
   };
 
@@ -199,6 +236,25 @@ export function BulkCreateStudentsByListModal({
               <CardTitle className="text-base">Lista de alunos</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              {allowSupportLevel ? (
+                <div className="space-y-2">
+                  <Label htmlFor="students-bulk-support">Nível de suporte</Label>
+                  <Select value={supportLevel} onValueChange={setSupportLevel} disabled={isProcessing}>
+                    <SelectTrigger id="students-bulk-support" className="w-full sm:w-[240px]">
+                      <SelectValue placeholder="Somente turma regular" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="regular">Somente turma regular</SelectItem>
+                      <SelectItem value="1">ADAP 1</SelectItem>
+                      <SelectItem value="2">ADAP 2</SelectItem>
+                      <SelectItem value="3">ADAP 3</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-sm text-muted-foreground">
+                    A lista entra na turma. Com um nível, entra também nesse ADAP.
+                  </p>
+                </div>
+              ) : null}
               <Label htmlFor="students-bulk-list">Um nome por linha</Label>
               <Textarea
                 id="students-bulk-list"
@@ -252,7 +308,10 @@ export function BulkCreateStudentsByListModal({
                         <p className="font-medium text-sm">{item.nome}</p>
                         <p className="text-xs text-muted-foreground truncate">{item.email}</p>
                         {item.success ? (
-                          <p className="text-xs text-muted-foreground">Senha: {item.senha}</p>
+                          <>
+                            <p className="text-xs text-muted-foreground">Senha: {item.senha}</p>
+                            {item.adap ? <p className="text-xs text-muted-foreground">{item.adap}</p> : null}
+                          </>
                         ) : (
                           <p className="text-xs text-red-600">{item.error}</p>
                         )}

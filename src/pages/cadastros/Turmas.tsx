@@ -47,6 +47,7 @@ import { ClassShiftBadge } from "@/components/schools/ClassShiftBadge";
 import { ClassShiftSelector } from "@/components/schools/ClassShiftSelector";
 import { EditClassShiftDialog } from "@/components/schools/EditClassShiftDialog";
 import { SubturmasAdapSection } from "@/components/schools/SubturmasAdapSection";
+import { isSpecialEducationClass, levelsFromSubturmas } from "@/lib/subturma";
 import { type ClassShiftCanonical, toApiShiftValue } from "@/lib/classShift";
 
 interface School {
@@ -159,6 +160,7 @@ export default function Turmas({ embedded = false }: TurmasProps) {
   const [shiftEditTurma, setShiftEditTurma] = useState<Turma | null>(null);
   const [viewStudents, setViewStudents] = useState<Student[]>([]);
   const [subturmaBadges, setSubturmaBadges] = useState<Record<string, string>>({});
+  const [adapLevelsByClass, setAdapLevelsByClass] = useState<Record<string, string[]>>({});
   /** Aba de escola ativa (modo embedded: turmas separadas por escola) */
   const [activeSchoolTab, setActiveSchoolTab] = useState<string>("");
   const [showFilters, setShowFilters] = useState(true);
@@ -250,6 +252,35 @@ export default function Turmas({ embedded = false }: TurmasProps) {
     fetchSchools();
     fetchGrades();
   }, [fetchTurmas]);
+
+  useEffect(() => {
+    const eligible = turmas.filter((turma) => !isSpecialEducationClass(turma.grade));
+    if (eligible.length === 0) {
+      setAdapLevelsByClass({});
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      eligible.map(async (turma) => {
+        try {
+          const response = await api.get(`/classes/${turma.id}/subturmas`);
+          return [turma.id, levelsFromSubturmas(response.data?.subturmas || [])] as const;
+        } catch {
+          return [turma.id, [] as string[]] as const;
+        }
+      })
+    ).then((pairs) => {
+      if (cancelled) return;
+      const next: Record<string, string[]> = {};
+      for (const [id, levels] of pairs) {
+        if (levels.length > 0) next[id] = levels;
+      }
+      setAdapLevelsByClass(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [turmas]);
 
   // Quando embedded, definir primeira escola como aba ativa ao carregar escolas
   useEffect(() => {
@@ -801,6 +832,9 @@ export default function Turmas({ embedded = false }: TurmasProps) {
                           <Users className="h-5 w-5 text-green-600" />
                           {turma.name}
                           <ClassShiftBadge shift={turma.shift} />
+                          {(adapLevelsByClass[turma.id] || []).map((level) => (
+                            <Badge key={level} variant="secondary">{level}</Badge>
+                          ))}
                         </CardTitle>
                         <Badge variant="default">Ativa</Badge>
                       </CardHeader>
@@ -886,6 +920,9 @@ export default function Turmas({ embedded = false }: TurmasProps) {
                     <Users className="h-5 w-5 text-green-600" />
                     {turma.name}
                     <ClassShiftBadge shift={turma.shift} />
+                    {(adapLevelsByClass[turma.id] || []).map((level) => (
+                      <Badge key={level} variant="secondary">{level}</Badge>
+                    ))}
                   </CardTitle>
                   <Badge variant="default">Ativa</Badge>
                 </CardHeader>
@@ -1321,6 +1358,14 @@ export default function Turmas({ embedded = false }: TurmasProps) {
               students={viewStudents}
               canManage={canManageSubturma}
               onBadges={setSubturmaBadges}
+              onLevels={(levels) => {
+                setAdapLevelsByClass((prev) => {
+                  const next = { ...prev };
+                  if (levels.length === 0) delete next[viewingClass.id];
+                  else next[viewingClass.id] = levels;
+                  return next;
+                });
+              }}
             />
           ) : null}
 

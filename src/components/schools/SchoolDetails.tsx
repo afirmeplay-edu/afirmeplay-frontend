@@ -16,6 +16,7 @@ import { ManageSchoolLinksModal } from "./ManageSchoolLinksModal";
 import { BulkUploadStudentsModal } from "./BulkUploadStudentsModal";
 import { BulkManageTeachersModal, type BulkTeachersModalInitialEntry } from "./BulkManageTeachersModal";
 import { BulkCreateCoordinatorsModal } from "./BulkCreateCoordinatorsModal";
+import { badgesFromSubturmas, levelsFromSubturmas } from "@/lib/subturma";
 import { PasswordReportModal } from "./PasswordReportModal";
 import { SchoolCoursesTab } from "./SchoolCoursesTab";
 import { InstituicaoDisciplinasTab } from "./InstituicaoDisciplinasTab";
@@ -191,6 +192,7 @@ export default function SchoolDetails() {
   const [showStudentsDialog, setShowStudentsDialog] = useState(false);
   const [studentsDialogClass, setStudentsDialogClass] = useState<Class | null>(null);
   const [subturmaBadges, setSubturmaBadges] = useState<Record<string, string>>({});
+  const [classAdapLevels, setClassAdapLevels] = useState<Record<string, string[]>>({});
   
   // Estados para gerenciamento de turmas
   const [showDeleteClassDialog, setShowDeleteClassDialog] = useState(false);
@@ -222,25 +224,17 @@ export default function SchoolDetails() {
 
   useEffect(() => {
     const classId = studentsDialogClass?.id;
-    if (!classId) {
-      setSubturmaBadges({});
-      return;
-    }
+    if (!classId) return;
     let cancelled = false;
     api
       .get(`/classes/${classId}/subturmas`)
       .then((response) => {
         if (cancelled) return;
-        const map: Record<string, string> = {};
-        for (const item of response.data?.subturmas || []) {
-          for (const aluno of item.alunos || []) {
-            map[aluno.id] = item.display_name;
-          }
-        }
-        setSubturmaBadges(map);
+        const map = badgesFromSubturmas(response.data?.subturmas || []);
+        setSubturmaBadges((prev) => ({ ...prev, ...map }));
       })
       .catch(() => {
-        if (!cancelled) setSubturmaBadges({});
+        /* a lista da turma continua sem selo se a leitura falhar */
       });
     return () => {
       cancelled = true;
@@ -379,16 +373,32 @@ export default function SchoolDetails() {
             class_id: student.class_id
           })) : [];
 
+          let adap: Record<string, string> = {};
+          let levels: string[] = [];
+          try {
+            const subturmasResponse = await api.get(`/classes/${classItem.id}/subturmas`);
+            const list = subturmasResponse.data?.subturmas || [];
+            adap = badgesFromSubturmas(list);
+            levels = levelsFromSubturmas(list);
+          } catch {
+            adap = {};
+            levels = [];
+          }
+
           return {
             classId: classItem.id,
             teachers: classTeachers,
-            students: classStudents
+            students: classStudents,
+            adap,
+            levels,
           };
         } catch (error) {
           return {
             classId: classItem.id,
             teachers: [],
-            students: []
+            students: [],
+            adap: {},
+            levels: [],
           };
         }
       });
@@ -396,13 +406,19 @@ export default function SchoolDetails() {
       const results = await Promise.all(promises);
       
       // Organizar dados por turma
-      results.forEach(({ classId, teachers, students }) => {
+      const badges: Record<string, string> = {};
+      const levelsByClass: Record<string, string[]> = {};
+      results.forEach(({ classId, teachers, students, adap, levels }) => {
         teachersData[classId] = teachers;
         studentsData[classId] = students;
+        Object.assign(badges, adap);
+        if (levels.length > 0) levelsByClass[classId] = levels;
       });
 
       setClassTeachers(teachersData);
       setClassStudents(studentsData);
+      setSubturmaBadges(badges);
+      setClassAdapLevels(levelsByClass);
     } catch (error) {
       // Silenciar erro ao buscar detalhes das turmas
     }
@@ -1304,6 +1320,11 @@ export default function SchoolDetails() {
                         <h4 className="font-medium text-base flex items-center gap-2 flex-wrap">
                           {upperDisplay(classItem.name)}
                           <ClassShiftBadge shift={classItem.shift} />
+                          {(classAdapLevels[classItem.id] || []).map((level) => (
+                            <Badge key={level} variant="secondary">
+                              {level}
+                            </Badge>
+                          ))}
                         </h4>
                         {classItem.grade && (
                           <div className="text-sm text-muted-foreground">
@@ -1444,9 +1465,14 @@ export default function SchoolDetails() {
                               {classStudents[classItem.id]?.slice(0, 3).map((student) => (
                                 <div
                                   key={student.id}
-                                  className="text-xs text-muted-foreground truncate"
+                                  className="flex items-center gap-2 text-xs text-muted-foreground"
                                 >
-                                  {upperDisplay(student.name)}
+                                  <span className="truncate">{upperDisplay(student.name)}</span>
+                                  {subturmaBadges[student.id] ? (
+                                    <Badge variant="secondary" className="shrink-0 text-[10px]">
+                                      {subturmaBadges[student.id]}
+                                    </Badge>
+                                  ) : null}
                                 </div>
                               ))}
                               {classStudents[classItem.id] &&
@@ -1516,6 +1542,14 @@ export default function SchoolDetails() {
           schoolName={school.name}
           schoolCityId={school.city_id}
           classData={selectedClass}
+          onAdapLevels={(levels) => {
+            setClassAdapLevels((prev) => {
+              const next = { ...prev };
+              if (levels.length === 0) delete next[selectedClass.id];
+              else next[selectedClass.id] = levels;
+              return next;
+            });
+          }}
           onSuccess={async () => {
             if (classes.length > 0) {
               await fetchClassDetails(classes);

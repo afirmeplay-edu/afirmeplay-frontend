@@ -16,11 +16,24 @@ import { LinkTeacherModal } from "./LinkTeacherModal";
 import { LinkStudentModal } from "./LinkStudentModal";
 import { BulkCreateStudentsByListModal } from "./BulkCreateStudentsByListModal";
 import { TransferStudentModal } from "./TransferStudentModal";
+import { SubturmasAdapSection } from "./SubturmasAdapSection";
+import {
+  extractCreatedId,
+  isSpecialEducationClass,
+  linkStudentToSupportLevel,
+} from "@/lib/subturma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useEmailCheck, generatePasswordFromName } from "@/hooks/useEmailCheck";
 interface Teacher {
   id: string;
@@ -86,6 +99,7 @@ interface ManageClassModalProps {
   schoolName?: string;
   classData: ClassData;
   onSuccess: () => void;
+  onAdapLevels?: (levels: string[]) => void;
   /** ID do município da escola (obrigatório para admin/tecadm criarem professor já na escola) */
   schoolCityId?: string;
 }
@@ -97,6 +111,7 @@ export function ManageClassModal({
   schoolName,
   classData,
   onSuccess,
+  onAdapLevels,
   schoolCityId,
 }: ManageClassModalProps) {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
@@ -120,7 +135,17 @@ export function ManageClassModal({
     registration: "",
     birth_date: ""
   });
+  const [supportLevel, setSupportLevel] = useState("regular");
+  const [subturmaBadges, setSubturmaBadges] = useState<Record<string, string>>({});
+  const [subturmaReload, setSubturmaReload] = useState(0);
   const { toast } = useToast();
+
+  const gradeForAdap = useMemo(() => {
+    if (typeof classData.grade === "object" && classData.grade !== null) return classData.grade;
+    if (typeof classData.grade === "string") return { name: classData.grade };
+    return null;
+  }, [classData.grade]);
+  const specialClass = isSpecialEducationClass(gradeForAdap);
 
   // Função para buscar professores e alunos da turma
   const fetchClassData = useCallback(async () => {
@@ -323,13 +348,29 @@ export function ManageClassModal({
       };
 
       const response = await api.post("/students", studentData);
+      const studentId = extractCreatedId(response.data);
+      let supportNote = "";
+      if (!specialClass && supportLevel !== "regular") {
+        if (!studentId) {
+          supportNote = " O aluno ficou na turma regular, mas o nível ADAP não foi vinculado.";
+        } else {
+          try {
+            await linkStudentToSupportLevel(classData.id, studentId, Number(supportLevel));
+            supportNote = ` Também entrou em ADAP ${supportLevel}.`;
+          } catch (linkError: unknown) {
+            const apiMessage = (linkError as ApiError)?.response?.data?.error;
+            const message = apiMessage || (linkError instanceof Error ? linkError.message : undefined);
+            supportNote = ` O aluno ficou na turma regular.${message ? ` ${message}` : " O nível ADAP não foi vinculado."}`;
+          }
+        }
+      }
 
       toast({
-        title: "Sucesso",
-        description: "Aluno criado e vinculado à turma com sucesso!",
+        title: supportNote.includes("não foi vinculado") ? "Aluno na turma regular" : "Sucesso",
+        description: `Aluno criado e vinculado à turma com sucesso!${supportNote}`,
+        variant: supportNote.includes("não foi vinculado") ? "destructive" : "default",
       });
 
-      // Limpar formulário
       setFormData({
         name: "",
         email: "",
@@ -337,6 +378,8 @@ export function ManageClassModal({
         registration: "",
         birth_date: ""
       });
+      setSupportLevel("regular");
+      setSubturmaReload((current) => current + 1);
 
       // Recarregar dados da turma
       await fetchClassData();
@@ -387,6 +430,7 @@ export function ManageClassModal({
         registration: "",
         birth_date: ""
       });
+      setSupportLevel("regular");
       onClose();
     }
   };
@@ -449,6 +493,19 @@ export function ManageClassModal({
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6 h-full overflow-y-auto pr-2 pb-4 scroll-smooth scrollbar-thin scrollbar-thumb-blue-300 dark:scrollbar-thumb-blue-700 scrollbar-track-transparent">
+                    {!specialClass ? (
+                      <div className="xl:col-span-2">
+                        <SubturmasAdapSection
+                          classId={classData.id}
+                          grade={gradeForAdap}
+                          students={students.map((student) => ({ id: student.id, name: student.name }))}
+                          canManage
+                          onBadges={setSubturmaBadges}
+                          onLevels={onAdapLevels}
+                          reloadToken={subturmaReload}
+                        />
+                      </div>
+                    ) : null}
                     {/* Teachers Section */}
                     <div className="flex flex-col min-h-0">
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
@@ -633,6 +690,11 @@ export function ManageClassModal({
                                       <span className="font-medium text-sm sm:text-base truncate text-foreground min-w-0">
                                         {student.name}
                                       </span>
+                                      {subturmaBadges[student.id] ? (
+                                        <Badge variant="secondary" className="shrink-0">
+                                          {subturmaBadges[student.id]}
+                                        </Badge>
+                                      ) : null}
                                       {schoolCityId ? (
                                         <Button
                                           type="button"
@@ -768,6 +830,27 @@ export function ManageClassModal({
                         onChange={(e) => handleInputChange('birth_date', e.target.value)}
                       />
                     </div>
+                    {!specialClass ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="student-support-level" className="text-sm font-medium text-foreground">
+                          Nível de suporte
+                        </Label>
+                        <Select value={supportLevel} onValueChange={setSupportLevel}>
+                          <SelectTrigger id="student-support-level" className="h-11">
+                            <SelectValue placeholder="Somente turma regular" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="regular">Somente turma regular</SelectItem>
+                            <SelectItem value="1">ADAP 1</SelectItem>
+                            <SelectItem value="2">ADAP 2</SelectItem>
+                            <SelectItem value="3">ADAP 3</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          Opcional. O aluno entra na turma e neste nível.
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-4 pt-4 border-t bg-gray-50/50 dark:bg-muted px-4 py-3 rounded-b-lg">
@@ -909,7 +992,11 @@ export function ManageClassModal({
             ? (classData.grade as GradeObject).name
             : String(classData.grade || "")
         }
-        onSuccess={fetchClassData}
+        allowSupportLevel={!specialClass}
+        onSuccess={() => {
+          setSubturmaReload((current) => current + 1);
+          fetchClassData();
+        }}
       />
 
       {schoolCityId ? (
