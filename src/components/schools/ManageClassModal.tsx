@@ -623,7 +623,6 @@ export function ManageClassModal({
 
                     {rosterView === "teachers" ? (
                     <div className="flex min-h-0 flex-1 flex-col">
-
                       <div className="border rounded-lg flex-1 overflow-hidden bg-card border-border">
                         {teachers.length === 0 ? (
                           <div className="flex flex-col items-center justify-center p-6 sm:p-8 h-full min-h-[200px]">
