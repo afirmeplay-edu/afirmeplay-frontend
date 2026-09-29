@@ -48,6 +48,7 @@ import {
   previewAtaSalaPdf,
   printAtaSalaPdf,
 } from "@/services/reports/ataSalaPdf";
+import { ROSTER_CHANGED_EVENT } from "@/lib/rosterEvents";
 import { getSerieTurmaDisplay } from "@/services/reports/listaFrequenciaPdf";
 import { downloadBlob, generateZipBlob } from "@/services/reports/hierarchicalDownload";
 
@@ -223,6 +224,9 @@ export default function AtaSalaPage() {
   const { id: routeId } = useParams<{ id?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const hydratingRef = useRef(false);
+  const listaRequestRef = useRef(0);
+  const listaLoadedRef = useRef(false);
+  const loadListaRef = useRef<(() => Promise<ListaFrequenciaResponse[] | null>) | null>(null);
 
   const activeTab = searchParams.get("tab") === "salvas" && !routeId ? "salvas" : "editor";
   const editingId = routeId || null;
@@ -266,7 +270,6 @@ export default function AtaSalaPage() {
   });
 
   const [error, setError] = useState<string | null>(null);
-  const [loadedLista, setLoadedLista] = useState<ListaFrequenciaResponse[] | null>(null);
 
   const [nomeAvaliacao, setNomeAvaliacao] = useState("NOME DA AVALIAÇÃO");
   const [cursoLabel, setCursoLabel] = useState("CURSO (ANOS INICIAIS OU FINAIS)");
@@ -597,7 +600,9 @@ export default function AtaSalaPage() {
   }, [isModoAplicada, selectedAvaliacaoTitulo]);
 
   useEffect(() => {
-    setLoadedLista(null);
+    listaRequestRef.current += 1;
+    listaLoadedRef.current = false;
+    setLoading((current) => ({ ...current, lista: false }));
   }, [modoLista, selectedEstado, selectedMunicipio, selectedSchool, selectedSerie, selectedTurma, selectedAvaliacaoId]);
 
   useEffect(() => {
@@ -737,7 +742,41 @@ export default function AtaSalaPage() {
     };
   };
 
+  const buildAtaDataFromLista = (results: ListaFrequenciaResponse[]): AtaSalaPdfData => {
+    if (results.length === 1) return buildAtaDataForClass(results[0]);
+    const allStudents = results.flatMap((item) => item.estudantes);
+    const count = (status: string) =>
+      allStudents.filter((student) => (student.status || "").toUpperCase() === status).length;
+    const responded = count("P");
+    const notResponded = Math.max(allStudents.length - responded - count("A") - count("T"), 0);
+    return {
+      ...pdfData,
+      options: {
+        ...pdfData.options,
+        q7Responded: String(clamp99(responded)),
+        q8NotResponded: String(clamp99(notResponded)),
+        q9Tablets: String(clamp99(responded)),
+        q10SpecialStayed: String(clamp99(count("NE") + count("I"))),
+        q11SpecialRegularRoom: String(clamp99(count("SE"))),
+        q12SpecialSupportRoom: String(clamp99(count("SS"))),
+      },
+    };
+  };
+
   const loadLista = async (): Promise<ListaFrequenciaResponse[] | null> => {
+    const seq = ++listaRequestRef.current;
+    const stillCurrent = () => seq === listaRequestRef.current;
+    const commit = (results: ListaFrequenciaResponse[]) => {
+      if (!stillCurrent()) return null;
+      if (results.length === 0) {
+        listaLoadedRef.current = false;
+        applyAtaAutofill(results);
+        return null;
+      }
+      listaLoadedRef.current = true;
+      applyAtaAutofill(results);
+      return results;
+    };
     try {
       setError(null);
       setLoading((s) => ({ ...s, lista: true }));
@@ -745,9 +784,7 @@ export default function AtaSalaPage() {
       if (modoLista === "turma") {
         if (selectedTurma && selectedTurma !== "all") {
           const data = await getListaFrequenciaPorTurma(selectedTurma, "avaliacao");
-          setLoadedLista([data]);
-          applyAtaAutofill([data]);
-          return [data];
+          return commit([data]);
         }
 
         let classIds: string[] = [];
@@ -769,8 +806,9 @@ export default function AtaSalaPage() {
         }
 
         if (classIds.length === 0) {
+          if (!stillCurrent()) return null;
           setError("Nenhuma turma encontrada para os filtros selecionados.");
-          setLoadedLista(null);
+          listaLoadedRef.current = false;
           return null;
         }
 
@@ -788,69 +826,83 @@ export default function AtaSalaPage() {
           });
         }
 
+        if (!stillCurrent()) return null;
         if (results.length === 0) {
           setError("Não foi possível carregar os dados da lista de frequência para autopreenchimento.");
-          setLoadedLista(null);
+          listaLoadedRef.current = false;
           return null;
         }
-        setLoadedLista(results);
-        applyAtaAutofill(results);
-        return results;
+        return commit(results);
       }
 
       if (!selectedAvaliacaoId || selectedAvaliacaoId === "all") {
         setError(`Selecione o(a) ${labelItemAplicado.toLowerCase()}.`);
-        setLoadedLista(null);
+        listaLoadedRef.current = false;
         return null;
       }
+
+      if (!stillCurrent()) return null;
 
       const classId = selectedTurma && selectedTurma !== "all" ? selectedTurma : undefined;
       if (modoLista === "cartao_resposta") {
         if (!selectedMunicipio || selectedMunicipio === "all") {
           setError("Selecione o município para usar cartão resposta.");
-          setLoadedLista(null);
+          listaLoadedRef.current = false;
           return null;
         }
         if (classId) {
           const res = await getListaFrequenciaPorGabarito(selectedAvaliacaoId, selectedMunicipio, classId, {
             tipo: "prova_fisica",
           });
-          setLoadedLista([res]);
-          applyAtaAutofill([res]);
-          return [res];
+          return commit([res]);
         }
         const results = await getListaFrequenciaPorGabaritoTodasTurmas(selectedAvaliacaoId, selectedMunicipio, {
           grade_id: selectedSerie !== "all" ? selectedSerie : undefined,
           tipo: "prova_fisica",
         });
-        setLoadedLista(results);
-        applyAtaAutofill(results);
-        return results;
+        return commit(results);
       }
 
       if (classId) {
         const res = await getListaFrequenciaPorAvaliacao(selectedAvaliacaoId, classId, {
           tipo: "avaliacao",
         });
-        setLoadedLista([res]);
-        applyAtaAutofill([res]);
-        return [res];
+        return commit([res]);
       }
       const results = await getListaFrequenciaPorAvaliacaoTodasTurmas(selectedAvaliacaoId, {
         grade_id: selectedSerie !== "all" ? selectedSerie : undefined,
         tipo: "avaliacao",
       });
-      setLoadedLista(results);
-      applyAtaAutofill(results);
-      return results;
+      return commit(results);
     } catch (_err) {
+      if (!stillCurrent()) return null;
       setError("Não foi possível carregar os dados da lista de frequência para autopreenchimento.");
-      setLoadedLista(null);
+      listaLoadedRef.current = false;
       return null;
     } finally {
-      setLoading((s) => ({ ...s, lista: false }));
+      if (stillCurrent()) setLoading((s) => ({ ...s, lista: false }));
     }
   };
+
+  loadListaRef.current = loadLista;
+
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "hidden") return;
+      if (!listaLoadedRef.current) return;
+      void loadListaRef.current?.();
+    };
+    const onRoster = () => refreshIfVisible();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshIfVisible();
+    };
+    window.addEventListener(ROSTER_CHANGED_EVENT, onRoster);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener(ROSTER_CHANGED_EVENT, onRoster);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
 
   const setOpt = <K extends keyof AtaOptions>(key: K, value: AtaOptions[K]) => {
     setOptions((prev) => ({ ...prev, [key]: value }));
@@ -926,14 +978,11 @@ export default function AtaSalaPage() {
 
     setLoading((s) => ({ ...s, pdf: true }));
     try {
-      let lista = loadedLista;
-      if (wantsBatch || !lista || lista.length === 0) {
-        lista = await loadLista();
-      }
+      const lista = await loadLista();
       if (!lista || lista.length === 0) {
         toast({
           title: "Sem dados",
-          description: "Carregue a lista de frequência antes de baixar a ata.",
+          description: "Não foi possível atualizar a lista de frequência para a ata.",
           variant: "destructive",
         });
         return;
@@ -941,10 +990,8 @@ export default function AtaSalaPage() {
 
       const shouldZip = wantsBatch && lista.length >= 1;
       if (!shouldZip) {
-        const singleData =
-          lista.length === 1 ? buildAtaDataForClass(lista[0]) : pdfData;
-        await downloadAtaSalaPdf(singleData, "ata-de-sala.pdf", ataCityId);
-        toast({ title: "PDF baixado", description: "A ata de sala foi baixada com sucesso." });
+        await downloadAtaSalaPdf(buildAtaDataFromLista(lista), "ata-de-sala.pdf", ataCityId);
+        toast({ title: "PDF baixado", description: "A ata de sala foi baixada com a frequência atual." });
         return;
       }
 
@@ -979,16 +1026,34 @@ export default function AtaSalaPage() {
 
   const onPreview = async () => {
     warnInvalidCpf();
+    const lista = await loadLista();
+    if (!lista || lista.length === 0) {
+      toast({
+        title: "Sem dados",
+        description: "Não foi possível atualizar a lista de frequência para a ata.",
+        variant: "destructive",
+      });
+      return;
+    }
     const ataCityId = selectedMunicipio !== "all" ? selectedMunicipio : null;
-    await previewAtaSalaPdf(pdfData, ataCityId);
-    toast({ title: "PDF gerado", description: "A ata de sala foi aberta em nova guia." });
+    await previewAtaSalaPdf(buildAtaDataFromLista(lista), ataCityId);
+    toast({ title: "PDF gerado", description: "A ata de sala foi aberta com a frequência atual." });
   };
 
   const onPrint = async () => {
     warnInvalidCpf();
+    const lista = await loadLista();
+    if (!lista || lista.length === 0) {
+      toast({
+        title: "Sem dados",
+        description: "Não foi possível atualizar a lista de frequência para a ata.",
+        variant: "destructive",
+      });
+      return;
+    }
     const ataCityId = selectedMunicipio !== "all" ? selectedMunicipio : null;
-    await printAtaSalaPdf(pdfData, ataCityId);
-    toast({ title: "Abrindo impressão", description: "A janela de impressão da ata foi aberta." });
+    await printAtaSalaPdf(buildAtaDataFromLista(lista), ataCityId);
+    toast({ title: "Abrindo impressão", description: "A janela de impressão usa a frequência atual." });
   };
 
   const defaultSaveTitle = useMemo(() => {
@@ -1035,7 +1100,19 @@ export default function AtaSalaPage() {
   const confirmSave = async () => {
     setSaving(true);
     try {
-      const payload = buildSavePayload(saveTitle);
+      const lista = await loadLista();
+      if (!lista || lista.length === 0) {
+        toast({
+          title: "Sem dados",
+          description: "Não foi possível atualizar a lista de frequência antes de salvar.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const payload = {
+        ...buildSavePayload(saveTitle),
+        content: buildAtaDataFromLista(lista),
+      };
       const cityId = selectedMunicipio !== "all" ? selectedMunicipio : undefined;
       if (editingId && !saveAsNew && savedMeta?.is_owner) {
         await updateSavedAta(editingId, payload, cityId);
@@ -1546,7 +1623,7 @@ export default function AtaSalaPage() {
                 ) : null}
               </>
             ) : null}
-            <Button variant="secondary" onClick={onPreview}>
+            <Button variant="secondary" onClick={onPreview} disabled={loading.lista || loading.pdf}>
               <Eye className="mr-2 h-4 w-4" />
               Gerar PDF
             </Button>
@@ -1558,7 +1635,7 @@ export default function AtaSalaPage() {
               )}
               {selectedTurma === "all" ? "Baixar ZIP" : "Baixar PDF"}
             </Button>
-            <Button variant="outline" onClick={onPrint}>
+            <Button variant="outline" onClick={onPrint} disabled={loading.lista || loading.pdf}>
               <Printer className="mr-2 h-4 w-4" />
               Imprimir PDF
             </Button>
@@ -1633,7 +1710,7 @@ export default function AtaSalaPage() {
             <Button variant="outline" onClick={() => setSaveDialogOpen(false)} disabled={saving}>
               Cancelar
             </Button>
-            <Button onClick={confirmSave} disabled={saving}>
+            <Button onClick={confirmSave} disabled={saving || loading.lista}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               Salvar
             </Button>
