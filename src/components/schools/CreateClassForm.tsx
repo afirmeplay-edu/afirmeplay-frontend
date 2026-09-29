@@ -54,6 +54,7 @@ import {
   FormMessage,
   FormDescription,
 } from "@/components/ui/form";
+import { extractCreatedId, isSpecialEducationClass } from "@/lib/subturma";
 
 // Schema de validação
 const classSchema = z
@@ -148,12 +149,17 @@ interface ClassCreatePayload {
   room?: string;
 }
 
+interface CreatedClassRef {
+  id: string;
+  gradeName: string;
+}
+
 /** Cria várias turmas via `POST /classes`, reportando sucessos e falhas parciais. */
 async function createClassesInBatch(
   previews: ClassPreview[],
   data: ClassFormValues,
   schoolId: string
-): Promise<{ fulfilled: number; rejected: number; firstError?: string }> {
+): Promise<{ fulfilled: number; rejected: number; firstError?: string; created: CreatedClassRef[]; missingIds: number }> {
   const payloads: ClassCreatePayload[] = previews.map((classPreview) => ({
     name: classPreview.apiName,
     school_id: schoolId,
@@ -182,24 +188,32 @@ async function createClassesInBatch(
 
   let fulfilled = 0;
   let rejected = 0;
+  let missingIds = 0;
   let firstError: string | undefined;
+  const created: CreatedClassRef[] = [];
 
-  for (const r of results) {
-    if (r.status === "fulfilled") {
+  results.forEach((result, index) => {
+    if (result.status === "fulfilled") {
       fulfilled += 1;
+      const id = extractCreatedId(result.value?.data);
+      if (id) {
+        created.push({ id, gradeName: previews[index]?.grade || "" });
+      } else {
+        missingIds += 1;
+      }
     } else {
       rejected += 1;
       if (!firstError) {
-        const reason = r.reason as { response?: { data?: { error?: string; message?: string } } };
+        const reason = result.reason as { response?: { data?: { error?: string; message?: string } } };
         firstError =
           reason?.response?.data?.error ||
           reason?.response?.data?.message ||
-          (r.reason instanceof Error ? r.reason.message : undefined);
+          (result.reason instanceof Error ? result.reason.message : undefined);
       }
     }
-  }
+  });
 
-  return { fulfilled, rejected, firstError };
+  return { fulfilled, rejected, firstError, created, missingIds };
 }
 
 export function CreateClassForm({ schoolId, schoolName, onSuccess, showSchoolSelector, availableSchools }: CreateClassFormProps) {
@@ -211,6 +225,7 @@ export function CreateClassForm({ schoolId, schoolName, onSuccess, showSchoolSel
   const [showPreview, setShowPreview] = useState(false);
   const [classesToCreate, setClassesToCreate] = useState<ClassPreview[]>([]);
   const [selectedSchoolId, setSelectedSchoolId] = useState<string>(schoolId || "");
+  const [adapLevels, setAdapLevels] = useState<number[]>([]);
   const { toast } = useToast();
   
   // Use schoolId da prop ou do estado selecionado
@@ -466,6 +481,15 @@ export function CreateClassForm({ schoolId, schoolName, onSuccess, showSchoolSel
     form.setValue("selectedNumbers", commonNumbers);
   };
 
+  const toggleAdapLevel = (level: number, checked: boolean) => {
+    setAdapLevels((prev) => {
+      if (checked) {
+        return prev.includes(level) ? prev : [...prev, level].sort((a, b) => a - b);
+      }
+      return prev.filter((item) => item !== level);
+    });
+  };
+
   const handleSubmit = async (data: ClassFormValues) => {
     if (!currentSchoolId) {
       toast({
@@ -487,26 +511,65 @@ export function CreateClassForm({ schoolId, schoolName, onSuccess, showSchoolSel
 
     setIsSubmitting(true);
     try {
-      const { fulfilled, rejected, firstError } = await createClassesInBatch(
+      const { fulfilled, rejected, firstError, created, missingIds } = await createClassesInBatch(
         classesToCreate,
         data,
         currentSchoolId
       );
 
+      let adapNote = "";
+      if (fulfilled > 0 && adapLevels.length > 0) {
+        const targets = created.filter((item) => !isSpecialEducationClass({ name: item.gradeName }));
+        if (targets.length === 0) {
+          adapNote =
+            missingIds > 0
+              ? " Não foi possível criar os níveis ADAP porque a turma criada não devolveu identificador."
+              : " Turma de educação especial não recebe nível ADAP.";
+        } else {
+          const jobs = targets.flatMap((item) => adapLevels.map((level) => ({ classId: item.id, level })));
+          const adapResults = await Promise.allSettled(
+            jobs.map((job) => api.post(`/classes/${job.classId}/subturmas`, { support_level: job.level }))
+          );
+          const adapFailed = adapResults.filter((result) => result.status === "rejected").length;
+          const adapCreated = adapResults.length - adapFailed;
+          if (adapFailed === 0) {
+            adapNote = ` Níveis ${adapLevels.map((level) => `ADAP ${level}`).join(", ")} criados.`;
+          } else if (adapCreated > 0) {
+            adapNote = ` ${adapCreated} nível(is) ADAP criado(s) e ${adapFailed} falha(s).`;
+          } else {
+            const reason = adapResults.find((result) => result.status === "rejected");
+            const message =
+              reason && reason.status === "rejected"
+                ? (reason.reason as { response?: { data?: { error?: string } } })?.response?.data?.error
+                : undefined;
+            adapNote = ` Os níveis ADAP não foram criados.${message ? ` ${message}` : ""}`;
+          }
+          if (created.length > targets.length) {
+            adapNote += " Séries de educação especial ficaram só na turma regular.";
+          }
+          if (missingIds > 0) {
+            adapNote += ` ${missingIds} turma(s) ficaram sem ADAP por falta de identificador.`;
+          }
+        }
+      }
+
       if (fulfilled > 0 && rejected === 0) {
         toast({
-          title: "Sucesso",
-          description: `${fulfilled} turma(s) criada(s) com sucesso.`,
+          title: adapNote.includes("não foram criados") ? "Turmas criadas" : "Sucesso",
+          description: `${fulfilled} turma(s) criada(s) com sucesso.${adapNote}`,
+          variant: adapNote.includes("não foram criados") ? "destructive" : "default",
         });
         form.reset();
+        setAdapLevels([]);
         setOpen(false);
         onSuccess?.();
       } else if (fulfilled > 0 && rejected > 0) {
         toast({
           title: "Criação parcial",
-          description: `${fulfilled} turma(s) criada(s). ${rejected} falha(s).${firstError ? ` Ex.: ${firstError}` : ""}`,
+          description: `${fulfilled} turma(s) criada(s). ${rejected} falha(s).${firstError ? ` Ex.: ${firstError}` : ""}${adapNote}`,
         });
         form.reset();
+        setAdapLevels([]);
         setOpen(false);
         onSuccess?.();
       } else {
@@ -535,7 +598,13 @@ export function CreateClassForm({ schoolId, schoolName, onSuccess, showSchoolSel
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setAdapLevels([]);
+      }}
+    >
       <DialogTrigger asChild>
         <Button className="bg-blue-600 hover:bg-blue-700">
           <Users className="mr-2 h-4 w-4" />
@@ -738,6 +807,29 @@ export function CreateClassForm({ schoolId, schoolName, onSuccess, showSchoolSel
                         </div>
                       </div>
                     )}
+
+                    {selectedStage ? (
+                      <fieldset className="space-y-3 rounded-lg border border-border p-4">
+                        <legend className="px-1 text-sm font-medium">Educação especial nesta turma</legend>
+                        <p className="text-xs text-muted-foreground">
+                          Opcional. O aluno continua na turma regular. O nível só entra nos resultados.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {[1, 2, 3].map((level) => (
+                            <label
+                              key={level}
+                              className="flex cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 py-2"
+                            >
+                              <Checkbox
+                                checked={adapLevels.includes(level)}
+                                onCheckedChange={(checked) => toggleAdapLevel(level, checked === true)}
+                              />
+                              <span className="text-sm">ADAP {level}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                    ) : null}
 
                     <FormField
                       control={form.control}
@@ -1111,6 +1203,9 @@ export function CreateClassForm({ schoolId, schoolName, onSuccess, showSchoolSel
                     </CardTitle>
                     <CardDescription>
                       Visualize como as turmas serão criadas antes de confirmar
+                      {adapLevels.length > 0
+                        ? `. Cada turma regular também recebe ${adapLevels.map((level) => `ADAP ${level}`).join(", ")}.`
+                        : ""}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -1188,6 +1283,7 @@ export function CreateClassForm({ schoolId, schoolName, onSuccess, showSchoolSel
                   {classesToCreate.length > 0 && (
                     <span className="text-sm text-muted-foreground">
                       {classesToCreate.length} turma(s) será(ão) criada(s)
+                      {adapLevels.length > 0 ? ` com ${adapLevels.map((level) => `ADAP ${level}`).join(", ")}` : ""}
                     </span>
                   )}
                   <Button 
