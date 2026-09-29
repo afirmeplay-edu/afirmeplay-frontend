@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { toast } from 'react-toastify'
 import { getStoredReferenceCityId } from '@/lib/planReferenceStorage'
+import { notifyRosterChanged, requestAffectsRoster } from '@/lib/rosterEvents'
 import { isPlanInsufficientError } from '@/types/entitlements'
 
 // Permitir meta.cityId nas requisições (para admin tenant context)
@@ -74,7 +75,14 @@ api.interceptors.request.use((config) => {
 
 // Interceptor para tratamento de erros
 api.interceptors.response.use(
-    (response) => response,
+    (response) => {
+        const method = String(response.config?.method ?? '')
+        const url = String(response.config?.url ?? '')
+        if (requestAffectsRoster(method, url)) {
+            notifyRosterChanged()
+        }
+        return response
+    },
     async (error) => {
         // ✅ CORRIGIDO: Melhorar tratamento de erros
         if (error.response?.status === 401) {

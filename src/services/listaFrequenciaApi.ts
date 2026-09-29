@@ -6,6 +6,16 @@ import type {
   TipoListaFrequencia,
 } from '@/types/lista-frequencia';
 
+function freshGetConfig(extra: { params: Record<string, string>; timeout?: number }) {
+  return {
+    ...extra,
+    headers: {
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache',
+    },
+  };
+}
+
 function mapTurmasResponse(data: ListaFrequenciaTurmasResponse): ListaFrequenciaResponse[] {
   if (!data?.turmas || !Array.isArray(data.turmas)) return [];
   const legendaPadrao = data.legenda;
@@ -41,7 +51,7 @@ export async function getListaFrequenciaPorTurma(
 ): Promise<ListaFrequenciaResponse> {
   const params: Record<string, string> = { class_id: classId };
   if (tipo) params.tipo = tipo;
-  const response = await api.get<ListaFrequenciaResponse>('lista-frequencia/', { params });
+  const response = await api.get<ListaFrequenciaResponse>('lista-frequencia/', freshGetConfig({ params }));
   return response.data;
 }
 
@@ -61,7 +71,7 @@ export async function getListaFrequenciaPorAvaliacao(
   if (classId) params.class_id = classId;
   if (options?.grade_id) params.grade_id = options.grade_id;
   if (options?.tipo) params.tipo = options.tipo;
-  const response = await api.get<ListaFrequenciaResponse>('lista-frequencia/', { params });
+  const response = await api.get<ListaFrequenciaResponse>('lista-frequencia/', freshGetConfig({ params }));
   return response.data;
 }
 
@@ -78,7 +88,7 @@ export async function getListaFrequenciaPorAvaliacaoTodasTurmas(
   const params: Record<string, string> = { test_id: testId };
   if (options?.grade_id) params.grade_id = options.grade_id;
   if (options?.tipo) params.tipo = options.tipo;
-  const response = await api.get<ListaFrequenciaTurmasResponse>('lista-frequencia/', { params });
+  const response = await api.get<ListaFrequenciaTurmasResponse>('lista-frequencia/', freshGetConfig({ params }));
   return mapTurmasResponse(response.data);
 }
 
@@ -98,7 +108,7 @@ export async function getListaFrequenciaPorGabarito(
   if (classId) params.class_id = classId;
   if (options?.grade_id) params.grade_id = options.grade_id;
   if (options?.tipo) params.tipo = options.tipo;
-  const response = await api.get<ListaFrequenciaResponse>('lista-frequencia/', { params });
+  const response = await api.get<ListaFrequenciaResponse>('lista-frequencia/', freshGetConfig({ params }));
   return response.data;
 }
 
@@ -114,7 +124,7 @@ export async function getListaFrequenciaPorGabaritoTodasTurmas(
   const params: Record<string, string> = { gabarito_id: gabaritoId, city_id: cityId };
   if (options?.grade_id) params.grade_id = options.grade_id;
   if (options?.tipo) params.tipo = options.tipo;
-  const response = await api.get<ListaFrequenciaTurmasResponse>('lista-frequencia/', { params });
+  const response = await api.get<ListaFrequenciaTurmasResponse>('lista-frequencia/', freshGetConfig({ params }));
   return mapTurmasResponse(response.data);
 }
 
@@ -130,10 +140,10 @@ export async function getListaFrequenciaPorMunicipioTodasTurmas(
   if (options?.school_id) params.school_id = options.school_id;
   if (options?.grade_id) params.grade_id = options.grade_id;
   if (options?.tipo) params.tipo = options.tipo;
-  const response = await api.get<ListaFrequenciaTurmasResponse>('lista-frequencia/', {
-    params,
-    timeout: 120_000,
-  });
+  const response = await api.get<ListaFrequenciaTurmasResponse>(
+    'lista-frequencia/',
+    freshGetConfig({ params, timeout: 120_000 })
+  );
   return mapTurmasResponse(response.data);
 }
 
