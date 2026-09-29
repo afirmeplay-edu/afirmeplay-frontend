@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -193,6 +193,7 @@ export default function SchoolDetails() {
   const [studentsDialogClass, setStudentsDialogClass] = useState<Class | null>(null);
   const [subturmaBadges, setSubturmaBadges] = useState<Record<string, string>>({});
   const [classAdapLevels, setClassAdapLevels] = useState<Record<string, string[]>>({});
+  const subturmaOwnerIdsRef = useRef<Record<string, string[]>>({});
   
   // Estados para gerenciamento de turmas
   const [showDeleteClassDialog, setShowDeleteClassDialog] = useState(false);
@@ -408,13 +409,16 @@ export default function SchoolDetails() {
       // Organizar dados por turma
       const badges: Record<string, string> = {};
       const levelsByClass: Record<string, string[]> = {};
+      const owners: Record<string, string[]> = {};
       results.forEach(({ classId, teachers, students, adap, levels }) => {
         teachersData[classId] = teachers;
         studentsData[classId] = students;
         Object.assign(badges, adap);
+        owners[classId] = Object.keys(adap);
         if (levels.length > 0) levelsByClass[classId] = levels;
       });
 
+      subturmaOwnerIdsRef.current = owners;
       setClassTeachers(teachersData);
       setClassStudents(studentsData);
       setSubturmaBadges(badges);
@@ -1548,6 +1552,24 @@ export default function SchoolDetails() {
               if (levels.length === 0) delete next[selectedClass.id];
               else next[selectedClass.id] = levels;
               return next;
+            });
+          }}
+          onSubturmaBadges={(badges) => {
+            const classId = selectedClass.id;
+            setSubturmaBadges((prev) => {
+              const next = { ...prev };
+              for (const studentId of subturmaOwnerIdsRef.current[classId] || []) {
+                delete next[studentId];
+              }
+              for (const student of classStudents[classId] || []) {
+                delete next[student.id];
+              }
+              Object.assign(next, badges);
+              subturmaOwnerIdsRef.current[classId] = Object.keys(badges);
+              const keys = Object.keys(next);
+              const unchanged =
+                keys.length === Object.keys(prev).length && keys.every((key) => prev[key] === next[key]);
+              return unchanged ? prev : next;
             });
           }}
           onSuccess={async () => {
