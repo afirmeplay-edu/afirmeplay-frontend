@@ -11,6 +11,15 @@ import { api } from "@/lib/api";
 import { generateEmailFromName, generatePasswordFromName } from "@/hooks/useEmailCheck";
 import { CheckCircle2, AlertCircle, Loader2, Users, GraduationCap } from "lucide-react";
 import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -31,6 +40,7 @@ interface BulkCreateStudentsByListModalProps {
   gradeId?: string;
   gradeName?: string;
   allowSupportLevel?: boolean;
+  existingNames?: string[];
   onSuccess: () => void;
 }
 
@@ -72,6 +82,7 @@ export function BulkCreateStudentsByListModal({
   gradeId,
   gradeName,
   allowSupportLevel = true,
+  existingNames = [],
   onSuccess,
 }: BulkCreateStudentsByListModalProps) {
   const { toast } = useToast();
@@ -80,6 +91,7 @@ export function BulkCreateStudentsByListModal({
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [results, setResults] = useState<StudentBulkResult[]>([]);
+  const [namesAwaitingConfirm, setNamesAwaitingConfirm] = useState<string[]>([]);
 
   const parsedNames = useMemo(
     () =>
@@ -99,8 +111,29 @@ export function BulkCreateStudentsByListModal({
       setIsProcessing(false);
       setProgress({ current: 0, total: 0 });
       setResults([]);
+      setNamesAwaitingConfirm([]);
     }
   }, [isOpen]);
+
+  const normalizePersonName = (value: string) =>
+    value
+      .trim()
+      .toLocaleLowerCase("pt-BR")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+
+  const findNamesAlreadyInClass = (names: string[]) => {
+    const existing = new Set(existingNames.map(normalizePersonName).filter(Boolean));
+    const seen = new Set<string>();
+    const matches: string[] = [];
+    for (const name of names) {
+      const key = normalizePersonName(name);
+      if (!key || !existing.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      matches.push(name.trim());
+    }
+    return matches;
+  };
 
   const resolveEmail = async (name: string): Promise<string> => {
     const baseEmail = generateEmailFromName(name);
@@ -110,7 +143,7 @@ export function BulkCreateStudentsByListModal({
     return data?.email_sugerido || baseEmail;
   };
 
-  const handleCreateBatch = async () => {
+  const executeCreateBatch = async () => {
     if (!gradeId) {
       toast({
         title: "Série não identificada",
@@ -183,9 +216,6 @@ export function BulkCreateStudentsByListModal({
 
     const successCount = output.filter((item) => item.success).length;
     const adapMissed = output.filter((item) => item.success && item.adap && !item.adap.startsWith("ADAP")).length;
-    if (successCount > 0) {
-      onSuccess();
-    }
 
     toast({
       title: "Processo finalizado",
@@ -197,12 +227,46 @@ export function BulkCreateStudentsByListModal({
             : `${successCount} de ${output.length} aluno(s) criado(s) na turma.`,
       variant: successCount > 0 && adapMissed === 0 ? "default" : "destructive",
     });
+
+    if (successCount > 0) {
+      onSuccess();
+      onClose();
+    }
+  };
+
+  const handleCreateBatch = () => {
+    if (!gradeId) {
+      toast({
+        title: "Série não identificada",
+        description: "Não foi possível identificar a série da turma selecionada.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (parsedNames.length === 0) {
+      toast({
+        title: "Lista vazia",
+        description: "Informe pelo menos um aluno, um por linha.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const duplicates = findNamesAlreadyInClass(parsedNames);
+    if (duplicates.length > 0) {
+      setNamesAwaitingConfirm(duplicates);
+      return;
+    }
+
+    void executeCreateBatch();
   };
 
   const successCount = results.filter((item) => item.success).length;
   const errorCount = results.filter((item) => !item.success).length;
 
   return (
+    <>
     <Dialog
       open={isOpen}
       onOpenChange={(open) => {
@@ -344,5 +408,41 @@ export function BulkCreateStudentsByListModal({
         </div>
       </DialogContent>
     </Dialog>
+
+      <AlertDialog
+        open={namesAwaitingConfirm.length > 0}
+        onOpenChange={(open) => {
+          if (!open && !isProcessing) setNamesAwaitingConfirm([]);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Nomes já na turma</AlertDialogTitle>
+            <AlertDialogDescription>
+              Os seguintes nomes já estão na lista:
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="max-h-40 overflow-y-auto px-6 text-sm space-y-1">
+            {namesAwaitingConfirm.map((name) => (
+              <li key={name}>{name}</li>
+            ))}
+          </ul>
+          <p className="px-6 text-sm font-medium">Adicionar mesmo assim?</p>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isProcessing}>Não</AlertDialogCancel>
+            <Button
+              type="button"
+              disabled={isProcessing}
+              onClick={() => {
+                setNamesAwaitingConfirm([]);
+                void executeCreateBatch();
+              }}
+            >
+              Sim
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
