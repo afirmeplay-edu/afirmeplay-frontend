@@ -6,12 +6,13 @@ import type {
   TipoListaFrequencia,
 } from '@/types/lista-frequencia';
 
+/** Força GET novo sem Cache-Control/Pragma: esses cabeçalhos disparam preflight e o CORS da API não os libera. */
 function freshGetConfig(extra: { params: Record<string, string>; timeout?: number }) {
   return {
     ...extra,
-    headers: {
-      'Cache-Control': 'no-cache',
-      Pragma: 'no-cache',
+    params: {
+      ...extra.params,
+      _: String(Date.now()),
     },
   };
 }
