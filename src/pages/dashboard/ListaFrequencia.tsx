@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { ClipboardList, Filter, Loader2, Printer } from 'lucide-react';
 import { api } from '@/lib/api';
+import { ROSTER_CHANGED_EVENT } from '@/lib/rosterEvents';
 import { FormFiltersApiService } from '@/services/formFiltersApi';
 import { EvaluationResultsApiService, REPORT_ENTITY_TYPE_ANSWER_SHEET } from '@/services/evaluation/evaluationResultsApi';
 import { EvaluationInstrumentPicker } from '@/components/filters';
@@ -75,6 +76,10 @@ export default function ListaFrequencia() {
   const [provaExpirada, setProvaExpirada] = useState<boolean | null>(null);
   /** Nome da avaliação customizado para impressão/PDF (editável antes de imprimir). */
   const [nomeAvaliacaoImpressao, setNomeAvaliacaoImpressao] = useState('');
+  const listaRequestRef = useRef(0);
+  const listaLoadedRef = useRef(false);
+  const nomeImpressaoEditadoRef = useRef(false);
+  const gerarListaRef = useRef<(() => Promise<ListaFrequenciaResponse[] | null>) | null>(null);
 
   const isModoAplicada = modoLista === 'avaliacao' || modoLista === 'cartao_resposta';
   const tipoListaAplicada = modoLista === 'cartao_resposta' ? 'prova_fisica' : 'avaliacao';
@@ -413,16 +418,36 @@ export default function ListaFrequencia() {
     return () => { cancelled = true; };
   }, [isModoAplicada, modoLista, data, selectedAvaliacaoId]);
 
+  useEffect(() => {
+    listaRequestRef.current += 1;
+    listaLoadedRef.current = false;
+    nomeImpressaoEditadoRef.current = false;
+    setData(null);
+    setError(null);
+    setIsLoadingLista(false);
+  }, [modoLista, selectedEstado, selectedMunicipio, selectedSchool, selectedSerie, selectedTurma, selectedAvaliacaoId]);
+
   // Preencher o nome da avaliação para impressão quando a lista for carregada
   useEffect(() => {
+    if (nomeImpressaoEditadoRef.current) return;
     if (data?.length && data[0].cabecalho.nome_prova_ano) {
       setNomeAvaliacaoImpressao(data[0].cabecalho.nome_prova_ano);
-    } else {
+    } else if (!data?.length) {
       setNomeAvaliacaoImpressao('');
     }
   }, [data]);
 
-  const handleGerarLista = async () => {
+  const handleGerarLista = async (): Promise<ListaFrequenciaResponse[] | null> => {
+    const seq = ++listaRequestRef.current;
+    const stillCurrent = () => seq === listaRequestRef.current;
+    const publish = (next: ListaFrequenciaResponse[] | null) => {
+      if (!stillCurrent()) return null;
+      const visible = next && next.length > 0 ? next : null;
+      setData(visible);
+      listaLoadedRef.current = Boolean(visible);
+      return visible;
+    };
+
     setError(null);
     setIsLoadingLista(true);
     try {
@@ -430,7 +455,7 @@ export default function ListaFrequencia() {
         if (!selectedAvaliacaoId || selectedAvaliacaoId === 'all') {
           setError(`Selecione o(a) ${labelItemAplicado.toLowerCase()}.`);
           toast({ title: 'Aviso', description: `Selecione o(a) ${labelItemAplicado.toLowerCase()}.`, variant: 'destructive' });
-          return;
+          return publish(null);
         }
         const classId =
           selectedTurma && selectedTurma !== 'all' ? selectedTurma : undefined;
@@ -438,7 +463,7 @@ export default function ListaFrequencia() {
           if (!selectedMunicipio || selectedMunicipio === 'all') {
             setError('Selecione o município.');
             toast({ title: 'Aviso', description: 'Selecione o município para gerar a lista de cartão resposta.', variant: 'destructive' });
-            return;
+            return publish(null);
           }
           if (classId) {
             const res = await getListaFrequenciaPorGabarito(
@@ -447,30 +472,29 @@ export default function ListaFrequencia() {
               classId,
               { tipo: tipoListaAplicada }
             );
-            setData([res]);
-          } else {
-            const gradeId = selectedSerie && selectedSerie !== 'all' ? selectedSerie : undefined;
-            const results = await getListaFrequenciaPorGabaritoTodasTurmas(selectedAvaliacaoId, selectedMunicipio, {
-              grade_id: gradeId,
-              tipo: tipoListaAplicada,
-            });
-            setData(results.length > 0 ? results : null);
+            return publish([res]);
           }
-        } else if (classId) {
-          const res = await getListaFrequenciaPorAvaliacao(selectedAvaliacaoId, classId, { tipo: tipoListaAplicada });
-          setData([res]);
-        } else {
           const gradeId = selectedSerie && selectedSerie !== 'all' ? selectedSerie : undefined;
-          const results = await getListaFrequenciaPorAvaliacaoTodasTurmas(selectedAvaliacaoId, {
+          const results = await getListaFrequenciaPorGabaritoTodasTurmas(selectedAvaliacaoId, selectedMunicipio, {
             grade_id: gradeId,
             tipo: tipoListaAplicada,
           });
-          setData(results.length > 0 ? results : null);
+          return publish(results);
         }
+        if (classId) {
+          const res = await getListaFrequenciaPorAvaliacao(selectedAvaliacaoId, classId, { tipo: tipoListaAplicada });
+          return publish([res]);
+        }
+        const gradeId = selectedSerie && selectedSerie !== 'all' ? selectedSerie : undefined;
+        const results = await getListaFrequenciaPorAvaliacaoTodasTurmas(selectedAvaliacaoId, {
+          grade_id: gradeId,
+          tipo: tipoListaAplicada,
+        });
+        return publish(results);
       } else {
         if (!selectedMunicipio || selectedMunicipio === 'all') {
           setError('Selecione o município.');
-          return;
+          return publish(null);
         }
         let classIds: { id: string }[] = [];
         if (selectedTurma && selectedTurma !== 'all') {
@@ -501,9 +525,8 @@ export default function ListaFrequencia() {
         }
         if (classIds.length === 0) {
           setError('Nenhuma turma encontrada.');
-          setData(null);
           toast({ title: 'Aviso', description: 'Nenhuma turma encontrada para os filtros selecionados.', variant: 'destructive' });
-          return;
+          return publish(null);
         }
         const results: ListaFrequenciaResponse[] = [];
         const failures: Array<{ response?: { data?: { erro?: string } }; message?: string }> = [];
@@ -516,8 +539,7 @@ export default function ListaFrequencia() {
               tipo: 'avaliacao',
             });
             if (bulk.length > 0) {
-              setData(bulk);
-              return;
+              return publish(bulk);
             }
           } catch (bulkErr: unknown) {
             const ax = bulkErr as {
@@ -533,9 +555,8 @@ export default function ListaFrequencia() {
               const msg =
                 'O servidor não respondeu ao carregar todas as turmas do município. Aguarde alguns segundos e tente novamente.';
               setError(msg);
-              setData(null);
               toast({ title: 'Erro', description: msg, variant: 'destructive' });
-              return;
+              return publish(null);
             }
             failures.push(bulkErr as { response?: { data?: { erro?: string } }; message?: string });
           }
@@ -559,26 +580,26 @@ export default function ListaFrequencia() {
         if (results.length === 0) {
           const backendMsg = failures[0]?.response?.data?.erro || failures[0]?.message;
           setError(backendMsg || 'Não foi possível carregar a lista de frequência.');
-          setData(null);
           toast({
             title: 'Erro',
             description: backendMsg || 'Não foi possível carregar a lista de frequência.',
             variant: 'destructive',
           });
-          return;
+          return publish(null);
         }
 
         const failedCount = failures.length;
-        if (failedCount > 0) {
+        if (failedCount > 0 && stillCurrent()) {
           toast({
             title: 'Atenção',
             description: `${failedCount} turma(s) não puderam ser carregadas e foram ignoradas.`,
             variant: 'destructive',
           });
         }
-        setData(results);
+        return publish(results);
       }
     } catch (err: unknown) {
+      if (!stillCurrent()) return null;
       const ax = err as { response?: { status?: number; data?: { erro?: string } } };
       const runtimeErrorMsg = err instanceof Error ? err.message : undefined;
       const msg =
@@ -588,34 +609,54 @@ export default function ListaFrequencia() {
           : 'Não foi possível carregar a lista de frequência.') ||
         (ax.response?.status === 400 ? 'Informe a turma (class_id) quando a avaliação tiver várias turmas.' : runtimeErrorMsg || 'Não foi possível carregar a lista de frequência.');
       setError(msg);
-      setData(null);
       toast({ title: 'Erro', description: msg, variant: 'destructive' });
+      return publish(null);
     } finally {
-      setIsLoadingLista(false);
+      if (stillCurrent()) setIsLoadingLista(false);
     }
   };
 
+  gerarListaRef.current = handleGerarLista;
+
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'hidden') return;
+      if (!listaLoadedRef.current) return;
+      void gerarListaRef.current?.();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshIfVisible();
+    };
+    window.addEventListener(ROSTER_CHANGED_EVENT, refreshIfVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener(ROSTER_CHANGED_EVENT, refreshIfVisible);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
+
   const handleGeneratePDF = async () => {
-    if (!data || data.length === 0) return;
     setIsGeneratingPDF(true);
     try {
+      const fresh = await handleGerarLista();
+      if (!fresh || fresh.length === 0) return;
       const date = new Date().toISOString().split('T')[0];
       const cityId = selectedMunicipio !== 'all' ? selectedMunicipio : null;
 
-      if (data.length === 1) {
-        const singleBlob = await createSingleListaFrequenciaPdfBlob(data[0], {
+      if (fresh.length === 1) {
+        const singleBlob = await createSingleListaFrequenciaPdfBlob(fresh[0], {
           cityId,
           nomeAvaliacaoImpressao,
           provaExpirada,
         });
         const fileName = `lista-frequencia-${date}.pdf`;
         downloadBlob(singleBlob, fileName);
-        toast({ title: 'PDF gerado', description: `Arquivo ${fileName} salvo.` });
+        toast({ title: 'PDF gerado', description: `Arquivo ${fileName} salvo com a frequência atual.` });
         return;
       }
 
       const entries: Array<{ path: string; blob: Blob }> = [];
-      for (const item of data) {
+      for (const item of fresh) {
         const blob = await createSingleListaFrequenciaPdfBlob(item, {
           cityId,
           nomeAvaliacaoImpressao,
@@ -634,8 +675,8 @@ export default function ListaFrequencia() {
       const zipBlob = await generateZipBlob(entries);
       const zipName = `lista-frequencia-${date}.zip`;
       downloadBlob(zipBlob, zipName);
-      toast({ title: 'ZIP gerado', description: `Arquivo ${zipName} salvo.` });
-    } catch (err) {
+      toast({ title: 'ZIP gerado', description: `Arquivo ${zipName} salvo com a frequência atual.` });
+    } catch {
       toast({ title: 'Erro ao gerar PDF', description: 'Não foi possível gerar o arquivo.', variant: 'destructive' });
     } finally {
       setIsGeneratingPDF(false);
@@ -859,7 +900,10 @@ export default function ListaFrequencia() {
                 id="nome-avaliacao-impressao"
                 placeholder="Ex.: Prova de Matemática - 1º Bimestre 2025"
                 value={nomeAvaliacaoImpressao}
-                onChange={(e) => setNomeAvaliacaoImpressao(e.target.value)}
+                onChange={(e) => {
+                  nomeImpressaoEditadoRef.current = true;
+                  setNomeAvaliacaoImpressao(e.target.value);
+                }}
                 className="bg-background"
               />
             </div>
