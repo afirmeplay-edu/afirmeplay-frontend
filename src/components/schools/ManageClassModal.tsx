@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -100,6 +100,7 @@ interface ManageClassModalProps {
   classData: ClassData;
   onSuccess: () => void;
   onAdapLevels?: (levels: string[]) => void;
+  onSubturmaBadges?: (badges: Record<string, string>) => void;
   /** ID do município da escola (obrigatório para admin/tecadm criarem professor já na escola) */
   schoolCityId?: string;
 }
@@ -112,6 +113,7 @@ export function ManageClassModal({
   classData,
   onSuccess,
   onAdapLevels,
+  onSubturmaBadges,
   schoolCityId,
 }: ManageClassModalProps) {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
@@ -138,6 +140,12 @@ export function ManageClassModal({
   const [supportLevel, setSupportLevel] = useState("regular");
   const [subturmaBadges, setSubturmaBadges] = useState<Record<string, string>>({});
   const [subturmaReload, setSubturmaReload] = useState(0);
+  const onSubturmaBadgesRef = useRef(onSubturmaBadges);
+  onSubturmaBadgesRef.current = onSubturmaBadges;
+  const handleSubturmaBadges = useCallback((badges: Record<string, string>) => {
+    setSubturmaBadges(badges);
+    onSubturmaBadgesRef.current?.(badges);
+  }, []);
   const { toast } = useToast();
 
   const gradeForAdap = useMemo(() => {
@@ -500,7 +508,7 @@ export function ManageClassModal({
                           grade={gradeForAdap}
                           students={students.map((student) => ({ id: student.id, name: student.name }))}
                           canManage
-                          onBadges={setSubturmaBadges}
+                          onBadges={handleSubturmaBadges}
                           onLevels={onAdapLevels}
                           reloadToken={subturmaReload}
                         />
