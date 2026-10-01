@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { BarChartComponent, DonutChartComponent } from "@/components/ui/charts";
+import { formatDecimal1PtBr } from "@/utils/numberFormat";
 
 // ✅ TIPOS MAIS ESPECÍFICOS
 type StageGroup = "group1" | "group2";
@@ -208,6 +209,7 @@ const ScoreChart = ({ data }: { data: ChartData }) => (
         yAxisDomain={[0, 10]}
         yAxisLabel="Nota"
         showValues={true}
+        formatValue={formatDecimal1PtBr}
         municipalReferenceLine={
           data.averageScoreData.length >= 2
             ? {
@@ -232,6 +234,7 @@ const ProficiencyChart = ({ data }: { data: ChartData }) => (
         yAxisDomain={[0, data.proficiencyMax]}
         yAxisLabel="Proficiência"
         showValues={true}
+        formatValue={formatDecimal1PtBr}
         municipalReferenceLine={
           data.averageProficiencyData.length >= 2
             ? {

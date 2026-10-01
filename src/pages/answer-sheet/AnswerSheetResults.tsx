@@ -31,10 +31,10 @@ import {
   FileText,
   Search,
 } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format, parse } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/authContext';
 import { AREA_TYPE_FILTER_OPTIONS, canFilterByAreaType } from '@/lib/schoolAreaType';
@@ -53,6 +53,7 @@ import { ClassStatistics } from '@/components/evaluations/results/ClassStatistic
 import { StudentCard } from '@/components/evaluations/student/StudentCard';
 import { DisciplineTables } from '@/components/evaluations/results/DisciplineTables';
 import { cn } from '@/lib/utils';
+import { formatDecimal1PtBr, formatPercent1PtBr } from '@/utils/numberFormat';
 import { generatePendingStudentsPdf } from '@/services/reports/pendingStudentsPdf';
 import { generateRankingPdf } from '@/services/reports/rankingPdf';
 import { normalizeEvaluationResultsRanking } from '@/utils/evaluation/normalizeEvaluationResultsRanking';
@@ -1668,7 +1669,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
             />
             <div className="mt-4 p-3 rounded-lg bg-muted/50 border border-border col-span-full">
               <p className="text-sm text-muted-foreground">
-                <strong>Ordem dos filtros:</strong> Estado → Município → Período (opcional) → Escola → Série → Turma → Cartão resposta
+                <strong>Ordem dos filtros:</strong> Estado → Município → Período (opcional) → Cartão resposta → Escola → Série → Turma
               </p>
             </div>
           </div>
@@ -1778,20 +1779,20 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                   <div className="text-sm font-medium text-muted-foreground">Taxa de participação</div>
                   <div className="text-2xl font-bold text-blue-600">
                     {backendStats.percentualComparecimento != null
-                      ? `${backendStats.percentualComparecimento.toFixed(1)}%`
+                      ? formatPercent1PtBr(backendStats.percentualComparecimento)
                       : '-'}
                   </div>
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Nota geral</div>
                   <div className="text-2xl font-bold text-purple-600">
-                    {backendStats.mediaNota != null ? backendStats.mediaNota.toFixed(1) : '—'}
+                    {backendStats.mediaNota != null ? formatDecimal1PtBr(backendStats.mediaNota, '—') : '—'}
                   </div>
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-muted-foreground">Proficiência</div>
                   <div className="text-2xl font-bold text-orange-600">
-                    {backendStats.mediaProficiencia != null ? backendStats.mediaProficiencia.toFixed(1) : '—'}
+                    {backendStats.mediaProficiencia != null ? formatDecimal1PtBr(backendStats.mediaProficiencia, '—') : '—'}
                   </div>
                 </div>
               </div>
@@ -1828,13 +1829,13 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                           <div>
                             <div className="text-muted-foreground">Nota</div>
                             <div className="text-lg font-bold text-purple-600">
-                              {media != null && Number.isFinite(Number(media)) ? Number(media).toFixed(1) : '—'}
+                              {media != null && Number.isFinite(Number(media)) ? formatDecimal1PtBr(Number(media), '—') : '—'}
                             </div>
                           </div>
                           <div>
                             <div className="text-muted-foreground">Proficiência</div>
                             <div className="text-lg font-bold text-orange-600">
-                              {prof != null && Number.isFinite(Number(prof)) ? Number(prof).toFixed(1) : '—'}
+                              {prof != null && Number.isFinite(Number(prof)) ? formatDecimal1PtBr(Number(prof), '—') : '—'}
                             </div>
                           </div>
                         </div>
@@ -2011,8 +2012,8 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                                     <td className="py-3 px-4 text-muted-foreground">{a.escola ?? '—'}</td>
                                     <td className="py-3 px-4 text-muted-foreground">{a.turma ?? '—'}</td>
                                     <td className="py-3 px-4 text-muted-foreground">{a.serie ?? '—'}</td>
-                                    <td className="py-3 px-4">{(a.nota_geral ?? 0).toFixed(1)}</td>
-                                    <td className="py-3 px-4">{(a.proficiencia_geral ?? 0).toFixed(1)}</td>
+                                    <td className="py-3 px-4">{formatDecimal1PtBr(a.nota_geral)}</td>
+                                    <td className="py-3 px-4">{formatDecimal1PtBr(a.proficiencia_geral)}</td>
                                     <td className="py-3 px-4">
                                       <Badge
                                         variant="outline"
@@ -2025,7 +2026,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                                       </Badge>
                                     </td>
                                     <td className="py-3 px-4">
-                                      {totalQDerived > 0 ? `${acertos} / ${erros} (${pct.toFixed(0)}%)` : `${acertos} / ${erros}`}
+                                      {totalQDerived > 0 ? `${acertos} / ${erros} (${formatPercent1PtBr(pct)})` : `${acertos} / ${erros}`}
                                     </td>
                                     <td className="py-3 px-4 text-right">
                                       <Button

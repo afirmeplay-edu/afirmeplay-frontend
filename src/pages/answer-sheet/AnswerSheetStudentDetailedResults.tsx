@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
-import { formatDecimal1PtBr } from '@/utils/numberFormat';
+import { formatDecimal1PtBr, formatPercent1PtBr } from '@/utils/numberFormat';
 
 interface GeralAluno {
   id: string;
@@ -347,7 +347,7 @@ export default function AnswerSheetStudentDetailedResults({ onBack }: AnswerShee
           <CardContent>
             <div className="text-2xl font-bold text-green-600">{acertos}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {totalQ > 0 ? `${((acertos / totalQ) * 100).toFixed(1)}% de acerto` : '—'}
+              {totalQ > 0 ? `${formatPercent1PtBr((acertos / totalQ) * 100)} de acerto` : '—'}
             </p>
           </CardContent>
         </Card>

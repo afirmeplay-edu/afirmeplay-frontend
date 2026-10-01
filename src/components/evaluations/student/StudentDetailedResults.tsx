@@ -22,7 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { EvaluationResultsApiService } from "@/services/evaluation/evaluationResultsApi";
 import StudentBulletin, { type DisciplineStatsMap } from "./StudentBulletin";
 import { loadBulletinStatsFromStorage } from "../utils/bulletinStorage";
-import { formatDecimal1PtBr } from "@/utils/numberFormat";
+import { formatDecimal1PtBr, formatPercent1PtBr } from "@/utils/numberFormat";
 
 interface StudentDetailedResultsProps {
     onBack: () => void;
@@ -487,7 +487,7 @@ function StudentDetailedResultsContent({ onBack }: StudentDetailedResultsProps) 
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">
                             {totalQuestions > 0 ? 
-                                `${((correctAnswers / totalQuestions) * 100).toFixed(1)}% de acerto` 
+                                `${formatPercent1PtBr((correctAnswers / totalQuestions) * 100)} de acerto` 
                                 : 'Taxa de acerto'
                             }
                         </p>

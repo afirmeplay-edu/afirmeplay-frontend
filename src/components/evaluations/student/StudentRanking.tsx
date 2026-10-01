@@ -10,6 +10,7 @@ import {
 } from "@/utils/coins";
 import { getReportProficiencyTagClass } from "@/utils/report/reportTagStyles";
 import { getClassShiftLabel } from "@/lib/classShift";
+import { formatDecimal1PtBr } from "@/utils/numberFormat";
 
 interface Student {
   id: string;
@@ -208,16 +209,16 @@ export function StudentRanking({
                         <div className="flex items-center gap-2">
                           <TrendingUp className="h-4 w-4 text-blue-500 dark:text-blue-400" />
                           <span className="font-medium">Nota:</span>
-                          <span className="font-semibold text-foreground">{(student.nota || 0).toFixed(1)}</span>
+                          <span className="font-semibold text-foreground">{formatDecimal1PtBr(student.nota)}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Star className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                           <span className="font-medium">Proficiência:</span>
-                          <span className="font-semibold text-foreground">{Number(student.proficiencia || 0).toFixed(1)}</span>
+                          <span className="font-semibold text-foreground">{formatDecimal1PtBr(student.proficiencia)}</span>
                           <span className="text-xs text-muted-foreground">
-                            {`(Proficiência máx. do ${student.serie || 'série'}: ${Number(
-                              maxProficiencyBySerie[String(student.serie || '').trim() || 'Sem série'] || 0
-                            ).toFixed(1)})`}
+                            {`(Proficiência máx. do ${student.serie || 'série'}: ${formatDecimal1PtBr(
+                              maxProficiencyBySerie[String(student.serie || '').trim() || 'Sem série']
+                            )})`}
                           </span>
                         </div>
                         {showCoins && student.moedas_ganhas !== undefined && (
