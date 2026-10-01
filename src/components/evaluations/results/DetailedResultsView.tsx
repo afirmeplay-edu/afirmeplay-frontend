@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { DonutChartComponent } from "@/components/ui/charts";
+import { formatDecimal1PtBr, formatPercent1PtBr } from "@/utils/numberFormat";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -456,7 +457,7 @@ const StudentsResultsTable = ({
                 }
             });
 
-            const percentage = totalAnswered > 0 ? Math.round((correctCount / totalAnswered) * 100) : 0;
+            const percentage = totalAnswered > 0 ? (correctCount / totalAnswered) * 100 : 0;
             
 
             
@@ -604,7 +605,7 @@ const StudentsResultsTable = ({
                                 return (
                                 <td key={`turma-q${i}`} className="p-1 border-r border-gray-300">
                                         <div className={`text-xs font-bold ${displayColor}`}>
-                                        {percentage.toFixed(0)}%
+                                        {formatPercent1PtBr(percentage)}
                                     </div>
                                 </td>
                                 );
@@ -669,12 +670,18 @@ const StudentsResultsTable = ({
                                 )}
                                 {visibleFields?.nota && (
                                     <td className="p-2 border-t border-gray-200 font-semibold bg-gray-50 text-center">
-                                        {(typeof student.grade === 'number' ? student.grade?.toFixed(1) : student.grade) || student.total_score?.toFixed(1) || student.nota.toFixed(1)}
+                                        {formatDecimal1PtBr(
+                                          typeof student.grade === 'number'
+                                            ? student.grade
+                                            : typeof student.total_score === 'number'
+                                              ? student.total_score
+                                              : student.nota
+                                        )}
                                     </td>
                                 )}
                                 {visibleFields?.proficiencia && (
                                     <td className="p-2 border-t border-gray-200 font-semibold bg-gray-50 text-center">
-                                        {student.proficiency || student.proficiencia}
+                                        {formatDecimal1PtBr(student.proficiency ?? student.proficiencia)}
                                     </td>
                                 )}
                                 {visibleFields?.nivel && (
@@ -1128,7 +1135,7 @@ export default function DetailedResultsView({ onBack }: DetailedResultsViewProps
                                         <div className="flex items-center gap-2">
                                             <Target className="h-4 w-4 text-muted-foreground" />
                                             <span className="text-sm font-medium">
-                                                Nota: {student.nota.toFixed(1)}
+                                                Nota: {formatDecimal1PtBr(student.nota)}
                                             </span>
                                             {student.nota > 0 ? (
                                                 student.nota >= 7 ? (
@@ -1144,7 +1151,7 @@ export default function DetailedResultsView({ onBack }: DetailedResultsViewProps
                                         <div className="flex items-center gap-2">
                                             <BarChart3 className="h-4 w-4 text-muted-foreground" />
                                             <span className="text-sm font-medium">
-                                                Proficiência: {student.proficiencia > 0 ? student.proficiencia.toFixed(1) : 'N/A'}
+                                                Proficiência: {student.proficiencia > 0 ? formatDecimal1PtBr(student.proficiencia) : 'N/A'}
                                             </span>
                                         </div>
 
@@ -1168,7 +1175,7 @@ export default function DetailedResultsView({ onBack }: DetailedResultsViewProps
                                         <div className="space-y-1">
                                             <div className="flex justify-between text-xs text-muted-foreground">
                                                 <span>Taxa de Acerto</span>
-                                                <span>{accuracyRate.toFixed(1)}%</span>
+                                                <span>{formatPercent1PtBr(accuracyRate)}</span>
                                             </div>
                                             <Progress value={accuracyRate} className="h-2" />
                                         </div>
@@ -2174,10 +2181,10 @@ export default function DetailedResultsView({ onBack }: DetailedResultsViewProps
                         <div className="space-y-2">
                             <div className="text-sm font-medium text-muted-foreground">Taxa de Participação</div>
                             <div className="text-2xl font-bold text-blue-600">
-                                {evaluationInfo.total_alunos > 0 
-                                    ? ((evaluationInfo.alunos_participantes / evaluationInfo.total_alunos) * 100).toFixed(1)
-                                    : '0.0'
-                                }%
+                                {evaluationInfo.total_alunos > 0
+                                    ? formatPercent1PtBr((evaluationInfo.alunos_participantes / evaluationInfo.total_alunos) * 100)
+                                    : formatPercent1PtBr(0)
+                                }
                             </div>
                         </div>
                     </div>
@@ -2186,7 +2193,7 @@ export default function DetailedResultsView({ onBack }: DetailedResultsViewProps
                         <div className="space-y-2">
                             <div className="text-sm font-medium text-muted-foreground">Nota Geral</div>
                             <div className="text-2xl font-bold text-purple-600">
-                                {evaluationInfo.media_nota.toFixed(1)}
+                                {formatDecimal1PtBr(evaluationInfo.media_nota)}
                             </div>
                         </div>
                         <div className="space-y-2">
@@ -2194,17 +2201,17 @@ export default function DetailedResultsView({ onBack }: DetailedResultsViewProps
                             <div className="text-2xl font-bold text-orange-600">
                                 {(() => {
                                     const prof = evaluationInfo.media_proficiencia;
-                                    return prof && prof > 0 ? prof.toFixed(1) : '0.0';
+                                    return prof && prof > 0 ? formatDecimal1PtBr(prof) : formatDecimal1PtBr(0);
                                 })()}
                             </div>
                         </div>
                         <div className="space-y-2">
                             <div className="text-sm font-medium text-muted-foreground">Taxa de Conclusão</div>
                             <div className="text-2xl font-bold text-green-600">
-                                {evaluationInfo.total_alunos > 0 
-                                    ? ((evaluationInfo.alunos_participantes / evaluationInfo.total_alunos) * 100).toFixed(1)
-                                    : '0.0'
-                                }%
+                                {evaluationInfo.total_alunos > 0
+                                    ? formatPercent1PtBr((evaluationInfo.alunos_participantes / evaluationInfo.total_alunos) * 100)
+                                    : formatPercent1PtBr(0)
+                                }
                             </div>
                         </div>
                     </div>
@@ -2577,9 +2584,9 @@ export default function DetailedResultsView({ onBack }: DetailedResultsViewProps
                                             <span className="text-muted-foreground">Média Nota:</span>
                                             <span className="font-medium">
                                                 {(() => {
-                                                    const value = generalStats?.media_nota_geral !== undefined 
-                                                        ? generalStats.media_nota_geral.toFixed(1)
-                                                        : averageScore.toFixed(1);
+                                                    const value = generalStats?.media_nota_geral !== undefined
+                                                        ? formatDecimal1PtBr(generalStats.media_nota_geral)
+                                                        : formatDecimal1PtBr(averageScore);
                                                     console.log('🎯 LOG - Média Nota renderizada:', {
                                                         generalStats: generalStats?.media_nota_geral,
                                                         averageScore,
@@ -2594,9 +2601,9 @@ export default function DetailedResultsView({ onBack }: DetailedResultsViewProps
                                             <span className="text-muted-foreground">Proficiência:</span>
                                             <span className="font-medium">
                                                 {(() => {
-                                                    const value = generalStats?.media_proficiencia_geral !== undefined 
-                                                        ? generalStats.media_proficiencia_geral.toFixed(1)
-                                                        : averageProficiency.toFixed(1);
+                                                    const value = generalStats?.media_proficiencia_geral !== undefined
+                                                        ? formatDecimal1PtBr(generalStats.media_proficiencia_geral)
+                                                        : formatDecimal1PtBr(averageProficiency);
                                                     console.log('🎯 LOG - Proficiência renderizada:', {
                                                         generalStats: generalStats?.media_proficiencia_geral,
                                                         averageProficiency,
@@ -2695,7 +2702,7 @@ export default function DetailedResultsView({ onBack }: DetailedResultsViewProps
                         </div>
                         <div className="flex items-center gap-2">
                             <Users className="h-4 w-4 text-blue-600" />
-                            <span>{((students.filter(s => s.status === 'concluida').length / students.length) * 100).toFixed(1)}% participação</span>
+                            <span>{formatPercent1PtBr((students.filter(s => s.status === 'concluida').length / students.length) * 100)} participação</span>
                             {showOnlyCompleted && (
                                 <span className="text-xs text-green-600 font-medium">(filtrado)</span>
                             )}

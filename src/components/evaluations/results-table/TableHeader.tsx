@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CheckCircle2, Target, Gauge, Award, Users, Coins } from 'lucide-react';
 import { QuestionData, VisibleFields } from '../../../types/results-table';
+import { formatPercent1PtBr } from '@/utils/numberFormat';
 
 /** Tooltip da coluna de habilidade: evita exibir só "?" quando a API manda placeholder. */
 function skillColumnTooltipTitle(habilidade: string | undefined, codigo: string | undefined): string {
@@ -217,7 +218,7 @@ export const TableHeader: React.FC<TableHeaderProps> = ({
                   const percentage = getQuestionPercentage(questao);
                   return (
                     <div className={`text-xs font-semibold px-2 py-1 rounded ${getPercentageColor(percentage)}`}>
-                      {percentage.toFixed(1)}%
+                      {formatPercent1PtBr(percentage)}
                     </div>
                   );
                 })()}

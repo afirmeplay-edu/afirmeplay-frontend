@@ -26,10 +26,10 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parse } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { Calendar } from "@/components/ui/calendar";
 import { EvaluationResultsApiService } from "@/services/evaluation/evaluationResultsApi";
 import { EvaluationInstrumentPicker } from "@/components/filters";
 import {
@@ -50,6 +50,7 @@ import type { DisciplineStatsMap } from "@/components/evaluations/student/Studen
 import { saveBulletinStatsToStorage } from "@/components/evaluations/utils/bulletinStorage";
 
 import { cn } from "@/lib/utils";
+import { formatDecimal1PtBr, formatPercent1PtBr } from "@/utils/numberFormat";
 import {
   RESULTS_PERIOD_YEAR_MIN,
   getResultsPeriodYearMax,
@@ -1039,7 +1040,6 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
             data_aplicacao: new Date().toISOString()
           })));
 
-          // ✅ CORRIGIDO: Não resetar em cascata se estamos restaurando filtros
           if (!isRestoringFiltersRef.current) {
             resetAfterEvaluation();
           }
@@ -1065,7 +1065,6 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
   // Carregar escolas quando avaliação for selecionada
   useEffect(() => {
     const loadSchools = async () => {
-      // Só carregar escolas se os 3 filtros obrigatórios estiverem selecionados
       if (selectedState !== 'all' && selectedMunicipality !== 'all' && selectedEvaluation !== 'all') {
         try {
           setIsLoadingFilters(true);
@@ -1086,7 +1085,6 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
             prev !== "all" && !mappedSchools.some((school) => school.id === prev) ? "all" : prev
           );
 
-          // ✅ CORRIGIDO: Não resetar em cascata se estamos restaurando filtros
           if (!isRestoringFiltersRef.current) {
             resetAfterSchool();
           }
@@ -1099,7 +1097,6 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
         }
       } else {
         setSchools([]);
-        // ✅ CORRIGIDO: Não resetar em cascata se estamos restaurando filtros
         if (!isRestoringFiltersRef.current) {
           resetAfterSchool();
         }
@@ -1112,7 +1109,6 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
   // Carregar séries quando escola for selecionada
   useEffect(() => {
     const loadGrades = async () => {
-      // Só carregar séries se os 3 filtros obrigatórios estiverem selecionados
       if (selectedState !== 'all' && selectedMunicipality !== 'all' && selectedEvaluation !== 'all' && selectedSchool !== 'all') {
         try {
           setIsLoadingFilters(true);
@@ -1155,7 +1151,6 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
   // Carregar turmas quando série for selecionada
   useEffect(() => {
     const loadClasses = async () => {
-      // Só carregar turmas se os 3 filtros obrigatórios estiverem selecionados
       if (selectedState !== 'all' && selectedMunicipality !== 'all' && selectedEvaluation !== 'all' && selectedSchool !== 'all' && selectedGrade !== 'all') {
         try {
           setIsLoadingFilters(true);
@@ -2463,7 +2458,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                     setSelectedSchool("all");
                     resetAfterSchool();
                   }}
-                  disabled={isLoadingFilters || selectedEvaluation === "all"}
+                  disabled={isLoadingFilters || selectedEvaluation === 'all'}
                 >
                   <SelectTrigger className="w-full min-w-0">
                     <SelectValue placeholder="Todas" />
@@ -2576,7 +2571,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
           {/* Informação sobre filtros */}
           <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
             <p className="text-sm text-blue-700 dark:text-blue-400">
-              💡 <strong>Hierarquia dos Filtros:</strong> Estado → Município → Período (opcional) → Escola → Série → Turma → Avaliação
+              💡 <strong>Hierarquia dos Filtros:</strong> Estado → Município → Período (opcional) → Avaliação → Escola → Série → Turma
             </p>
             <p className="text-sm text-blue-700 mt-1">
               {isRestrictedUser ? (
@@ -2716,17 +2711,17 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                     <div className="text-sm font-medium text-muted-foreground">Taxa de participação</div>
                     <div className="text-2xl font-bold text-blue-600">
                       {backendStats.percentualComparecimento != null
-                        ? `${backendStats.percentualComparecimento.toFixed(1)}%`
+                        ? formatPercent1PtBr(backendStats.percentualComparecimento)
                         : '-'}
                     </div>
                   </div>
                   <div className="space-y-2">
                     <div className="text-sm font-medium text-muted-foreground">Nota Geral</div>
-                    <div className="text-2xl font-bold text-purple-600">{Number(backendStats.mediaNota || 0).toFixed(1)}</div>
+                    <div className="text-2xl font-bold text-purple-600">{formatDecimal1PtBr(backendStats.mediaNota)}</div>
                   </div>
                   <div className="space-y-2">
                     <div className="text-sm font-medium text-muted-foreground">Proficiência</div>
-                    <div className="text-2xl font-bold text-orange-600">{Number(backendStats.mediaProficiencia || 0).toFixed(1)}</div>
+                    <div className="text-2xl font-bold text-orange-600">{formatDecimal1PtBr(backendStats.mediaProficiencia)}</div>
                   </div>
                 </div>
               </CardContent>
