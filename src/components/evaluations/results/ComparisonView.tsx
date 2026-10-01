@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
+import { formatDecimal1PtBr } from "@/utils/numberFormat";
 import { 
   ArrowLeft, 
   TrendingUp, 
@@ -106,7 +107,7 @@ export function ComparisonView({ results, onBack }: ComparisonViewProps) {
 
   const formatDifference = (value: number, suffix: string = "", prefix: string = "") => {
     const sign = value > 0 ? "+" : "";
-    return `${sign}${prefix}${value.toFixed(1)}${suffix}`;
+    return `${sign}${prefix}${formatDecimal1PtBr(value)}${suffix}`;
   };
 
   const getImprovementLevel = (value: number, threshold: number = 5) => {
@@ -126,7 +127,7 @@ export function ComparisonView({ results, onBack }: ComparisonViewProps) {
       insights.push({
         type: differences.participationRate > 0 ? "positive" : "negative",
         title: "Participação",
-        description: `A taxa de participação ${direction} em ${Math.abs(differences.participationRate).toFixed(1)}%`
+        description: `A taxa de participação ${direction} em ${formatDecimal1PtBr(Math.abs(differences.participationRate))}%`
       });
     }
 
@@ -136,7 +137,7 @@ export function ComparisonView({ results, onBack }: ComparisonViewProps) {
       insights.push({
         type: differences.averageScore > 0 ? "positive" : "negative",
         title: "Performance",
-        description: `A média geral ${direction} em ${Math.abs(differences.averageScore).toFixed(1)} pontos`
+        description: `A média geral ${direction} em ${formatDecimal1PtBr(Math.abs(differences.averageScore))} pontos`
       });
     }
 
@@ -146,7 +147,7 @@ export function ComparisonView({ results, onBack }: ComparisonViewProps) {
       insights.push({
         type: differences.averageProficiency > 0 ? "positive" : "negative",
         title: "Proficiência",
-        description: `A proficiência média ${direction} em ${Math.abs(differences.averageProficiency).toFixed(0)} pontos`
+        description: `A proficiência média ${direction} em ${formatDecimal1PtBr(Math.abs(differences.averageProficiency))} pontos`
       });
     }
 
@@ -289,7 +290,7 @@ export function ComparisonView({ results, onBack }: ComparisonViewProps) {
                   <div className="flex justify-between">
                     <span className="text-sm text-muted-foreground">Média:</span>
                     <span className="text-sm font-medium">
-                      {comparisonData.evaluation1.averageRawScore.toFixed(1)}
+                      {formatDecimal1PtBr(comparisonData.evaluation1.averageRawScore)}
                     </span>
                   </div>
                 </div>
@@ -320,7 +321,7 @@ export function ComparisonView({ results, onBack }: ComparisonViewProps) {
                   <div className="flex justify-between">
                     <span className="text-sm text-muted-foreground">Média:</span>
                     <span className="text-sm font-medium">
-                      {comparisonData.evaluation2.averageRawScore.toFixed(1)}
+                      {formatDecimal1PtBr(comparisonData.evaluation2.averageRawScore)}
                     </span>
                   </div>
                 </div>

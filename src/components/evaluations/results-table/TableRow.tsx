@@ -4,6 +4,7 @@ import { StudentResult, VisibleFields, type DisciplineMetricCell } from '../../.
 import { getReportProficiencyTagClass } from '@/utils/report/reportTagStyles';
 import { ContextMenu } from '../../ui/context-menu';
 import { formatCoins } from '@/utils/coins';
+import { formatDecimal1PtBr, formatPercent1PtBr } from '@/utils/numberFormat';
 import { Badge } from '@/components/ui/badge';
 
 // Interface para questões da tabela_detalhada
@@ -139,9 +140,9 @@ export const TableRow: React.FC<TableRowProps> = ({
               {(() => {
                 const total =
                   (student.acertos ?? 0) + (student.erros ?? 0) + (student.em_branco ?? 0);
-                if (total <= 0) return '0%';
+                if (total <= 0) return formatPercent1PtBr(0);
                 const pct = ((student.acertos ?? 0) / total) * 100;
-                return `${pct.toFixed(1)}%`;
+                return formatPercent1PtBr(pct);
               })()}
             </div>
           )}
@@ -181,10 +182,10 @@ export const TableRow: React.FC<TableRowProps> = ({
           {disciplineMetrics!.map((dm) => (
             <React.Fragment key={`dm-${dm.disciplina}`}>
               <td className="px-2 py-3 text-sm text-center border border-border text-foreground tabular-nums">
-                {Number(dm.nota ?? 0).toFixed(1)}
+                {formatDecimal1PtBr(dm.nota)}
               </td>
               <td className="px-2 py-3 text-sm text-center border border-border text-foreground tabular-nums">
-                {Number(dm.proficiencia ?? 0).toFixed(1)}
+                {formatDecimal1PtBr(dm.proficiencia)}
               </td>
               <td className="px-2 py-3 text-sm text-center border border-border">
                 <span
@@ -196,10 +197,10 @@ export const TableRow: React.FC<TableRowProps> = ({
             </React.Fragment>
           ))}
           <td className="px-2 py-3 text-sm text-center border border-border text-foreground font-medium tabular-nums bg-purple-50/50 dark:bg-purple-950/20">
-            {Number(geralMetrics?.nota ?? student.nota ?? 0).toFixed(1)}
+            {formatDecimal1PtBr(geralMetrics?.nota ?? student.nota)}
           </td>
           <td className="px-2 py-3 text-sm text-center border border-border text-foreground font-medium tabular-nums bg-purple-50/50 dark:bg-purple-950/20">
-            {Number(geralMetrics?.proficiencia ?? student.proficiencia ?? 0).toFixed(1)}
+            {formatDecimal1PtBr(geralMetrics?.proficiencia ?? student.proficiencia)}
           </td>
           <td className="px-2 py-3 text-sm text-center border border-border bg-purple-50/50 dark:bg-purple-950/20">
             <span
@@ -214,10 +215,10 @@ export const TableRow: React.FC<TableRowProps> = ({
       ) : (
         <>
           <td className="px-4 py-3 text-sm text-center border border-border text-foreground">
-            {student.nota.toFixed(1)}
+            {formatDecimal1PtBr(student.nota)}
           </td>
           <td className="px-4 py-3 text-sm text-center border border-border text-foreground">
-            {Number(student.proficiencia || 0).toFixed(1)}
+            {formatDecimal1PtBr(student.proficiencia)}
           </td>
           <td className="px-4 py-3 text-sm font-medium text-center border border-border">
             <span

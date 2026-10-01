@@ -886,8 +886,8 @@ function buildSortedRankingRows(
       turno: formatShiftCell(s.shift),
       escola: (s.escola || '').trim() || '—',
       serie: (s.serie || '').trim() || '—',
-      nota: Number(s.nota ?? 0).toFixed(1),
-      prof: Number(s.proficiencia ?? 0).toFixed(1),
+      nota: fmtPtNum(s.nota),
+      prof: fmtPtNum(s.proficiencia),
       classif: (s.classificacao || '—').trim() || '—',
       level: normalizeProficiencyLevelLabel(s.classificacao),
     }));
@@ -902,8 +902,8 @@ function buildSortedRankingRows(
     turno: formatShiftCell(s.shift),
     escola: (s.escola || '').trim() || '—',
     serie: (s.serie || '').trim() || '—',
-    nota: Number(s.nota ?? 0).toFixed(1),
-    prof: Number(s.proficiencia ?? 0).toFixed(1),
+    nota: fmtPtNum(s.nota),
+    prof: fmtPtNum(s.proficiencia),
     classif: (s.classificacao || '—').trim() || '—',
     level: normalizeProficiencyLevelLabel(s.classificacao),
   }));
@@ -1707,8 +1707,8 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
               String(r.serie || '—'),
               String(r.class_name || '—'),
               formatShiftCell(r.shift),
-              Number(r.average_score || 0).toFixed(2),
-              Number((r.average_proficiency ?? r.average_score) || 0).toFixed(2),
+              fmtPtNum(r.average_score),
+              fmtPtNum(r.average_proficiency ?? r.average_score),
               String(r.classification || '—'),
             ]);
             renderTable(
@@ -1763,8 +1763,8 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
           Number(r.position || 0),
           String(r.school_name || '—'),
           `${Number(r.participating_students || 0)}/${Number(r.total_students || 0)}`,
-          Number(r.average_proficiency || 0).toFixed(1),
-          Number(r.average_score || 0).toFixed(1),
+          fmtPtNum(r.average_proficiency),
+          fmtPtNum(r.average_score),
           String(r.classification || '—'),
         ]);
         renderTable(
@@ -1793,8 +1793,8 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
             Number(r.position || 0),
             String(r.grade_name || '—'),
             `${Number(r.participating_students || 0)}/${Number(r.total_students || 0)}`,
-            Number(r.average_proficiency || 0).toFixed(1),
-            Number(r.average_score || 0).toFixed(1),
+            fmtPtNum(r.average_proficiency),
+            fmtPtNum(r.average_score),
             String(r.classification || '—'),
           ]);
           renderTable(
@@ -1821,9 +1821,9 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
           Number(r.position || 0),
           String(r.class_name || '—'),
           formatShiftCell(r.shift),
-          Number(r.average_score || 0).toFixed(1),
-          `${Number(r.accuracy_percent || 0).toFixed(1)}%`,
-          `${Number(r.completion_rate || 0).toFixed(1)}%`,
+          fmtPtNum(r.average_score),
+          `${fmtPtNum(r.accuracy_percent)}%`,
+          `${fmtPtNum(r.completion_rate)}%`,
           Number(r.students_count || 0),
           Number(r.evaluations_count || 0),
         ]);
@@ -1854,8 +1854,8 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
           String(r.serie || '—'),
           String(r.class_name || '—'),
           formatShiftCell(r.shift),
-          Number(r.average_score || 0).toFixed(2),
-          Number((r.average_proficiency ?? r.average_score) || 0).toFixed(2),
+          fmtPtNum(r.average_score),
+          fmtPtNum(r.average_proficiency ?? r.average_score),
           String(r.classification || '—'),
         ]);
         renderTable(
@@ -1883,8 +1883,8 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
       Number(r.position || 0),
       String(r.teacher_name || '—'),
       String(r.teacher_email || '—'),
-      Number(r.average_score || 0).toFixed(2),
-      Number(r.average_proficiency || 0).toFixed(2),
+      fmtPtNum(r.average_score),
+      fmtPtNum(r.average_proficiency),
       String(r.classification || '—'),
       Number(r.total_evaluations || 0),
       Number(r.classes_count || 0),
@@ -1913,8 +1913,8 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
       String(r.serie || '—'),
       String(r.class_name || '—'),
       formatShiftCell(r.shift),
-      Number(r.average_score || 0).toFixed(2),
-      Number((r.average_proficiency ?? r.average_score) || 0).toFixed(2),
+      fmtPtNum(r.average_score),
+      fmtPtNum(r.average_proficiency ?? r.average_score),
       String(r.classification || '—'),
     ]);
     renderTable(

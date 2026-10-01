@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, XCircle, Minus, Filter, BookOpen, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatDecimal1PtBr } from "@/utils/numberFormat";
 import { EvaluationApiService } from "@/services/evaluation/evaluationApi";
 import { EvaluationResultsApiService } from "@/services/evaluation/evaluationResultsApi";
 import type { NovaRespostaAPI, StudentDetailedResult } from "@/services/evaluation/evaluationResultsApi";
@@ -1286,11 +1287,11 @@ export default function StudentBulletin({ testId, studentId, initialDisciplineSt
                       return (
                         <div data-pdf-subject-stats className="flex items-center gap-3 ml-3 text-xs">
                           <span className="text-muted-foreground">
-                            Nota: <span className="font-semibold text-foreground">{stats.nota.toFixed(1)}</span>
+                            Nota: <span className="font-semibold text-foreground">{formatDecimal1PtBr(stats.nota)}</span>
                           </span>
                           <span className="text-muted-foreground">|</span>
                               <span className="text-muted-foreground">
-                                Proficiência: <span className="font-semibold text-foreground">{stats.proficiencia.toFixed(1)}</span>
+                                Proficiência: <span className="font-semibold text-foreground">{formatDecimal1PtBr(stats.proficiencia)}</span>
                               </span>
                         </div>
                       );

@@ -4,6 +4,7 @@ import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, PieChart, Pie, Cell, 
 import { useMemo } from "react"
 import { MunicipalReferenceLineSegment } from "@/components/charts/MunicipalReferenceLineSegment"
 import { resolveMunicipalReferenceSegmentFromBarData } from "@/utils/reports/presentation19/municipalReferenceLine"
+import { formatDecimal1PtBr, formatPercent1PtBr } from "@/utils/numberFormat"
 
 interface BarChartProps {
     data: Array<{
@@ -21,6 +22,8 @@ interface BarChartProps {
         y: number
         anchorName: string
     }
+    /** Quando informado, rótulos e tooltip usam este formato (ex.: sempre uma casa decimal). */
+    formatValue?: (value: number) => string
 }
 
 interface PieChartProps {
@@ -44,13 +47,16 @@ const defaultColors = [
 // Formata valor para exibição (evita 2.0000000000000004 por causa de float)
 function formatBarValue(value: number): string {
     const n = Number(value);
+    if (!Number.isFinite(n)) return '0';
     if (Number.isInteger(n)) return String(n);
-    if (Number.isNaN(n)) return '0';
-    return n.toFixed(1);
+    return formatDecimal1PtBr(n);
 }
 
 // Componente para renderizar valores nas barras
-const renderCustomBarLabel = (props: { x: number; y: number; width: number; height: number; value: number }) => {
+const renderCustomBarLabel = (
+    props: { x: number; y: number; width: number; height: number; value: number },
+    formatValue: (value: number) => string
+) => {
     const { x, y, width, height, value } = props;
     if (value === 0) return null; // Não mostrar 0
     
@@ -67,7 +73,7 @@ const renderCustomBarLabel = (props: { x: number; y: number; width: number; heig
             fontSize={12}
             fontWeight={500}
         >
-            {formatBarValue(value)}
+            {formatValue(value)}
         </text>
     );
 };
@@ -81,7 +87,9 @@ export function BarChartComponent({
     yAxisLabel = "Valor",
     showValues = true, // Valor padrão true
     municipalReferenceLine,
+    formatValue,
 }: BarChartProps) {
+    const displayValue = formatValue ?? formatBarValue;
     const municipalSegment = useMemo(
         () =>
             municipalReferenceLine
@@ -135,9 +143,11 @@ export function BarChartComponent({
                         tick={{ fill: isDarkMode ? 'hsl(var(--foreground))' : '#374151' }}
                         tickFormatter={(value) => {
                             const n = Number(value);
+                            if (!Number.isFinite(n)) return '0';
+                            if (formatValue) return formatValue(n);
                             if (Number.isInteger(n)) return String(n);
                             if (Math.abs(n) < 0.01 || Math.abs(n) > 1e6) return n.toExponential(0);
-                            return n.toFixed(1);
+                            return formatDecimal1PtBr(n);
                         }}
                     />
                     <Tooltip
@@ -158,7 +168,7 @@ export function BarChartComponent({
                                                 {label}
                                             </span>
                                             <span className="text-lg font-bold text-foreground">
-                                                {typeof payload[0].value === 'number' ? formatBarValue(payload[0].value) : payload[0].value}
+                                                {typeof payload[0].value === 'number' ? displayValue(payload[0].value) : payload[0].value}
                                             </span>
                                         </div>
                                     </div>
@@ -191,7 +201,16 @@ export function BarChartComponent({
                             }
                         }}
                     >
-                        {showValues && <LabelList content={renderCustomBarLabel} />}
+                        {showValues && (
+                            <LabelList
+                                content={(labelProps) =>
+                                    renderCustomBarLabel(
+                                        labelProps as { x: number; y: number; width: number; height: number; value: number },
+                                        displayValue
+                                    )
+                                }
+                            />
+                        )}
                         <MunicipalReferenceLineSegment
                             segment={municipalSegment}
                             dataKey="value"
@@ -208,7 +227,9 @@ export function BarChartComponent({
 // Componente para renderizar valores nos gráficos de pizza/donut
 const renderCustomPieLabel = (entry: { name: string; value: number }) => {
     if (entry.value === 0) return null; // Não mostrar 0
-    return `${entry.value}`;
+    const n = Number(entry.value);
+    if (Number.isInteger(n)) return `${n}`;
+    return formatDecimal1PtBr(n);
 };
 
 export function PieChartComponent({
@@ -296,7 +317,10 @@ export function PieChartComponent({
                         content={({ active, payload }) => {
                             if (active && payload && payload.length) {
                                 const item = payload[0].payload
-                                const percentage = total > 0 ? ((item.value / total) * 100).toFixed(1) : '0.0'
+                                const countLabel = Number.isInteger(Number(item.value))
+                                    ? String(item.value)
+                                    : formatDecimal1PtBr(Number(item.value))
+                                const percentage = total > 0 ? (item.value / total) * 100 : 0
 
                                 return (
                                     <div className="rounded-lg border bg-card p-3 shadow-lg border-border dark:border-border/30">
@@ -305,7 +329,7 @@ export function PieChartComponent({
                                                 {item.name}
                                             </span>
                                             <span className="text-lg font-bold text-foreground">
-                                                {item.value} ({percentage}%)
+                                                {countLabel} ({formatPercent1PtBr(percentage)})
                                             </span>
                                         </div>
                                     </div>
@@ -419,7 +443,10 @@ export function DonutChartComponent({
                         content={({ active, payload }) => {
                             if (active && payload && payload.length) {
                                 const item = payload[0].payload
-                                const percentage = total > 0 ? ((item.value / total) * 100).toFixed(1) : '0.0'
+                                const countLabel = Number.isInteger(Number(item.value))
+                                    ? String(item.value)
+                                    : formatDecimal1PtBr(Number(item.value))
+                                const percentage = total > 0 ? (item.value / total) * 100 : 0
 
                                 return (
                                     <div className="rounded-lg border bg-card p-3 shadow-lg border-border dark:border-border/30">
@@ -428,7 +455,7 @@ export function DonutChartComponent({
                                                 {item.name}
                                             </span>
                                             <span className="text-lg font-bold text-foreground">
-                                                {item.value} ({percentage}%)
+                                                {countLabel} ({formatPercent1PtBr(percentage)})
                                             </span>
                                         </div>
                                     </div>

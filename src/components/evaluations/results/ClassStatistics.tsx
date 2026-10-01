@@ -8,6 +8,7 @@ import {
   filterInstitutionalRankingRowsByRoleAccess,
   type InstitutionalGranularity,
 } from "@/utils/evaluation/institutionalRankingRoleFilter";
+import { formatDecimal1PtBr, formatPercent1PtBr } from "@/utils/numberFormat";
 
 interface ClassData {
   name: string;
@@ -229,8 +230,8 @@ export function ClassStatistics({
         seriesName,
         totalStudents,
         participatingStudents,
-        averageGrade: Number(averageGrade.toFixed(1)),
-        proficiency: Number(proficiency.toFixed(1)),
+        averageGrade,
+        proficiency,
         distribution,
       };
       const filterRow = buildFilterRowFromAvaliacao(avaliacao, index, g);
@@ -370,8 +371,8 @@ export function ClassStatistics({
       seriesName,
       totalStudents,
       participatingStudents,
-      averageGrade: Number(averageGrade.toFixed(1)),
-      proficiency: Number(proficiency.toFixed(1)),
+      averageGrade,
+      proficiency,
       proficiencyLabel,
       distribution,
     };
@@ -411,7 +412,7 @@ export function ClassStatistics({
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Participação:</span>
               <span className="font-medium">
-                {statisticsItem.participatingStudents}/{statisticsItem.totalStudents} alunos — {participationRate.toFixed(0)}%
+                {statisticsItem.participatingStudents}/{statisticsItem.totalStudents} alunos — {formatPercent1PtBr(participationRate)}
               </span>
             </div>
             <Progress value={participationRate} className="h-2" />
@@ -419,12 +420,12 @@ export function ClassStatistics({
           
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Média Nota:</span>
-            <span className="font-medium">{statisticsItem.averageGrade.toFixed(1)}</span>
+            <span className="font-medium">{formatDecimal1PtBr(statisticsItem.averageGrade)}</span>
           </div>
           
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Proficiência:</span>
-            <span className="font-medium">{statisticsItem.proficiency.toFixed(1)}</span>
+            <span className="font-medium">{formatDecimal1PtBr(statisticsItem.proficiency)}</span>
           </div>
 
           {statisticsItem.proficiencyLabel ? (

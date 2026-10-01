@@ -3,6 +3,7 @@ import { Card, CardContent, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Users, Eye } from 'lucide-react';
+import { formatDecimal1PtBr, formatPercent1PtBr } from '@/utils/numberFormat';
 
 interface StudentCardProps {
   student: {
@@ -91,13 +92,13 @@ export const StudentCard = React.memo(function StudentCard({ student, totalQuest
         <div className="grid grid-cols-2 gap-2">
           <div className="rounded-lg border border-border bg-muted/40 px-2.5 py-2 min-w-0">
             <div className="text-[clamp(0.95rem,2.2vw,1.15rem)] font-bold text-foreground tabular-nums whitespace-nowrap leading-none">
-              {Number(student.nota || 0).toFixed(1)}
+              {formatDecimal1PtBr(student.nota)}
             </div>
             <div className="text-[11px] text-muted-foreground">Nota</div>
           </div>
           <div className="rounded-lg border border-purple-200/60 dark:border-purple-900/40 bg-purple-50/70 dark:bg-purple-950/20 px-2.5 py-2 min-w-0">
             <div className="text-[clamp(0.95rem,2.2vw,1.15rem)] font-bold text-purple-700 dark:text-purple-300 tabular-nums whitespace-nowrap leading-none">
-              {Number(student.proficiencia || 0).toFixed(1)}
+              {formatDecimal1PtBr(student.proficiencia)}
             </div>
             <div className="text-[11px] text-purple-800/80 dark:text-purple-200/80">Proficiência</div>
           </div>
@@ -107,7 +108,7 @@ export const StudentCard = React.memo(function StudentCard({ student, totalQuest
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Acerto</span>
-            <span className="font-semibold text-foreground tabular-nums">{accuracyRate.toFixed(1)}%</span>
+            <span className="font-semibold text-foreground tabular-nums">{formatPercent1PtBr(accuracyRate)}</span>
           </div>
           <MiniBar value={accuracyRate} />
           <div className="text-[11px] text-muted-foreground text-center tabular-nums">
