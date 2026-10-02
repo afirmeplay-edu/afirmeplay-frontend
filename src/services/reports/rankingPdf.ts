@@ -829,6 +829,7 @@ export type RankingPdfFilterLabels = {
   serie: string;
   turma: string;
   turno?: string;
+  alunos?: string;
 };
 
 export type RankingPdfStudentInput = {
@@ -954,6 +955,9 @@ export async function generateRankingPdf(opts: {
     if (filters.turno?.trim() && filters.turma !== 'Todas') {
       cardLines.push({ label: 'TURNO', value: filters.turno });
     }
+  }
+  if (filters.alunos?.trim()) {
+    cardLines.push({ label: 'ALUNOS', value: filters.alunos });
   }
 
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });

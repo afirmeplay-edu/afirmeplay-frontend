@@ -12,6 +12,7 @@ export type AnswerSheetDetailQueryContext = {
   serie?: string;
   turma?: string;
   periodo?: string;
+  alunos?: string;
 };
 
 type StoredResultsFilters = {
@@ -190,5 +191,6 @@ export function buildAnswerSheetStudentDetailHref(
   if (ctx.serie) qs.set('serie', ctx.serie);
   if (ctx.turma) qs.set('turma', ctx.turma);
   if (ctx.periodo) qs.set('periodo', ctx.periodo);
+  if (ctx.alunos) qs.set('alunos', ctx.alunos);
   return `/app/cartao-resposta/resultados/gabarito/${gabaritoId}/aluno/${studentId}?${qs.toString()}`;
 }

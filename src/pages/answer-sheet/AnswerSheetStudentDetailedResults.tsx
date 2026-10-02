@@ -102,6 +102,7 @@ export default function AnswerSheetStudentDetailedResults({ onBack }: AnswerShee
   const turma = searchParams.get('turma') || '';
   const periodo = searchParams.get('periodo') || '';
   const periodoApi = /^\d{4}-\d{2}$/.test(periodo) ? periodo : undefined;
+  const alunos = searchParams.get('alunos') || '';
 
   const tituloGabarito = useMemo(() => {
     const g = data?.resultados_detalhados?.gabaritos?.find((x) => x.id === gabaritoId);
@@ -125,6 +126,7 @@ export default function AnswerSheetStudentDetailedResults({ onBack }: AnswerShee
       if (serie) params.set('serie', serie);
       if (turma) params.set('turma', turma);
       if (periodoApi) params.set('periodo', periodoApi);
+      if (alunos) params.set('alunos', alunos);
       const res = await api.get<ResultadosAgregadosResponse>(
         `/answer-sheets/resultados-agregados?${params.toString()}`
       );
@@ -147,7 +149,7 @@ export default function AnswerSheetStudentDetailedResults({ onBack }: AnswerShee
     } finally {
       setIsLoading(false);
     }
-  }, [gabaritoId, studentId, estado, municipio, escola, serie, turma, periodoApi, toast]);
+  }, [gabaritoId, studentId, estado, municipio, escola, serie, turma, periodoApi, alunos, toast]);
 
   useEffect(() => {
     load();
