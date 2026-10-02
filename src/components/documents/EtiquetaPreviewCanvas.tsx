@@ -59,7 +59,7 @@ export function EtiquetaPreviewCanvas({ label, context, logoUrl, className = "" 
     };
   }, [context.municipio.id, logoUrl]);
 
-  const freeFontSize = label.textoLivreTamanho || 16;
+  const freeFontSize = label.textoLivreTamanho || 10;
   const freeColor = label.exibirAssinatura ? "#000000" : label.textoLivreCor;
 
   return (

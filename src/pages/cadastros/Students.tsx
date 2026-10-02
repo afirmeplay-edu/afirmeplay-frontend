@@ -165,8 +165,9 @@ export default function Students() {
   };
 
   const handleAddStudent = async (data: StudentFormData) => {
+    const fullName = data.fullName.toLocaleUpperCase("pt-BR");
     const newStudent = {
-      name: data.fullName,
+      name: fullName,
       email: data.email,
       password: data.senha,
       registration: data.matricula,
@@ -178,7 +179,7 @@ export default function Students() {
     await api.post("/students", newStudent).then((res) => {
       toast({
         title: "Aluno adicionado",
-        description: `${data.fullName} foi adicionado com sucesso.`,
+        description: `${fullName} foi adicionado com sucesso.`,
       });
     }).catch(e => {
       toast({

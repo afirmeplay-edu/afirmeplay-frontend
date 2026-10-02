@@ -123,7 +123,22 @@ export class FormFiltersApiService {
     nome: string;
     education_stage_id?: string;
     educationStageId?: string;
+    education_stage_name?: string;
   }>> {
+    const mapGrade = (grade: Record<string, unknown>) => {
+      const stage = (grade.education_stage ?? grade.educationStage) as
+        | { id?: string; name?: string; nome?: string }
+        | undefined;
+      const stageId = String(grade.education_stage_id || grade.educationStageId || stage?.id || "");
+      const stageName = String(stage?.name || stage?.nome || grade.education_stage_name || "");
+      return {
+        id: String(grade.id || ""),
+        nome: String(grade.nome || grade.name || ""),
+        ...(stageId ? { education_stage_id: stageId, educationStageId: stageId } : {}),
+        ...(stageName ? { education_stage_name: stageName } : {}),
+      };
+    };
+
     try {
       // Tentar primeiro a rota unificada
       const response = await this.getFormFilterOptions({
@@ -134,19 +149,14 @@ export class FormFiltersApiService {
       });
       
       if (response.series && response.series.length > 0) {
-        return response.series;
+        return response.series.map((grade) => mapGrade(grade as Record<string, unknown>)).filter((grade) => grade.id);
       }
 
       // Fallback: usar rota direta
       const gradeConfig = params.municipio ? { meta: { cityId: params.municipio } } : {};
       const directResponse = await api.get(`/forms/grades/school/${params.escola}`, gradeConfig);
       const grades = directResponse.data || [];
-      return grades.map((grade: any) => ({
-        id: grade.id,
-        nome: grade.nome || grade.name || '',
-        education_stage_id: grade.education_stage_id || grade.educationStageId,
-        educationStageId: grade.education_stage_id || grade.educationStageId
-      }));
+      return (Array.isArray(grades) ? grades : []).map((grade: Record<string, unknown>) => mapGrade(grade)).filter((grade: { id: string }) => grade.id);
     } catch (error) {
       return [];
     }
@@ -220,6 +230,53 @@ export class FormFiltersApiService {
   /**
    * Buscar disciplinas relacionadas à escola selecionada.
    */
+  /**
+   * Cursos já cadastrados no sistema (Anos Iniciais, Anos Finais e demais etapas).
+   */
+  static async getEducationStages(cityId?: string): Promise<Array<{
+    id: string;
+    nome: string;
+  }>> {
+    try {
+      const config = cityId && cityId !== "all" ? { meta: { cityId } } : {};
+      const response = await api.get("/education_stages/all", config);
+      const data = response.data;
+      const list = Array.isArray(data) ? data : data?.data ?? data?.courses ?? [];
+      if (!Array.isArray(list)) return [];
+      return list
+        .map((stage: { id?: string; name?: string; nome?: string }) => ({
+          id: String(stage.id || ""),
+          nome: stage.nome || stage.name || "",
+        }))
+        .filter((stage: { id: string; nome: string }) => stage.id !== "" && stage.nome !== "");
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * Disciplinas cadastradas no sistema.
+   */
+  static async getSubjects(): Promise<Array<{
+    id: string;
+    nome: string;
+  }>> {
+    try {
+      const response = await api.get("/subjects");
+      const data = response.data;
+      const list = Array.isArray(data) ? data : data?.data ?? data?.subjects ?? [];
+      if (!Array.isArray(list)) return [];
+      return list
+        .map((subject: { id?: string; nome?: string; name?: string }) => ({
+          id: String(subject.id || ""),
+          nome: subject.nome || subject.name || "",
+        }))
+        .filter((subject: { id: string; nome: string }) => subject.nome !== "");
+    } catch (error) {
+      return [];
+    }
+  }
+
   static async getSchoolSubjects(schoolId: string): Promise<Array<{
     id: string;
     nome: string;
@@ -227,12 +284,17 @@ export class FormFiltersApiService {
     try {
       if (!schoolId || schoolId === 'all') return [];
       const response = await api.get(`/subjects/by-school/${schoolId}`);
-      const subjects = response.data || [];
+      const data = response.data;
+      const subjects = Array.isArray(data)
+        ? data
+        : data?.subjects ?? data?.data ?? data?.disciplinas ?? [];
       if (!Array.isArray(subjects)) return [];
-      return subjects.map((subject: any) => ({
-        id: String(subject.id || ''),
-        nome: subject.nome || subject.name || '',
-      })).filter((subject: { id: string; nome: string }) => subject.nome !== '');
+      return subjects
+        .map((subject: { id?: string; nome?: string; name?: string }) => ({
+          id: String(subject.id || ""),
+          nome: subject.nome || subject.name || "",
+        }))
+        .filter((subject: { id: string; nome: string }) => subject.nome !== "");
     } catch (error) {
       return [];
     }

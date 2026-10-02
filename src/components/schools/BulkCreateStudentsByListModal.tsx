@@ -170,11 +170,12 @@ export function BulkCreateStudentsByListModal({
 
     for (const nome of parsedNames) {
       try {
+        const nomeSalvo = nome.toLocaleUpperCase("pt-BR");
         const email = await resolveEmail(nome);
         const senha = generatePasswordFromName(nome);
 
         const response = await api.post("/students", {
-          name: nome,
+          name: nomeSalvo,
           email,
           password: senha,
           birth_date: today,
@@ -197,10 +198,10 @@ export function BulkCreateStudentsByListModal({
           }
         }
 
-        output.push({ nome, email, senha, success: true, adap });
+        output.push({ nome: nomeSalvo, email, senha, success: true, adap });
       } catch (error: unknown) {
         output.push({
-          nome,
+          nome: nome.toLocaleUpperCase("pt-BR"),
           email: generateEmailFromName(nome),
           senha: generatePasswordFromName(nome),
           success: false,
