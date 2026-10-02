@@ -356,7 +356,7 @@ export function ManageClassModal({
       }
 
       const studentData = {
-        name: formData.name,
+        name: formData.name.toLocaleUpperCase("pt-BR"),
         email: formData.email,
         password: formData.password,
         registration: formData.registration || undefined,
