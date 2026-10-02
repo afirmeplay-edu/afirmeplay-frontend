@@ -16,6 +16,7 @@ export type PendingStudentRow = {
 export async function generatePendingStudentsPdf(opts: {
   title: string;
   subtitle?: string;
+  alunosLabel?: string;
   students: PendingStudentRow[];
   fileName?: string;
   /** UUID do município para logo municipal no PDF. */
@@ -45,6 +46,11 @@ export async function generatePendingStudentsPdf(opts: {
   pdf.setFontSize(10);
   if (subtitle) {
     pdf.text(subtitle, pageWidth / 2, y, { align: 'center' });
+    y += 6;
+  }
+  const alunosLabel = (opts.alunosLabel ?? '').trim();
+  if (alunosLabel) {
+    pdf.text(`Alunos: ${alunosLabel}`, pageWidth / 2, y, { align: 'center' });
     y += 6;
   }
 

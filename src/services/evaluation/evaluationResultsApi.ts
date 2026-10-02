@@ -2087,9 +2087,9 @@ export class EvaluationResultsApiService {
       if (params.escola && params.escola !== 'all') queryParams.append('escola', params.escola);
       if (params.serie && params.serie !== 'all') queryParams.append('serie', params.serie);
       if (params.turma && params.turma !== 'all') queryParams.append('turma', params.turma);
-      if (params.report_entity_type) {
-        queryParams.append('report_entity_type', params.report_entity_type);
-      }
+      // O recorte de cartão já está no path /answer-sheets/opcoes-filtros-results.
+      // As telas que listam cartões não enviam report_entity_type; o parâmetro
+      // nesse endpoint esvazia `gabaritos`.
       if (params.city_id) {
         queryParams.append('city_id', params.city_id);
       }
@@ -2116,12 +2116,29 @@ export class EvaluationResultsApiService {
         : {};
       const response = await api.get(url, requestConfig);
       const data = response.data || {};
+      const asRecordList = (value: unknown): Array<Record<string, unknown>> => {
+        if (Array.isArray(value)) {
+          return value.filter((item) => item && typeof item === "object") as Array<Record<string, unknown>>;
+        }
+        if (value && typeof value === "object") {
+          return Object.entries(value as Record<string, unknown>)
+            .map(([key, entry]) => {
+              if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+                const row = entry as Record<string, unknown>;
+                return { id: row.id ?? row.gabarito_id ?? key, ...row };
+              }
+              if (typeof entry === "string") return { id: key, nome: entry };
+              return null;
+            })
+            .filter((item): item is Record<string, unknown> => Boolean(item));
+        }
+        return [];
+      };
+      const instrumentSources = isAnswerSheet
+        ? [data.gabaritos, data.cartoes, data.cartoes_resposta, data.answer_sheets, data.avaliacoes]
+        : [data.avaliacoes];
       const avaliacoesNormalizadas =
-        Array.isArray(data.avaliacoes) && data.avaliacoes.length > 0
-          ? data.avaliacoes
-          : Array.isArray(data.gabaritos)
-            ? data.gabaritos
-            : [];
+        instrumentSources.map(asRecordList).find((list) => list.length > 0) ?? [];
       return {
         ...data,
         avaliacoes: avaliacoesNormalizadas,
@@ -2328,9 +2345,12 @@ export class EvaluationResultsApiService {
   }
 
   private static normalizeFilterEvaluationItem(evaluation: {
-    id: string;
+    id?: string;
+    gabarito_id?: string;
     titulo?: string;
     title?: unknown;
+    nome?: string;
+    name?: string;
     disciplina?: string;
     disciplinas?: string[];
     grade_id?: string;
@@ -2338,7 +2358,9 @@ export class EvaluationResultsApiService {
     grade_nome?: string;
     grade_name?: string;
     gradeNome?: string;
-  }): FilterEvaluationItem {
+  }): FilterEvaluationItem | null {
+    const id = String(evaluation.id ?? evaluation.gabarito_id ?? "").trim();
+    if (!id) return null;
     const disciplinas = (evaluation.disciplinas ?? [])
       .map((d) => String(d).trim())
       .filter(Boolean);
@@ -2347,9 +2369,12 @@ export class EvaluationResultsApiService {
     const grade_nome =
       String(evaluation.grade_nome ?? evaluation.grade_name ?? evaluation.gradeNome ?? "").trim() ||
       undefined;
+    const titulo = String(
+      evaluation.titulo ?? evaluation.title ?? evaluation.nome ?? evaluation.name ?? ""
+    ).trim();
     return {
-      id: evaluation.id,
-      titulo: String(evaluation.titulo ?? evaluation.title ?? "Sem título"),
+      id,
+      titulo: titulo || "Sem título",
       disciplina,
       disciplinas: disciplinas.length > 0 ? disciplinas : disciplina ? [disciplina] : undefined,
       grade_id,
@@ -2360,8 +2385,11 @@ export class EvaluationResultsApiService {
   /** Filtra avaliações/gabaritos retornados por `opcoes-filtros` conforme o tipo de relatório. */
   private static filterEvaluationsFromOptions(
     avaliacoes: Array<{
-      id: string;
+      id?: string;
+      gabarito_id?: string;
       titulo?: string;
+      nome?: string;
+      name?: string;
       disciplina?: string;
       disciplinas?: string[];
       grade_id?: string;
@@ -2375,8 +2403,9 @@ export class EvaluationResultsApiService {
     }>,
     reportEntityType?: ReportEntityTypeQuery
   ): FilterEvaluationItem[] {
+    const keep = (item: FilterEvaluationItem | null): item is FilterEvaluationItem => Boolean(item);
     if (reportEntityType === REPORT_ENTITY_TYPE_ANSWER_SHEET) {
-      return avaliacoes.map((evaluation) => this.normalizeFilterEvaluationItem(evaluation));
+      return avaliacoes.map((evaluation) => this.normalizeFilterEvaluationItem(evaluation)).filter(keep);
     }
 
     return avaliacoes.filter((evaluation) => {
@@ -2400,7 +2429,7 @@ export class EvaluationResultsApiService {
         return type === 'AVALIACAO' || type === 'SIMULADO';
       }
       return true;
-    }).map((evaluation) => this.normalizeFilterEvaluationItem(evaluation));
+    }).map((evaluation) => this.normalizeFilterEvaluationItem(evaluation)).filter(keep);
   }
 
   // ✅ REFATORADO: Buscar avaliações usando rota unificada

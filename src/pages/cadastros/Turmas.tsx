@@ -624,7 +624,7 @@ export default function Turmas({ embedded = false }: TurmasProps) {
       setIsAddingStudent(true);
 
       const studentData = {
-        name: addStudentForm.name,
+        name: addStudentForm.name.toLocaleUpperCase("pt-BR"),
         email: addStudentForm.email || generateEmail(addStudentForm.name),
         password: generatePassword(addStudentForm.name),
         registration: addStudentForm.registration || undefined,

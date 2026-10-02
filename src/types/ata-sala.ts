@@ -1,5 +1,11 @@
 export type AtaModoLista = "turma" | "avaliacao" | "cartao_resposta";
 
+/** Integrante extra de apoio (o primeiro continua nos campos fixos da ata). */
+export type AtaAssinaturaPessoa = {
+  assinatura: string;
+  cpf: string;
+};
+
 export type AtaOptions = {
   applicationDayLabel: string;
   dateDay: string;
@@ -28,8 +34,12 @@ export type AtaOptions = {
   cpfAplicador: string;
   assinaturaApoioRegular: string;
   cpfApoioRegular: string;
+  /** Demais integrantes de apoio da prova regular, além do primeiro. */
+  apoiosRegularExtras: AtaAssinaturaPessoa[];
   assinaturaApoioSuporte: string;
   cpfApoioSuporte: string;
+  /** Demais integrantes de apoio da prova de suporte, além do primeiro. */
+  apoiosSuporteExtras: AtaAssinaturaPessoa[];
 };
 
 export type AtaSalaPdfData = {

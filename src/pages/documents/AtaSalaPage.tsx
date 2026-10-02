@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ClipboardList, Download, Eye, FileText, Filter, List, Loader2, Plus, Printer, Save } from "lucide-react";
+import { ClipboardList, Download, Eye, FileText, Filter, List, Loader2, Plus, Printer, Save, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -26,7 +26,7 @@ import {
   getSavedAta,
   updateSavedAta,
 } from "@/services/documents/ataSalaApi";
-import type { AtaOptions, AtaSalaPdfData, AtaSalaSavePayload } from "@/types/ata-sala";
+import type { AtaAssinaturaPessoa, AtaOptions, AtaSalaPdfData, AtaSalaSavePayload } from "@/types/ata-sala";
 import { FormFiltersApiService } from "@/services/formFiltersApi";
 import {
   getListaFrequenciaPorAvaliacao,
@@ -53,8 +53,42 @@ import { getSerieTurmaDisplay } from "@/services/reports/listaFrequenciaPdf";
 import { downloadBlob, generateZipBlob } from "@/services/reports/hierarchicalDownload";
 
 type Option = { id: string; name: string };
+type SerieOption = Option & { educationStageId?: string; educationStageName?: string };
 type Mode = "turma" | "avaliacao" | "cartao_resposta";
-type EvaluationOption = { id: string; titulo: string; disciplina?: string };
+type EvaluationOption = { id: string; titulo: string; disciplina?: string; disciplinas?: string[] };
+
+/** Cursos canônicos associados às séries no sistema. */
+const ATA_CURSO_OPTIONS: Option[] = [
+  { id: "anos-iniciais", name: "Anos Iniciais" },
+  { id: "anos-finais", name: "Anos Finais" },
+  { id: "ensino-medio", name: "Ensino Médio" },
+];
+
+/** Turnos da ata (mesmo padrão de Etiquetas / criação de turma). */
+const ATA_TURNO_OPTIONS: Option[] = [
+  { id: "MATUTINO", name: "Matutino" },
+  { id: "VESPERTINO", name: "Vespertino" },
+  { id: "NOTURNO", name: "Noturno" },
+];
+
+/** Mapeamento série → curso já usado em relatórios (ex.: consolidado / proficiência). */
+const GRADE_TO_COURSE: Record<string, string> = {
+  "Grupo 3": "Anos Iniciais",
+  "Grupo 4": "Anos Iniciais",
+  "Grupo 5": "Anos Iniciais",
+  "1º Ano": "Anos Iniciais",
+  "2º Ano": "Anos Iniciais",
+  "3º Ano": "Anos Iniciais",
+  "4º Ano": "Anos Iniciais",
+  "5º Ano": "Anos Iniciais",
+  "6º Ano": "Anos Finais",
+  "7º Ano": "Anos Finais",
+  "8º Ano": "Anos Finais",
+  "9º Ano": "Anos Finais",
+  "1º Ano EM": "Ensino Médio",
+  "2º Ano EM": "Ensino Médio",
+  "3º Ano EM": "Ensino Médio",
+};
 
 /** Itens 7–12 do modelo oficial: dois dígitos numéricos (0 a 99) por pergunta. */
 const Q712_MAX_DIGITS = 2;
@@ -169,9 +203,103 @@ const DEFAULT_OPTIONS: AtaOptions = {
   cpfAplicador: "",
   assinaturaApoioRegular: "",
   cpfApoioRegular: "",
+  apoiosRegularExtras: [],
   assinaturaApoioSuporte: "",
   cpfApoioSuporte: "",
+  apoiosSuporteExtras: [],
 };
+
+function normalizeKey(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[°º]/g, "o")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function findOptionName(raw: string, options: Option[]): string {
+  const key = normalizeKey(raw);
+  if (!key) return "";
+  const exact = options.find((item) => normalizeKey(item.name) === key);
+  if (exact) return exact.name;
+  const partial = options.filter((item) => {
+    const name = normalizeKey(item.name);
+    return name.includes(key) || key.includes(name);
+  });
+  return partial.length === 1 ? partial[0].name : "";
+}
+
+function inferCursoFromSerieName(serieName: string): string {
+  const raw = (serieName || "").trim();
+  if (!raw) return "";
+  if (GRADE_TO_COURSE[raw]) return GRADE_TO_COURSE[raw];
+
+  const key = normalizeKey(raw);
+  for (const [grade, course] of Object.entries(GRADE_TO_COURSE)) {
+    const gradeKey = normalizeKey(grade);
+    if (key === gradeKey || key.includes(gradeKey)) return course;
+  }
+
+  if (key.includes("ensino medio") || /(^|\s)em(\s|$)/.test(key)) return "Ensino Médio";
+  if (key.includes("anos finais") || /\b(6|7|8|9)\b/.test(key)) return "Anos Finais";
+  if (key.includes("anos iniciais") || key.includes("grupo") || /\b(1|2|3|4|5)\b/.test(key)) {
+    return "Anos Iniciais";
+  }
+  return "";
+}
+
+function normalizeAtaDisciplina(raw: string): string {
+  const key = normalizeKey(raw);
+  if (!key) return "";
+  if (key.includes("geral") || key === "todas") return "Geral";
+  if (key.includes("matem")) return "Matemática";
+  if (key.includes("portug") || key.includes("lingua") || key === "lp") return "Português";
+  return raw.trim();
+}
+
+function parseDisciplinaList(raw: string): string[] {
+  return String(raw || "")
+    .split(/\s*(?:\/|,|·|;|\||\be\b)\s*/i)
+    .map((part) => normalizeAtaDisciplina(part))
+    .filter(Boolean);
+}
+
+function formatDisciplinaList(names: string[]): string {
+  return names.map((name) => name.trim()).filter(Boolean).join(" / ");
+}
+
+function uniqueDisciplineOptions(items: Array<{ id?: string; name: string }>): Option[] {
+  const seen = new Set<string>();
+  const out: Option[] = [];
+  for (const item of items) {
+    const name = item.name.trim();
+    if (!name) continue;
+    const key = normalizeKey(name);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ id: item.id?.trim() || key, name });
+  }
+  return out;
+}
+
+function normalizeAtaTurno(raw: string): string {
+  const key = normalizeKey(raw);
+  if (!key) return "";
+  if (key.includes("matut") || key.includes("manha") || key === "morning") return "Matutino";
+  if (key.includes("vespert") || key.includes("tarde") || key === "afternoon") return "Vespertino";
+  if (key.includes("noturn") || key.includes("noite") || key === "evening") return "Noturno";
+  return findOptionName(raw, ATA_TURNO_OPTIONS);
+}
+
+function withSignatureLists(options: AtaOptions): AtaOptions {
+  return {
+    ...options,
+    apoiosRegularExtras: Array.isArray(options.apoiosRegularExtras) ? options.apoiosRegularExtras : [],
+    apoiosSuporteExtras: Array.isArray(options.apoiosSuporteExtras) ? options.apoiosSuporteExtras : [],
+  };
+}
 
 function countByStatus(data: ListaFrequenciaResponse | null, status: string): number {
   if (!data) return 0;
@@ -237,7 +365,7 @@ export default function AtaSalaPage() {
   const [estados, setEstados] = useState<Option[]>([]);
   const [municipios, setMunicipios] = useState<Option[]>([]);
   const [schools, setSchools] = useState<Option[]>([]);
-  const [series, setSeries] = useState<Option[]>([]);
+  const [series, setSeries] = useState<SerieOption[]>([]);
   const [turmas, setTurmas] = useState<Option[]>([]);
 
   const [selectedEstado, setSelectedEstado] = useState("all");
@@ -247,7 +375,6 @@ export default function AtaSalaPage() {
   const [selectedTurma, setSelectedTurma] = useState("all");
   const [modoLista, setModoLista] = useState<Mode>("turma");
   const [avaliacoes, setAvaliacoes] = useState<EvaluationOption[]>([]);
-  const [disciplinasEscola, setDisciplinasEscola] = useState<Option[]>([]);
   const [selectedAvaliacaoId, setSelectedAvaliacaoId] = useState("all");
   const [turmasAvaliacao, setTurmasAvaliacao] = useState<Option[]>([]);
 
@@ -267,17 +394,19 @@ export default function AtaSalaPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [nomeAvaliacao, setNomeAvaliacao] = useState("NOME DA AVALIAÇÃO");
-  const [cursoLabel, setCursoLabel] = useState("CURSO (ANOS INICIAIS OU FINAIS)");
+  const [cursoLabel, setCursoLabel] = useState("");
   const [municipioUf, setMunicipioUf] = useState("");
   const [rede, setRede] = useState("MUNICIPAL");
   const [escola, setEscola] = useState("");
   const [serieTurma, setSerieTurma] = useState("");
   const [turno, setTurno] = useState("");
-  const [disciplina, setDisciplina] = useState("");
+  const [selectedDisciplinas, setSelectedDisciplinas] = useState<string[]>([]);
+  const [disciplinasDisponiveis, setDisciplinasDisponiveis] = useState<Option[]>([]);
 
   const [options, setOptions] = useState<AtaOptions>(DEFAULT_OPTIONS);
   const isModoAplicada = modoLista === "avaliacao" || modoLista === "cartao_resposta";
   const labelItemAplicado = modoLista === "cartao_resposta" ? "Cartão resposta" : "Avaliação";
+  const disciplina = formatDisciplinaList(selectedDisciplinas);
 
   useEffect(() => {
     let cancelled = false;
@@ -375,7 +504,12 @@ export default function AtaSalaPage() {
     })
       .then((list) => {
         if (cancelled) return;
-        const mapped = list.map((s) => ({ id: s.id, name: s.nome }));
+        const mapped = list.map((s) => ({
+          id: s.id,
+          name: s.nome,
+          educationStageId: s.education_stage_id || s.educationStageId || "",
+          educationStageName: s.education_stage_name || "",
+        }));
         setSeries(mapped);
         setSelectedSerie((prev) => preserveFilterSelection(prev, mapped));
       })
@@ -386,28 +520,6 @@ export default function AtaSalaPage() {
       cancelled = true;
     };
   }, [selectedSchool, selectedMunicipio, selectedEstado]);
-
-  useEffect(() => {
-    if (!selectedSchool || selectedSchool === "all") {
-      setDisciplinasEscola([]);
-      setDisciplina("");
-      return;
-    }
-    let cancelled = false;
-    setLoading((s) => ({ ...s, disciplinas: true }));
-    FormFiltersApiService.getSchoolSubjects(selectedSchool)
-      .then((list) => {
-        if (cancelled) return;
-        const mapped = list.map((item) => ({ id: item.id, name: item.nome }));
-        setDisciplinasEscola(mapped);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading((s) => ({ ...s, disciplinas: false }));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedSchool]);
 
   useEffect(() => {
     if (
@@ -480,7 +592,18 @@ export default function AtaSalaPage() {
     })
       .then((items) => {
         if (cancelled) return;
-        setAvaliacoes((items ?? []).map((a) => ({ id: a.id, titulo: a.titulo || a.id, disciplina: a.disciplina || "" })));
+        setAvaliacoes(
+          (items ?? []).map((a) => ({
+            id: a.id,
+            titulo: a.titulo || a.id,
+            disciplina: a.disciplina || "",
+            disciplinas: a.disciplinas?.length
+              ? a.disciplinas
+              : a.disciplina
+                ? [a.disciplina]
+                : [],
+          }))
+        );
       })
       .finally(() => {
         if (!cancelled) setLoading((s) => ({ ...s, avaliacoes: false }));
@@ -595,19 +718,123 @@ export default function AtaSalaPage() {
   }, [isModoAplicada, selectedAvaliacaoTitulo]);
 
   useEffect(() => {
+    if (hydratingRef.current) return;
+    if (!selectedSerie || selectedSerie === "all") return;
+    const serie = series.find((item) => item.id === selectedSerie);
+    const fromSerie =
+      inferCursoFromSerieName(serie?.name || selectedSerieLabel) ||
+      findOptionName(serie?.educationStageName || "", ATA_CURSO_OPTIONS);
+    if (fromSerie) setCursoLabel(fromSerie);
+  }, [selectedSerie, selectedSerieLabel, series]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadDisciplinas = async () => {
+      setLoading((s) => ({ ...s, disciplinas: true }));
+      try {
+        let optionsList: Option[] = [];
+
+        if (isModoAplicada && selectedAvaliacaoId && selectedAvaliacaoId !== "all") {
+          const avaliacao = avaliacoes.find((item) => item.id === selectedAvaliacaoId);
+          const fromFilter = (avaliacao?.disciplinas?.length
+            ? avaliacao.disciplinas
+            : avaliacao?.disciplina
+              ? [avaliacao.disciplina]
+              : []
+          )
+            .map((name) => normalizeAtaDisciplina(name))
+            .filter(Boolean);
+
+          if (fromFilter.length > 0) {
+            optionsList = uniqueDisciplineOptions(fromFilter.map((name) => ({ name })));
+          } else if (modoLista === "avaliacao") {
+            const detail = await EvaluationResultsApiService.getTestEvaluationById<{
+              subjects_info?: Array<{ id?: string; name?: string; nome?: string }>;
+              subjects?: Array<{ id?: string; name?: string; nome?: string } | string>;
+              disciplina?: string;
+            }>(selectedAvaliacaoId);
+            if (!cancelled && detail) {
+              const fromInfo = (detail.subjects_info ?? [])
+                .map((item) => normalizeAtaDisciplina(item.name || item.nome || ""))
+                .filter(Boolean);
+              const fromSubjects = (detail.subjects ?? [])
+                .map((item) =>
+                  normalizeAtaDisciplina(typeof item === "string" ? item : item.name || item.nome || "")
+                )
+                .filter(Boolean);
+              const single = normalizeAtaDisciplina(detail.disciplina || "");
+              optionsList = uniqueDisciplineOptions(
+                [...fromInfo, ...fromSubjects, ...(single ? [single] : [])].map((name) => ({ name }))
+              );
+            }
+          }
+        }
+
+        if (optionsList.length === 0 && selectedSchool && selectedSchool !== "all") {
+          const schoolSubjects = await FormFiltersApiService.getSchoolSubjects(selectedSchool);
+          if (!cancelled) {
+            optionsList = uniqueDisciplineOptions(
+              schoolSubjects.map((item) => ({ id: item.id, name: normalizeAtaDisciplina(item.nome) || item.nome }))
+            );
+          }
+        }
+
+        if (optionsList.length === 0) {
+          const allSubjects = await FormFiltersApiService.getSubjects();
+          if (!cancelled) {
+            optionsList = uniqueDisciplineOptions(
+              allSubjects.map((item) => ({ id: item.id, name: normalizeAtaDisciplina(item.nome) || item.nome }))
+            );
+          }
+        }
+
+        if (cancelled) return;
+
+        if (!optionsList.some((item) => normalizeKey(item.name) === "geral")) {
+          optionsList = [{ id: "geral", name: "Geral" }, ...optionsList];
+        }
+
+        setDisciplinasDisponiveis(optionsList);
+        setSelectedDisciplinas((prev) => {
+          const availableKeys = new Set(optionsList.map((item) => normalizeKey(item.name)));
+          const kept = prev.filter((name) => availableKeys.has(normalizeKey(name)));
+          if (kept.length > 0) return kept;
+          if (isModoAplicada && selectedAvaliacaoId !== "all") {
+            const avaliacao = avaliacoes.find((item) => item.id === selectedAvaliacaoId);
+            const fromAvaliacao = (avaliacao?.disciplinas?.length
+              ? avaliacao.disciplinas
+              : avaliacao?.disciplina
+                ? [avaliacao.disciplina]
+                : []
+            )
+              .map((name) => normalizeAtaDisciplina(name))
+              .filter((name) => availableKeys.has(normalizeKey(name)));
+            if (fromAvaliacao.length > 0) return fromAvaliacao;
+          }
+          return prev;
+        });
+      } finally {
+        if (!cancelled) setLoading((s) => ({ ...s, disciplinas: false }));
+      }
+    };
+
+    void loadDisciplinas();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isModoAplicada,
+    modoLista,
+    selectedAvaliacaoId,
+    selectedSchool,
+    avaliacoes,
+  ]);
+
+  useEffect(() => {
     listaRequestRef.current += 1;
     listaLoadedRef.current = false;
     setLoading((current) => ({ ...current, lista: false }));
   }, [modoLista, selectedEstado, selectedMunicipio, selectedSchool, selectedSerie, selectedTurma, selectedAvaliacaoId]);
-
-  useEffect(() => {
-    if (!isModoAplicada || !selectedAvaliacaoId || selectedAvaliacaoId === "all") return;
-    const avaliacao = avaliacoes.find((item) => item.id === selectedAvaliacaoId);
-    const disciplinaDaAvaliacao = (avaliacao?.disciplina || "").trim();
-    if (disciplinaDaAvaliacao) {
-      setDisciplina(disciplinaDaAvaliacao);
-    }
-  }, [isModoAplicada, selectedAvaliacaoId, avaliacoes]);
 
   useEffect(() => {
     if (!editingId) {
@@ -634,14 +861,14 @@ export default function AtaSalaPage() {
         setSelectedTurma(filters.turma_id || "all");
         setSelectedAvaliacaoId(filters.avaliacao_id || "all");
         setNomeAvaliacao(content.nomeAvaliacao || "NOME DA AVALIAÇÃO");
-        setCursoLabel(content.cursoLabel || "CURSO (ANOS INICIAIS OU FINAIS)");
+        setCursoLabel(findOptionName(content.cursoLabel || "", ATA_CURSO_OPTIONS) || content.cursoLabel || "");
         setMunicipioUf(content.municipioUf || "");
         setRede(content.rede || "MUNICIPAL");
         setEscola(content.escola || "");
         setSerieTurma(content.serieTurma || "");
-        setTurno(content.turno || "");
-        setDisciplina(content.disciplina || "");
-        setOptions({ ...DEFAULT_OPTIONS, ...(content.options || {}) });
+        setTurno(normalizeAtaTurno(content.turno || "") || content.turno || "");
+        setSelectedDisciplinas(parseDisciplinaList(content.disciplina || ""));
+        setOptions(withSignatureLists({ ...DEFAULT_OPTIONS, ...(content.options || {}) }));
         setTimeout(() => {
           hydratingRef.current = false;
         }, 0);
@@ -673,31 +900,66 @@ export default function AtaSalaPage() {
     if (header.nome_prova_ano && (!isModoAplicada || selectedAvaliacaoId === "all")) {
       setNomeAvaliacao(header.nome_prova_ano);
     }
-    if (header.lista_presenca_curso?.trim()) {
-      setCursoLabel(header.lista_presenca_curso);
-    }
     setEscola(header.nome_escola || selectedSchoolLabel);
     setSerieTurma([header.serie, header.turma || header.serie_turma].filter(Boolean).join(" "));
-    setTurno(header.turno || "");
-    setDisciplina(header.disciplina || "");
+    const turnoNormalizado = normalizeAtaTurno(header.turno || "");
+    if (turnoNormalizado) setTurno(turnoNormalizado);
+    else if (header.turno) setTurno(header.turno);
+    const disciplinaNormalizada = parseDisciplinaList(header.disciplina || "");
+    if (disciplinaNormalizada.length > 0) setSelectedDisciplinas(disciplinaNormalizada);
     setRede(header.rede || "MUNICIPAL");
     setMunicipioUf(header.municipio_uf || municipioUf);
+  };
+
+  const resolveCursoFromContext = (results: ListaFrequenciaResponse[]): string => {
+    const labels = new Set<string>();
+    const add = (value: string) => {
+      const canonical =
+        findOptionName(value, ATA_CURSO_OPTIONS) || inferCursoFromSerieName(value);
+      if (canonical) labels.add(canonical);
+    };
+
+    if (selectedSerie !== "all") {
+      const serie = series.find((item) => item.id === selectedSerie);
+      add(serie?.name || selectedSerieLabel);
+      add(serie?.educationStageName || "");
+    }
+
+    results.forEach((item) => {
+      add(item.cabecalho.serie || "");
+      add(item.cabecalho.lista_presenca_curso || "");
+    });
+
+    if (labels.size === 1) return [...labels][0];
+    if (selectedSerie !== "all") {
+      const serie = series.find((item) => item.id === selectedSerie);
+      return (
+        inferCursoFromSerieName(serie?.name || selectedSerieLabel) ||
+        findOptionName(serie?.educationStageName || "", ATA_CURSO_OPTIONS)
+      );
+    }
+    return "";
   };
 
   const buildAtaDataForClass = (item: ListaFrequenciaResponse): AtaSalaPdfData => {
     const header = item.cabecalho;
     const serieTurmaDisplay = getSerieTurmaDisplay(header);
+    const cursoDaTurma =
+      inferCursoFromSerieName(header.serie || "") ||
+      findOptionName(header.lista_presenca_curso || "", ATA_CURSO_OPTIONS) ||
+      pdfData.cursoLabel;
 
     return {
       ...pdfData,
       nomeAvaliacao: selectedAvaliacaoTitulo || header.nome_prova_ano || pdfData.nomeAvaliacao,
-      cursoLabel: header.lista_presenca_curso || pdfData.cursoLabel,
+      cursoLabel: cursoDaTurma,
       municipioUf: header.municipio_uf || pdfData.municipioUf,
       rede: header.rede || pdfData.rede,
       escola: header.nome_escola || pdfData.escola,
       serieTurma: `${serieTurmaDisplay.serie} ${serieTurmaDisplay.turma}`.trim(),
-      turno: header.turno || pdfData.turno,
-      disciplina: header.disciplina || pdfData.disciplina,
+      turno: normalizeAtaTurno(header.turno || "") || header.turno || pdfData.turno,
+      disciplina:
+        formatDisciplinaList(parseDisciplinaList(header.disciplina || "")) || pdfData.disciplina,
     };
   };
 
@@ -709,7 +971,7 @@ export default function AtaSalaPage() {
   const loadLista = async (): Promise<ListaFrequenciaResponse[] | null> => {
     const seq = ++listaRequestRef.current;
     const stillCurrent = () => seq === listaRequestRef.current;
-    const commit = (results: ListaFrequenciaResponse[]) => {
+    const commit = async (results: ListaFrequenciaResponse[]) => {
       if (!stillCurrent()) return null;
       if (results.length === 0) {
         listaLoadedRef.current = false;
@@ -718,6 +980,9 @@ export default function AtaSalaPage() {
       }
       listaLoadedRef.current = true;
       applyAtaAutofill(results);
+      const curso = resolveCursoFromContext(results);
+      if (!stillCurrent()) return null;
+      if (curso) setCursoLabel(curso);
       return results;
     };
     try {
@@ -727,7 +992,7 @@ export default function AtaSalaPage() {
       if (modoLista === "turma") {
         if (selectedTurma && selectedTurma !== "all") {
           const data = await getListaFrequenciaPorTurma(selectedTurma, "avaliacao");
-          return commit([data]);
+          return await commit([data]);
         }
 
         let classIds: string[] = [];
@@ -775,7 +1040,7 @@ export default function AtaSalaPage() {
           listaLoadedRef.current = false;
           return null;
         }
-        return commit(results);
+        return await commit(results);
       }
 
       if (!selectedAvaliacaoId || selectedAvaliacaoId === "all") {
@@ -797,26 +1062,26 @@ export default function AtaSalaPage() {
           const res = await getListaFrequenciaPorGabarito(selectedAvaliacaoId, selectedMunicipio, classId, {
             tipo: "prova_fisica",
           });
-          return commit([res]);
+          return await commit([res]);
         }
         const results = await getListaFrequenciaPorGabaritoTodasTurmas(selectedAvaliacaoId, selectedMunicipio, {
           grade_id: selectedSerie !== "all" ? selectedSerie : undefined,
           tipo: "prova_fisica",
         });
-        return commit(results);
+        return await commit(results);
       }
 
       if (classId) {
         const res = await getListaFrequenciaPorAvaliacao(selectedAvaliacaoId, classId, {
           tipo: "avaliacao",
         });
-        return commit([res]);
+        return await commit([res]);
       }
       const results = await getListaFrequenciaPorAvaliacaoTodasTurmas(selectedAvaliacaoId, {
         grade_id: selectedSerie !== "all" ? selectedSerie : undefined,
         tipo: "avaliacao",
       });
-      return commit(results);
+      return await commit(results);
     } catch (_err) {
       if (!stillCurrent()) return null;
       setError("Não foi possível carregar os dados da lista de frequência para autopreenchimento.");
@@ -849,6 +1114,52 @@ export default function AtaSalaPage() {
 
   const setOpt = <K extends keyof AtaOptions>(key: K, value: AtaOptions[K]) => {
     setOptions((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const addApoio = (key: "apoiosRegularExtras" | "apoiosSuporteExtras") => {
+    setOptions((prev) => ({
+      ...prev,
+      [key]: [...prev[key], { assinatura: "", cpf: "" }],
+    }));
+  };
+
+  const updateApoio = (
+    key: "apoiosRegularExtras" | "apoiosSuporteExtras",
+    index: number,
+    field: keyof AtaAssinaturaPessoa,
+    value: string
+  ) => {
+    setOptions((prev) => {
+      const list = prev[key].map((person, personIndex) =>
+        personIndex === index ? { ...person, [field]: value } : person
+      );
+      return { ...prev, [key]: list };
+    });
+  };
+
+  const removeApoio = (key: "apoiosRegularExtras" | "apoiosSuporteExtras", index: number) => {
+    setOptions((prev) => ({
+      ...prev,
+      [key]: prev[key].filter((_, personIndex) => personIndex !== index),
+    }));
+  };
+
+  const cursoSelectValue =
+    ATA_CURSO_OPTIONS.find((course) => normalizeKey(course.name) === normalizeKey(cursoLabel))?.id || "none";
+  const turnoSelectValue =
+    ATA_TURNO_OPTIONS.find((item) => normalizeKey(item.name) === normalizeKey(turno))?.id ||
+    (turno.trim() ? `atual:${turno}` : "none");
+  const turnoOptions =
+    turnoSelectValue.startsWith("atual:")
+      ? [{ id: turnoSelectValue, name: turno }, ...ATA_TURNO_OPTIONS]
+      : ATA_TURNO_OPTIONS;
+
+  const toggleDisciplina = (name: string) => {
+    setSelectedDisciplinas((prev) => {
+      const exists = prev.some((item) => normalizeKey(item) === normalizeKey(name));
+      if (exists) return prev.filter((item) => normalizeKey(item) !== normalizeKey(name));
+      return [...prev, name];
+    });
   };
 
   const setQ712 = (key: Q712Field, raw: string) => {
@@ -893,17 +1204,29 @@ export default function AtaSalaPage() {
       cpfAplicador: options.cpfAplicador.trim() === "" || isValidCpf(options.cpfAplicador),
       cpfApoioRegular: options.cpfApoioRegular.trim() === "" || isValidCpf(options.cpfApoioRegular),
       cpfApoioSuporte: options.cpfApoioSuporte.trim() === "" || isValidCpf(options.cpfApoioSuporte),
+      regularExtras: options.apoiosRegularExtras.map((person) => person.cpf.trim() === "" || isValidCpf(person.cpf)),
+      suporteExtras: options.apoiosSuporteExtras.map((person) => person.cpf.trim() === "" || isValidCpf(person.cpf)),
     }),
-    [options.cpfAplicador, options.cpfApoioRegular, options.cpfApoioSuporte]
+    [options.cpfAplicador, options.cpfApoioRegular, options.cpfApoioSuporte, options.apoiosRegularExtras, options.apoiosSuporteExtras]
   );
 
   const invalidCpfLabels = useMemo(() => {
     const labels: string[] = [];
     if (options.cpfAplicador.trim() && !cpfValidation.cpfAplicador) labels.push("CPF Aplicador(a)");
     if (options.cpfApoioRegular.trim() && !cpfValidation.cpfApoioRegular) labels.push("CPF Apoio Regular");
+    options.apoiosRegularExtras.forEach((person, index) => {
+      if (person.cpf.trim() && !cpfValidation.regularExtras[index]) {
+        labels.push(`CPF Apoio Regular ${index + 2}`);
+      }
+    });
     if (options.cpfApoioSuporte.trim() && !cpfValidation.cpfApoioSuporte) labels.push("CPF Apoio Suporte");
+    options.apoiosSuporteExtras.forEach((person, index) => {
+      if (person.cpf.trim() && !cpfValidation.suporteExtras[index]) {
+        labels.push(`CPF Apoio Suporte ${index + 2}`);
+      }
+    });
     return labels;
-  }, [options.cpfAplicador, options.cpfApoioRegular, options.cpfApoioSuporte, cpfValidation]);
+  }, [options, cpfValidation]);
 
   const warnInvalidCpf = () => {
     if (invalidCpfLabels.length === 0) return;
@@ -1300,13 +1623,28 @@ export default function AtaSalaPage() {
               </div>
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="ata-curso-label">Curso</Label>
-                <Input
-                  id="ata-curso-label"
-                  value={cursoLabel}
-                  onChange={(e) => setCursoLabel(e.target.value)}
-                  placeholder="Ex.: ANOS INICIAIS OU FINAIS"
-                  className="bg-background"
-                />
+                <Select
+                  value={cursoSelectValue}
+                  onValueChange={(value) =>
+                    setCursoLabel(
+                      value === "none"
+                        ? ""
+                        : ATA_CURSO_OPTIONS.find((course) => course.id === value)?.name || ""
+                    )
+                  }
+                >
+                  <SelectTrigger id="ata-curso-label" className="bg-background">
+                    <SelectValue placeholder="Preenchido pela série selecionada" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Selecione</SelectItem>
+                    {ATA_CURSO_OPTIONS.map((course) => (
+                      <SelectItem key={course.id} value={course.id}>
+                        {course.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>Município/UF</Label>
@@ -1326,33 +1664,72 @@ export default function AtaSalaPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ata-turno">Turno</Label>
-                <Input
-                  id="ata-turno"
-                  value={turno}
-                  onChange={(e) => setTurno(e.target.value)}
-                  placeholder="Ex.: Matutino, Vespertino…"
-                  className="bg-background"
-                />
+                <Select
+                  value={turnoSelectValue}
+                  onValueChange={(value) => {
+                    if (value === "none") {
+                      setTurno("");
+                      return;
+                    }
+                    if (value.startsWith("atual:")) {
+                      setTurno(value.slice("atual:".length));
+                      return;
+                    }
+                    setTurno(ATA_TURNO_OPTIONS.find((item) => item.id === value)?.name || "");
+                  }}
+                >
+                  <SelectTrigger id="ata-turno" className="bg-background">
+                    <SelectValue placeholder="Selecione o turno" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Selecione</SelectItem>
+                    {turnoOptions.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="ata-disciplina">Disciplina</Label>
-                <Input
-                  id="ata-disciplina"
-                  value={disciplina}
-                  onChange={(e) => setDisciplina(e.target.value)}
-                  list="ata-disciplina-sugestoes"
-                  placeholder={
-                    selectedSchool === "all"
-                      ? "Digite a disciplina (escopo municipal)"
-                      : "Digite a disciplina (ex.: Língua Portuguesa, Matemática…)"
-                  }
-                  className="bg-background"
-                />
-                <datalist id="ata-disciplina-sugestoes">
-                  {disciplinasEscola.map((item) => (
-                    <option key={item.id} value={item.name} />
-                  ))}
-                </datalist>
+              <div className="space-y-2 md:col-span-2">
+                <Label>Disciplina</Label>
+                {loading.disciplinas ? (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Carregando disciplinas dos filtros…
+                  </p>
+                ) : disciplinasDisponiveis.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Nenhuma disciplina disponível para os filtros selecionados.
+                  </p>
+                ) : (
+                  <div className="grid max-h-44 grid-cols-1 gap-2 overflow-y-auto rounded-md border bg-background p-3 sm:grid-cols-2">
+                    {disciplinasDisponiveis.map((item) => {
+                      const checked = selectedDisciplinas.some(
+                        (name) => normalizeKey(name) === normalizeKey(item.name)
+                      );
+                      return (
+                        <div key={item.id} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`ata-disciplina-${item.id}`}
+                            checked={checked}
+                            onCheckedChange={() => toggleDisciplina(item.name)}
+                          />
+                          <Label htmlFor={`ata-disciplina-${item.id}`} className="cursor-pointer font-normal">
+                            {item.name}
+                          </Label>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {selectedDisciplinas.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Selecionadas: {formatDisciplinaList(selectedDisciplinas)}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Selecione uma ou mais disciplinas.</p>
+                )}
               </div>
             </div>
           </div>
@@ -1515,39 +1892,111 @@ export default function AtaSalaPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Assinatura Aplicador(a)</Label>
-              <Input value={options.assinaturaAplicador} onChange={(e) => setOpt("assinaturaAplicador", e.target.value)} />
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Assinatura Aplicador(a)</Label>
+                <Input value={options.assinaturaAplicador} onChange={(e) => setOpt("assinaturaAplicador", e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>CPF Aplicador(a)</Label>
+                <Input value={options.cpfAplicador} onChange={(e) => setOpt("cpfAplicador", e.target.value)} />
+                {!cpfValidation.cpfAplicador && options.cpfAplicador.trim() ? (
+                  <p className="text-xs text-amber-600">CPF inválido</p>
+                ) : null}
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>CPF Aplicador(a)</Label>
-              <Input value={options.cpfAplicador} onChange={(e) => setOpt("cpfAplicador", e.target.value)} />
-              {!cpfValidation.cpfAplicador && options.cpfAplicador.trim() ? (
-                <p className="text-xs text-amber-600">CPF inválido</p>
-              ) : null}
+
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+              <p className="text-sm font-medium">Apoio Prova Regular</p>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Assinatura</Label>
+                  <Input value={options.assinaturaApoioRegular} onChange={(e) => setOpt("assinaturaApoioRegular", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>CPF</Label>
+                  <Input value={options.cpfApoioRegular} onChange={(e) => setOpt("cpfApoioRegular", e.target.value)} />
+                  {!cpfValidation.cpfApoioRegular && options.cpfApoioRegular.trim() ? (
+                    <p className="text-xs text-amber-600">CPF inválido</p>
+                  ) : null}
+                </div>
+              </div>
+              {options.apoiosRegularExtras.map((person, index) => (
+                <div key={`regular-${index}`} className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                  <div className="space-y-1.5">
+                    <Label>Assinatura {index + 2}</Label>
+                    <Input
+                      value={person.assinatura}
+                      onChange={(e) => updateApoio("apoiosRegularExtras", index, "assinatura", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>CPF {index + 2}</Label>
+                    <Input
+                      value={person.cpf}
+                      onChange={(e) => updateApoio("apoiosRegularExtras", index, "cpf", e.target.value)}
+                    />
+                    {person.cpf.trim() && !cpfValidation.regularExtras[index] ? (
+                      <p className="text-xs text-amber-600">CPF inválido</p>
+                    ) : null}
+                  </div>
+                  <Button type="button" variant="outline" onClick={() => removeApoio("apoiosRegularExtras", index)}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Remover
+                  </Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={() => addApoio("apoiosRegularExtras")}>
+                <Plus className="mr-2 h-4 w-4" />
+                Adicionar integrante
+              </Button>
             </div>
-            <div className="space-y-1.5">
-              <Label>Assinatura Apoio Prova Regular</Label>
-              <Input value={options.assinaturaApoioRegular} onChange={(e) => setOpt("assinaturaApoioRegular", e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>CPF Apoio Regular</Label>
-              <Input value={options.cpfApoioRegular} onChange={(e) => setOpt("cpfApoioRegular", e.target.value)} />
-              {!cpfValidation.cpfApoioRegular && options.cpfApoioRegular.trim() ? (
-                <p className="text-xs text-amber-600">CPF inválido</p>
-              ) : null}
-            </div>
-            <div className="space-y-1.5">
-              <Label>Assinatura Apoio Prova Suporte</Label>
-              <Input value={options.assinaturaApoioSuporte} onChange={(e) => setOpt("assinaturaApoioSuporte", e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>CPF Apoio Suporte</Label>
-              <Input value={options.cpfApoioSuporte} onChange={(e) => setOpt("cpfApoioSuporte", e.target.value)} />
-              {!cpfValidation.cpfApoioSuporte && options.cpfApoioSuporte.trim() ? (
-                <p className="text-xs text-amber-600">CPF inválido</p>
-              ) : null}
+
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+              <p className="text-sm font-medium">Apoio Prova Suporte</p>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Assinatura</Label>
+                  <Input value={options.assinaturaApoioSuporte} onChange={(e) => setOpt("assinaturaApoioSuporte", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>CPF</Label>
+                  <Input value={options.cpfApoioSuporte} onChange={(e) => setOpt("cpfApoioSuporte", e.target.value)} />
+                  {!cpfValidation.cpfApoioSuporte && options.cpfApoioSuporte.trim() ? (
+                    <p className="text-xs text-amber-600">CPF inválido</p>
+                  ) : null}
+                </div>
+              </div>
+              {options.apoiosSuporteExtras.map((person, index) => (
+                <div key={`suporte-${index}`} className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                  <div className="space-y-1.5">
+                    <Label>Assinatura {index + 2}</Label>
+                    <Input
+                      value={person.assinatura}
+                      onChange={(e) => updateApoio("apoiosSuporteExtras", index, "assinatura", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>CPF {index + 2}</Label>
+                    <Input
+                      value={person.cpf}
+                      onChange={(e) => updateApoio("apoiosSuporteExtras", index, "cpf", e.target.value)}
+                    />
+                    {person.cpf.trim() && !cpfValidation.suporteExtras[index] ? (
+                      <p className="text-xs text-amber-600">CPF inválido</p>
+                    ) : null}
+                  </div>
+                  <Button type="button" variant="outline" onClick={() => removeApoio("apoiosSuporteExtras", index)}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Remover
+                  </Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={() => addApoio("apoiosSuporteExtras")}>
+                <Plus className="mr-2 h-4 w-4" />
+                Adicionar integrante
+              </Button>
             </div>
           </div>
 

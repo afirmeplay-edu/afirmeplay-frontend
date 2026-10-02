@@ -39,6 +39,12 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/context/authContext';
 import { AREA_TYPE_FILTER_OPTIONS, canFilterByAreaType } from '@/lib/schoolAreaType';
 import {
+  RESULTADOS_ALUNOS_FILTRO_PADRAO,
+  RESULTADOS_ALUNOS_OPCOES,
+  isResultadosAlunosFiltro,
+  labelResultadosAlunosFiltro,
+} from '@/constants/resultadosAlunosFiltro';
+import {
   EvaluationResultsApiService,
   REPORT_ENTITY_TYPE_ANSWER_SHEET,
 } from '@/services/evaluation/evaluationResultsApi';
@@ -435,6 +441,7 @@ type AnswerSheetStoredFilters = {
   escola: string;
   serie: string;
   turma: string;
+  alunos: string;
 };
 
 type AnswerSheetResultsProps = { hidePageHeading?: boolean };
@@ -461,6 +468,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   const [tipoArea, setTipoArea] = useState<string>('all');
   const [serie, setSerie] = useState<string>('all');
   const [turma, setTurma] = useState<string>('all');
+  const [alunos, setAlunos] = useState<string>(RESULTADOS_ALUNOS_FILTRO_PADRAO);
 
   // Opções dos filtros (carregadas em cascata)
   const [opcoes, setOpcoes] = useState<OpcoesFiltrosResponse>({});
@@ -552,6 +560,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
           escola: f.escola || 'all',
           serie: f.serie || 'all',
           turma: f.turma || 'all',
+          alunos: isResultadosAlunosFiltro(f.alunos) ? f.alunos : RESULTADOS_ALUNOS_FILTRO_PADRAO,
         };
       }
       sessionStorage.removeItem(FILTERS_STORAGE_KEY);
@@ -577,13 +586,14 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
         escola,
         serie,
         turma,
+        alunos,
         timestamp: Date.now(),
       };
       sessionStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(payload));
     } catch (e) {
       console.error('Erro ao salvar filtros (cartão resposta):', e);
     }
-  }, [estado, municipio, selectedPeriod, gabarito, escola, serie, turma]);
+  }, [estado, municipio, selectedPeriod, gabarito, escola, serie, turma, alunos]);
 
   useEffect(() => {
     const saved = loadFiltersFromStorage();
@@ -596,6 +606,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
       setEscola(saved.escola);
       setSerie(saved.serie);
       setTurma(saved.turma);
+      setAlunos(saved.alunos);
     }
   }, [loadFiltersFromStorage]);
 
@@ -605,7 +616,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
       return;
     }
     saveFiltersToStorage();
-  }, [estado, municipio, selectedPeriod, gabarito, escola, serie, turma, saveFiltersToStorage]);
+  }, [estado, municipio, selectedPeriod, gabarito, escola, serie, turma, alunos, saveFiltersToStorage]);
 
   const normalizedSelectedPeriod = useMemo(
     () => (selectedPeriod === 'all' ? 'all' : normalizeResultsPeriodYm(selectedPeriod)),
@@ -776,6 +787,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     if (escola && escola !== 'all') params.set('escola', escola);
     if (serie && serie !== 'all') params.set('serie', serie);
     if (turma && turma !== 'all') params.set('turma', turma);
+    if (alunos) params.set('alunos', alunos);
     const skillsParams = {
       report_entity_type: REPORT_ENTITY_TYPE_ANSWER_SHEET,
       cityId: municipio,
@@ -805,7 +817,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     } finally {
       setIsLoadingData(false);
     }
-  }, [estado, municipio, gabarito, periodoApi, tipoArea, escola, serie, turma, toast, adminCityIdQuery]);
+  }, [estado, municipio, gabarito, periodoApi, tipoArea, escola, serie, turma, alunos, toast, adminCityIdQuery]);
 
   useEffect(() => {
     loadResultadosAgregados();
@@ -956,10 +968,11 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
           serie: serie && serie !== 'all' ? serie : undefined,
           turma: turma && turma !== 'all' ? turma : undefined,
           periodo: periodoApi,
+          alunos,
         })
       );
     },
-    [navigate, hasMinimumFilters, estado, municipio, gabarito, escola, serie, turma, periodoApi]
+    [navigate, hasMinimumFilters, estado, municipio, gabarito, escola, serie, turma, periodoApi, alunos]
   );
 
   // Métricas gerais: sempre de `estatisticas_gerais` do payload (sem recalcular no frontend)
@@ -1229,8 +1242,9 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
         serie === 'all' ? 'Todas' : norm(series.find((s) => s.id === serie) ?? { id: serie }),
       turma:
         turma === 'all' ? 'Todas' : norm(turmas.find((t) => t.id === turma) ?? { id: turma }),
+      alunos: labelResultadosAlunosFiltro(alunos),
     }),
-    [estado, municipio, escola, serie, turma, estados, municipios, escolas, series, turmas]
+    [estado, municipio, escola, serie, turma, alunos, estados, municipios, escolas, series, turmas]
   );
 
   const handleExportRankingPdf = useCallback(async () => {
@@ -1642,6 +1656,21 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Alunos</label>
+              <Select value={alunos} onValueChange={setAlunos} disabled={isLoadingFilters}>
+                <SelectTrigger className="w-full min-w-0">
+                  <SelectValue placeholder="Selecione os alunos" />
+                </SelectTrigger>
+                <SelectContent>
+                  {RESULTADOS_ALUNOS_OPCOES.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <InstrumentPickerField
               className="sm:col-span-2 lg:col-span-7"
               label="Cartão resposta"
@@ -1669,7 +1698,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
             />
             <div className="mt-4 p-3 rounded-lg bg-muted/50 border border-border col-span-full">
               <p className="text-sm text-muted-foreground">
-                <strong>Ordem dos filtros:</strong> Estado → Município → Período (opcional) → Cartão resposta → Escola → Série → Turma
+                <strong>Ordem dos filtros:</strong> Estado → Município → Período (opcional) → Cartão resposta → Escola → Série → Turma → Alunos
               </p>
             </div>
           </div>
@@ -2261,6 +2290,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                       await generatePendingStudentsPdf({
                         title: 'Faltosos / Pendentes — Cartão Resposta',
                         subtitle: tituloGabarito ? String(tituloGabarito) : undefined,
+                        alunosLabel: labelResultadosAlunosFiltro(alunos),
                         cityId: municipio !== 'all' ? municipio : null,
                         students: filteredAbsentStudents.map((a) => ({
                           nome: a.nome,

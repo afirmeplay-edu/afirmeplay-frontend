@@ -98,7 +98,7 @@ export function AddStudentForm({ schoolId, schoolName, onSuccess }: AddStudentFo
     try {
       // Single call to create user (if not exists) and student
       const response = await api.post("/students", {
-        name,
+        name: name.toLocaleUpperCase("pt-BR"),
         email: checkedEmail,
         password: generatePasswordFromName(name),
         registration: registration || undefined,

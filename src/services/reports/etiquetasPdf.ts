@@ -6,7 +6,7 @@ import type {
   EtiquetaTextoLivreAlinhamento,
   EtiquetasDadosResponse,
 } from "@/types/etiquetas";
-import { parseBoldMarkers, truncateText } from "@/utils/richTextMarkers";
+import { parseRichMarkers, truncateText } from "@/utils/richTextMarkers";
 import { etiquetasSerieTurmaLine, etiquetasTurnoLabel } from "@/utils/etiquetasDisplay";
 
 const PAGE_MARGIN = 10;
@@ -32,6 +32,8 @@ type TextPart = {
 type RichToken = {
   text: string;
   bold: boolean;
+  italic: boolean;
+  underline: boolean;
 };
 
 type RichLine = RichToken[];
@@ -67,8 +69,15 @@ function lineHeightFor(fontSize: number): number {
   return fontSize * 0.42 + 1.2;
 }
 
+function fontStyleFor(token: Pick<RichToken, "bold" | "italic">): "normal" | "bold" | "italic" | "bolditalic" {
+  if (token.bold && token.italic) return "bolditalic";
+  if (token.bold) return "bold";
+  if (token.italic) return "italic";
+  return "normal";
+}
+
 function measureTokenWidth(doc: jsPDF, token: RichToken, fontSize: number): number {
-  doc.setFont("helvetica", token.bold ? "bold" : "normal");
+  doc.setFont("helvetica", fontStyleFor(token));
   doc.setFontSize(fontSize);
   return doc.getTextWidth(token.text);
 }
@@ -80,24 +89,38 @@ function splitOversizedToken(doc: jsPDF, token: RichToken, maxWidth: number, fon
   let chunk = "";
   for (const char of token.text) {
     const candidate = chunk + char;
-    if (chunk && measureTokenWidth(doc, { text: candidate, bold: token.bold }, fontSize) > maxWidth) {
-      parts.push({ text: chunk, bold: token.bold });
+    if (
+      chunk &&
+      measureTokenWidth(
+        doc,
+        { text: candidate, bold: token.bold, italic: token.italic, underline: token.underline },
+        fontSize
+      ) > maxWidth
+    ) {
+      parts.push({ text: chunk, bold: token.bold, italic: token.italic, underline: token.underline });
       chunk = char;
     } else {
       chunk = candidate;
     }
   }
-  if (chunk) parts.push({ text: chunk, bold: token.bold });
+  if (chunk) parts.push({ text: chunk, bold: token.bold, italic: token.italic, underline: token.underline });
   return parts.length ? parts : [token];
 }
 
 function segmentsToTokens(text: string): RichToken[] {
-  const segments = parseBoldMarkers(text);
+  const segments = parseRichMarkers(text);
   const tokens: RichToken[] = [];
 
   segments.forEach((segment) => {
     const chunks = segment.text.split(/(\s+)/).filter(Boolean);
-    chunks.forEach((chunk) => tokens.push({ text: chunk, bold: segment.bold }));
+    chunks.forEach((chunk) =>
+      tokens.push({
+        text: chunk,
+        bold: Boolean(segment.bold),
+        italic: Boolean(segment.italic),
+        underline: Boolean(segment.underline),
+      })
+    );
   });
 
   return tokens;
@@ -168,10 +191,17 @@ function drawRichLine(
 
   doc.setTextColor(...color);
   line.forEach((token) => {
-    doc.setFont("helvetica", token.bold ? "bold" : "normal");
+    doc.setFont("helvetica", fontStyleFor(token));
     doc.setFontSize(fontSize);
     doc.text(token.text, x, y);
-    x += doc.getTextWidth(token.text);
+    const tokenWidth = doc.getTextWidth(token.text);
+    if (token.underline && token.text.trim()) {
+      doc.setDrawColor(...color);
+      doc.setLineWidth(0.18);
+      doc.line(x, y + 0.45, x + tokenWidth, y + 0.45);
+      doc.setDrawColor(0, 0, 0);
+    }
+    x += tokenWidth;
   });
   doc.setTextColor(0, 0, 0);
 }
@@ -190,16 +220,26 @@ function drawAlignedRichText(
   const content = preserveParagraphs(text).trim();
   if (!content || areaH <= 1) return;
 
-  const lineHeight = lineHeightFor(fontSize);
-  const lines = buildRichLines(doc, content, areaW, fontSize);
+  let size = Math.min(20, Math.max(8, fontSize || 10));
+  let lineHeight = lineHeightFor(size);
+  let lines = buildRichLines(doc, content, areaW, size);
+
+  while (size > 8 && lines.length * lineHeight > areaH) {
+    size -= 0.5;
+    lineHeight = lineHeightFor(size);
+    lines = buildRichLines(doc, content, areaW, size);
+  }
+
   if (!lines.length) return;
 
-  const totalHeight = lines.length * lineHeight;
-  let cursorY = areaY + Math.max(0, (areaH - totalHeight) / 2) + fontSize * 0.35;
+  const maxLines = Math.max(1, Math.floor(areaH / lineHeight));
+  const visibleLines = lines.slice(0, maxLines);
+  const totalHeight = visibleLines.length * lineHeight;
+  let cursorY = areaY + Math.max(0, (areaH - totalHeight) / 2) + size * 0.32;
 
-  lines.forEach((line) => {
-    if (cursorY > areaY + areaH + fontSize * 0.2) return;
-    drawRichLine(doc, line, areaX, areaW, cursorY, fontSize, align, color);
+  visibleLines.forEach((line) => {
+    if (cursorY > areaY + areaH + size * 0.2) return;
+    drawRichLine(doc, line, areaX, areaW, cursorY, size, align, color);
     cursorY += lineHeight;
   });
 }
@@ -452,7 +492,7 @@ function drawEtiqueta(
   const freeAreaBottom = footerTop - 0.5;
   const freeAreaHeight = freeAreaBottom - freeAreaTop;
 
-  const freeFontSize = item.textoLivreTamanho || 16;
+  const freeFontSize = item.textoLivreTamanho || 10;
   const freeColor = item.exibirAssinatura
     ? ([0, 0, 0] as Rgb)
     : hexToRgb(item.textoLivreCor || "#000000");

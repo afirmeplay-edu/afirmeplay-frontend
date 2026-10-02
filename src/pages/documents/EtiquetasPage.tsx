@@ -5,7 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -35,24 +34,25 @@ import {
   etiquetasTurnoLabel,
   TEXTO_ACIMA_ASSINATURA_MAX,
 } from "@/utils/etiquetasDisplay";
-import { EtiquetaAlignToolbar } from "@/components/documents/EtiquetaAlignToolbar";
+import { EtiquetaTextToolbar } from "@/components/documents/EtiquetaTextToolbar";
 import { EtiquetaPreviewDialog } from "@/components/documents/EtiquetaPreviewDialog";
 import { downloadBlob, generateZipBlob } from "@/services/reports/hierarchicalDownload";
+import { inferCursoFromSerieName, matchCourseOptionId } from "@/utils/gradeToCourse";
 
 type Option = { id: string; name: string };
+type SerieOption = Option & { educationStageId?: string };
 type NivelOption = { id: string; name: string };
 
 const TURNO_OPTIONS: Option[] = [
   { id: "MATUTINO", name: "Matutino" },
   { id: "VESPERTINO", name: "Vespertino" },
   { id: "NOTURNO", name: "Noturno" },
-  { id: "INTEGRAL", name: "Integral" },
 ];
 
 const MODO_OPTIONS: { value: EtiquetasModo; label: string }[] = [
-  { value: "manual", label: "Manual" },
+  { value: "manual", label: "Personalizável" },
   { value: "avaliacao", label: "Avaliação" },
-  { value: "cartao_resposta", label: "Cartão-resposta" },
+  { value: "cartao_resposta", label: "Cartão resposta" },
 ];
 
 function onlyDigits(value: string): string {
@@ -71,8 +71,6 @@ function getAppliedTitle(optionId: string, options: Option[]): string {
   return options.find((item) => item.id === optionId)?.name?.trim() || "";
 }
 
-const TEXTO_LIVRE_TAMANHO_OPTIONS = [16, 18, 20, 24, 28, 32] as const;
-
 function createEtiquetaItem(index: number, defaultTitle: string): EtiquetaEditItem {
   return {
     id: `${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
@@ -82,7 +80,7 @@ function createEtiquetaItem(index: number, defaultTitle: string): EtiquetaEditIt
     nomeAplicador: "",
     cpfAplicador: "",
     textoLivreCor: "#000000",
-    textoLivreTamanho: 16,
+    textoLivreTamanho: 10,
     textoLivreAlinhamento: "center",
     textoAcimaAssinatura: "",
   };
@@ -96,7 +94,7 @@ export default function EtiquetasPage() {
   const [municipios, setMunicipios] = useState<Option[]>([]);
   const [schools, setSchools] = useState<Option[]>([]);
   const [niveis, setNiveis] = useState<NivelOption[]>([]);
-  const [series, setSeries] = useState<Option[]>([]);
+  const [series, setSeries] = useState<SerieOption[]>([]);
   const [turmas, setTurmas] = useState<Option[]>([]);
   const [aplicados, setAplicados] = useState<Option[]>([]);
 
@@ -109,7 +107,7 @@ export default function EtiquetasPage() {
   const [selectedTurno, setSelectedTurno] = useState("all");
   const [selectedAplicadoId, setSelectedAplicadoId] = useState("all");
 
-  const [manualTitle, setManualTitle] = useState("");
+  const [tituloEtiqueta, setTituloEtiqueta] = useState("");
   const [quantityInput, setQuantityInput] = useState("8");
   const [labels, setLabels] = useState<EtiquetaEditItem[]>([]);
 
@@ -133,11 +131,22 @@ export default function EtiquetasPage() {
   const turmaEspecifica = selectedTurma !== "all";
   const parsedQuantity = Number.parseInt(quantityInput, 10);
 
-  const globalTitle = useMemo(() => {
-    if (isManualMode) return manualTitle.trim();
-    if (selectedAplicadoId === "all") return "";
-    return getAppliedTitle(selectedAplicadoId, aplicados);
-  }, [aplicados, isManualMode, manualTitle, selectedAplicadoId]);
+  const globalTitle = useMemo(() => tituloEtiqueta.trim(), [tituloEtiqueta]);
+
+  useEffect(() => {
+    if (!isAppliedMode || selectedAplicadoId === "all") return;
+    const nextTitle = getAppliedTitle(selectedAplicadoId, aplicados);
+    if (nextTitle) setTituloEtiqueta(nextTitle);
+  }, [aplicados, isAppliedMode, selectedAplicadoId]);
+
+  useEffect(() => {
+    if (!selectedSerie || selectedSerie === "all") return;
+    const serieName = series.find((item) => item.id === selectedSerie)?.name || "";
+    const cursoName = inferCursoFromSerieName(serieName);
+    if (!cursoName) return;
+    const nivelId = matchCourseOptionId(cursoName, niveis);
+    if (nivelId) setSelectedNivel(nivelId);
+  }, [selectedSerie, series, niveis]);
 
   useEffect(() => {
     let cancelled = false;
@@ -269,11 +278,7 @@ export default function EtiquetasPage() {
           name: s.nome,
           educationStageId: s.education_stage_id || s.educationStageId || "",
         }));
-        const filtered =
-          selectedNivel === "all"
-            ? normalized
-            : normalized.filter((item) => item.educationStageId === selectedNivel);
-        setSeries(filtered.map((item) => ({ id: item.id, name: item.name })));
+        setSeries(normalized);
         setSelectedSerie("all");
       })
       .finally(() => {
@@ -283,7 +288,7 @@ export default function EtiquetasPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedSchool, selectedMunicipio, selectedEstado, selectedNivel]);
+  }, [selectedSchool, selectedMunicipio, selectedEstado]);
 
   useEffect(() => {
     if (
@@ -338,7 +343,12 @@ export default function EtiquetasPage() {
     })
       .then((items) => {
         if (!cancelled) {
-          setAplicados((items || []).map((item) => ({ id: item.id, name: item.titulo || item.id })));
+          setAplicados(
+            (items || []).map((item) => ({
+              id: item.id,
+              name: item.titulo || item.id,
+            }))
+          );
           setSelectedAplicadoId("all");
         }
       })
@@ -366,7 +376,7 @@ export default function EtiquetasPage() {
     selectedTurma,
     selectedTurno,
     selectedAplicadoId,
-    manualTitle,
+    tituloEtiqueta,
     quantityInput,
   ]);
 
@@ -379,15 +389,16 @@ export default function EtiquetasPage() {
     if (turmaEspecifica && (!selectedTurno || selectedTurno === "all")) return "Selecione o turno.";
     if (!Number.isFinite(parsedQuantity) || parsedQuantity < 1) return "Informe uma quantidade válida.";
     if (parsedQuantity > 200) return "Limite máximo de 200 etiquetas por geração.";
-    if (isManualMode && !manualTitle.trim()) return "Informe o título das etiquetas.";
+    if (isManualMode && !tituloEtiqueta.trim()) return "Informe o título das etiquetas.";
     if (isAppliedMode && selectedAplicadoId === "all") {
       return modo === "cartao_resposta" ? "Selecione o cartão-resposta." : "Selecione a avaliação.";
     }
+    if (isAppliedMode && !tituloEtiqueta.trim()) return "Informe o título das etiquetas.";
     return null;
   }, [
     isAppliedMode,
     isManualMode,
-    manualTitle,
+    tituloEtiqueta,
     modo,
     parsedQuantity,
     selectedAplicadoId,
@@ -588,7 +599,7 @@ export default function EtiquetasPage() {
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2 sm:col-span-2">
-            <Label>Modo de título</Label>
+            <Label>Modo</Label>
             <Select value={modo} onValueChange={(value) => setModo(value as EtiquetasModo)}>
               <SelectTrigger>
                 <SelectValue />
@@ -644,7 +655,7 @@ export default function EtiquetasPage() {
           {isAppliedMode ? (
             <div className="sm:col-span-2">
               <EvaluationInstrumentPicker
-                label={modo === "cartao_resposta" ? "Cartão-resposta" : "Avaliação"}
+                label={modo === "cartao_resposta" ? "Cartão resposta" : "Avaliação"}
                 estado={selectedEstado}
                 municipio={selectedMunicipio}
                 escola={selectedSchool !== "all" ? selectedSchool : undefined}
@@ -652,7 +663,13 @@ export default function EtiquetasPage() {
                   modo === "cartao_resposta" ? REPORT_ENTITY_TYPE_ANSWER_SHEET : undefined
                 }
                 value={selectedAplicadoId}
-                onChange={setSelectedAplicadoId}
+                onChange={(value) => {
+                  setSelectedAplicadoId(value);
+                  if (value !== "all") {
+                    const title = getAppliedTitle(value, aplicados);
+                    if (title) setTituloEtiqueta(title);
+                  }
+                }}
                 disabled={selectedMunicipio === "all"}
                 loading={loadingAplicados}
                 allowAll
@@ -660,16 +677,21 @@ export default function EtiquetasPage() {
                 placeholder={loadingAplicados ? "Carregando..." : "Selecione"}
               />
             </div>
-          ) : (
-            <div className="space-y-2 sm:col-span-2">
-              <Label>Título manual</Label>
-              <Input
-                value={manualTitle}
-                placeholder="Ex.: 3ª EDIÇÃO AVALIE 2025"
-                onChange={(event) => setManualTitle(event.target.value)}
-              />
-            </div>
-          )}
+          ) : null}
+
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="etiqueta-titulo">Título</Label>
+            <Input
+              id="etiqueta-titulo"
+              value={tituloEtiqueta}
+              placeholder={
+                isAppliedMode
+                  ? "Preenchido automaticamente pela avaliação/cartão (editável)"
+                  : "Ex.: 3ª EDIÇÃO AVALIE 2025"
+              }
+              onChange={(event) => setTituloEtiqueta(event.target.value)}
+            />
+          </div>
 
           <div className="space-y-2 sm:col-span-2">
             <Label>Escola</Label>
@@ -689,14 +711,14 @@ export default function EtiquetasPage() {
           </div>
 
           <div className="space-y-2">
-            <Label>Curso</Label>
-            <Select value={selectedNivel} onValueChange={setSelectedNivel} disabled={selectedSchool === "all" || loadingNiveis}>
+            <Label>Série</Label>
+            <Select value={selectedSerie} onValueChange={setSelectedSerie} disabled={selectedSchool === "all" || loadingSeries}>
               <SelectTrigger>
-                <SelectValue placeholder={loadingNiveis ? "Carregando..." : "Curso"} />
+                <SelectValue placeholder={loadingSeries ? "Carregando..." : "Série"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Selecione</SelectItem>
-                {niveis.map((item) => (
+                {series.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
                     {item.name}
                   </SelectItem>
@@ -706,14 +728,18 @@ export default function EtiquetasPage() {
           </div>
 
           <div className="space-y-2">
-            <Label>Série</Label>
-            <Select value={selectedSerie} onValueChange={setSelectedSerie} disabled={selectedNivel === "all" || loadingSeries}>
+            <Label>Curso</Label>
+            <Select
+              value={selectedNivel}
+              onValueChange={setSelectedNivel}
+              disabled={selectedSchool === "all" || loadingNiveis}
+            >
               <SelectTrigger>
-                <SelectValue placeholder={loadingSeries ? "Carregando..." : "Série"} />
+                <SelectValue placeholder={loadingNiveis ? "Carregando..." : "Preenchido pela série"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Selecione</SelectItem>
-                {series.map((item) => (
+                {niveis.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
                     {item.name}
                   </SelectItem>
@@ -869,23 +895,17 @@ export default function EtiquetasPage() {
 
                     <div className="space-y-2">
                       <Label htmlFor={`texto-livre-${label.id}`}>Texto livre</Label>
-                      <Textarea
+                      <EtiquetaTextToolbar
                         id={`texto-livre-${label.id}`}
                         value={label.textoLivre}
-                        onChange={(event) => updateLabel(label.id, { textoLivre: event.target.value })}
+                        onChange={(value) => updateLabel(label.id, { textoLivre: value })}
+                        align={label.textoLivreAlinhamento}
+                        onAlignChange={(value) => updateLabel(label.id, { textoLivreAlinhamento: value })}
+                        fontSize={label.textoLivreTamanho}
+                        onFontSizeChange={(value) => updateLabel(label.id, { textoLivreTamanho: value })}
                         placeholder="Texto livre da etiqueta"
-                        rows={3}
                       />
-                      <p className="text-xs text-muted-foreground">
-                        Use **texto** para negrito parcial (ex.: 2º **DIA** de aplicação).
-                      </p>
                     </div>
-
-                    <EtiquetaAlignToolbar
-                      id={`align-${label.id}`}
-                      value={label.textoLivreAlinhamento}
-                      onChange={(value) => updateLabel(label.id, { textoLivreAlinhamento: value })}
-                    />
 
                     <div className="flex items-center space-x-2">
                       <Checkbox
@@ -899,37 +919,15 @@ export default function EtiquetasPage() {
                     </div>
 
                     {!label.exibirAssinatura && (
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <div className="space-y-2">
-                          <Label htmlFor={`text-color-${label.id}`}>Cor do texto livre</Label>
-                          <Input
-                            id={`text-color-${label.id}`}
-                            type="color"
-                            value={label.textoLivreCor}
-                            onChange={(event) => updateLabel(label.id, { textoLivreCor: event.target.value })}
-                            className="h-10 cursor-pointer p-1"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`text-size-${label.id}`}>Tamanho do texto livre</Label>
-                          <Select
-                            value={String(label.textoLivreTamanho)}
-                            onValueChange={(value) =>
-                              updateLabel(label.id, { textoLivreTamanho: Number.parseInt(value, 10) })
-                            }
-                          >
-                            <SelectTrigger id={`text-size-${label.id}`}>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {TEXTO_LIVRE_TAMANHO_OPTIONS.map((size) => (
-                                <SelectItem key={size} value={String(size)}>
-                                  {size} pt
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`text-color-${label.id}`}>Cor do texto livre</Label>
+                        <Input
+                          id={`text-color-${label.id}`}
+                          type="color"
+                          value={label.textoLivreCor}
+                          onChange={(event) => updateLabel(label.id, { textoLivreCor: event.target.value })}
+                          className="h-10 max-w-[8rem] cursor-pointer p-1"
+                        />
                       </div>
                     )}
 

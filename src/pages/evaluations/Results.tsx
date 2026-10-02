@@ -41,6 +41,12 @@ import {
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/authContext";
 import { AREA_TYPE_FILTER_OPTIONS, canFilterByAreaType } from "@/lib/schoolAreaType";
+import {
+  RESULTADOS_ALUNOS_FILTRO_PADRAO,
+  RESULTADOS_ALUNOS_OPCOES,
+  isResultadosAlunosFiltro,
+  labelResultadosAlunosFiltro,
+} from "@/constants/resultadosAlunosFiltro";
 import { getUserHierarchyContext, type UserHierarchyContext } from "@/utils/userHierarchy";
 import { ResultsCharts } from "@/components/evaluations/results/ResultsCharts";
 import { ClassStatistics } from "@/components/evaluations/results/ClassStatistics";
@@ -502,6 +508,7 @@ type ResultsEvaluationsListFilters = {
   avaliacao?: string;
   periodo?: string;
   tipo_area?: string;
+  alunos?: string;
 };
 
 async function resultsFetchEvaluationsList(
@@ -519,6 +526,7 @@ async function resultsFetchEvaluationsList(
   if (filters.escola && filters.escola !== "all") params.append("escola", filters.escola);
   if (filters.serie && filters.serie !== "all") params.append("serie", filters.serie);
   if (filters.turma && filters.turma !== "all") params.append("turma", filters.turma);
+  if (filters.alunos) params.append("alunos", filters.alunos);
   if (filters.periodo && /^\d{4}-\d{2}$/.test(filters.periodo)) {
     params.append("periodo", filters.periodo);
   }
@@ -591,6 +599,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
   const [selectedAreaType, setSelectedAreaType] = useState<string>('all');
   const [selectedGrade, setSelectedGrade] = useState<string>('all');
   const [selectedClass, setSelectedClass] = useState<string>('all');
+  const [selectedAlunos, setSelectedAlunos] = useState<string>(RESULTADOS_ALUNOS_FILTRO_PADRAO);
 
   const normalizedSelectedPeriod = useMemo(
     () => (selectedPeriod === 'all' ? 'all' : normalizeResultsPeriodYm(selectedPeriod)),
@@ -697,13 +706,14 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
         selectedSchool,
         selectedGrade,
         selectedClass,
+        selectedAlunos,
         timestamp: Date.now()
       };
       sessionStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters));
     } catch (error) {
       console.error('Erro ao salvar filtros no sessionStorage:', error);
     }
-  }, [selectedState, selectedMunicipality, selectedPeriod, selectedEvaluation, selectedSchool, selectedGrade, selectedClass]);
+  }, [selectedState, selectedMunicipality, selectedPeriod, selectedEvaluation, selectedSchool, selectedGrade, selectedClass, selectedAlunos]);
 
   // ✅ NOVO: Função para carregar e validar filtros do sessionStorage
   const loadFiltersFromStorage = useCallback((): {
@@ -714,6 +724,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
     selectedSchool: string;
     selectedGrade: string;
     selectedClass: string;
+    selectedAlunos: string;
   } | null => {
     try {
       // Tentar primeiro sessionStorage
@@ -756,7 +767,10 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
           selectedEvaluation: filters.selectedEvaluation || 'all',
           selectedSchool: filters.selectedSchool || 'all',
           selectedGrade: filters.selectedGrade || 'all',
-          selectedClass: filters.selectedClass || 'all'
+          selectedClass: filters.selectedClass || 'all',
+          selectedAlunos: isResultadosAlunosFiltro(filters.selectedAlunos)
+            ? filters.selectedAlunos
+            : RESULTADOS_ALUNOS_FILTRO_PADRAO,
         };
       }
       
@@ -786,7 +800,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
     
     // Salvar filtros quando mudarem
     saveFiltersToStorage();
-  }, [selectedState, selectedMunicipality, selectedPeriod, selectedEvaluation, selectedSchool, selectedGrade, selectedClass, saveFiltersToStorage]);
+  }, [selectedState, selectedMunicipality, selectedPeriod, selectedEvaluation, selectedSchool, selectedGrade, selectedClass, selectedAlunos, saveFiltersToStorage]);
 
   const toastFilterOptionsError = useCallback(
     (error: unknown) => {
@@ -878,6 +892,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
         setSelectedSchool(savedFilters.selectedSchool);
         setSelectedGrade(savedFilters.selectedGrade);
         setSelectedClass(savedFilters.selectedClass);
+        setSelectedAlunos(savedFilters.selectedAlunos);
         
         // Aguardar todos os useEffects e chamadas assíncronas serem executados antes de desabilitar a flag
         // Usar múltiplos requestAnimationFrame e timeout para garantir que todas as requisições foram concluídas
@@ -1210,6 +1225,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
         escola: selectedSchool !== 'all' ? selectedSchool : undefined,
         serie: selectedGrade !== 'all' ? selectedGrade : undefined,
         turma: selectedClass !== 'all' ? selectedClass : undefined,
+        alunos: selectedAlunos,
         ...(periodoApi ? { periodo: periodoApi } : {}),
         ...(selectedAreaType !== "all" ? { tipo_area: selectedAreaType } : {}),
       };
@@ -1310,6 +1326,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
     selectedSchool,
     selectedGrade,
     selectedClass,
+    selectedAlunos,
     selectedAreaType,
     periodoApi,
     schools,
@@ -1879,6 +1896,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
       serie: serieLabel,
       turma: turmaLabel,
       turno: turnoLabel,
+      alunos: labelResultadosAlunosFiltro(selectedAlunos),
     };
   }, [
     selectedState,
@@ -1891,6 +1909,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
     schools,
     grades,
     classes,
+    selectedAlunos,
   ]);
 
   const handleExportRankingPdf = useCallback(async () => {
@@ -2548,6 +2567,22 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
               </Select>
             </div>
 
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Alunos</label>
+              <Select value={selectedAlunos} onValueChange={setSelectedAlunos} disabled={isLoadingFilters}>
+                <SelectTrigger className="w-full min-w-0">
+                  <SelectValue placeholder="Selecione os alunos" />
+                </SelectTrigger>
+                <SelectContent>
+                  {RESULTADOS_ALUNOS_OPCOES.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <EvaluationInstrumentPicker
               className="sm:col-span-2 lg:col-span-7"
               label="Avaliações"
@@ -2571,7 +2606,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
           {/* Informação sobre filtros */}
           <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
             <p className="text-sm text-blue-700 dark:text-blue-400">
-              💡 <strong>Hierarquia dos Filtros:</strong> Estado → Município → Período (opcional) → Avaliação → Escola → Série → Turma
+              💡 <strong>Hierarquia dos Filtros:</strong> Estado → Município → Período (opcional) → Avaliação → Escola → Série → Turma → Alunos
             </p>
             <p className="text-sm text-blue-700 mt-1">
               {isRestrictedUser ? (
@@ -3223,6 +3258,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                       await generatePendingStudentsPdf({
                         title: "Alunos pendentes — Avaliação",
                         subtitle: evaluationInfo?.titulo ? String(evaluationInfo.titulo) : undefined,
+                        alunosLabel: labelResultadosAlunosFiltro(selectedAlunos),
                         cityId: selectedMunicipality !== 'all' ? selectedMunicipality : null,
                         students: filteredPendingStudents.map((a) => ({
                           nome: a.nome,

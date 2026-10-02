@@ -574,6 +574,16 @@ function drawSignatureBlock(
   return y + 2 + boxH + 9;
 }
 
+function continueOnNextPage(doc: jsPDF, y: number, needed: number): number {
+  const pageH = doc.internal.pageSize.getHeight();
+  if (y + needed <= pageH - M) return y;
+  const pageW = doc.internal.pageSize.getWidth();
+  doc.addPage();
+  doc.setFillColor(...C.bg);
+  doc.rect(0, 0, pageW, pageH, "F");
+  return M + 6;
+}
+
 function drawPage2(doc: jsPDF, data: AtaSalaPdfData): void {
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -608,33 +618,47 @@ function drawPage2(doc: jsPDF, data: AtaSalaPdfData): void {
   );
   y += 6;
 
-  y = drawSignatureBlock(
-    doc,
-    y,
+  const drawPeople = (
+    leftLabel: string,
+    rightLabel: string,
+    people: Array<{ assinatura?: string; cpf?: string }>
+  ) => {
+    const list = people.length > 0 ? people : [{ assinatura: "", cpf: "" }];
+    list.forEach((person, index) => {
+      y = continueOnNextPage(doc, y, 28);
+      const mark = list.length > 1 ? ` ${index + 1}` : "";
+      y = drawSignatureBlock(
+        doc,
+        y,
+        `${leftLabel}${mark}`,
+        person.assinatura || "",
+        `${rightLabel}${mark}`,
+        person.cpf || ""
+      );
+      y += 5;
+    });
+  };
+
+  drawPeople(
     "ASSINATURA DO(A) APLICADOR(A)",
-    data.options.assinaturaAplicador,
     "CPF DO(A) APLICADOR(A)",
-    data.options.cpfAplicador
+    [{ assinatura: data.options.assinaturaAplicador, cpf: data.options.cpfAplicador }]
   );
-  y += 5;
-
-  y = drawSignatureBlock(
-    doc,
-    y,
+  drawPeople(
     "ASSINATURA DO(A) APOIO PROVA REGULAR",
-    data.options.assinaturaApoioRegular,
     "CPF DO(A) APOIO REGULAR",
-    data.options.cpfApoioRegular
+    [
+      { assinatura: data.options.assinaturaApoioRegular, cpf: data.options.cpfApoioRegular },
+      ...(data.options.apoiosRegularExtras ?? []),
+    ]
   );
-  y += 5;
-
-  drawSignatureBlock(
-    doc,
-    y,
+  drawPeople(
     "ASSINATURA DO(A) APOIO PROVA SUPORTE",
-    data.options.assinaturaApoioSuporte,
     "CPF DO(A) APOIO SUPORTE",
-    data.options.cpfApoioSuporte
+    [
+      { assinatura: data.options.assinaturaApoioSuporte, cpf: data.options.cpfApoioSuporte },
+      ...(data.options.apoiosSuporteExtras ?? []),
+    ]
   );
 }
 
