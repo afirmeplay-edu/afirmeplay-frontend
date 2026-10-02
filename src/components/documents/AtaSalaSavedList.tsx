@@ -64,8 +64,10 @@ const DEFAULT_ATA_OPTIONS: AtaOptions = {
   cpfAplicador: "",
   assinaturaApoioRegular: "",
   cpfApoioRegular: "",
+  apoiosRegularExtras: [],
   assinaturaApoioSuporte: "",
   cpfApoioSuporte: "",
+  apoiosSuporteExtras: [],
 };
 
 function buildPdfFileName(title: string): string {
@@ -82,9 +84,14 @@ function buildPdfFileName(title: string): string {
 }
 
 function normalizePdfData(content: AtaSalaPdfData): AtaSalaPdfData {
+  const options = { ...DEFAULT_ATA_OPTIONS, ...(content.options || {}) };
   return {
     ...content,
-    options: { ...DEFAULT_ATA_OPTIONS, ...(content.options || {}) },
+    options: {
+      ...options,
+      apoiosRegularExtras: Array.isArray(options.apoiosRegularExtras) ? options.apoiosRegularExtras : [],
+      apoiosSuporteExtras: Array.isArray(options.apoiosSuporteExtras) ? options.apoiosSuporteExtras : [],
+    },
   };
 }
 
