@@ -2134,14 +2134,32 @@ export class EvaluationResultsApiService {
         }
         return [];
       };
-      const instrumentSources = isAnswerSheet
-        ? [data.gabaritos, data.cartoes, data.cartoes_resposta, data.answer_sheets, data.avaliacoes]
-        : [data.avaliacoes];
-      const avaliacoesNormalizadas =
-        instrumentSources.map(asRecordList).find((list) => list.length > 0) ?? [];
+      let avaliacoesNormalizadas: Array<Record<string, unknown>> = [];
+      if (isAnswerSheet) {
+        // Preferir `gabaritos` e mesclar demais chaves por id (evita cair numa lista
+        // antiga/parcial de `avaliacoes` quando `gabaritos` vem vazio ou parcial).
+        const merged = new Map<string, Record<string, unknown>>();
+        for (const source of [
+          data.gabaritos,
+          data.cartoes,
+          data.cartoes_resposta,
+          data.answer_sheets,
+          data.avaliacoes,
+        ]) {
+          for (const item of asRecordList(source)) {
+            const id = String(item.id ?? item.gabarito_id ?? "").trim();
+            if (!id || merged.has(id)) continue;
+            merged.set(id, { ...item, id });
+          }
+        }
+        avaliacoesNormalizadas = Array.from(merged.values());
+      } else {
+        avaliacoesNormalizadas = asRecordList(data.avaliacoes);
+      }
       return {
         ...data,
         avaliacoes: avaliacoesNormalizadas,
+        gabaritos: isAnswerSheet ? avaliacoesNormalizadas : data.gabaritos,
         estados: this.normalizeFilterEntities(data.estados),
         municipios: this.normalizeFilterEntities(data.municipios),
         escolas: this.normalizeFilterEntities(data.escolas),
