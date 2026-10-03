@@ -66,6 +66,26 @@ export interface AlunoPendenteDetalheEstatisticas {
   escola?: string;
   serie?: string;
   turma?: string;
+  /** Presente quando o aluno é ADAP 1/2 no filtro com pareamento. */
+  adap_nivel?: number;
+  adap_rotulo?: string;
+}
+
+/** Bloco opcional de alunos ADAP (só quando a API envia `alunos=`). */
+export interface TabelaAdapAluno {
+  id: string;
+  nome: string;
+  nivel: number;
+  rotulo: string;
+  turma?: string;
+  prova_origem_id?: string | null;
+  prova_origem_titulo?: string | null;
+  acertos?: number | null;
+  total_questoes?: number | null;
+  nota?: number | null;
+  proficiencia?: number | null;
+  classificacao?: string | null;
+  situacao: "participou" | "pendente" | string;
 }
 
 /** Estatísticas por disciplina no mesmo escopo da rota (GET /evaluation-results/avaliacoes). */
@@ -458,6 +478,8 @@ export interface NovaRespostaAPI {
     };
   };
   tabela_detalhada?: TabelaDetalhada;
+  /** Alunos ADAP 1/2 com resultado pareado (ausente no backend antigo). */
+  tabela_adap?: TabelaAdapAluno[];
   ranking?: RankingItem[];
   opcoes_proximos_filtros: OpcoesProximosFiltros;
   analise_ia_status?: 'processing' | 'ready' | 'error';
