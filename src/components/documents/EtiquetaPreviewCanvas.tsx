@@ -9,10 +9,7 @@ import {
 import { getCityBranding, resolveBrandingUrls } from "@/services/cityBrandingApi";
 import { loadBrandingImage } from "@/utils/brandingImageUtils";
 import { loadCityBrandingPdfAssets } from "@/utils/pdfCityBranding";
-import {
-  EtiquetaRichTextPreview,
-  EtiquetaUnderlinedLabel,
-} from "@/components/documents/EtiquetaRichTextPreview";
+import { EtiquetaRichTextPreview } from "@/components/documents/EtiquetaRichTextPreview";
 
 type EtiquetaPreviewCanvasProps = {
   label: EtiquetaEditItem;
@@ -20,6 +17,19 @@ type EtiquetaPreviewCanvasProps = {
   logoUrl: string | null;
   className?: string;
 };
+
+function AplicadorLinhas({ nome, cpf }: { nome: string; cpf: string }) {
+  return (
+    <>
+      <p>
+        <span>NOME DO APLICADOR:</span> {nome || "________________________"}
+      </p>
+      <p>
+        <span>CPF:</span> {cpf || "________________________"}
+      </p>
+    </>
+  );
+}
 
 export function EtiquetaPreviewCanvas({ label, context, logoUrl, className = "" }: EtiquetaPreviewCanvasProps) {
   const [resolvedLogoUrl, setResolvedLogoUrl] = useState<string | null>(logoUrl);
@@ -83,25 +93,18 @@ export function EtiquetaPreviewCanvas({ label, context, logoUrl, className = "" 
       </div>
 
       <div className="mt-1 shrink-0 space-y-0.5 text-center text-black">
-        <p className="text-xs font-bold uppercase break-words">{cityStateDisplay(context).toUpperCase()}</p>
+        <p className="text-xs font-bold uppercase break-words">
+          {cityStateDisplay(context).toUpperCase()}
+        </p>
         <p className="text-xs font-bold uppercase break-words">{context.contexto.escola}</p>
         <p className="text-[11px] uppercase break-words">
-          <EtiquetaUnderlinedLabel
-            label="Modalidade/Etapa: "
-            value={context.contexto.nivel.toUpperCase()}
-          />
+          Modalidade/Etapa: {context.contexto.nivel.toUpperCase()}
         </p>
         <p className="text-[11px] uppercase break-words">
-          <EtiquetaUnderlinedLabel
-            label="Série/Turma: "
-            value={etiquetasSerieTurmaLine(context).toUpperCase()}
-          />
+          Série/Turma: {etiquetasSerieTurmaLine(context).toUpperCase()}
         </p>
         <p className="text-[11px] uppercase break-words">
-          <EtiquetaUnderlinedLabel
-            label="Turno: "
-            value={etiquetasTurnoLabel(context).toUpperCase()}
-          />
+          Turno: {etiquetasTurnoLabel(context).toUpperCase()}
         </p>
       </div>
 
@@ -125,12 +128,10 @@ export function EtiquetaPreviewCanvas({ label, context, logoUrl, className = "" 
 
       {label.exibirAssinatura && (
         <div className="mt-1 shrink-0 space-y-1 border-t border-black pt-1 text-[10px] text-black">
-          <p>
-            <span>NOME DO APLICADOR:</span> {label.nomeAplicador || "________________________"}
-          </p>
-          <p>
-            <span>CPF:</span> {label.cpfAplicador || "________________________"}
-          </p>
+          <AplicadorLinhas nome={label.nomeAplicador} cpf={label.cpfAplicador} />
+          {label.exibirSegundoAplicador ? (
+            <AplicadorLinhas nome={label.nomeAplicador2} cpf={label.cpfAplicador2} />
+          ) : null}
         </div>
       )}
     </div>

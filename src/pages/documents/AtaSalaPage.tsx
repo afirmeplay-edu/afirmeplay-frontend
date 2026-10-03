@@ -587,7 +587,10 @@ export default function AtaSalaPage() {
     EvaluationResultsApiService.getFilterEvaluations({
       estado: selectedEstado,
       municipio: selectedMunicipio,
-      escola: selectedSchool !== "all" ? selectedSchool : undefined,
+      // Cartão-resposta: não filtrar por escola na listagem (município inteiro).
+      ...(modoLista !== "cartao_resposta" && selectedSchool !== "all"
+        ? { escola: selectedSchool }
+        : {}),
       ...(modoLista === "cartao_resposta" ? { report_entity_type: REPORT_ENTITY_TYPE_ANSWER_SHEET } : {}),
     })
       .then((items) => {
@@ -1451,7 +1454,13 @@ export default function AtaSalaPage() {
                 label={labelItemAplicado}
                 estado={selectedEstado}
                 municipio={selectedMunicipio}
-                escola={selectedSchool !== "all" ? selectedSchool : undefined}
+                escola={
+                  modoLista === "cartao_resposta"
+                    ? undefined
+                    : selectedSchool !== "all"
+                      ? selectedSchool
+                      : undefined
+                }
                 reportEntityType={
                   modoLista === "cartao_resposta" ? REPORT_ENTITY_TYPE_ANSWER_SHEET : undefined
                 }
