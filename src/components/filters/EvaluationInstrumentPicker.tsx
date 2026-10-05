@@ -102,7 +102,9 @@ export function EvaluationInstrumentPicker({
         await EvaluationResultsApiService.getFilterEvaluationsWithSeries({
           estado,
           municipio,
-          ...(escola && escola !== "all" ? { escola } : {}),
+          // Cartão-resposta: listar todos do município (estado+cidade), como nas
+          // telas de resultados. Filtrar por escola escondia cartões recentes.
+          ...(!isAnswerSheet && escola && escola !== "all" ? { escola } : {}),
           ...(reportEntityType ? { report_entity_type: reportEntityType } : {}),
           ...(cityId ? { city_id: cityId } : {}),
           ...(periodo?.trim() ? { periodo } : {}),
@@ -128,7 +130,19 @@ export function EvaluationInstrumentPicker({
     } finally {
       if (requestId === fieldRequestIdRef.current) setFetchLoading(false);
     }
-  }, [geoReady, estado, municipio, escola, reportEntityType, cityId, periodo, onChange, allowAll, multiple]);
+  }, [
+    geoReady,
+    estado,
+    municipio,
+    escola,
+    isAnswerSheet,
+    reportEntityType,
+    cityId,
+    periodo,
+    onChange,
+    allowAll,
+    multiple,
+  ]);
 
   const loadModalItems = useCallback(
     async (modalFilters?: { serieFiltro: string; nome: string }) => {

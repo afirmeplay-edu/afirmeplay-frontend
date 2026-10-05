@@ -23,12 +23,6 @@ const RODAPE_BLOCK_H = 4.8;
 
 type Rgb = [number, number, number];
 
-type TextPart = {
-  text: string;
-  underline?: boolean;
-  bold?: boolean;
-};
-
 type RichToken = {
   text: string;
   bold: boolean;
@@ -244,38 +238,6 @@ function drawAlignedRichText(
   });
 }
 
-function measurePartsWidth(doc: jsPDF, parts: TextPart[], fontSize: number): number {
-  return parts.reduce((total, part) => {
-    doc.setFont("helvetica", part.bold ? "bold" : "normal");
-    doc.setFontSize(fontSize);
-    return total + doc.getTextWidth(part.text);
-  }, 0);
-}
-
-function drawCenteredParts(
-  doc: jsPDF,
-  parts: TextPart[],
-  centerX: number,
-  y: number,
-  fontSize: number
-) {
-  const totalWidth = measurePartsWidth(doc, parts, fontSize);
-  let x = centerX - totalWidth / 2;
-
-  parts.forEach((part) => {
-    doc.setFont("helvetica", part.bold ? "bold" : "normal");
-    doc.setFontSize(fontSize);
-    doc.setTextColor(0, 0, 0);
-    doc.text(part.text, x, y);
-    if (part.underline) {
-      const labelWidth = doc.getTextWidth(part.text);
-      doc.setLineWidth(0.2);
-      doc.line(x, y + 0.55, x + labelWidth, y + 0.55);
-    }
-    x += doc.getTextWidth(part.text);
-  });
-}
-
 function drawCenteredWrapped(
   doc: jsPDF,
   text: string,
@@ -340,6 +302,35 @@ function cityStateDisplay(context: EtiquetasDadosResponse): string {
   return state ? `${city}/${state}` : city;
 }
 
+function drawAplicadorPair(
+  doc: jsPDF,
+  x: number,
+  width: number,
+  innerX: number,
+  cursorY: number,
+  nome: string,
+  cpf: string
+): number {
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.setTextColor(0, 0, 0);
+
+  doc.text("NOME DO APLICADOR:", innerX, cursorY);
+  doc.line(innerX + 29, cursorY + 0.5, x + width - PAD, cursorY + 0.5);
+  if (normalizeSpaces(nome)) {
+    doc.text(normalizeSpaces(nome), innerX + 30, cursorY);
+  }
+
+  cursorY += 4.8;
+  doc.text("CPF:", innerX, cursorY);
+  doc.line(innerX + 8, cursorY + 0.5, x + width - PAD, cursorY + 0.5);
+  if (normalizeSpaces(cpf)) {
+    doc.text(normalizeSpaces(cpf), innerX + 9, cursorY);
+  }
+
+  return cursorY + 4.8;
+}
+
 function drawFooterBlock(
   doc: jsPDF,
   x: number,
@@ -366,26 +357,28 @@ function drawFooterBlock(
   doc.line(innerX, cursorY, x + width - PAD, cursorY);
   cursorY += 4.2;
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  doc.text("NOME DO APLICADOR:", innerX, cursorY);
-  doc.line(innerX + 29, cursorY + 0.5, x + width - PAD, cursorY + 0.5);
-  if (normalizeSpaces(item.nomeAplicador)) {
-    doc.text(normalizeSpaces(item.nomeAplicador), innerX + 30, cursorY);
-  }
+  cursorY = drawAplicadorPair(doc, x, width, innerX, cursorY, item.nomeAplicador, item.cpfAplicador);
 
-  cursorY += 4.8;
-  doc.text("CPF:", innerX, cursorY);
-  doc.line(innerX + 8, cursorY + 0.5, x + width - PAD, cursorY + 0.5);
-  if (normalizeSpaces(item.cpfAplicador)) {
-    doc.text(normalizeSpaces(item.cpfAplicador), innerX + 9, cursorY);
+  if (item.exibirSegundoAplicador) {
+    cursorY = drawAplicadorPair(
+      doc,
+      x,
+      width,
+      innerX,
+      cursorY,
+      item.nomeAplicador2,
+      item.cpfAplicador2
+    );
   }
 }
+
+const APLICADOR_PAIR_H = 9.6;
 
 function footerHeightFor(item: EtiquetaEditItem): number {
   if (!item.exibirAssinatura) return 0;
   const hasRodapeLine = normalizeSpaces(item.textoAcimaAssinatura).length > 0;
-  return 10.5 + (hasRodapeLine ? RODAPE_BLOCK_H : 0);
+  const aplicadores = 1 + (item.exibirSegundoAplicador ? 1 : 0);
+  return 4.2 + aplicadores * APLICADOR_PAIR_H + (hasRodapeLine ? RODAPE_BLOCK_H : 0);
 }
 
 function drawEtiqueta(
@@ -450,17 +443,16 @@ function drawEtiqueta(
   );
   cursorY += 0.4;
 
-  drawCenteredParts(
+  cursorY = drawCenteredWrapped(
     doc,
-    [
-      { text: "Modalidade/Etapa: ", underline: true },
-      { text: normalizeSpaces(context.contexto.nivel).toUpperCase() },
-    ],
+    `Modalidade/Etapa: ${normalizeSpaces(context.contexto.nivel).toUpperCase()}`,
     centerX,
     cursorY,
-    7.2
+    innerW,
+    7.2,
+    { style: "normal", uppercase: false, maxLines: 2 }
   );
-  cursorY += 3.4;
+  cursorY += 0.25;
 
   const serieTurmaText = normalizeSpaces(etiquetasSerieTurmaLine(context)).toUpperCase();
   cursorY = drawCenteredWrapped(
@@ -470,7 +462,7 @@ function drawEtiqueta(
     cursorY,
     innerW,
     6.8,
-    { style: "bold", uppercase: false, maxLines: 2 }
+    { style: "normal", uppercase: false, maxLines: 2 }
   );
   cursorY += 0.25;
   cursorY = drawCenteredWrapped(
@@ -480,7 +472,7 @@ function drawEtiqueta(
     cursorY,
     innerW,
     6.8,
-    { style: "bold", uppercase: false, maxLines: 1 }
+    { style: "normal", uppercase: false, maxLines: 1 }
   );
   cursorY += 0.4;
 

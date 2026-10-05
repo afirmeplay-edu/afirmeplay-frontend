@@ -161,6 +161,21 @@ interface QuestaoConsolidada extends TabelaDetalhadaQuestao {
   disciplina: string;
 }
 
+export interface TabelaAdapRow {
+  id: string;
+  nome: string;
+  nivel: number;
+  rotulo: string;
+  turma?: string;
+  prova_origem_titulo?: string | null;
+  acertos?: number | null;
+  total_questoes?: number | null;
+  nota?: number | null;
+  proficiencia?: number | null;
+  classificacao?: string | null;
+  situacao: string;
+}
+
 interface DisciplineTablesProps {
   tabelaDetalhada: {
     disciplinas: TabelaDetalhadaDisciplina[];
@@ -168,6 +183,8 @@ interface DisciplineTablesProps {
       alunos: TabelaDetalhadaGeralAluno[];
     };
   };
+  /** Bloco opcional; se ausente ou vazio, a tela fica como antes. */
+  tabelaAdap?: TabelaAdapRow[];
   onViewStudentDetails?: (studentId: string) => void;
   // ✅ NOVO: Função para abrir em nova guia
   onOpenInNewTab?: (studentId: string) => void;
@@ -177,6 +194,7 @@ interface DisciplineTablesProps {
 
 export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
   tabelaDetalhada,
+  tabelaAdap,
   onViewStudentDetails,
   onOpenInNewTab,
   showCoins = false
@@ -845,6 +863,86 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
         </Card>
         </Collapsible>
       ))}
+
+      {Array.isArray(tabelaAdap) && tabelaAdap.length > 0 && (
+        <Card className="shadow-lg border border-teal-200 dark:border-teal-800 overflow-hidden w-full">
+          <CardHeader className="bg-gradient-to-r from-teal-700 to-teal-600 text-white rounded-t-lg px-4 sm:px-6 py-4">
+            <CardTitle className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-sm font-bold">A</span>
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-lg sm:text-xl font-bold">Alunos ADAP</h2>
+                <p className="text-teal-100 text-xs sm:text-sm">
+                  {tabelaAdap.length}{" "}
+                  {tabelaAdap.length === 1 ? "aluno" : "alunos"} · resultado da prova pareada
+                </p>
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/60 border-b border-border">
+                <tr className="text-left">
+                  <th className="px-4 py-3 font-semibold">Aluno</th>
+                  <th className="px-3 py-3 font-semibold">Nível</th>
+                  <th className="px-3 py-3 font-semibold">Turma</th>
+                  <th className="px-3 py-3 font-semibold">Prova de origem</th>
+                  <th className="px-3 py-3 font-semibold text-center">Acertos</th>
+                  <th className="px-3 py-3 font-semibold text-center">Nota</th>
+                  <th className="px-3 py-3 font-semibold text-center">Proficiência</th>
+                  <th className="px-3 py-3 font-semibold">Classificação</th>
+                  <th className="px-3 py-3 font-semibold">Situação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tabelaAdap.map((aluno) => (
+                  <tr key={aluno.id} className="border-b border-border/70 hover:bg-muted/40">
+                    <td className="px-4 py-3 font-medium">{aluno.nome || "—"}</td>
+                    <td className="px-3 py-3">
+                      <Badge variant="secondary" className="bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-200">
+                        {aluno.rotulo || `ADAP ${aluno.nivel}`}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-3 text-muted-foreground">{aluno.turma || "—"}</td>
+                    <td className="px-3 py-3 text-muted-foreground max-w-[220px] truncate" title={aluno.prova_origem_titulo || undefined}>
+                      {aluno.prova_origem_titulo || "—"}
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      {aluno.situacao === "participou" && aluno.acertos != null && aluno.total_questoes != null
+                        ? `${aluno.acertos}/${aluno.total_questoes}`
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      {aluno.situacao === "participou" && aluno.nota != null
+                        ? Number(aluno.nota).toFixed(2)
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      {aluno.situacao === "participou" && aluno.proficiencia != null
+                        ? Number(aluno.proficiencia).toFixed(2)
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-3">{aluno.classificacao || "—"}</td>
+                    <td className="px-3 py-3">
+                      <Badge
+                        variant="outline"
+                        className={
+                          aluno.situacao === "participou"
+                            ? "border-green-300 text-green-700 dark:text-green-400"
+                            : "border-red-300 text-red-600 dark:text-red-400"
+                        }
+                      >
+                        {aluno.situacao === "participou" ? "Participou" : "Pendente"}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 };

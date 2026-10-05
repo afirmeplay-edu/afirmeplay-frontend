@@ -53,6 +53,10 @@ export type EtiquetaEditItem = {
   exibirAssinatura: boolean;
   nomeAplicador: string;
   cpfAplicador: string;
+  /** Exibe um segundo bloco de aplicador (nome + CPF) na etiqueta. */
+  exibirSegundoAplicador: boolean;
+  nomeAplicador2: string;
+  cpfAplicador2: string;
   /** Cor do texto livre (hex) quando assinatura está oculta */
   textoLivreCor: string;
   /** Tamanho da fonte do texto livre (pt no PDF) quando assinatura está oculta */

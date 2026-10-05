@@ -66,6 +66,26 @@ export interface AlunoPendenteDetalheEstatisticas {
   escola?: string;
   serie?: string;
   turma?: string;
+  /** Presente quando o aluno é ADAP 1/2 no filtro com pareamento. */
+  adap_nivel?: number;
+  adap_rotulo?: string;
+}
+
+/** Bloco opcional de alunos ADAP (só quando a API envia `alunos=`). */
+export interface TabelaAdapAluno {
+  id: string;
+  nome: string;
+  nivel: number;
+  rotulo: string;
+  turma?: string;
+  prova_origem_id?: string | null;
+  prova_origem_titulo?: string | null;
+  acertos?: number | null;
+  total_questoes?: number | null;
+  nota?: number | null;
+  proficiencia?: number | null;
+  classificacao?: string | null;
+  situacao: "participou" | "pendente" | string;
 }
 
 /** Estatísticas por disciplina no mesmo escopo da rota (GET /evaluation-results/avaliacoes). */
@@ -458,6 +478,8 @@ export interface NovaRespostaAPI {
     };
   };
   tabela_detalhada?: TabelaDetalhada;
+  /** Alunos ADAP 1/2 com resultado pareado (ausente no backend antigo). */
+  tabela_adap?: TabelaAdapAluno[];
   ranking?: RankingItem[];
   opcoes_proximos_filtros: OpcoesProximosFiltros;
   analise_ia_status?: 'processing' | 'ready' | 'error';
@@ -2134,14 +2156,32 @@ export class EvaluationResultsApiService {
         }
         return [];
       };
-      const instrumentSources = isAnswerSheet
-        ? [data.gabaritos, data.cartoes, data.cartoes_resposta, data.answer_sheets, data.avaliacoes]
-        : [data.avaliacoes];
-      const avaliacoesNormalizadas =
-        instrumentSources.map(asRecordList).find((list) => list.length > 0) ?? [];
+      let avaliacoesNormalizadas: Array<Record<string, unknown>> = [];
+      if (isAnswerSheet) {
+        // Preferir `gabaritos` e mesclar demais chaves por id (evita cair numa lista
+        // antiga/parcial de `avaliacoes` quando `gabaritos` vem vazio ou parcial).
+        const merged = new Map<string, Record<string, unknown>>();
+        for (const source of [
+          data.gabaritos,
+          data.cartoes,
+          data.cartoes_resposta,
+          data.answer_sheets,
+          data.avaliacoes,
+        ]) {
+          for (const item of asRecordList(source)) {
+            const id = String(item.id ?? item.gabarito_id ?? "").trim();
+            if (!id || merged.has(id)) continue;
+            merged.set(id, { ...item, id });
+          }
+        }
+        avaliacoesNormalizadas = Array.from(merged.values());
+      } else {
+        avaliacoesNormalizadas = asRecordList(data.avaliacoes);
+      }
       return {
         ...data,
         avaliacoes: avaliacoesNormalizadas,
+        gabaritos: isAnswerSheet ? avaliacoesNormalizadas : data.gabaritos,
         estados: this.normalizeFilterEntities(data.estados),
         municipios: this.normalizeFilterEntities(data.municipios),
         escolas: this.normalizeFilterEntities(data.escolas),

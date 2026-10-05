@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Download, Eye, FileText, Filter, Loader2, Plus } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { Download, Eye, FileText, Filter, Loader2, Plus, Trash2, UserPlus } from "lucide-react";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -79,6 +79,9 @@ function createEtiquetaItem(index: number, defaultTitle: string): EtiquetaEditIt
     exibirAssinatura: true,
     nomeAplicador: "",
     cpfAplicador: "",
+    exibirSegundoAplicador: false,
+    nomeAplicador2: "",
+    cpfAplicador2: "",
     textoLivreCor: "#000000",
     textoLivreTamanho: 10,
     textoLivreAlinhamento: "center",
@@ -108,7 +111,7 @@ export default function EtiquetasPage() {
   const [selectedAplicadoId, setSelectedAplicadoId] = useState("all");
 
   const [tituloEtiqueta, setTituloEtiqueta] = useState("");
-  const [quantityInput, setQuantityInput] = useState("8");
+  const [quantityInput, setQuantityInput] = useState("1");
   const [labels, setLabels] = useState<EtiquetaEditItem[]>([]);
 
   const [loadingEstados, setLoadingEstados] = useState(false);
@@ -129,9 +132,55 @@ export default function EtiquetasPage() {
   const isManualMode = modo === "manual";
   const isAppliedMode = modo === "avaliacao" || modo === "cartao_resposta";
   const turmaEspecifica = selectedTurma !== "all";
+  const hasGeoContext = selectedEstado !== "all" && selectedMunicipio !== "all";
   const parsedQuantity = Number.parseInt(quantityInput, 10);
+  const safeQuantity =
+    Number.isFinite(parsedQuantity) && parsedQuantity >= 1
+      ? Math.min(200, parsedQuantity)
+      : 1;
 
   const globalTitle = useMemo(() => tituloEtiqueta.trim(), [tituloEtiqueta]);
+
+  const buildLocalPreviewContext = (): EtiquetasDadosResponse => {
+    const municipioName = municipios.find((m) => m.id === selectedMunicipio)?.name || "";
+    const estadoName = estados.find((e) => e.id === selectedEstado)?.name || "";
+    const escolaName = schools.find((s) => s.id === selectedSchool)?.name || "—";
+    const nivelName = niveis.find((n) => n.id === selectedNivel)?.name || "—";
+    const serieName = series.find((s) => s.id === selectedSerie)?.name || "—";
+    const turmaName = turmas.find((t) => t.id === selectedTurma)?.name || "—";
+    const turnoName = TURNO_OPTIONS.find((t) => t.id === selectedTurno)?.name || "";
+    return {
+      municipio: {
+        id: selectedMunicipio,
+        name: municipioName,
+        state: estadoName,
+        prefeitura_label: municipioName,
+      },
+      contexto: {
+        escola: escolaName,
+        nivel: nivelName,
+        serie: serieName,
+        turma: turmaName,
+        turno: turnoName,
+        shift: turnoName,
+        ano: new Date().getFullYear(),
+      },
+      modo,
+      title_reference: globalTitle || null,
+      filters: {
+        modo,
+        municipio: selectedMunicipio,
+        escola: selectedSchool !== "all" ? selectedSchool : "",
+        nivel: selectedNivel !== "all" ? selectedNivel : "",
+        serie: selectedSerie !== "all" ? selectedSerie : "",
+        turma: selectedTurma !== "all" ? selectedTurma : "",
+        turno: selectedTurno !== "all" ? selectedTurno : "",
+        evaluation_id: modo === "avaliacao" && selectedAplicadoId !== "all" ? selectedAplicadoId : "",
+        answer_sheet_id:
+          modo === "cartao_resposta" && selectedAplicadoId !== "all" ? selectedAplicadoId : "",
+      },
+    };
+  };
 
   useEffect(() => {
     if (!isAppliedMode || selectedAplicadoId === "all") return;
@@ -338,7 +387,9 @@ export default function EtiquetasPage() {
     EvaluationResultsApiService.getFilterEvaluations({
       estado: selectedEstado,
       municipio: selectedMunicipio,
-      escola: selectedSchool !== "all" ? selectedSchool : undefined,
+      ...(modo !== "cartao_resposta" && selectedSchool !== "all"
+        ? { escola: selectedSchool }
+        : {}),
       ...(modo === "cartao_resposta" ? { report_entity_type: REPORT_ENTITY_TYPE_ANSWER_SHEET } : {}),
     })
       .then((items) => {
@@ -361,12 +412,26 @@ export default function EtiquetasPage() {
     };
   }, [isAppliedMode, modo, selectedEstado, selectedMunicipio, selectedSchool]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setPreviewContext(null);
     setPreviewLogoUrl(null);
     setError(null);
-    setLabels([]);
+    if (!hasGeoContext) {
+      setLabels([]);
+      return;
+    }
+    const seedTitle =
+      (isAppliedMode && selectedAplicadoId !== "all"
+        ? getAppliedTitle(selectedAplicadoId, aplicados)
+        : "") || tituloEtiqueta.trim();
+    setLabels(
+      Array.from({ length: safeQuantity }).map((_, index) =>
+        createEtiquetaItem(index + 1, seedTitle)
+      )
+    );
   }, [
+    hasGeoContext,
+    isAppliedMode,
     modo,
     selectedEstado,
     selectedMunicipio,
@@ -376,8 +441,9 @@ export default function EtiquetasPage() {
     selectedTurma,
     selectedTurno,
     selectedAplicadoId,
-    tituloEtiqueta,
+    aplicados,
     quantityInput,
+    safeQuantity,
   ]);
 
   const validationMessage = useMemo(() => {
@@ -493,33 +559,53 @@ export default function EtiquetasPage() {
       setError(validationMessage);
       return;
     }
+    if (!turmaEspecifica) {
+      setError("Selecione uma turma específica para baixar o PDF.");
+      return;
+    }
+    if (!labels.length) {
+      setError("Configure ao menos uma etiqueta antes de gerar o PDF.");
+      return;
+    }
+    setLoadingPdf(true);
+    setError(null);
+    try {
+      const branding = await loadCityBrandingPdfAssets(selectedMunicipio);
+      const context = enrichEtiquetasContext(
+        await getEtiquetasDados(buildParams()),
+        filterLabelsForContext()
+      );
+      setPreviewContext(context);
+      await downloadEtiquetasPdf(context, labels, branding.logo);
+      toast({ title: "PDF gerado", description: `${labels.length} etiqueta(s) exportada(s).` });
+    } catch (err) {
+      const msg = getEtiquetasApiError(err, "Não foi possível gerar o PDF de etiquetas.");
+      setError(msg);
+      toast({ title: "Erro", description: msg, variant: "destructive" });
+    } finally {
+      setLoadingPdf(false);
+    }
+  };
+
+  const handleGenerateZip = async () => {
+    if (validationMessage) {
+      setError(validationMessage);
+      return;
+    }
+    if (turmaEspecifica) {
+      setError('Para baixar ZIP, deixe a turma em "Todas".');
+      return;
+    }
+    if (turmas.length === 0) {
+      setError("Nenhuma turma encontrada para gerar o lote.");
+      return;
+    }
     setLoadingPdf(true);
     setError(null);
     try {
       const branding = await loadCityBrandingPdfAssets(selectedMunicipio);
       const schoolName = schools.find((s) => s.id === selectedSchool)?.name || "Escola";
       const serieName = series.find((s) => s.id === selectedSerie)?.name || "Serie";
-
-      if (turmaEspecifica) {
-        if (!labels.length || !previewContext) {
-          setError("Monte as etiquetas antes de gerar o PDF.");
-          return;
-        }
-        const context = enrichEtiquetasContext(
-          await getEtiquetasDados(buildParams()),
-          filterLabelsForContext()
-        );
-        setPreviewContext(context);
-        await downloadEtiquetasPdf(context, labels, branding.logo);
-        toast({ title: "PDF gerado", description: `${labels.length} etiqueta(s) exportada(s).` });
-        return;
-      }
-
-      if (turmas.length === 0) {
-        setError("Nenhuma turma encontrada para gerar o lote.");
-        return;
-      }
-
       const templateTitle = globalTitle || "";
       const templateLabels = buildTemplateLabels(templateTitle);
       const zipEntries: Array<{ path: string; blob: Blob }> = [];
@@ -554,7 +640,7 @@ export default function EtiquetasPage() {
         description: `${zipEntries.length} turma(s) exportada(s).`,
       });
     } catch (err) {
-      const msg = getEtiquetasApiError(err, "Não foi possível gerar o PDF de etiquetas.");
+      const msg = getEtiquetasApiError(err, "Não foi possível gerar o ZIP de etiquetas.");
       setError(msg);
       toast({ title: "Erro", description: msg, variant: "destructive" });
     } finally {
@@ -577,6 +663,32 @@ export default function EtiquetasPage() {
   );
 
   const previewLabelIndex = previewLabel ? labels.findIndex((item) => item.id === previewLabelId) : -1;
+
+  const displayContext = useMemo(() => {
+    if (!hasGeoContext) return null;
+    return previewContext ?? buildLocalPreviewContext();
+    // buildLocalPreviewContext lê filtros atuais; deps cobrem essas fontes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    hasGeoContext,
+    previewContext,
+    selectedEstado,
+    selectedMunicipio,
+    selectedSchool,
+    selectedNivel,
+    selectedSerie,
+    selectedTurma,
+    selectedTurno,
+    selectedAplicadoId,
+    modo,
+    globalTitle,
+    estados,
+    municipios,
+    schools,
+    niveis,
+    series,
+    turmas,
+  ]);
 
   return (
     <div className="container mx-auto max-w-6xl space-y-6 p-4 md:p-6">
@@ -658,7 +770,13 @@ export default function EtiquetasPage() {
                 label={modo === "cartao_resposta" ? "Cartão resposta" : "Avaliação"}
                 estado={selectedEstado}
                 municipio={selectedMunicipio}
-                escola={selectedSchool !== "all" ? selectedSchool : undefined}
+                escola={
+                  modo === "cartao_resposta"
+                    ? undefined
+                    : selectedSchool !== "all"
+                      ? selectedSchool
+                      : undefined
+                }
                 reportEntityType={
                   modo === "cartao_resposta" ? REPORT_ENTITY_TYPE_ANSWER_SHEET : undefined
                 }
@@ -772,7 +890,7 @@ export default function EtiquetasPage() {
                 <SelectValue placeholder="Turno" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">{turmaEspecifica ? "Selecione" : "Da turma (API)"}</SelectItem>
+                <SelectItem value="all">{turmaEspecifica ? "Selecione" : "Da turma"}</SelectItem>
                 {TURNO_OPTIONS.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
                     {item.name}
@@ -798,178 +916,281 @@ export default function EtiquetasPage() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-
-          <div className="flex flex-wrap gap-2 sm:col-span-2">
-            {turmaEspecifica ? (
-              <Button type="button" variant="outline" onClick={buildPreview} disabled={loadingPreview || !!validationMessage}>
-                {loadingPreview ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
-                Montar pré-visualização
-              </Button>
-            ) : (
-              <Button type="button" onClick={handleGeneratePdf} disabled={loadingPdf || !!validationMessage}>
-                {loadingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                Baixar ZIP
-              </Button>
-            )}
-          </div>
-          {!turmaEspecifica && (
-            <p className="text-xs text-muted-foreground sm:col-span-2">
-              Com &quot;Todas&quot; as turmas, o download gera um ZIP (mesmo molde de quantidade/título por
-              turma). A edição individual exige turma específica.
-            </p>
-          )}
         </CardContent>
       </Card>
 
-      {turmaEspecifica && previewContext && !!labels.length && (
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={handleGeneratePdf} disabled={loadingPdf}>
-            {loadingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-            Baixar PDF
-          </Button>
-          <Button type="button" variant="secondary" onClick={appendLabel}>
-            <Plus className="mr-2 h-4 w-4" />
-            Adicionar etiqueta
-          </Button>
-        </div>
-      )}
-
-      {turmaEspecifica && previewContext && (
+      {!hasGeoContext ? (
+        <Alert>
+          <AlertDescription>
+            Selecione estado e município para liberar a pré-visualização e as opções das etiquetas.
+          </AlertDescription>
+        </Alert>
+      ) : (
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Contexto aplicado</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <FileText className="h-5 w-5 text-primary" />
+              Pré-visualização e configuração
+            </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Município</p>
-              <p className="text-base font-semibold">
-                {previewContext.municipio.name}
-                {previewContext.municipio.state ? `/${previewContext.municipio.state}` : ""}
-              </p>
-            </div>
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Escola</p>
-              <p className="text-base font-semibold">{previewContext.contexto.escola}</p>
-            </div>
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Modalidade/Etapa | Série | Turma | Turno</p>
-              <p className="text-base font-semibold">
-                {previewContext.contexto.nivel} | {previewContext.contexto.serie} |{" "}
-                {previewContext.contexto.turma} |{" "}
-                {etiquetasTurnoLabel(previewContext)}
-              </p>
+          <CardContent className="space-y-6">
+            {displayContext ? (
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Município</p>
+                  <p className="text-base font-semibold">
+                    {displayContext.municipio.name}
+                    {displayContext.municipio.state ? `/${displayContext.municipio.state}` : ""}
+                  </p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Escola</p>
+                  <p className="text-base font-semibold">{displayContext.contexto.escola}</p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Modalidade/Etapa | Série | Turma | Turno</p>
+                  <p className="text-base font-semibold">
+                    {displayContext.contexto.nivel} | {displayContext.contexto.serie} |{" "}
+                    {displayContext.contexto.turma} | {etiquetasTurnoLabel(displayContext)}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+
+            {virtualPages.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Preparando etiquetas…</p>
+            ) : (
+              <div className="space-y-4">
+                {virtualPages.map((page, pageIndex) => (
+                  <div key={`page-${pageIndex}`} className="space-y-3">
+                    <h3 className="text-base font-semibold">Configuração — Página {pageIndex + 1}</h3>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {page.map((label, labelIndexOnPage) => {
+                        const globalLabelIndex = pageIndex * 8 + labelIndexOnPage;
+                        return (
+                          <div key={label.id} className="space-y-2 rounded-lg border p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <Label className="text-sm font-medium">
+                                Etiqueta {globalLabelIndex + 1}
+                              </Label>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setPreviewLabelId(label.id)}
+                              >
+                                <Eye className="mr-2 h-4 w-4" />
+                                Visualizar
+                              </Button>
+                            </div>
+                            <Input
+                              value={label.titulo}
+                              onChange={(event) =>
+                                updateLabel(label.id, { titulo: event.target.value })
+                              }
+                              placeholder="Título da etiqueta"
+                            />
+
+                            <div className="space-y-2">
+                              <Label htmlFor={`texto-livre-${label.id}`}>Texto livre</Label>
+                              <EtiquetaTextToolbar
+                                id={`texto-livre-${label.id}`}
+                                value={label.textoLivre}
+                                onChange={(value) => updateLabel(label.id, { textoLivre: value })}
+                                align={label.textoLivreAlinhamento}
+                                onAlignChange={(value) =>
+                                  updateLabel(label.id, { textoLivreAlinhamento: value })
+                                }
+                                fontSize={label.textoLivreTamanho}
+                                onFontSizeChange={(value) =>
+                                  updateLabel(label.id, { textoLivreTamanho: value })
+                                }
+                                placeholder="Texto livre da etiqueta"
+                              />
+                            </div>
+
+                            <div className="flex items-center space-x-2">
+                              <Checkbox
+                                id={`signature-${label.id}`}
+                                checked={label.exibirAssinatura}
+                                onCheckedChange={(checked) =>
+                                  updateLabel(label.id, { exibirAssinatura: checked === true })
+                                }
+                              />
+                              <Label htmlFor={`signature-${label.id}`}>Exibir assinatura e CPF</Label>
+                            </div>
+
+                            {!label.exibirAssinatura && (
+                              <div className="space-y-2">
+                                <Label htmlFor={`text-color-${label.id}`}>Cor do texto livre</Label>
+                                <Input
+                                  id={`text-color-${label.id}`}
+                                  type="color"
+                                  value={label.textoLivreCor}
+                                  onChange={(event) =>
+                                    updateLabel(label.id, { textoLivreCor: event.target.value })
+                                  }
+                                  className="h-10 max-w-[8rem] cursor-pointer p-1"
+                                />
+                              </div>
+                            )}
+
+                            {label.exibirAssinatura && (
+                              <>
+                                <div className="space-y-2">
+                                  <Label htmlFor={`text-above-signature-${label.id}`}>
+                                    Texto acima da assinatura (
+                                    {label.textoAcimaAssinatura.length}/{TEXTO_ACIMA_ASSINATURA_MAX})
+                                  </Label>
+                                  <Input
+                                    id={`text-above-signature-${label.id}`}
+                                    value={label.textoAcimaAssinatura}
+                                    maxLength={TEXTO_ACIMA_ASSINATURA_MAX}
+                                    placeholder="Ex.: 2º DIA DE APLICAÇÃO – MAT OBJETIVA"
+                                    onChange={(event) =>
+                                      updateLabel(label.id, {
+                                        textoAcimaAssinatura: event.target.value,
+                                      })
+                                    }
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <p className="text-xs font-medium text-muted-foreground">1º aplicador</p>
+                                  <Input
+                                    value={label.nomeAplicador}
+                                    onChange={(event) =>
+                                      updateLabel(label.id, { nomeAplicador: event.target.value })
+                                    }
+                                    placeholder="Nome do aplicador"
+                                  />
+                                  <Input
+                                    value={label.cpfAplicador}
+                                    onChange={(event) =>
+                                      updateLabel(label.id, {
+                                        cpfAplicador: maskCpf(event.target.value),
+                                      })
+                                    }
+                                    placeholder="CPF do aplicador"
+                                  />
+                                </div>
+                                {label.exibirSegundoAplicador ? (
+                                  <div className="space-y-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className="text-xs font-medium text-muted-foreground">
+                                        2º aplicador
+                                      </p>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 px-2 text-destructive"
+                                        onClick={() =>
+                                          updateLabel(label.id, {
+                                            exibirSegundoAplicador: false,
+                                            nomeAplicador2: "",
+                                            cpfAplicador2: "",
+                                          })
+                                        }
+                                      >
+                                        <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                        Remover
+                                      </Button>
+                                    </div>
+                                    <Input
+                                      value={label.nomeAplicador2}
+                                      onChange={(event) =>
+                                        updateLabel(label.id, { nomeAplicador2: event.target.value })
+                                      }
+                                      placeholder="Nome do 2º aplicador"
+                                    />
+                                    <Input
+                                      value={label.cpfAplicador2}
+                                      onChange={(event) =>
+                                        updateLabel(label.id, {
+                                          cpfAplicador2: maskCpf(event.target.value),
+                                        })
+                                      }
+                                      placeholder="CPF do 2º aplicador"
+                                    />
+                                  </div>
+                                ) : (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="w-full"
+                                    onClick={() =>
+                                      updateLabel(label.id, { exibirSegundoAplicador: true })
+                                    }
+                                  >
+                                    <UserPlus className="mr-2 h-4 w-4" />
+                                    Adicionar aplicador
+                                  </Button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2 border-t pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={buildPreview}
+                disabled={loadingPreview || !!validationMessage || !turmaEspecifica}
+                title={!turmaEspecifica ? "Selecione uma turma específica" : undefined}
+              >
+                {loadingPreview ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Eye className="mr-2 h-4 w-4" />
+                )}
+                Montar pré-visualização
+              </Button>
+              <Button
+                type="button"
+                onClick={handleGeneratePdf}
+                disabled={loadingPdf || !!validationMessage || !turmaEspecifica || !labels.length}
+                title={!turmaEspecifica ? "Selecione uma turma específica" : undefined}
+              >
+                {loadingPdf ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                Baixar PDF
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={appendLabel}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Adicionar etiqueta
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleGenerateZip}
+                disabled={loadingPdf || !!validationMessage || turmaEspecifica}
+                title={turmaEspecifica ? 'Deixe a turma em "Todas" para gerar o ZIP' : undefined}
+              >
+                {loadingPdf ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                Baixar ZIP
+              </Button>
             </div>
           </CardContent>
         </Card>
-      )}
-
-      {turmaEspecifica && !!virtualPages.length && (
-        <div className="space-y-4">
-          {virtualPages.map((page, pageIndex) => (
-            <Card key={`page-${pageIndex}`}>
-              <CardHeader>
-                <CardTitle className="text-lg">Configuração - Página {pageIndex + 1}</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-2">
-                {page.map((label, labelIndexOnPage) => {
-                  const globalLabelIndex = pageIndex * 8 + labelIndexOnPage;
-                  return (
-                  <div key={label.id} className="space-y-2 rounded-lg border p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <Label className="text-sm font-medium">Etiqueta {globalLabelIndex + 1}</Label>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setPreviewLabelId(label.id)}
-                      >
-                        <Eye className="mr-2 h-4 w-4" />
-                        Visualizar
-                      </Button>
-                    </div>
-                    <Input
-                      value={label.titulo}
-                      onChange={(event) => updateLabel(label.id, { titulo: event.target.value })}
-                      placeholder="Título da etiqueta"
-                    />
-
-                    <div className="space-y-2">
-                      <Label htmlFor={`texto-livre-${label.id}`}>Texto livre</Label>
-                      <EtiquetaTextToolbar
-                        id={`texto-livre-${label.id}`}
-                        value={label.textoLivre}
-                        onChange={(value) => updateLabel(label.id, { textoLivre: value })}
-                        align={label.textoLivreAlinhamento}
-                        onAlignChange={(value) => updateLabel(label.id, { textoLivreAlinhamento: value })}
-                        fontSize={label.textoLivreTamanho}
-                        onFontSizeChange={(value) => updateLabel(label.id, { textoLivreTamanho: value })}
-                        placeholder="Texto livre da etiqueta"
-                      />
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`signature-${label.id}`}
-                        checked={label.exibirAssinatura}
-                        onCheckedChange={(checked) =>
-                          updateLabel(label.id, { exibirAssinatura: checked === true })
-                        }
-                      />
-                      <Label htmlFor={`signature-${label.id}`}>Exibir assinatura e CPF</Label>
-                    </div>
-
-                    {!label.exibirAssinatura && (
-                      <div className="space-y-2">
-                        <Label htmlFor={`text-color-${label.id}`}>Cor do texto livre</Label>
-                        <Input
-                          id={`text-color-${label.id}`}
-                          type="color"
-                          value={label.textoLivreCor}
-                          onChange={(event) => updateLabel(label.id, { textoLivreCor: event.target.value })}
-                          className="h-10 max-w-[8rem] cursor-pointer p-1"
-                        />
-                      </div>
-                    )}
-
-                    {label.exibirAssinatura && (
-                      <>
-                        <div className="space-y-2">
-                          <Label htmlFor={`text-above-signature-${label.id}`}>
-                            Texto acima da assinatura ({label.textoAcimaAssinatura.length}/{TEXTO_ACIMA_ASSINATURA_MAX})
-                          </Label>
-                          <Input
-                            id={`text-above-signature-${label.id}`}
-                            value={label.textoAcimaAssinatura}
-                            maxLength={TEXTO_ACIMA_ASSINATURA_MAX}
-                            placeholder="Ex.: 2º DIA DE APLICAÇÃO – MAT OBJETIVA"
-                            onChange={(event) =>
-                              updateLabel(label.id, { textoAcimaAssinatura: event.target.value })
-                            }
-                          />
-                        </div>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <Input
-                            value={label.nomeAplicador}
-                            onChange={(event) => updateLabel(label.id, { nomeAplicador: event.target.value })}
-                            placeholder="Nome do aplicador"
-                          />
-                          <Input
-                            value={label.cpfAplicador}
-                            onChange={(event) =>
-                              updateLabel(label.id, { cpfAplicador: maskCpf(event.target.value) })
-                            }
-                            placeholder="CPF do aplicador"
-                          />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
       )}
 
       <EtiquetaPreviewDialog
@@ -978,7 +1199,7 @@ export default function EtiquetasPage() {
           if (!open) setPreviewLabelId(null);
         }}
         label={previewLabel}
-        context={previewContext}
+        context={displayContext}
         logoUrl={previewLogoUrl}
         labelIndex={previewLabelIndex >= 0 ? previewLabelIndex : undefined}
       />
