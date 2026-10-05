@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { PlusCircle, Search, Trash2, Users, Building, Loader2, AlertCircle, UserPlus, X, Eye, GraduationCap, Clock } from "lucide-react";
+import { PlusCircle, Search, Trash2, Users, Building, Loader2, AlertCircle, UserPlus, X, Eye, GraduationCap, Clock, BarChart3 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/authContext";
@@ -47,8 +47,12 @@ import { ClassShiftBadge } from "@/components/schools/ClassShiftBadge";
 import { ClassShiftSelector } from "@/components/schools/ClassShiftSelector";
 import { EditClassShiftDialog } from "@/components/schools/EditClassShiftDialog";
 import { SubturmasAdapSection } from "@/components/schools/SubturmasAdapSection";
+import { TurmasSeriesReport } from "@/components/schools/TurmasSeriesReport";
 import { isSpecialEducationClass, levelsFromSubturmas } from "@/lib/subturma";
 import { type ClassShiftCanonical, toApiShiftValue } from "@/lib/classShift";
+
+/** Valor especial da seleção embutida: relatório consolidado de turmas/séries. */
+const GENERAL_REPORT_VALUE = "__general_report__";
 
 interface School {
   id: string;
@@ -161,10 +165,10 @@ export default function Turmas({ embedded = false }: TurmasProps) {
   const [viewStudents, setViewStudents] = useState<Student[]>([]);
   const [subturmaBadges, setSubturmaBadges] = useState<Record<string, string>>({});
   const [adapLevelsByClass, setAdapLevelsByClass] = useState<Record<string, string[]>>({});
-  /** Aba de escola ativa (modo embedded: turmas separadas por escola) */
-  const [activeSchoolTab, setActiveSchoolTab] = useState<string>("");
-  const [showFilters, setShowFilters] = useState(true);
+  /** Seleção embutida: relatório geral ou id da escola */
+  const [activeSchoolTab, setActiveSchoolTab] = useState<string>(GENERAL_REPORT_VALUE);
   const [isLoadingViewStudents, setIsLoadingViewStudents] = useState(false);
+  const isGeneralReport = embedded && activeSchoolTab === GENERAL_REPORT_VALUE;
 
   const { toast } = useToast();
   const { user } = useAuth();
@@ -193,11 +197,11 @@ export default function Turmas({ embedded = false }: TurmasProps) {
           const response = await api.get(`/classes/school/${school.id}`);
           const classes = response.data || [];
           // Garantir que cada turma tenha o school_id
-          const classesWithSchoolId = classes.map((classItem: any) => ({
+          const classesWithSchoolId = classes.map((classItem: Turma) => ({
             ...classItem,
-            school_id: school.id
+            school_id: school.id,
+            school: classItem.school ?? { id: school.id, name: school.name },
           }));
-          console.log(`Turmas da escola ${school.name}:`, classesWithSchoolId);
           return classesWithSchoolId;
         } catch (error) {
           console.error(`Erro ao buscar turmas da escola ${school.name}:`, error);
@@ -206,15 +210,7 @@ export default function Turmas({ embedded = false }: TurmasProps) {
       });
 
       const turmasArrays = await Promise.all(turmasPromises);
-      const allTurmas = turmasArrays.flat();
-      
-      console.log('Turmas carregadas:', allTurmas);
-      console.log('Exemplo de turma:', allTurmas[0]);
-      console.log('Exemplo de turma school_id:', allTurmas[0]?.school_id);
-      console.log('Exemplo de turma school_id tipo:', typeof allTurmas[0]?.school_id);
-      console.log('Exemplo de turma school_id truthy?', !!allTurmas[0]?.school_id);
-
-      setTurmas(allTurmas);
+      setTurmas(turmasArrays.flat());
     } catch (error) {
       console.error("Erro ao buscar turmas:", error);
       toast({
@@ -282,10 +278,12 @@ export default function Turmas({ embedded = false }: TurmasProps) {
     };
   }, [turmas]);
 
-  // Quando embedded, definir primeira escola como aba ativa ao carregar escolas
+  // Quando embedded, manter Relatório Geral como padrão; se escola selecionada sumir da lista, voltar ao relatório
   useEffect(() => {
-    if (embedded && schools.length > 0 && !activeSchoolTab) {
-      setActiveSchoolTab(schools[0].id);
+    if (!embedded || schools.length === 0) return;
+    if (activeSchoolTab === GENERAL_REPORT_VALUE) return;
+    if (!schools.some((s) => s.id === activeSchoolTab)) {
+      setActiveSchoolTab(GENERAL_REPORT_VALUE);
     }
   }, [embedded, schools, activeSchoolTab]);
 
@@ -700,6 +698,16 @@ export default function Turmas({ embedded = false }: TurmasProps) {
     [turmas, searchTerm, classNameCollator]
   );
 
+  const selectedSchool = useMemo(() => {
+    if (!embedded || isGeneralReport || schools.length === 0) return null;
+    return schools.find((s) => s.id === activeSchoolTab) || schools[0] || null;
+  }, [embedded, isGeneralReport, schools, activeSchoolTab]);
+
+  const turmasDaEscolaSelecionada = useMemo(() => {
+    if (!selectedSchool) return [];
+    return filteredTurmas.filter((t) => t.school_id === selectedSchool.id);
+  }, [filteredTurmas, selectedSchool]);
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -765,151 +773,151 @@ export default function Turmas({ embedded = false }: TurmasProps) {
           </div>
         </div>
       )}
-      {embedded && (
-        <></>
-      )}
 
-      {embedded && (
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setShowFilters((prev) => !prev)}
-          >
-            {showFilters ? "Ocultar escolas" : "Ver escolas"}
-          </Button>
-        </div>
-      )}
-      <div className="flex items-center space-x-2 flex-wrap gap-2">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar turmas..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-8"
-          />
-        </div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
+        {embedded && schools.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant={isGeneralReport ? "default" : "outline"}
+              size="sm"
+              className="shrink-0"
+              onClick={() => setActiveSchoolTab(GENERAL_REPORT_VALUE)}
+            >
+              <BarChart3 className="h-4 w-4 mr-1.5" />
+              Relatório Geral
+            </Button>
+            <span className="text-muted-foreground font-medium select-none" aria-hidden="true">
+              |
+            </span>
+            <Select
+              key={isGeneralReport ? "school-picker-empty" : `school-picker-${activeSchoolTab}`}
+              value={isGeneralReport ? undefined : activeSchoolTab}
+              onValueChange={(value) => setActiveSchoolTab(value)}
+            >
+              <SelectTrigger className="w-full sm:w-[260px]">
+                <SelectValue placeholder="Escolher Escola" />
+              </SelectTrigger>
+              <SelectContent>
+                {schools.map((school) => {
+                  const count = filteredTurmas.filter((t) => t.school_id === school.id).length;
+                  return (
+                    <SelectItem key={school.id} value={school.id}>
+                      {school.name} ({count})
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {!isGeneralReport && (
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
+            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar turmas..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-8"
+            />
+          </div>
+        )}
       </div>
 
       {embedded && schools.length > 0 ? (
-        <Tabs value={activeSchoolTab || schools[0]?.id} onValueChange={setActiveSchoolTab} className="w-full">
-          {showFilters && (
-            <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/60 p-1 rounded-lg w-full">
-              {schools.map((school) => {
-                const count = filteredTurmas.filter((t) => t.school_id === school.id).length;
-                return (
-                  <TabsTrigger
-                    key={school.id}
-                    value={school.id}
-                    className="flex items-start gap-2 data-[state=active]:bg-background data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-border rounded-md transition-all"
-                  >
-                    <Building className="h-3.5 w-3.5 shrink-0" />
-                    <span className="whitespace-normal break-words max-w-[140px] sm:max-w-[200px] leading-tight">
-                      {school.name}
-                    </span>
-                    <Badge variant="secondary" className="ml-1 text-xs px-1.5 py-0">
-                      {count}
-                    </Badge>
-                  </TabsTrigger>
-                );
-              })}
-            </TabsList>
-          )}
-          {schools.map((school) => {
-            const turmasDaEscola = filteredTurmas.filter((t) => t.school_id === school.id);
-            return (
-              <TabsContent key={school.id} value={school.id} className="mt-4 space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  {turmasDaEscola.length} turma(s) em <strong className="text-foreground">{school.name}</strong>
-                </p>
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                  {turmasDaEscola.map((turma) => (
-                    <Card key={turma.id} className="hover:shadow-md transition-shadow">
-                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-lg font-semibold flex items-center gap-2 flex-wrap">
-                          <Users className="h-5 w-5 text-green-600" />
-                          {turma.name}
-                          <ClassShiftBadge shift={turma.shift} />
-                          {(adapLevelsByClass[turma.id] || []).map((level) => (
-                            <Badge key={level} variant="secondary">{level}</Badge>
-                          ))}
-                        </CardTitle>
-                        <Badge variant="default">Ativa</Badge>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-2">
-                          {turma.grade && (
-                            <div className="flex items-center gap-2">
-                              <GraduationCap className="h-4 w-4 text-muted-foreground" />
-                              <div className="text-sm">
-                                <p><strong>Série:</strong> {turma.grade.name}</p>
-                                {turma.grade.education_stage && (
-                                  <p className="text-xs text-muted-foreground">
-                                    <strong>Curso:</strong> {turma.grade.education_stage.name}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                          <div className="flex items-center justify-between mt-3">
-                            <div className="flex items-center space-x-1">
-                              <Users className="h-4 w-4 text-muted-foreground" />
-                              {updatingCounters.has(turma.id) ? (
-                                <div className="flex items-center space-x-1">
-                                  <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
-                                  <span className="text-sm text-blue-600">Atualizando...</span>
-                                </div>
-                              ) : (
-                                <span className="text-sm">{turma.students_count || 0} alunos</span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap gap-2 mt-4">
-                            <Button variant="outline" size="sm" onClick={() => openViewDialog(turma)}>
-                              <Eye className="h-3 w-3 mr-1" />
-                              Visualizar
-                            </Button>
-                            {canDeleteTurma && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setShiftEditTurma(turma)}
-                              >
-                                <Clock className="h-3 w-3 mr-1" />
-                                Editar turno
-                              </Button>
-                            )}
-                            {canDeleteTurma && (
-                              <Button variant="outline" size="sm" onClick={() => openDeleteDialog(turma)}>
-                                <Trash2 className="h-3 w-3 mr-1" />
-                                Excluir
-                              </Button>
+        isGeneralReport ? (
+          <TurmasSeriesReport turmas={turmas} schools={schools} />
+        ) : selectedSchool ? (
+          <div className="mt-2 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {turmasDaEscolaSelecionada.length} turma(s) em{" "}
+              <strong className="text-foreground">{selectedSchool.name}</strong>
+            </p>
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {turmasDaEscolaSelecionada.map((turma) => (
+                <Card key={turma.id} className="hover:shadow-md transition-shadow">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-lg font-semibold flex items-center gap-2 flex-wrap">
+                      <Users className="h-5 w-5 text-green-600" />
+                      {turma.name}
+                      <ClassShiftBadge shift={turma.shift} />
+                      {(adapLevelsByClass[turma.id] || []).map((level) => (
+                        <Badge key={level} variant="secondary">{level}</Badge>
+                      ))}
+                    </CardTitle>
+                    <Badge variant="default">Ativa</Badge>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {turma.grade && (
+                        <div className="flex items-center gap-2">
+                          <GraduationCap className="h-4 w-4 text-muted-foreground" />
+                          <div className="text-sm">
+                            <p><strong>Série:</strong> {turma.grade.name}</p>
+                            {turma.grade.education_stage && (
+                              <p className="text-xs text-muted-foreground">
+                                <strong>Curso:</strong> {turma.grade.education_stage.name}
+                              </p>
                             )}
                           </div>
                         </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-                {turmasDaEscola.length === 0 && (
-                  <Card>
-                    <CardContent className="flex flex-col items-center justify-center py-10">
-                      <Users className="h-12 w-12 text-muted-foreground mb-4" />
-                      <h3 className="text-lg font-semibold mb-2">
-                        {searchTerm ? "Nenhuma turma encontrada" : "Nenhuma turma nesta escola"}
-                      </h3>
-                      <p className="text-muted-foreground text-center">
-                        {searchTerm ? "Tente ajustar sua pesquisa" : "Crie uma turma usando o botão acima."}
-                      </p>
-                    </CardContent>
-                  </Card>
-                )}
-              </TabsContent>
-            );
-          })}
-        </Tabs>
+                      )}
+                      <div className="flex items-center justify-between mt-3">
+                        <div className="flex items-center space-x-1">
+                          <Users className="h-4 w-4 text-muted-foreground" />
+                          {updatingCounters.has(turma.id) ? (
+                            <div className="flex items-center space-x-1">
+                              <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
+                              <span className="text-sm text-blue-600">Atualizando...</span>
+                            </div>
+                          ) : (
+                            <span className="text-sm">{turma.students_count || 0} alunos</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2 mt-4">
+                        <Button variant="outline" size="sm" onClick={() => openViewDialog(turma)}>
+                          <Eye className="h-3 w-3 mr-1" />
+                          Visualizar
+                        </Button>
+                        {canDeleteTurma && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShiftEditTurma(turma)}
+                          >
+                            <Clock className="h-3 w-3 mr-1" />
+                            Editar turno
+                          </Button>
+                        )}
+                        {canDeleteTurma && (
+                          <Button variant="outline" size="sm" onClick={() => openDeleteDialog(turma)}>
+                            <Trash2 className="h-3 w-3 mr-1" />
+                            Excluir
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            {turmasDaEscolaSelecionada.length === 0 && (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-10">
+                  <Users className="h-12 w-12 text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">
+                    {searchTerm ? "Nenhuma turma encontrada" : "Nenhuma turma nesta escola"}
+                  </h3>
+                  <p className="text-muted-foreground text-center">
+                    {searchTerm ? "Tente ajustar sua pesquisa" : "Crie uma turma usando o botão acima."}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        ) : null
       ) : (
         <>
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
