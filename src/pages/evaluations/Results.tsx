@@ -3021,6 +3021,11 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                                     }))
                                   } : undefined
                                 }}
+                                tabelaAdap={
+                                  Array.isArray(apiData.tabela_adap) && apiData.tabela_adap.length > 0
+                                    ? apiData.tabela_adap
+                                    : undefined
+                                }
                                 onViewStudentDetails={handleViewStudentDetails}
                                 onOpenInNewTab={handleOpenInNewTab}
                               />
@@ -3203,7 +3208,17 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                                 </span>
                               </div>
                               <div className="min-w-0">
-                                <div className="font-medium text-foreground truncate">{a.nome}</div>
+                                <div className="font-medium text-foreground truncate flex items-center gap-2 flex-wrap">
+                                  <span>{a.nome}</span>
+                                  {a.adap_rotulo ? (
+                                    <Badge
+                                      variant="secondary"
+                                      className="bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-200 text-xs"
+                                    >
+                                      {a.adap_rotulo}
+                                    </Badge>
+                                  ) : null}
+                                </div>
                                 <div className="text-sm text-muted-foreground truncate">
                                   {[
                                     a.escola,
@@ -3261,7 +3276,9 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                         alunosLabel: labelResultadosAlunosFiltro(selectedAlunos),
                         cityId: selectedMunicipality !== 'all' ? selectedMunicipality : null,
                         students: filteredPendingStudents.map((a) => ({
-                          nome: a.nome,
+                          nome: a.adap_rotulo
+                            ? `${a.nome || "—"} (${a.adap_rotulo})`
+                            : a.nome,
                           escola: a.escola,
                           turma: a.turma,
                           serie: a.serie,
