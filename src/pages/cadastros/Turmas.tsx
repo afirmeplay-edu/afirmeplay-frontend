@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { PlusCircle, Search, Trash2, Users, Building, Loader2, AlertCircle, UserPlus, X, Eye, GraduationCap, Clock, BarChart3 } from "lucide-react";
+import { PlusCircle, Search, Trash2, Users, Building, Loader2, AlertCircle, UserPlus, X, Eye, GraduationCap, Clock, BarChart3, FileDown } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/authContext";
@@ -48,8 +48,17 @@ import { ClassShiftSelector } from "@/components/schools/ClassShiftSelector";
 import { EditClassShiftDialog } from "@/components/schools/EditClassShiftDialog";
 import { SubturmasAdapSection } from "@/components/schools/SubturmasAdapSection";
 import { TurmasSeriesReport } from "@/components/schools/TurmasSeriesReport";
+import {
+  DEFAULT_TURMAS_REPORT_FILTERS,
+  filterTurmasForReport,
+  getTurmasReportCourseOptions,
+  TURMAS_REPORT_ALL,
+  TURMAS_REPORT_NO_SHIFT,
+  type TurmasSeriesReportFilters,
+} from "@/lib/turmasSeriesReport";
+import { generateTurmasSeriesReportPdf } from "@/services/reports/turmasSeriesReportPdf";
 import { isSpecialEducationClass, levelsFromSubturmas } from "@/lib/subturma";
-import { type ClassShiftCanonical, toApiShiftValue } from "@/lib/classShift";
+import { type ClassShiftCanonical, getClassShiftLabel, toApiShiftValue } from "@/lib/classShift";
 
 /** Valor especial da seleção embutida: relatório consolidado de turmas/séries. */
 const GENERAL_REPORT_VALUE = "__general_report__";
@@ -168,6 +177,10 @@ export default function Turmas({ embedded = false }: TurmasProps) {
   /** Seleção embutida: relatório geral ou id da escola */
   const [activeSchoolTab, setActiveSchoolTab] = useState<string>(GENERAL_REPORT_VALUE);
   const [isLoadingViewStudents, setIsLoadingViewStudents] = useState(false);
+  const [reportFilters, setReportFilters] = useState<TurmasSeriesReportFilters>(
+    DEFAULT_TURMAS_REPORT_FILTERS
+  );
+  const [isExportingReport, setIsExportingReport] = useState(false);
   const isGeneralReport = embedded && activeSchoolTab === GENERAL_REPORT_VALUE;
 
   const { toast } = useToast();
@@ -708,6 +721,54 @@ export default function Turmas({ embedded = false }: TurmasProps) {
     return filteredTurmas.filter((t) => t.school_id === selectedSchool.id);
   }, [filteredTurmas, selectedSchool]);
 
+  const handleExportGeneralReport = async () => {
+    if (!isGeneralReport || isExportingReport) return;
+    const reportTurmas = filterTurmasForReport(turmas, reportFilters);
+    if (reportTurmas.length === 0) {
+      toast({
+        title: "Nada para exportar",
+        description: "Nenhuma turma encontrada com os filtros atuais.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const schoolLabel =
+      reportFilters.schoolId === TURMAS_REPORT_ALL
+        ? "Todas as escolas"
+        : schools.find((s) => s.id === reportFilters.schoolId)?.name || "Escola não informada";
+    const shiftLabel =
+      reportFilters.shift === TURMAS_REPORT_ALL
+        ? "Todos os turnos"
+        : reportFilters.shift === TURMAS_REPORT_NO_SHIFT
+          ? "Sem turno"
+          : getClassShiftLabel(reportFilters.shift);
+    const courseLabel =
+      reportFilters.courseId === TURMAS_REPORT_ALL
+        ? "Todos os cursos"
+        : getTurmasReportCourseOptions(turmas).find((c) => c.id === reportFilters.courseId)?.name ||
+          "Curso não informado";
+
+    setIsExportingReport(true);
+    try {
+      await generateTurmasSeriesReportPdf({
+        turmas: reportTurmas,
+        filterLabels: { escola: schoolLabel, turno: shiftLabel, curso: courseLabel },
+        cityId: user?.tenant_id || user?.city_id || null,
+      });
+      toast({ title: "Relatório exportado", description: "PDF gerado com sucesso." });
+    } catch (error) {
+      console.error("Erro ao exportar relatório de turmas:", error);
+      toast({
+        title: "Erro",
+        description: "Não foi possível gerar o PDF do relatório de turmas.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExportingReport(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -823,11 +884,34 @@ export default function Turmas({ embedded = false }: TurmasProps) {
             />
           </div>
         )}
+
+        {embedded && schools.length > 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0 self-start sm:self-auto sm:ml-auto"
+            onClick={() => void handleExportGeneralReport()}
+            disabled={!isGeneralReport || isExportingReport}
+          >
+            {isExportingReport ? (
+              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+            ) : (
+              <FileDown className="h-4 w-4 mr-1.5" />
+            )}
+            {isExportingReport ? "Gerando PDF…" : "Exportar PDF"}
+          </Button>
+        )}
       </div>
 
       {embedded && schools.length > 0 ? (
         isGeneralReport ? (
-          <TurmasSeriesReport turmas={turmas} schools={schools} />
+          <TurmasSeriesReport
+            turmas={turmas}
+            schools={schools}
+            filters={reportFilters}
+            onFiltersChange={setReportFilters}
+          />
         ) : selectedSchool ? (
           <div className="mt-2 space-y-4">
             <p className="text-sm text-muted-foreground">
