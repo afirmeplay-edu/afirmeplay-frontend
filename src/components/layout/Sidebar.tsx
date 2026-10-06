@@ -56,6 +56,7 @@ import {
   ListChecks,
   GraduationCap,
   Truck,
+  Timer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
@@ -389,6 +390,7 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
             { icon: Layers, label: "Relatório Geral", href: "/app/relatorios/relatorio-geral", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
             { icon: UserCheck, label: "Relatório de Participação", href: "/app/relatorios/participacao", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
             { icon: Truck, label: "Logística de Avaliação", href: "/app/relatorios/logistica", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
+            { icon: Timer, label: "Tempo de Prova", href: "/app/relatorios/tempo-prova", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
           ]
         },
       ]

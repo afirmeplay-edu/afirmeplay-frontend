@@ -52,6 +52,7 @@ const HREF_FEATURE_EXACT: Record<string, string> = {
   '/app/relatorios/relatorio-apresentacao-19-slides': 'reports',
   '/app/relatorios/ranking': 'ranking',
   '/app/relatorios/participacao': 'reports',
+  '/app/relatorios/tempo-prova': 'reports',
   '/app/certificados': 'certificates',
   '/aluno/certificados': 'certificates',
   '/app/olimpiadas': 'competitions',
