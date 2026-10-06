@@ -29,36 +29,26 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { CLASS_SHIFT_OPTIONS } from "@/lib/classShift";
 import {
-  CLASS_SHIFT_OPTIONS,
-  getClassShiftLabel,
-  normalizeClassShift,
-} from "@/lib/classShift";
-
-export interface TurmasSeriesReportSchool {
-  id: string;
-  name: string;
-}
-
-export interface TurmasSeriesReportTurma {
-  id: string;
-  name: string;
-  school_id: string;
-  grade_id?: string;
-  shift?: string | null;
-  students_count?: number;
-  school?: { id: string; name: string };
-  grade?: {
-    id: string;
-    name: string;
-    education_stage_id?: string;
-    education_stage?: { id: string; name: string };
-  };
-}
+  aggregateTurmasBySerie,
+  aggregateTurmasByTurno,
+  DEFAULT_TURMAS_REPORT_FILTERS,
+  filterTurmasForReport,
+  getTurmasReportCourseOptions,
+  TURMAS_REPORT_ALL,
+  TURMAS_REPORT_NO_SHIFT,
+  type TurmasSeriesReportFilters,
+  type TurmasSeriesReportSchool,
+  type TurmasSeriesReportTurma,
+} from "@/lib/turmasSeriesReport";
 
 interface TurmasSeriesReportProps {
   turmas: TurmasSeriesReportTurma[];
   schools: TurmasSeriesReportSchool[];
+  /** Filtros controlados pelo pai (ex.: para exportação). Sem eles, o componente gerencia o próprio estado. */
+  filters?: TurmasSeriesReportFilters;
+  onFiltersChange?: (filters: TurmasSeriesReportFilters) => void;
 }
 
 const CHART_COLORS = [
@@ -72,7 +62,7 @@ const CHART_COLORS = [
   "#55A6A6",
 ];
 
-const ALL = "all";
+const ALL = TURMAS_REPORT_ALL;
 
 /**
  * Relatório consolidado de turmas por série.
@@ -82,46 +72,34 @@ const ALL = "all";
  * nas rotas usadas aqui; o terceiro filtro usa o curso/etapa (`grade.education_stage`),
  * que é o atributo categórico disponível no payload da turma.
  */
-export function TurmasSeriesReport({ turmas, schools }: TurmasSeriesReportProps) {
-  const [filterSchoolId, setFilterSchoolId] = useState(ALL);
-  const [filterShift, setFilterShift] = useState(ALL);
-  const [filterCourseId, setFilterCourseId] = useState(ALL);
+export function TurmasSeriesReport({
+  turmas,
+  schools,
+  filters: controlledFilters,
+  onFiltersChange,
+}: TurmasSeriesReportProps) {
+  const [internalFilters, setInternalFilters] = useState<TurmasSeriesReportFilters>(
+    DEFAULT_TURMAS_REPORT_FILTERS
+  );
+  const filters = controlledFilters ?? internalFilters;
+  const updateFilters = (patch: Partial<TurmasSeriesReportFilters>) => {
+    const next = { ...filters, ...patch };
+    if (onFiltersChange) onFiltersChange(next);
+    if (!controlledFilters) setInternalFilters(next);
+  };
+  const filterSchoolId = filters.schoolId;
+  const filterShift = filters.shift;
+  const filterCourseId = filters.courseId;
+  const setFilterSchoolId = (schoolId: string) => updateFilters({ schoolId });
+  const setFilterShift = (shift: string) => updateFilters({ shift });
+  const setFilterCourseId = (courseId: string) => updateFilters({ courseId });
 
-  const courseOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const turma of turmas) {
-      const stage = turma.grade?.education_stage;
-      const id = stage?.id || turma.grade?.education_stage_id;
-      const name = stage?.name?.trim();
-      if (id && name) map.set(String(id), name);
-    }
-    return Array.from(map.entries())
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-  }, [turmas]);
+  const courseOptions = useMemo(() => getTurmasReportCourseOptions(turmas), [turmas]);
 
-  const filteredTurmas = useMemo(() => {
-    return turmas.filter((turma) => {
-      if (filterSchoolId !== ALL && turma.school_id !== filterSchoolId) return false;
-
-      if (filterShift !== ALL) {
-        const shift = normalizeClassShift(turma.shift);
-        if (filterShift === "__none__") {
-          if (shift) return false;
-        } else if (shift !== filterShift) {
-          return false;
-        }
-      }
-
-      if (filterCourseId !== ALL) {
-        const courseId =
-          turma.grade?.education_stage?.id || turma.grade?.education_stage_id;
-        if (String(courseId || "") !== filterCourseId) return false;
-      }
-
-      return true;
-    });
-  }, [turmas, filterSchoolId, filterShift, filterCourseId]);
+  const filteredTurmas = useMemo(
+    () => filterTurmasForReport(turmas, filters),
+    [turmas, filters]
+  );
 
   const totalTurmas = filteredTurmas.length;
   const totalAlunos = filteredTurmas.reduce(
@@ -133,31 +111,9 @@ export function TurmasSeriesReport({ turmas, schools }: TurmasSeriesReportProps)
     return ids.size;
   }, [filteredTurmas]);
 
-  const bySerie = useMemo(() => {
-    const map = new Map<string, { name: string; turmas: number; alunos: number }>();
-    for (const turma of filteredTurmas) {
-      const key = turma.grade?.id || turma.grade_id || "__sem_serie__";
-      const name = turma.grade?.name?.trim() || "Sem série";
-      const prev = map.get(key) || { name, turmas: 0, alunos: 0 };
-      prev.turmas += 1;
-      prev.alunos += Number(turma.students_count) || 0;
-      map.set(key, prev);
-    }
-    return Array.from(map.values()).sort((a, b) =>
-      a.name.localeCompare(b.name, "pt-BR", { numeric: true })
-    );
-  }, [filteredTurmas]);
+  const bySerie = useMemo(() => aggregateTurmasBySerie(filteredTurmas), [filteredTurmas]);
 
-  const byTurno = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const turma of filteredTurmas) {
-      const label = getClassShiftLabel(turma.shift);
-      map.set(label, (map.get(label) || 0) + 1);
-    }
-    return Array.from(map.entries())
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value);
-  }, [filteredTurmas]);
+  const byTurno = useMemo(() => aggregateTurmasByTurno(filteredTurmas), [filteredTurmas]);
 
   const chartSerieData = bySerie.map((row) => ({
     name: row.name,
@@ -209,7 +165,7 @@ export function TurmasSeriesReport({ turmas, schools }: TurmasSeriesReportProps)
                   {opt.label}
                 </SelectItem>
               ))}
-              <SelectItem value="__none__">Sem turno</SelectItem>
+              <SelectItem value={TURMAS_REPORT_NO_SHIFT}>Sem turno</SelectItem>
             </SelectContent>
           </Select>
         </div>
