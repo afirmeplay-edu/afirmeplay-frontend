@@ -4,6 +4,7 @@ import {
   AlertCircle,
   BarChart3,
   Clock,
+  FileDown,
   Filter,
   Loader2,
   RefreshCw,
@@ -63,12 +64,17 @@ import type {
   TempoProvaOrigem,
   TempoProvaResumo,
 } from '@/types/tempo-prova';
+import {
+  formatTempoProvaNumber,
+  formatTempoProvaSeconds,
+  TEMPO_PROVA_ORIGEM_LABEL,
+} from '@/utils/reports/tempoProvaFormat';
+import {
+  generateTempoProvaPdf,
+  type TempoProvaPdfFilterLabels,
+} from '@/services/reports/tempoProvaPdf';
 
-const ORIGEM_LABEL: Record<TempoProvaOrigem, string> = {
-  medida: 'Online (tempo real)',
-  estimada_mobile: 'Mobile (estimado)',
-  estimada_fallback: 'Estimado (sem cronômetro)',
-};
+const ORIGEM_LABEL = TEMPO_PROVA_ORIGEM_LABEL;
 
 const ORIGEM_COLOR: Record<TempoProvaOrigem, string> = {
   medida: '#33658A',
@@ -76,22 +82,8 @@ const ORIGEM_COLOR: Record<TempoProvaOrigem, string> = {
   estimada_fallback: '#94a3b8',
 };
 
-function formatSeconds(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(Number(value))) return '—';
-  const total = Math.max(0, Math.round(Number(value)));
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const seconds = total % 60;
-  if (hours > 0) {
-    return `${hours}h ${String(minutes).padStart(2, '0')}min`;
-  }
-  return `${minutes}min ${String(seconds).padStart(2, '0')}s`;
-}
-
-function formatNumber(value: number | null | undefined): string {
-  if (value == null) return '—';
-  return value.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
-}
+const formatSeconds = formatTempoProvaSeconds;
+const formatNumber = formatTempoProvaNumber;
 
 type FilterOption = TempoProvaFilterEntity;
 
@@ -131,6 +123,8 @@ export default function RelatorioTempoProva() {
   const [generating, setGenerating] = useState(false);
 
   const [report, setReport] = useState<TempoProvaResumo | null>(null);
+  const [reportFilterLabels, setReportFilterLabels] = useState<TempoProvaPdfFilterLabels | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   const canGenerate = selectedEstado !== 'all' && selectedMunicipio !== 'all';
 
@@ -462,6 +456,30 @@ export default function RelatorioTempoProva() {
         turmas: selectedTurmas,
         alunos: selectedAlunos,
       });
+      const joinSelected = <T extends { id: string }>(
+        ids: string[],
+        options: T[],
+        getName: (option: T) => string,
+        allLabel: string
+      ) => {
+        if (ids.length === 0) return allLabel;
+        const names = ids
+          .map((id) => {
+            const option = options.find((o) => o.id === id);
+            return option ? getName(option) : '';
+          })
+          .filter(Boolean);
+        return names.length > 0 ? names.join(', ') : `${ids.length} selecionado(s)`;
+      };
+      setReportFilterLabels({
+        estado: estados.find((e) => e.id === selectedEstado)?.nome ?? selectedEstado,
+        municipio: municipios.find((mu) => mu.id === selectedMunicipio)?.nome ?? '',
+        avaliacoes: joinSelected(selectedAvaliacoes, avaliacoesOpcoes, (a) => a.titulo, 'Todas as avaliações'),
+        escolas: joinSelected(selectedEscolas, escolas, (e) => e.nome, 'Todas as escolas'),
+        series: joinSelected(selectedSeries, series, (s) => s.nome, 'Todas as séries'),
+        turmas: joinSelected(selectedTurmas, turmas, (t) => t.label || t.nome, 'Todas as turmas'),
+        alunos: joinSelected(selectedAlunos, alunos, (a) => a.nome, 'Todos os alunos'),
+      });
       setReport(data);
       if (!data.metricas.sessoes) {
         toast({
@@ -487,8 +505,33 @@ export default function RelatorioTempoProva() {
     selectedSeries,
     selectedTurmas,
     selectedAlunos,
+    estados,
+    municipios,
+    avaliacoesOpcoes,
+    escolas,
+    series,
+    turmas,
+    alunos,
     toast,
   ]);
+
+  const handleExportPdf = useCallback(async () => {
+    if (!report || !reportFilterLabels) return;
+    setExportingPdf(true);
+    try {
+      await generateTempoProvaPdf({ report, filterLabels: reportFilterLabels });
+      toast({ title: 'Relatório exportado', description: 'PDF gerado com sucesso.' });
+    } catch (error) {
+      console.error('Erro ao exportar relatório de tempo de prova:', error);
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível gerar o PDF do relatório de tempo de prova.',
+        variant: 'destructive',
+      });
+    } finally {
+      setExportingPdf(false);
+    }
+  }, [report, reportFilterLabels, toast]);
 
   const isLoadingFilters =
     isLoadingHierarchy ||
@@ -504,8 +547,7 @@ export default function RelatorioTempoProva() {
       <header className="space-y-1">
         <h1 className="text-2xl font-bold tracking-tight">Relatório de Tempo de Prova</h1>
         <p className="text-muted-foreground">
-          Tempo médio por questão: provas online usam o cronômetro da sessão; provas do app mobile
-          usam a estimativa de 1h30 (1º e 2º anos) ou 2h30 (3º ao 9º).
+          Panorâma geral do tempo médio de realização das provas.
         </p>
         {user?.role && (
           <p className="text-sm text-blue-600 dark:text-blue-400">{getRestrictionMessage(user.role)}</p>
@@ -686,8 +728,20 @@ export default function RelatorioTempoProva() {
                 </>
               )}
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => void handleExportPdf()}
+              disabled={!report || !reportFilterLabels || generating || exportingPdf}
+            >
+              {exportingPdf ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <FileDown className="h-4 w-4 mr-2" />
+              )}
+              {exportingPdf ? 'Gerando PDF…' : 'Exportar PDF'}
+            </Button>
             {report && (
-              <Button variant="outline" onClick={() => setReport(null)} disabled={generating}>
+              <Button variant="outline" onClick={() => setReport(null)} disabled={generating || exportingPdf}>
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Limpar resultado
               </Button>
