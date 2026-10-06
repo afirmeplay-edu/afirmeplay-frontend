@@ -101,7 +101,7 @@ export function formatRankingRecorteLabel(
   return 'Ranking Geral';
 }
 
-function isAllSchoolsRankingReport(escolaLabel: string, escolaFilter?: string): boolean {
+export function isAllSchoolsRankingReport(escolaLabel: string, escolaFilter?: string): boolean {
   if (String(escolaFilter || '').trim()) return false;
   const label = String(escolaLabel || '')
     .trim()
@@ -116,7 +116,7 @@ function scaledSize(iw: number, ih: number, desiredW: number): { w: number; h: n
   return { w: desiredW, h: (ih * desiredW) / iw };
 }
 
-function addFootersAllPages(doc: jsPDF): void {
+export function addFootersAllPages(doc: jsPDF): void {
   const total = doc.getNumberOfPages();
   const pageH = doc.internal.pageSize.getHeight();
   const pageW = doc.internal.pageSize.getWidth();
@@ -693,7 +693,7 @@ function resolveRankingCityId(municipio?: string): string | null {
   return id;
 }
 
-async function addRankingCoverPage(
+export async function addRankingCoverPage(
   doc: jsPDF,
   titleBand: string,
   subtitleBand: string,

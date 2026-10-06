@@ -58,6 +58,7 @@ const RelatoriosResultadosHub = React.lazy(() => import("@/pages/reports/Relator
 const RankingHub = React.lazy(() => import("@/pages/reports/RankingHub"));
 const RankingGeral = React.lazy(() => import("@/pages/reports/RankingGeral"));
 const RelatoriosParticipacaoHub = React.lazy(() => import("@/pages/reports/RelatoriosParticipacaoHub"));
+const LogisticaAvaliacao = React.lazy(() => import("@/pages/logistics/LogisticaAvaliacao"));
 const RelatorioTempoProva = React.lazy(() => import("@/pages/reports/RelatorioTempoProva"));
 const RelatoriosMapaQuestoesHub = React.lazy(() => import("@/pages/reports/RelatoriosMapaQuestoesHub"));
 const RelatoriosBoletimAlunoHub = React.lazy(() => import("@/pages/reports/RelatoriosBoletimAlunoHub"));
@@ -499,6 +500,16 @@ const App = () => {
               <Route path="/app/relatorios/ranking-geral" element={<PrivateRoute><RankingGeral /></PrivateRoute>} />
               <Route path="/app/relatorios/participacao" element={<PrivateRoute><RelatoriosParticipacaoHub /></PrivateRoute>} />
               <Route path="/app/relatorios/tempo-prova" element={<PrivateRoute><RelatorioTempoProva /></PrivateRoute>} />
+              <Route
+                path="/app/relatorios/logistica"
+                element={
+                  <PrivateRoute>
+                    <RoleRoute allowed={["admin", "tecadm", "diretor", "coordenador", "professor"]}>
+                      <LogisticaAvaliacao />
+                    </RoleRoute>
+                  </PrivateRoute>
+                }
+              />
               <Route
                 path="/app/ranking"
                 element={

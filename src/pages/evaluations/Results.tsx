@@ -18,7 +18,8 @@ import {
   BarChart3,
   BookOpen,
   Check,
-  FileText
+  FileText,
+  Loader2
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
@@ -68,6 +69,7 @@ import { StudentCard } from "@/components/evaluations/student/StudentCard";
 import { QuestionData as TableQuestionData, DetailedReport as TableDetailedReport } from "@/types/results-table";
 import { generatePendingStudentsPdf } from "@/services/reports/pendingStudentsPdf";
 import { generateRankingPdf } from "@/services/reports/rankingPdf";
+import { generateStudentCardsPdf } from "@/services/reports/studentCardsPdf";
 import { getClassShiftLabel } from "@/lib/classShift";
 import { normalizeEvaluationResultsRanking } from "@/utils/evaluation/normalizeEvaluationResultsRanking";
 import {
@@ -2255,6 +2257,55 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
     return Array.from(set);
   }, [evaluationInfo, apiData, questionsWithSkills, extractSubjectName]);
 
+  const [isExportingCardsPdf, setIsExportingCardsPdf] = useState(false);
+
+  const handleExportCardsPdf = useCallback(async () => {
+    if (filteredStudents.length === 0 || isExportingCardsPdf) return;
+    setIsExportingCardsPdf(true);
+    try {
+      await generateStudentCardsPdf({
+        escopoTitulo: evaluationInfo?.titulo,
+        filterLabels: rankingPdfFilterLabels,
+        cityId: selectedMunicipality !== 'all' ? selectedMunicipality : null,
+        subjects: derivedSubjects,
+        students: filteredStudents.map((s) => ({
+          nome: s.nome,
+          turma: s.turma,
+          escola: (s as { escola?: string }).escola,
+          serie: (s as { serie?: string }).serie,
+          nota: s.nota,
+          proficiencia: s.proficiencia,
+          classificacao: s.classificacao,
+          status: s.status,
+          questoes_respondidas: s.questoes_respondidas,
+          acertos: s.acertos,
+          erros: s.erros,
+          totalQuestions: computedTotalQuestions || s.questoes_respondidas || 0,
+        })),
+        fileNameBase: `resultados-alunos-${evaluationInfo?.titulo ?? 'avaliacao'}`,
+      });
+      toast({ title: 'PDF gerado', description: 'Os cards dos alunos foram exportados com sucesso.' });
+    } catch (e) {
+      console.error(e);
+      toast({
+        title: 'Erro ao gerar PDF',
+        description: 'Não foi possível exportar os cards. Tente novamente.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsExportingCardsPdf(false);
+    }
+  }, [
+    filteredStudents,
+    isExportingCardsPdf,
+    evaluationInfo?.titulo,
+    rankingPdfFilterLabels,
+    selectedMunicipality,
+    derivedSubjects,
+    computedTotalQuestions,
+    toast,
+  ]);
+
   return (
     <div className="w-full min-w-0 space-y-6">
       {/* Título da página — o botão Atualizar fica na mesma linha das abas (Gráficos / Tabelas / …) */}
@@ -2961,7 +3012,23 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
 
 
                           {/* Toggle entre Tabela e Cards */}
-                          <div className="mb-4 flex justify-end">
+                          <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+                            {viewMode === 'cards' && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-2"
+                                onClick={handleExportCardsPdf}
+                                disabled={isExportingCardsPdf || !isTableReady}
+                              >
+                                {isExportingCardsPdf ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <FileText className="h-4 w-4" />
+                                )}
+                                {isExportingCardsPdf ? 'Gerando PDF...' : 'Exportar PDF'}
+                              </Button>
+                            )}
                             <div className="flex items-center gap-1 border rounded-lg p-1">
                               <Button
                                 variant={viewMode === 'table' ? 'default' : 'ghost'}

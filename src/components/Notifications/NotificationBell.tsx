@@ -1,9 +1,10 @@
 /**
  * Componente de sino de notificações com badge e dropdown.
- * Exibe avisos (calendário) e competições recentes.
+ * Exibe avisos (calendário), competições recentes e notificações da tabela central
+ * (`/notifications`, ex.: logística). Leitura das últimas é controlada só pelo backend.
  */
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Bell, Trophy, Loader2, Megaphone } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Bell, Trophy, Loader2, Megaphone, Truck, CheckCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -23,10 +24,12 @@ import { DashboardApiService } from '@/services/dashboardApi';
 import type { Aviso } from '@/types/avisos';
 import { computeAvisoUnread } from '@/utils/avisosRead';
 import { useUnreadAvisos, AVISOS_UPDATE_EVENT } from '@/hooks/useUnreadAvisos';
+import { NotificationsApiService, hasNotificationsCityContext } from '@/services/notificationsApi';
+import type { ServerNotification } from '@/types/notifications';
 
 export interface Notification {
   id: string;
-  type: 'competition' | 'evaluation' | 'system' | 'deadline' | 'aviso';
+  type: 'competition' | 'evaluation' | 'system' | 'deadline' | 'aviso' | 'logistics';
   title: string;
   message: string;
   created_at: string;
@@ -36,9 +39,31 @@ export interface Notification {
   priority: 'high' | 'medium' | 'low';
   /** Avisos do calendário: marca leitura via hook + `/calendar/events/:id/read`. */
   calendarEventId?: string;
+  /** Tabela central: marca leitura via `POST /notifications/:id/read`. */
+  serverNotificationId?: string;
 }
 
 const AVISO_PREVIEW_LEN = 220;
+const SERVER_PAGE_SIZE = 20;
+
+/** O backend grava em UTC sem fuso; sem o "Z" o navegador leria como horário local. */
+function toUtcIso(value: string): string {
+  return /([zZ]|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`;
+}
+
+function mapServerNotification(n: ServerNotification): Notification {
+  return {
+    id: `server-${n.id}`,
+    type: n.type === 'logistics_schedule' ? 'logistics' : 'system',
+    title: n.title,
+    message: n.message ?? '',
+    created_at: toUtcIso(n.created_at),
+    is_read: n.is_read,
+    action_url: n.action_url ?? undefined,
+    priority: 'medium',
+    serverNotificationId: n.id,
+  };
+}
 
 async function fetchCompetitionNotifications(userRole: string | undefined): Promise<Notification[]> {
   const newNotifications: Notification[] = [];
@@ -112,7 +137,7 @@ async function fetchCompetitionNotifications(userRole: string | undefined): Prom
 export function NotificationBell() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { isAvisoRead, markAsRead: markAvisoRead } = useUnreadAvisos();
+  const { isAvisoRead, markAsRead: markAvisoRead, markAllAsRead: markAllAvisosRead } = useUnreadAvisos();
 
   const [avisosList, setAvisosList] = useState<Aviso[]>([]);
   const [competitionNotifications, setCompetitionNotifications] = useState<Notification[]>([]);
@@ -120,6 +145,48 @@ export function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
   const [competitionsLoaded, setCompetitionsLoaded] = useState(false);
   const [avisoCount, setAvisoCount] = useState(0);
+  const [serverItems, setServerItems] = useState<ServerNotification[]>([]);
+  const [serverUnread, setServerUnread] = useState(0);
+  const serverRequestSeq = useRef(0);
+
+  /** Falhas da tabela central não afetam avisos/competições nem mostram erro. */
+  const loadServerCount = useCallback(async () => {
+    if (!user?.id || !hasNotificationsCityContext(user)) {
+      setServerUnread(0);
+      return;
+    }
+    const seq = serverRequestSeq.current;
+    try {
+      const count = await NotificationsApiService.getUnreadCount();
+      if (seq === serverRequestSeq.current) setServerUnread(count);
+    } catch {
+      if (seq === serverRequestSeq.current) setServerUnread(0);
+    }
+  }, [user]);
+
+  const loadServerPanel = useCallback(async () => {
+    if (!user?.id || !hasNotificationsCityContext(user)) {
+      setServerItems([]);
+      setServerUnread(0);
+      return;
+    }
+    const seq = serverRequestSeq.current;
+    const [countRes, listRes] = await Promise.allSettled([
+      NotificationsApiService.getUnreadCount(),
+      NotificationsApiService.list({ page: 1, per_page: SERVER_PAGE_SIZE }),
+    ]);
+    if (seq !== serverRequestSeq.current) return;
+    setServerUnread(countRes.status === 'fulfilled' ? countRes.value : 0);
+    setServerItems(listRes.status === 'fulfilled' ? listRes.value.items ?? [] : []);
+  }, [user]);
+
+  useEffect(() => {
+    serverRequestSeq.current += 1;
+    setServerItems([]);
+    setServerUnread(0);
+    void loadServerCount();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const loadAvisos = useCallback(async () => {
     if (!user?.id) {
@@ -184,18 +251,21 @@ export function NotificationBell() {
     });
   }, [avisosList, user?.id, user?.role, isAvisoRead]);
 
+  const serverNotifications = useMemo(() => serverItems.map(mapServerNotification), [serverItems]);
+
   const notifications = useMemo(() => {
-    const merged = [...avisoNotifications, ...competitionNotifications].sort(
+    const merged = [...avisoNotifications, ...competitionNotifications, ...serverNotifications].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
     return merged.slice(0, 20);
-  }, [avisoNotifications, competitionNotifications]);
+  }, [avisoNotifications, competitionNotifications, serverNotifications]);
 
   const fetchPanelData = useCallback(async () => {
     if (!user?.id) {
       setCompetitionNotifications([]);
       return;
     }
+    const serverTask = loadServerPanel();
     try {
       setIsLoading(true);
       await loadAvisos();
@@ -206,6 +276,7 @@ export function NotificationBell() {
         console.error('Erro ao buscar competições (notificações):', compErr);
         setCompetitionNotifications([]);
       }
+      await serverTask;
     } catch (error) {
       console.error('Erro ao buscar notificações:', error);
       setCompetitionNotifications([]);
@@ -213,7 +284,7 @@ export function NotificationBell() {
       setCompetitionsLoaded(true);
       setIsLoading(false);
     }
-  }, [user?.id, user?.role, loadAvisos]);
+  }, [user?.id, user?.role, loadAvisos, loadServerPanel]);
 
   useEffect(() => {
     if (isOpen) {
@@ -230,7 +301,8 @@ export function NotificationBell() {
 
   const unreadCount =
     (avisosList.length > 0 ? avisosUnreadCount : avisoCount) +
-    (competitionsLoaded ? competitionUnreadCount : 0);
+    (competitionsLoaded ? competitionUnreadCount : 0) +
+    serverUnread;
 
   const markCompetitionAsRead = useCallback((notificationId: string) => {
     setCompetitionNotifications((prev) =>
@@ -238,10 +310,28 @@ export function NotificationBell() {
     );
   }, []);
 
+  const markServerAsRead = useCallback(
+    (serverId: string) => {
+      const target = serverItems.find((n) => n.id === serverId);
+      if (target && !target.is_read) {
+        setServerItems((prev) =>
+          prev.map((n) => (n.id === serverId ? { ...n, is_read: true, read_at: new Date().toISOString() } : n))
+        );
+        setServerUnread((prev) => Math.max(0, prev - 1));
+      }
+      NotificationsApiService.markRead(serverId).catch(() => {
+        void loadServerCount();
+      });
+    },
+    [serverItems, loadServerCount]
+  );
+
   const handleNotificationClick = useCallback(
     (notification: Notification) => {
       if (notification.calendarEventId) {
         markAvisoRead(notification.calendarEventId);
+      } else if (notification.serverNotificationId) {
+        markServerAsRead(notification.serverNotificationId);
       } else {
         markCompetitionAsRead(notification.id);
       }
@@ -250,8 +340,26 @@ export function NotificationBell() {
         setIsOpen(false);
       }
     },
-    [markAvisoRead, markCompetitionAsRead, navigate]
+    [markAvisoRead, markServerAsRead, markCompetitionAsRead, navigate]
   );
+
+  const handleMarkAllAsRead = useCallback(() => {
+    const unreadAvisoIds = avisosList
+      .filter((a) => computeAvisoUnread(a, user?.id, isAvisoRead))
+      .map((a) => a.id);
+    if (unreadAvisoIds.length > 0) markAllAvisosRead(unreadAvisoIds);
+
+    setCompetitionNotifications((prev) => prev.map((n) => (n.is_read ? n : { ...n, is_read: true })));
+
+    if (serverUnread > 0 || serverItems.some((n) => !n.is_read)) {
+      const now = new Date().toISOString();
+      setServerItems((prev) => prev.map((n) => (n.is_read ? n : { ...n, is_read: true, read_at: now })));
+      setServerUnread(0);
+      NotificationsApiService.markAllRead().catch(() => {
+        void loadServerCount();
+      });
+    }
+  }, [avisosList, user?.id, isAvisoRead, markAllAvisosRead, serverUnread, serverItems, loadServerCount]);
 
   const getNotificationIcon = (type: Notification['type']) => {
     switch (type) {
@@ -259,6 +367,8 @@ export function NotificationBell() {
         return <Trophy className="h-4 w-4" />;
       case 'aviso':
         return <Megaphone className="h-4 w-4" />;
+      case 'logistics':
+        return <Truck className="h-4 w-4" />;
       default:
         return <Bell className="h-4 w-4" />;
     }
@@ -298,12 +408,26 @@ export function NotificationBell() {
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-80 p-0" align="end">
-        <div className="flex items-center justify-between p-4 border-b">
-          <h3 className="font-semibold text-sm">Notificações</h3>
-          {unreadCount > 0 && (
-            <Badge variant="secondary" className="text-xs">
-              {unreadCount} não lidas
-            </Badge>
+        <div className="flex items-center justify-between gap-2 p-4 border-b">
+          <div className="flex items-center gap-2 min-w-0">
+            <h3 className="font-semibold text-sm">Notificações</h3>
+            {unreadCount > 0 && (
+              <Badge variant="secondary" className="text-xs">
+                {unreadCount} não lidas
+              </Badge>
+            )}
+          </div>
+          {unreadCount > 0 && !isLoading && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs shrink-0"
+              onClick={handleMarkAllAsRead}
+              title="Marcar todas como lidas"
+            >
+              <CheckCheck className="h-3.5 w-3.5 mr-1" />
+              Marcar todas
+            </Button>
           )}
         </div>
         <ScrollArea className="h-[400px]">
@@ -335,6 +459,7 @@ export function NotificationBell() {
                       "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
                       notification.type === 'competition' && "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
                       notification.type === 'aviso' && "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200",
+                      notification.type === 'logistics' && "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
                       notification.type === 'evaluation' && "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
                       notification.type === 'system' && "bg-gray-100 text-gray-700 dark:bg-gray-900/40 dark:text-gray-300",
                       notification.type === 'deadline' && "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
