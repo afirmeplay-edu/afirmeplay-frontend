@@ -3124,6 +3124,13 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                             </div>
               )}
             </>
+                      ) : Array.isArray(apiData?.tabela_adap) && apiData.tabela_adap.length > 0 ? (
+                        <DisciplineTables
+                          tabelaDetalhada={{ disciplinas: [] }}
+                          tabelaAdap={apiData.tabela_adap}
+                          onViewStudentDetails={handleViewStudentDetails}
+                          onOpenInNewTab={handleOpenInNewTab}
+                        />
                       ) : (
                         <div className="text-center py-12">
                           <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
