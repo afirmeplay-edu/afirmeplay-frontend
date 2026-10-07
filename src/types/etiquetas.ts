@@ -64,4 +64,10 @@ export type EtiquetaEditItem = {
   textoLivreAlinhamento: EtiquetaTextoLivreAlinhamento;
   /** Linha única em negrito acima da assinatura (até 50 caracteres) */
   textoAcimaAssinatura: string;
+  /** Linha única em negrito acima da assinatura do 2º aplicador (até 50 caracteres) */
+  textoAcimaAssinatura2: string;
+  /** Turma de origem das etiquetas geradas automaticamente a partir dos filtros. */
+  turmaId?: string;
+  /** Cabeçalho editável das etiquetas personalizadas (sem turma de origem). */
+  contextoPersonalizado?: EtiquetasDadosResponse["contexto"];
 };

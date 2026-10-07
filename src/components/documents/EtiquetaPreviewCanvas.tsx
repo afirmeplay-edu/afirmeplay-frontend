@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import type { EtiquetaEditItem, EtiquetasDadosResponse } from "@/types/etiquetas";
 import {
   cityStateDisplay,
-  etiquetasSerieTurmaLine,
-  etiquetasTurnoLabel,
+  etiquetasSerieTurmaTurnoLine,
   TEXTO_ACIMA_ASSINATURA_MAX,
+  TEXTO_LIVRE_TAMANHO_PADRAO,
 } from "@/utils/etiquetasDisplay";
 import { getCityBranding, resolveBrandingUrls } from "@/services/cityBrandingApi";
 import { loadBrandingImage } from "@/utils/brandingImageUtils";
@@ -18,16 +18,23 @@ type EtiquetaPreviewCanvasProps = {
   className?: string;
 };
 
-function AplicadorLinhas({ nome, cpf }: { nome: string; cpf: string }) {
+function AplicadorBloco({ textoAcima, nome, cpf }: { textoAcima: string; nome: string; cpf: string }) {
   return (
-    <>
-      <p>
-        <span>NOME DO APLICADOR:</span> {nome || "________________________"}
-      </p>
-      <p>
-        <span>CPF:</span> {cpf || "________________________"}
-      </p>
-    </>
+    <div className="mt-1 shrink-0 text-black">
+      {textoAcima.trim() && (
+        <p className="text-center text-[11px] font-bold uppercase break-words">
+          {textoAcima.slice(0, TEXTO_ACIMA_ASSINATURA_MAX)}
+        </p>
+      )}
+      <div className="mt-0.5 space-y-1 border-t border-black pt-1 text-[8px]">
+        <p>
+          <span>NOME DO APLICADOR:</span> {nome}
+        </p>
+        <p>
+          <span>CPF:</span> {cpf}
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -69,7 +76,7 @@ export function EtiquetaPreviewCanvas({ label, context, logoUrl, className = "" 
     };
   }, [context.municipio.id, logoUrl]);
 
-  const freeFontSize = label.textoLivreTamanho || 10;
+  const freeFontSize = label.textoLivreTamanho || TEXTO_LIVRE_TAMANHO_PADRAO;
   const freeColor = label.exibirAssinatura ? "#000000" : label.textoLivreCor;
 
   return (
@@ -93,18 +100,15 @@ export function EtiquetaPreviewCanvas({ label, context, logoUrl, className = "" 
       </div>
 
       <div className="mt-1 shrink-0 space-y-0.5 text-center text-black">
-        <p className="text-xs font-bold uppercase break-words">
+        <p className="text-[10px] font-bold uppercase break-words">
           {cityStateDisplay(context).toUpperCase()}
         </p>
-        <p className="text-xs font-bold uppercase break-words">{context.contexto.escola}</p>
-        <p className="text-[11px] uppercase break-words">
+        <p className="text-[10px] font-bold uppercase break-words">{context.contexto.escola}</p>
+        <p className="text-[9px] uppercase break-words">
           Modalidade/Etapa: {context.contexto.nivel.toUpperCase()}
         </p>
-        <p className="text-[11px] uppercase break-words">
-          Série/Turma: {etiquetasSerieTurmaLine(context).toUpperCase()}
-        </p>
-        <p className="text-[11px] uppercase break-words">
-          Turno: {etiquetasTurnoLabel(context).toUpperCase()}
+        <p className="text-[9px] uppercase break-words">
+          Série | Turma | Turno: {etiquetasSerieTurmaTurnoLine(context).toUpperCase()}
         </p>
       </div>
 
@@ -120,20 +124,20 @@ export function EtiquetaPreviewCanvas({ label, context, logoUrl, className = "" 
         </div>
       </div>
 
-      {label.exibirAssinatura && label.textoAcimaAssinatura.trim() && (
-        <p className="mt-1 shrink-0 text-center text-[11px] font-bold uppercase break-words text-black">
-          {label.textoAcimaAssinatura.slice(0, TEXTO_ACIMA_ASSINATURA_MAX)}
-        </p>
-      )}
-
       {label.exibirAssinatura && (
-        <div className="mt-1 shrink-0 space-y-1 border-t border-black pt-1 text-[10px] text-black">
-          <AplicadorLinhas nome={label.nomeAplicador} cpf={label.cpfAplicador} />
-          {label.exibirSegundoAplicador ? (
-            <AplicadorLinhas nome={label.nomeAplicador2} cpf={label.cpfAplicador2} />
-          ) : null}
-        </div>
+        <AplicadorBloco
+          textoAcima={label.textoAcimaAssinatura}
+          nome={label.nomeAplicador}
+          cpf={label.cpfAplicador}
+        />
       )}
+      {label.exibirAssinatura && label.exibirSegundoAplicador ? (
+        <AplicadorBloco
+          textoAcima={label.textoAcimaAssinatura2 ?? ""}
+          nome={label.nomeAplicador2}
+          cpf={label.cpfAplicador2}
+        />
+      ) : null}
     </div>
   );
 }

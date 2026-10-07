@@ -1,13 +1,17 @@
 import { jsPDF } from "jspdf";
 import type { PdfImageAsset } from "@/utils/pdfCityBranding";
-import { downloadBlob, buildHierarchyPath } from "@/services/reports/hierarchicalDownload";
+import { downloadBlob } from "@/services/reports/hierarchicalDownload";
 import type {
   EtiquetaEditItem,
   EtiquetaTextoLivreAlinhamento,
   EtiquetasDadosResponse,
 } from "@/types/etiquetas";
 import { parseRichMarkers, truncateText } from "@/utils/richTextMarkers";
-import { etiquetasSerieTurmaLine, etiquetasTurnoLabel } from "@/utils/etiquetasDisplay";
+import {
+  etiquetasSerieTurmaTurnoLine,
+  TEXTO_ACIMA_ASSINATURA_MAX,
+  TEXTO_LIVRE_TAMANHO_PADRAO,
+} from "@/utils/etiquetasDisplay";
 
 const PAGE_MARGIN = 10;
 const COLS = 2;
@@ -16,10 +20,23 @@ const GAP_X = 4;
 const GAP_Y = 4;
 const LABELS_PER_PAGE = COLS * ROWS;
 const LOGO_WIDTH = 8;
-const TEXTO_ACIMA_ASSINATURA_MAX = 50;
 
 const PAD = 3;
-const RODAPE_BLOCK_H = 4.8;
+/** 3px (96 dpi) em mm. */
+const TITLE_OFFSET_Y = (3 * 25.4) / 96;
+
+const RODAPE_BLOCK_H = 3.4;
+const APLICADOR_SEPARATOR_GAP = 0.6;
+const APLICADOR_NAME_GAP = 3.4;
+const APLICADOR_ROW_GAP = 3.8;
+const APLICADOR_BOTTOM_GAP = 1;
+const APLICADOR_BLOCK_H =
+  APLICADOR_SEPARATOR_GAP + APLICADOR_NAME_GAP + APLICADOR_ROW_GAP + APLICADOR_BOTTOM_GAP;
+
+export type EtiquetaPdfEntry = {
+  context: EtiquetasDadosResponse;
+  label: EtiquetaEditItem;
+};
 
 type Rgb = [number, number, number];
 
@@ -214,7 +231,7 @@ function drawAlignedRichText(
   const content = preserveParagraphs(text).trim();
   if (!content || areaH <= 1) return;
 
-  let size = Math.min(20, Math.max(8, fontSize || 10));
+  let size = Math.min(20, Math.max(8, fontSize || TEXTO_LIVRE_TAMANHO_PADRAO));
   let lineHeight = lineHeightFor(size);
   let lines = buildRichLines(doc, content, areaW, size);
 
@@ -302,33 +319,79 @@ function cityStateDisplay(context: EtiquetasDadosResponse): string {
   return state ? `${city}/${state}` : city;
 }
 
-function drawAplicadorPair(
+type AplicadorBlock = {
+  textoAcima: string;
+  nome: string;
+  cpf: string;
+};
+
+function aplicadorBlocksFor(item: EtiquetaEditItem): AplicadorBlock[] {
+  if (!item.exibirAssinatura) return [];
+  const blocks: AplicadorBlock[] = [
+    { textoAcima: item.textoAcimaAssinatura, nome: item.nomeAplicador, cpf: item.cpfAplicador },
+  ];
+  if (item.exibirSegundoAplicador) {
+    blocks.push({
+      textoAcima: item.textoAcimaAssinatura2 ?? "",
+      nome: item.nomeAplicador2,
+      cpf: item.cpfAplicador2,
+    });
+  }
+  return blocks;
+}
+
+function aplicadorBlockHeight(block: AplicadorBlock): number {
+  const hasRodapeLine = normalizeSpaces(block.textoAcima).length > 0;
+  return APLICADOR_BLOCK_H + (hasRodapeLine ? RODAPE_BLOCK_H : 0);
+}
+
+function footerHeightFor(item: EtiquetaEditItem): number {
+  return aplicadorBlocksFor(item).reduce((total, block) => total + aplicadorBlockHeight(block), 0);
+}
+
+function drawAplicadorBlock(
   doc: jsPDF,
-  x: number,
-  width: number,
+  rightX: number,
   innerX: number,
-  cursorY: number,
-  nome: string,
-  cpf: string
+  innerW: number,
+  centerX: number,
+  top: number,
+  block: AplicadorBlock
 ): number {
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
+  let cursorY = top;
   doc.setTextColor(0, 0, 0);
 
-  doc.text("NOME DO APLICADOR:", innerX, cursorY);
-  doc.line(innerX + 29, cursorY + 0.5, x + width - PAD, cursorY + 0.5);
-  if (normalizeSpaces(nome)) {
-    doc.text(normalizeSpaces(nome), innerX + 30, cursorY);
+  if (normalizeSpaces(block.textoAcima)) {
+    const rodapeText = truncateText(block.textoAcima, TEXTO_ACIMA_ASSINATURA_MAX).toUpperCase();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.text(rodapeText, centerX, cursorY + 2.6, { align: "center", maxWidth: innerW });
+    cursorY += RODAPE_BLOCK_H;
   }
 
-  cursorY += 4.8;
-  doc.text("CPF:", innerX, cursorY);
-  doc.line(innerX + 8, cursorY + 0.5, x + width - PAD, cursorY + 0.5);
-  if (normalizeSpaces(cpf)) {
-    doc.text(normalizeSpaces(cpf), innerX + 9, cursorY);
+  cursorY += APLICADOR_SEPARATOR_GAP;
+  doc.setLineWidth(0.2);
+  doc.line(innerX, cursorY, rightX, cursorY);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(5.5);
+
+  cursorY += APLICADOR_NAME_GAP;
+  const nomeLabel = "NOME DO APLICADOR:";
+  doc.text(nomeLabel, innerX, cursorY);
+  if (normalizeSpaces(block.nome)) {
+    const valueX = innerX + doc.getTextWidth(nomeLabel) + 1;
+    doc.text(normalizeSpaces(block.nome), valueX, cursorY, { maxWidth: rightX - valueX });
   }
 
-  return cursorY + 4.8;
+  cursorY += APLICADOR_ROW_GAP;
+  const cpfLabel = "CPF:";
+  doc.text(cpfLabel, innerX, cursorY);
+  if (normalizeSpaces(block.cpf)) {
+    doc.text(normalizeSpaces(block.cpf), innerX + doc.getTextWidth(cpfLabel) + 1, cursorY);
+  }
+
+  return cursorY + APLICADOR_BOTTOM_GAP;
 }
 
 function drawFooterBlock(
@@ -341,44 +404,10 @@ function drawFooterBlock(
   centerX: number,
   item: EtiquetaEditItem
 ) {
-  const hasRodapeLine = normalizeSpaces(item.textoAcimaAssinatura).length > 0;
-  let cursorY = footerTop + 2.5;
-
-  if (hasRodapeLine) {
-    const rodapeText = truncateText(item.textoAcimaAssinatura, TEXTO_ACIMA_ASSINATURA_MAX).toUpperCase();
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
-    doc.setTextColor(0, 0, 0);
-    doc.text(rodapeText, centerX, cursorY, { align: "center", maxWidth: innerW });
-    cursorY += 3.8;
-  }
-
-  doc.setLineWidth(0.2);
-  doc.line(innerX, cursorY, x + width - PAD, cursorY);
-  cursorY += 4.2;
-
-  cursorY = drawAplicadorPair(doc, x, width, innerX, cursorY, item.nomeAplicador, item.cpfAplicador);
-
-  if (item.exibirSegundoAplicador) {
-    cursorY = drawAplicadorPair(
-      doc,
-      x,
-      width,
-      innerX,
-      cursorY,
-      item.nomeAplicador2,
-      item.cpfAplicador2
-    );
-  }
-}
-
-const APLICADOR_PAIR_H = 9.6;
-
-function footerHeightFor(item: EtiquetaEditItem): number {
-  if (!item.exibirAssinatura) return 0;
-  const hasRodapeLine = normalizeSpaces(item.textoAcimaAssinatura).length > 0;
-  const aplicadores = 1 + (item.exibirSegundoAplicador ? 1 : 0);
-  return 4.2 + aplicadores * APLICADOR_PAIR_H + (hasRodapeLine ? RODAPE_BLOCK_H : 0);
+  let cursorY = footerTop;
+  aplicadorBlocksFor(item).forEach((block) => {
+    cursorY = drawAplicadorBlock(doc, x + width - PAD, innerX, innerW, centerX, cursorY, block);
+  });
 }
 
 function drawEtiqueta(
@@ -395,7 +424,6 @@ function drawEtiqueta(
   const innerW = width - PAD * 2;
   const innerBottom = y + height - PAD;
   const centerX = x + width / 2;
-  const hasRodapeLine = item.exibirAssinatura && normalizeSpaces(item.textoAcimaAssinatura).length > 0;
   const footerHeight = footerHeightFor(item);
   const footerTop = innerBottom - footerHeight;
 
@@ -412,12 +440,20 @@ function drawEtiqueta(
     headerBottom = Math.max(headerBottom, y + PAD + logoH);
   }
 
-  let cursorY = drawWrappedTextLeft(doc, item.titulo, innerX, y + PAD, titleMaxWidth, 8.5, {
-    style: "bold",
-    uppercase: true,
-    maxLines: 2,
-    lineHeight: 3.8,
-  });
+  let cursorY = drawWrappedTextLeft(
+    doc,
+    item.titulo,
+    innerX,
+    y + PAD + TITLE_OFFSET_Y,
+    titleMaxWidth,
+    8.5,
+    {
+      style: "bold",
+      uppercase: true,
+      maxLines: 2,
+      lineHeight: 3.8,
+    }
+  );
 
   cursorY = Math.max(cursorY, headerBottom) + 1;
 
@@ -427,10 +463,10 @@ function drawEtiqueta(
     centerX,
     cursorY,
     innerW,
-    7.5,
+    5.5,
     { style: "bold", uppercase: true, maxLines: 2 }
   );
-  cursorY += 0.4;
+  cursorY += 0.3;
 
   cursorY = drawCenteredWrapped(
     doc,
@@ -438,10 +474,10 @@ function drawEtiqueta(
     centerX,
     cursorY,
     innerW,
-    7.5,
+    5.5,
     { style: "bold", uppercase: true, maxLines: 3 }
   );
-  cursorY += 0.4;
+  cursorY += 0.3;
 
   cursorY = drawCenteredWrapped(
     doc,
@@ -449,42 +485,31 @@ function drawEtiqueta(
     centerX,
     cursorY,
     innerW,
-    7.2,
+    5.2,
     { style: "normal", uppercase: false, maxLines: 2 }
   );
-  cursorY += 0.25;
+  cursorY += 0.2;
 
-  const serieTurmaText = normalizeSpaces(etiquetasSerieTurmaLine(context)).toUpperCase();
+  const serieTurmaTurnoText = normalizeSpaces(etiquetasSerieTurmaTurnoLine(context)).toUpperCase();
   cursorY = drawCenteredWrapped(
     doc,
-    `Série/Turma: ${serieTurmaText}`,
+    `Série | Turma | Turno: ${serieTurmaTurnoText}`,
     centerX,
     cursorY,
     innerW,
-    6.8,
+    4.8,
     { style: "normal", uppercase: false, maxLines: 2 }
   );
-  cursorY += 0.25;
-  cursorY = drawCenteredWrapped(
-    doc,
-    `Turno: ${normalizeSpaces(etiquetasTurnoLabel(context)).toUpperCase()}`,
-    centerX,
-    cursorY,
-    innerW,
-    6.8,
-    { style: "normal", uppercase: false, maxLines: 1 }
-  );
-  cursorY += 0.4;
 
   cursorY += 0.6;
   doc.setLineWidth(0.2);
   doc.line(innerX, cursorY, x + width - PAD, cursorY);
 
-  const freeAreaTop = cursorY + 2;
+  const freeAreaTop = cursorY + 1.5;
   const freeAreaBottom = footerTop - 0.5;
   const freeAreaHeight = freeAreaBottom - freeAreaTop;
 
-  const freeFontSize = item.textoLivreTamanho || 10;
+  const freeFontSize = item.textoLivreTamanho || TEXTO_LIVRE_TAMANHO_PADRAO;
   const freeColor = item.exibirAssinatura
     ? ([0, 0, 0] as Rgb)
     : hexToRgb(item.textoLivreCor || "#000000");
@@ -507,11 +532,8 @@ function drawEtiqueta(
   }
 }
 
-export function generateEtiquetasPdf(
-  context: EtiquetasDadosResponse,
-  labels: EtiquetaEditItem[],
-  logo: PdfImageAsset | null
-): jsPDF {
+/** Etiquetas de várias turmas/séries seguem em sequência contínua na grade, sem quebra de página entre grupos. */
+export function generateEtiquetasPdf(entries: EtiquetaPdfEntry[], logo: PdfImageAsset | null): jsPDF {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -520,7 +542,7 @@ export function generateEtiquetasPdf(
   const labelWidth = (usableWidth - GAP_X * (COLS - 1)) / COLS;
   const labelHeight = (usableHeight - GAP_Y * (ROWS - 1)) / ROWS;
 
-  labels.forEach((label, index) => {
+  entries.forEach(({ context, label }, index) => {
     if (index > 0 && index % LABELS_PER_PAGE === 0) {
       doc.addPage();
     }
@@ -535,35 +557,17 @@ export function generateEtiquetasPdf(
   return doc;
 }
 
-export function createEtiquetasPdfBlob(
-  context: EtiquetasDadosResponse,
-  labels: EtiquetaEditItem[],
-  logo: PdfImageAsset | null
-): Blob {
-  const doc = generateEtiquetasPdf(context, labels, logo);
+export function createEtiquetasPdfBlob(entries: EtiquetaPdfEntry[], logo: PdfImageAsset | null): Blob {
+  const doc = generateEtiquetasPdf(entries, logo);
   return doc.output("blob");
 }
 
 export async function downloadEtiquetasPdf(
-  context: EtiquetasDadosResponse,
-  labels: EtiquetaEditItem[],
+  entries: EtiquetaPdfEntry[],
   logo: PdfImageAsset | null
 ): Promise<void> {
-  const blob = createEtiquetasPdfBlob(context, labels, logo);
+  const blob = createEtiquetasPdfBlob(entries, logo);
   const date = new Date().toISOString().slice(0, 10);
   const fileName = `etiquetas-${date}.pdf`;
   downloadBlob(blob, fileName);
-}
-
-export function buildEtiquetasHierarchyPath(params: {
-  escola: string;
-  serie: string;
-  turma: string;
-}): string {
-  return buildHierarchyPath({
-    escola: params.escola,
-    serie: params.serie,
-    turma: params.turma,
-    fileName: "etiquetas.pdf",
-  });
 }
