@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Download, Eye, FileText, Filter, Loader2, Plus, Trash2, UserPlus } from "lucide-react";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,37 +16,38 @@ import {
 } from "@/services/evaluation/evaluationResultsApi";
 import { EvaluationInstrumentPicker } from "@/components/filters";
 import { getEtiquetasApiError, getEtiquetasDados } from "@/services/documents/etiquetasApi";
-import {
-  buildEtiquetasHierarchyPath,
-  createEtiquetasPdfBlob,
-  downloadEtiquetasPdf,
-} from "@/services/reports/etiquetasPdf";
+import { downloadEtiquetasPdf, type EtiquetaPdfEntry } from "@/services/reports/etiquetasPdf";
 import type {
   EtiquetaEditItem,
   EtiquetasDadosResponse,
   EtiquetasModo,
 } from "@/types/etiquetas";
 import { loadCityBrandingPdfAssets } from "@/utils/pdfCityBranding";
-import { loadBrandingImage } from "@/utils/brandingImageUtils";
-import { getCityBranding, resolveBrandingUrls } from "@/services/cityBrandingApi";
 import {
   enrichEtiquetasContext,
-  etiquetasTurnoLabel,
+  etiquetasSerieTurmaTurnoLine,
   TEXTO_ACIMA_ASSINATURA_MAX,
+  TEXTO_LIVRE_TAMANHO_PADRAO,
 } from "@/utils/etiquetasDisplay";
 import { EtiquetaTextToolbar } from "@/components/documents/EtiquetaTextToolbar";
 import { EtiquetaPreviewDialog } from "@/components/documents/EtiquetaPreviewDialog";
-import { downloadBlob, generateZipBlob } from "@/services/reports/hierarchicalDownload";
 import { inferCursoFromSerieName, matchCourseOptionId } from "@/utils/gradeToCourse";
+import { normalizeClassShift } from "@/lib/classShift";
 
 type Option = { id: string; name: string };
 type SerieOption = Option & { educationStageId?: string };
+type TurmaOption = Option & { serieId: string };
 type NivelOption = { id: string; name: string };
+
+const SERIE_TODAS = "todas";
+const LABELS_PER_PAGE = 8;
+const CONTEXT_BATCH_SIZE = 5;
 
 const TURNO_OPTIONS: Option[] = [
   { id: "MATUTINO", name: "Matutino" },
   { id: "VESPERTINO", name: "Vespertino" },
   { id: "NOTURNO", name: "Noturno" },
+  { id: "INTEGRAL", name: "Integral" },
 ];
 
 const MODO_OPTIONS: { value: EtiquetasModo; label: string }[] = [
@@ -71,10 +72,10 @@ function getAppliedTitle(optionId: string, options: Option[]): string {
   return options.find((item) => item.id === optionId)?.name?.trim() || "";
 }
 
-function createEtiquetaItem(index: number, defaultTitle: string): EtiquetaEditItem {
+function createEtiquetaItem(index: number, patch?: Partial<EtiquetaEditItem>): EtiquetaEditItem {
   return {
     id: `${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
-    titulo: defaultTitle,
+    titulo: "",
     textoLivre: "",
     exibirAssinatura: true,
     nomeAplicador: "",
@@ -83,10 +84,17 @@ function createEtiquetaItem(index: number, defaultTitle: string): EtiquetaEditIt
     nomeAplicador2: "",
     cpfAplicador2: "",
     textoLivreCor: "#000000",
-    textoLivreTamanho: 10,
+    textoLivreTamanho: TEXTO_LIVRE_TAMANHO_PADRAO,
     textoLivreAlinhamento: "center",
     textoAcimaAssinatura: "",
+    textoAcimaAssinatura2: "",
+    ...patch,
   };
+}
+
+function serieNivelId(serie: SerieOption | undefined, niveis: NivelOption[]): string {
+  if (!serie) return "";
+  return serie.educationStageId || matchCourseOptionId(inferCursoFromSerieName(serie.name), niveis);
 }
 
 export default function EtiquetasPage() {
@@ -98,7 +106,7 @@ export default function EtiquetasPage() {
   const [schools, setSchools] = useState<Option[]>([]);
   const [niveis, setNiveis] = useState<NivelOption[]>([]);
   const [series, setSeries] = useState<SerieOption[]>([]);
-  const [turmas, setTurmas] = useState<Option[]>([]);
+  const [turmas, setTurmas] = useState<TurmaOption[]>([]);
   const [aplicados, setAplicados] = useState<Option[]>([]);
 
   const [selectedEstado, setSelectedEstado] = useState("all");
@@ -111,8 +119,9 @@ export default function EtiquetasPage() {
   const [selectedAplicadoId, setSelectedAplicadoId] = useState("all");
 
   const [tituloEtiqueta, setTituloEtiqueta] = useState("");
-  const [quantityInput, setQuantityInput] = useState("1");
   const [labels, setLabels] = useState<EtiquetaEditItem[]>([]);
+  const [turmaContexts, setTurmaContexts] = useState<Record<string, EtiquetasDadosResponse>>({});
+  const labelCacheRef = useRef(new Map<string, EtiquetaEditItem>());
 
   const [loadingEstados, setLoadingEstados] = useState(false);
   const [loadingMunicipios, setLoadingMunicipios] = useState(false);
@@ -121,34 +130,40 @@ export default function EtiquetasPage() {
   const [loadingSeries, setLoadingSeries] = useState(false);
   const [loadingTurmas, setLoadingTurmas] = useState(false);
   const [loadingAplicados, setLoadingAplicados] = useState(false);
-  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [loadingContexts, setLoadingContexts] = useState(false);
   const [loadingPdf, setLoadingPdf] = useState(false);
 
-  const [previewContext, setPreviewContext] = useState<EtiquetasDadosResponse | null>(null);
-  const [previewLogoUrl, setPreviewLogoUrl] = useState<string | null>(null);
   const [previewLabelId, setPreviewLabelId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const isManualMode = modo === "manual";
   const isAppliedMode = modo === "avaliacao" || modo === "cartao_resposta";
   const turmaEspecifica = selectedTurma !== "all";
+  const serieTodas = selectedSerie === SERIE_TODAS;
   const hasGeoContext = selectedEstado !== "all" && selectedMunicipio !== "all";
-  const parsedQuantity = Number.parseInt(quantityInput, 10);
-  const safeQuantity =
-    Number.isFinite(parsedQuantity) && parsedQuantity >= 1
-      ? Math.min(200, parsedQuantity)
-      : 1;
 
   const globalTitle = useMemo(() => tituloEtiqueta.trim(), [tituloEtiqueta]);
 
-  const buildLocalPreviewContext = (): EtiquetasDadosResponse => {
+  /** Com "Todas" as séries, o curso escolhido restringe as séries consideradas. */
+  const seriesInScope = useMemo(() => {
+    if (!serieTodas || selectedNivel === "all") return series;
+    return series.filter((serie) => serieNivelId(serie, niveis) === selectedNivel);
+  }, [serieTodas, selectedNivel, series, niveis]);
+
+  const targetTurmas = useMemo<TurmaOption[]>(() => {
+    if (turmaEspecifica) return turmas.filter((t) => t.id === selectedTurma);
+    const serieOrder = new Map(series.map((s, index) => [s.id, index]));
+    const collator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" });
+    return [...turmas].sort(
+      (a, b) =>
+        (serieOrder.get(a.serieId) ?? 0) - (serieOrder.get(b.serieId) ?? 0) ||
+        collator.compare(a.name, b.name)
+    );
+  }, [turmaEspecifica, turmas, selectedTurma, series]);
+
+  const localBaseContext = useMemo<EtiquetasDadosResponse | null>(() => {
+    if (!hasGeoContext) return null;
     const municipioName = municipios.find((m) => m.id === selectedMunicipio)?.name || "";
     const estadoName = estados.find((e) => e.id === selectedEstado)?.name || "";
-    const escolaName = schools.find((s) => s.id === selectedSchool)?.name || "—";
-    const nivelName = niveis.find((n) => n.id === selectedNivel)?.name || "—";
-    const serieName = series.find((s) => s.id === selectedSerie)?.name || "—";
-    const turmaName = turmas.find((t) => t.id === selectedTurma)?.name || "—";
-    const turnoName = TURNO_OPTIONS.find((t) => t.id === selectedTurno)?.name || "";
     return {
       municipio: {
         id: selectedMunicipio,
@@ -157,12 +172,12 @@ export default function EtiquetasPage() {
         prefeitura_label: municipioName,
       },
       contexto: {
-        escola: escolaName,
-        nivel: nivelName,
-        serie: serieName,
-        turma: turmaName,
-        turno: turnoName,
-        shift: turnoName,
+        escola: schools.find((s) => s.id === selectedSchool)?.name || "",
+        nivel: niveis.find((n) => n.id === selectedNivel)?.name || "",
+        serie: "",
+        turma: "",
+        turno: "",
+        shift: "",
         ano: new Date().getFullYear(),
       },
       modo,
@@ -171,16 +186,27 @@ export default function EtiquetasPage() {
         modo,
         municipio: selectedMunicipio,
         escola: selectedSchool !== "all" ? selectedSchool : "",
-        nivel: selectedNivel !== "all" ? selectedNivel : "",
-        serie: selectedSerie !== "all" ? selectedSerie : "",
-        turma: selectedTurma !== "all" ? selectedTurma : "",
-        turno: selectedTurno !== "all" ? selectedTurno : "",
-        evaluation_id: modo === "avaliacao" && selectedAplicadoId !== "all" ? selectedAplicadoId : "",
-        answer_sheet_id:
-          modo === "cartao_resposta" && selectedAplicadoId !== "all" ? selectedAplicadoId : "",
+        nivel: "",
+        serie: "",
+        turma: "",
+        turno: "",
+        evaluation_id: "",
+        answer_sheet_id: "",
       },
     };
-  };
+  }, [
+    hasGeoContext,
+    municipios,
+    estados,
+    schools,
+    niveis,
+    selectedMunicipio,
+    selectedEstado,
+    selectedSchool,
+    selectedNivel,
+    modo,
+    globalTitle,
+  ]);
 
   useEffect(() => {
     if (!isAppliedMode || selectedAplicadoId === "all") return;
@@ -190,6 +216,10 @@ export default function EtiquetasPage() {
 
   useEffect(() => {
     if (!selectedSerie || selectedSerie === "all") return;
+    if (selectedSerie === SERIE_TODAS) {
+      setSelectedNivel("all");
+      return;
+    }
     const serieName = series.find((item) => item.id === selectedSerie)?.name || "";
     const cursoName = inferCursoFromSerieName(serieName);
     if (!cursoName) return;
@@ -356,15 +386,32 @@ export default function EtiquetasPage() {
     }
     let cancelled = false;
     setLoadingTurmas(true);
-    FormFiltersApiService.getFormFilterClasses({
-      estado: selectedEstado,
-      municipio: selectedMunicipio,
-      escola: selectedSchool,
-      serie: selectedSerie,
-    })
-      .then((list) => {
+    const serieIds =
+      selectedSerie === SERIE_TODAS ? seriesInScope.map((item) => item.id) : [selectedSerie];
+    Promise.all(
+      serieIds.map((serieId) =>
+        FormFiltersApiService.getFormFilterClasses({
+          estado: selectedEstado,
+          municipio: selectedMunicipio,
+          escola: selectedSchool,
+          serie: serieId,
+        }).then((list) => list.map((t) => ({ id: t.id, name: t.nome, serieId })))
+      )
+    )
+      .then((groups) => {
+        if (cancelled) return;
+        const seen = new Set<string>();
+        const merged = groups.flat().filter((turma) => {
+          if (seen.has(turma.id)) return false;
+          seen.add(turma.id);
+          return true;
+        });
+        setTurmas(merged);
+        setSelectedTurma("all");
+      })
+      .catch(() => {
         if (!cancelled) {
-          setTurmas(list.map((t) => ({ id: t.id, name: t.nome })));
+          setTurmas([]);
           setSelectedTurma("all");
         }
       })
@@ -374,7 +421,7 @@ export default function EtiquetasPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedSerie, selectedSchool, selectedMunicipio, selectedEstado]);
+  }, [selectedSerie, seriesInScope, selectedSchool, selectedMunicipio, selectedEstado]);
 
   useEffect(() => {
     if (!isAppliedMode || selectedMunicipio === "all" || selectedEstado === "all") {
@@ -413,145 +460,195 @@ export default function EtiquetasPage() {
   }, [isAppliedMode, modo, selectedEstado, selectedMunicipio, selectedSchool]);
 
   useLayoutEffect(() => {
-    setPreviewContext(null);
-    setPreviewLogoUrl(null);
+    labelCacheRef.current.clear();
+    setLabels([]);
+    setTurmaContexts({});
     setError(null);
-    if (!hasGeoContext) {
-      setLabels([]);
-      return;
-    }
-    const seedTitle =
-      (isAppliedMode && selectedAplicadoId !== "all"
-        ? getAppliedTitle(selectedAplicadoId, aplicados)
-        : "") || tituloEtiqueta.trim();
-    setLabels(
-      Array.from({ length: safeQuantity }).map((_, index) =>
-        createEtiquetaItem(index + 1, seedTitle)
-      )
-    );
-  }, [
-    hasGeoContext,
-    isAppliedMode,
-    modo,
-    selectedEstado,
-    selectedMunicipio,
-    selectedSchool,
-    selectedNivel,
-    selectedSerie,
-    selectedTurma,
-    selectedTurno,
-    selectedAplicadoId,
-    aplicados,
-    quantityInput,
-    safeQuantity,
-  ]);
+  }, [modo, selectedEstado, selectedMunicipio, selectedSchool]);
 
-  const validationMessage = useMemo(() => {
+  const filtersMessage = useMemo(() => {
     if (!selectedMunicipio || selectedMunicipio === "all") return "Selecione o município.";
     if (!selectedSchool || selectedSchool === "all") return "Selecione a escola.";
-    if (!selectedNivel || selectedNivel === "all") return "Selecione o curso.";
     if (!selectedSerie || selectedSerie === "all") return "Selecione a série.";
-    if (!turmaEspecifica && turmas.length === 0) return "Nenhuma turma encontrada para a série.";
-    if (turmaEspecifica && (!selectedTurno || selectedTurno === "all")) return "Selecione o turno.";
-    if (!Number.isFinite(parsedQuantity) || parsedQuantity < 1) return "Informe uma quantidade válida.";
-    if (parsedQuantity > 200) return "Limite máximo de 200 etiquetas por geração.";
-    if (isManualMode && !tituloEtiqueta.trim()) return "Informe o título das etiquetas.";
+    if (!serieTodas && (!selectedNivel || selectedNivel === "all")) return "Selecione o curso.";
     if (isAppliedMode && selectedAplicadoId === "all") {
       return modo === "cartao_resposta" ? "Selecione o cartão-resposta." : "Selecione a avaliação.";
     }
-    if (isAppliedMode && !tituloEtiqueta.trim()) return "Informe o título das etiquetas.";
+    if (loadingTurmas) return "Carregando turmas…";
+    if (targetTurmas.length === 0) {
+      return serieTodas
+        ? "Nenhuma turma encontrada para os filtros escolhidos."
+        : "Nenhuma turma encontrada para a série.";
+    }
     return null;
   }, [
     isAppliedMode,
-    isManualMode,
-    tituloEtiqueta,
+    loadingTurmas,
     modo,
-    parsedQuantity,
     selectedAplicadoId,
     selectedMunicipio,
     selectedNivel,
     selectedSchool,
     selectedSerie,
-    selectedTurno,
-    turmaEspecifica,
-    turmas.length,
+    serieTodas,
+    targetTurmas.length,
   ]);
 
-  const filterLabelsForContext = (turmaId?: string) => ({
-    serieLabel: series.find((s) => s.id === selectedSerie)?.name,
-    turmaLabel: turmas.find((t) => t.id === (turmaId ?? selectedTurma))?.name,
-    turnoLabel: TURNO_OPTIONS.find((t) => t.id === selectedTurno)?.name,
-  });
+  useEffect(() => {
+    if (filtersMessage) {
+      setTurmaContexts({});
+      setLoadingContexts(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingContexts(true);
+    setError(null);
 
-  const buildParams = (turmaId?: string) => ({
+    const paramsFor = (turma: TurmaOption) => {
+      const serie = series.find((s) => s.id === turma.serieId);
+      const nivel =
+        selectedNivel !== "all" ? selectedNivel : serieNivelId(serie, niveis) || undefined;
+      return {
+        modo,
+        municipio: selectedMunicipio,
+        escola: selectedSchool,
+        nivel,
+        serie: turma.serieId,
+        turma: turma.id,
+        evaluation_id: modo === "avaliacao" ? selectedAplicadoId : undefined,
+        answer_sheet_id: modo === "cartao_resposta" ? selectedAplicadoId : undefined,
+      };
+    };
+
+    (async () => {
+      try {
+        const result: Record<string, EtiquetasDadosResponse> = {};
+        for (let i = 0; i < targetTurmas.length; i += CONTEXT_BATCH_SIZE) {
+          const batch = targetTurmas.slice(i, i + CONTEXT_BATCH_SIZE);
+          const loaded = await Promise.all(
+            batch.map(async (turma) => {
+              const data = await getEtiquetasDados(paramsFor(turma));
+              const serieLabel = series.find((s) => s.id === turma.serieId)?.name;
+              return [turma.id, enrichEtiquetasContext(data, { serieLabel, turmaLabel: turma.name })] as const;
+            })
+          );
+          if (cancelled) return;
+          loaded.forEach(([turmaId, context]) => {
+            result[turmaId] = context;
+          });
+        }
+        if (!cancelled) setTurmaContexts(result);
+      } catch (err) {
+        if (cancelled) return;
+        const msg = getEtiquetasApiError(err, "Não foi possível carregar os dados das turmas.");
+        setTurmaContexts({});
+        setError(msg);
+      } finally {
+        if (!cancelled) setLoadingContexts(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    filtersMessage,
+    targetTurmas,
+    series,
+    niveis,
     modo,
-    municipio: selectedMunicipio,
-    escola: selectedSchool !== "all" ? selectedSchool : undefined,
-    nivel: selectedNivel !== "all" ? selectedNivel : undefined,
-    serie: selectedSerie !== "all" ? selectedSerie : undefined,
-    turma: turmaId ?? (selectedTurma !== "all" ? selectedTurma : undefined),
-    turno: selectedTurno !== "all" ? selectedTurno : undefined,
-    evaluation_id: modo === "avaliacao" && selectedAplicadoId !== "all" ? selectedAplicadoId : undefined,
-    answer_sheet_id:
-      modo === "cartao_resposta" && selectedAplicadoId !== "all" ? selectedAplicadoId : undefined,
-  });
+    selectedMunicipio,
+    selectedSchool,
+    selectedNivel,
+    selectedAplicadoId,
+  ]);
+
+  /** Uma etiqueta por turma: cada turma já define sua série, turno e curso. O filtro de turno restringe as turmas. */
+  const autoEntries = useMemo(() => {
+    const turnoFiltro = selectedTurno !== "all" ? normalizeClassShift(selectedTurno) : null;
+    const turnoLabel = TURNO_OPTIONS.find((t) => t.id === selectedTurno)?.name;
+    return targetTurmas.flatMap((turma) => {
+      const context = turmaContexts[turma.id];
+      if (!context) return [];
+      const turmaShift = normalizeClassShift(context.contexto.turno || context.contexto.shift);
+      if (turnoFiltro && turmaShift && turmaShift !== turnoFiltro) return [];
+      return [{ turmaId: turma.id, context: enrichEtiquetasContext(context, { turnoLabel }) }];
+    });
+  }, [targetTurmas, turmaContexts, selectedTurno]);
+
+  const autoContextByTurma = useMemo(
+    () => new Map(autoEntries.map((entry) => [entry.turmaId, entry.context])),
+    [autoEntries]
+  );
+
+  useEffect(() => {
+    setLabels((prev) => {
+      const byTurma = new Map(
+        prev.filter((item) => item.turmaId).map((item) => [item.turmaId as string, item])
+      );
+      const custom = prev.filter((item) => !item.turmaId);
+      const auto = autoEntries.map(
+        (entry, index) =>
+          byTurma.get(entry.turmaId) ??
+          labelCacheRef.current.get(entry.turmaId) ??
+          createEtiquetaItem(index + 1, { turmaId: entry.turmaId })
+      );
+      return [...auto, ...custom];
+    });
+  }, [autoEntries]);
+
+  useEffect(() => {
+    labels.forEach((item) => {
+      if (item.turmaId) labelCacheRef.current.set(item.turmaId, item);
+    });
+  }, [labels]);
+
+  const baseContext = autoEntries[0]?.context ?? localBaseContext;
+
+  const resolveLabelContext = (label: EtiquetaEditItem): EtiquetasDadosResponse | null => {
+    if (label.turmaId) return autoContextByTurma.get(label.turmaId) ?? null;
+    if (!baseContext || !label.contextoPersonalizado) return null;
+    return { ...baseContext, contexto: label.contextoPersonalizado };
+  };
+
+  const resolveLabelTitle = (label: EtiquetaEditItem, context: EtiquetasDadosResponse | null): string =>
+    label.titulo.trim() || globalTitle || context?.title_reference?.trim() || "";
+
+  const autoCount = labels.filter((item) => item.turmaId).length;
+  const customCount = labels.length - autoCount;
+
+  const validationMessage = useMemo(() => {
+    if (filtersMessage) return filtersMessage;
+    if (loadingContexts) return "Carregando dados das turmas…";
+    if (!labels.length) return "Nenhuma etiqueta para os filtros escolhidos (verifique o turno).";
+    if (!globalTitle && labels.some((item) => !item.titulo.trim())) {
+      return "Informe o título das etiquetas.";
+    }
+    return null;
+  }, [filtersMessage, loadingContexts, labels, globalTitle]);
 
   const updateLabel = (id: string, patch: Partial<EtiquetaEditItem>) => {
     setLabels((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   };
 
-  const appendLabel = () => {
-    setLabels((prev) => [...prev, createEtiquetaItem(prev.length + 1, globalTitle || previewContext?.title_reference || "")]);
+  const updateCustomContext = (
+    label: EtiquetaEditItem,
+    patch: Partial<EtiquetasDadosResponse["contexto"]>
+  ) => {
+    if (!label.contextoPersonalizado) return;
+    updateLabel(label.id, { contextoPersonalizado: { ...label.contextoPersonalizado, ...patch } });
   };
 
-  const buildTemplateLabels = (title: string): EtiquetaEditItem[] => {
-    if (labels.length > 0 && turmaEspecifica) return labels;
-    return Array.from({ length: parsedQuantity }).map((_, index) =>
-      createEtiquetaItem(index + 1, title)
-    );
+  const appendCustomLabel = () => {
+    if (!baseContext) return;
+    setLabels((prev) => [
+      ...prev,
+      createEtiquetaItem(prev.length + 1, { contextoPersonalizado: { ...baseContext.contexto } }),
+    ]);
   };
 
-  const buildPreview = async () => {
-    if (validationMessage) {
-      setError(validationMessage);
-      return;
-    }
-    if (!turmaEspecifica) {
-      setError("Selecione uma turma específica para montar a pré-visualização.");
-      return;
-    }
-    setLoadingPreview(true);
-    setError(null);
-    try {
-      const context = enrichEtiquetasContext(
-        await getEtiquetasDados(buildParams()),
-        filterLabelsForContext()
-      );
-      const branding = await loadCityBrandingPdfAssets(selectedMunicipio);
-      let logoDisplayUrl = branding.logo?.dataUrl ?? null;
-      if (!logoDisplayUrl) {
-        try {
-          const cityBranding = await getCityBranding(selectedMunicipio);
-          const urls = resolveBrandingUrls(cityBranding);
-          logoDisplayUrl = (await loadBrandingImage(urls.logo_url, undefined, selectedMunicipio)) ?? null;
-        } catch {
-          logoDisplayUrl = null;
-        }
-      }
-      setPreviewContext(context);
-      setPreviewLogoUrl(logoDisplayUrl);
-      const initialTitle = globalTitle || context.title_reference || "";
-      setLabels(Array.from({ length: parsedQuantity }).map((_, index) => createEtiquetaItem(index + 1, initialTitle)));
-    } catch (err) {
-      const msg = getEtiquetasApiError(err, "Não foi possível montar as etiquetas.");
-      setError(msg);
-      setPreviewContext(null);
-      setPreviewLogoUrl(null);
-      setLabels([]);
-      toast({ title: "Erro", description: msg, variant: "destructive" });
-    } finally {
-      setLoadingPreview(false);
-    }
+  const removeLabel = (id: string) => {
+    setLabels((prev) => prev.filter((item) => item.id !== id));
   };
 
   const handleGeneratePdf = async () => {
@@ -559,88 +656,26 @@ export default function EtiquetasPage() {
       setError(validationMessage);
       return;
     }
-    if (!turmaEspecifica) {
-      setError("Selecione uma turma específica para baixar o PDF.");
-      return;
-    }
-    if (!labels.length) {
-      setError("Configure ao menos uma etiqueta antes de gerar o PDF.");
-      return;
-    }
     setLoadingPdf(true);
     setError(null);
     try {
-      const branding = await loadCityBrandingPdfAssets(selectedMunicipio);
-      const context = enrichEtiquetasContext(
-        await getEtiquetasDados(buildParams()),
-        filterLabelsForContext()
-      );
-      setPreviewContext(context);
-      await downloadEtiquetasPdf(context, labels, branding.logo);
-      toast({ title: "PDF gerado", description: `${labels.length} etiqueta(s) exportada(s).` });
-    } catch (err) {
-      const msg = getEtiquetasApiError(err, "Não foi possível gerar o PDF de etiquetas.");
-      setError(msg);
-      toast({ title: "Erro", description: msg, variant: "destructive" });
-    } finally {
-      setLoadingPdf(false);
-    }
-  };
-
-  const handleGenerateZip = async () => {
-    if (validationMessage) {
-      setError(validationMessage);
-      return;
-    }
-    if (turmaEspecifica) {
-      setError('Para baixar ZIP, deixe a turma em "Todas".');
-      return;
-    }
-    if (turmas.length === 0) {
-      setError("Nenhuma turma encontrada para gerar o lote.");
-      return;
-    }
-    setLoadingPdf(true);
-    setError(null);
-    try {
-      const branding = await loadCityBrandingPdfAssets(selectedMunicipio);
-      const schoolName = schools.find((s) => s.id === selectedSchool)?.name || "Escola";
-      const serieName = series.find((s) => s.id === selectedSerie)?.name || "Serie";
-      const templateTitle = globalTitle || "";
-      const templateLabels = buildTemplateLabels(templateTitle);
-      const zipEntries: Array<{ path: string; blob: Blob }> = [];
-
-      for (const turma of turmas) {
-        const context = enrichEtiquetasContext(
-          await getEtiquetasDados(buildParams(turma.id)),
-          filterLabelsForContext(turma.id)
-        );
-        const title = globalTitle || context.title_reference || templateTitle;
-        const labelsForTurma = templateLabels.map((item, index) => ({
-          ...item,
-          id: `${turma.id}-${index}`,
-          titulo: item.titulo || title,
-        }));
-        const blob = createEtiquetasPdfBlob(context, labelsForTurma, branding.logo);
-        zipEntries.push({
-          path: buildEtiquetasHierarchyPath({
-            escola: context.contexto.escola || schoolName,
-            serie: context.contexto.serie || serieName,
-            turma: context.contexto.turma || turma.name,
-          }),
-          blob,
-        });
+      const entries: EtiquetaPdfEntry[] = labels.flatMap((label) => {
+        const context = resolveLabelContext(label);
+        if (!context) return [];
+        return [{ context, label: { ...label, titulo: resolveLabelTitle(label, context) } }];
+      });
+      if (!entries.length) {
+        setError("Nenhuma etiqueta pronta para gerar o PDF.");
+        return;
       }
-
-      const date = new Date().toISOString().slice(0, 10);
-      const zipBlob = await generateZipBlob(zipEntries);
-      downloadBlob(zipBlob, `etiquetas-${date}.zip`);
+      const branding = await loadCityBrandingPdfAssets(selectedMunicipio);
+      await downloadEtiquetasPdf(entries, branding.logo);
       toast({
-        title: "ZIP gerado",
-        description: `${zipEntries.length} turma(s) exportada(s).`,
+        title: "PDF gerado",
+        description: `${entries.length} etiqueta(s) exportada(s) em um único PDF.`,
       });
     } catch (err) {
-      const msg = getEtiquetasApiError(err, "Não foi possível gerar o ZIP de etiquetas.");
+      const msg = getEtiquetasApiError(err, "Não foi possível gerar o PDF de etiquetas.");
       setError(msg);
       toast({ title: "Erro", description: msg, variant: "destructive" });
     } finally {
@@ -651,8 +686,8 @@ export default function EtiquetasPage() {
   const virtualPages = useMemo(() => {
     if (!labels.length) return [];
     const pages: EtiquetaEditItem[][] = [];
-    for (let i = 0; i < labels.length; i += 8) {
-      pages.push(labels.slice(i, i + 8));
+    for (let i = 0; i < labels.length; i += LABELS_PER_PAGE) {
+      pages.push(labels.slice(i, i + LABELS_PER_PAGE));
     }
     return pages;
   }, [labels]);
@@ -661,34 +696,11 @@ export default function EtiquetasPage() {
     () => labels.find((item) => item.id === previewLabelId) ?? null,
     [labels, previewLabelId]
   );
-
   const previewLabelIndex = previewLabel ? labels.findIndex((item) => item.id === previewLabelId) : -1;
-
-  const displayContext = useMemo(() => {
-    if (!hasGeoContext) return null;
-    return previewContext ?? buildLocalPreviewContext();
-    // buildLocalPreviewContext lê filtros atuais; deps cobrem essas fontes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    hasGeoContext,
-    previewContext,
-    selectedEstado,
-    selectedMunicipio,
-    selectedSchool,
-    selectedNivel,
-    selectedSerie,
-    selectedTurma,
-    selectedTurno,
-    selectedAplicadoId,
-    modo,
-    globalTitle,
-    estados,
-    municipios,
-    schools,
-    niveis,
-    series,
-    turmas,
-  ]);
+  const previewContext = previewLabel ? resolveLabelContext(previewLabel) : null;
+  const previewLabelResolved = previewLabel
+    ? { ...previewLabel, titulo: resolveLabelTitle(previewLabel, previewContext) }
+    : null;
 
   return (
     <div className="container mx-auto max-w-6xl space-y-6 p-4 md:p-6">
@@ -697,7 +709,7 @@ export default function EtiquetasPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Etiquetas</h1>
           <p className="text-sm text-muted-foreground">
-            Configure os filtros, monte a pré-visualização e edite cada etiqueta individualmente antes do PDF.
+            Configure os filtros: é gerada uma etiqueta por turma. Edite cada etiqueta individualmente antes do PDF.
           </p>
         </div>
       </div>
@@ -836,6 +848,7 @@ export default function EtiquetasPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Selecione</SelectItem>
+                {series.length > 0 && <SelectItem value={SERIE_TODAS}>Todas</SelectItem>}
                 {series.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
                     {item.name}
@@ -856,7 +869,7 @@ export default function EtiquetasPage() {
                 <SelectValue placeholder={loadingNiveis ? "Carregando..." : "Preenchido pela série"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Selecione</SelectItem>
+                <SelectItem value="all">{serieTodas ? "Todos" : "Selecione"}</SelectItem>
                 {niveis.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
                     {item.name}
@@ -868,7 +881,11 @@ export default function EtiquetasPage() {
 
           <div className="space-y-2">
             <Label>Turma</Label>
-            <Select value={selectedTurma} onValueChange={setSelectedTurma} disabled={selectedSerie === "all" || loadingTurmas}>
+            <Select
+              value={selectedTurma}
+              onValueChange={setSelectedTurma}
+              disabled={selectedSerie === "all" || serieTodas || loadingTurmas}
+            >
               <SelectTrigger>
                 <SelectValue placeholder={loadingTurmas ? "Carregando..." : "Turma"} />
               </SelectTrigger>
@@ -884,13 +901,13 @@ export default function EtiquetasPage() {
           </div>
 
           <div className="space-y-2">
-            <Label>Turno{!turmaEspecifica ? " (opcional no lote)" : ""}</Label>
+            <Label>Turno</Label>
             <Select value={selectedTurno} onValueChange={setSelectedTurno}>
               <SelectTrigger>
                 <SelectValue placeholder="Turno" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">{turmaEspecifica ? "Selecione" : "Da turma"}</SelectItem>
+                <SelectItem value="all">Todos</SelectItem>
                 {TURNO_OPTIONS.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
                     {item.name}
@@ -898,17 +915,6 @@ export default function EtiquetasPage() {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-
-          <div className="space-y-2 sm:col-span-2">
-            <Label>Quantidade de etiquetas</Label>
-            <Input
-              type="number"
-              min={1}
-              max={200}
-              value={quantityInput}
-              onChange={(event) => setQuantityInput(event.target.value)}
-            />
           </div>
 
           {error && (
@@ -934,260 +940,356 @@ export default function EtiquetasPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            {displayContext ? (
+            {baseContext ? (
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Município</p>
                   <p className="text-base font-semibold">
-                    {displayContext.municipio.name}
-                    {displayContext.municipio.state ? `/${displayContext.municipio.state}` : ""}
+                    {baseContext.municipio.name}
+                    {baseContext.municipio.state ? `/${baseContext.municipio.state}` : ""}
                   </p>
                 </div>
                 <div className="rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Escola</p>
-                  <p className="text-base font-semibold">{displayContext.contexto.escola}</p>
+                  <p className="text-base font-semibold">{baseContext.contexto.escola || "—"}</p>
                 </div>
                 <div className="rounded-lg border p-3">
-                  <p className="text-xs text-muted-foreground">Modalidade/Etapa | Série | Turma | Turno</p>
-                  <p className="text-base font-semibold">
-                    {displayContext.contexto.nivel} | {displayContext.contexto.serie} |{" "}
-                    {displayContext.contexto.turma} | {etiquetasTurnoLabel(displayContext)}
+                  <p className="text-xs text-muted-foreground">Total de etiquetas</p>
+                  <p className="text-base font-semibold">{labels.length}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {autoCount} por turma
+                    {customCount > 0 ? ` + ${customCount} personalizada(s)` : ""}
                   </p>
                 </div>
               </div>
             ) : null}
 
-            {virtualPages.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Preparando etiquetas…</p>
-            ) : (
-              <div className="space-y-4">
-                {virtualPages.map((page, pageIndex) => (
-                  <div key={`page-${pageIndex}`} className="space-y-3">
-                    <h3 className="text-base font-semibold">Configuração — Página {pageIndex + 1}</h3>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {page.map((label, labelIndexOnPage) => {
-                        const globalLabelIndex = pageIndex * 8 + labelIndexOnPage;
-                        return (
-                          <div key={label.id} className="space-y-2 rounded-lg border p-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <Label className="text-sm font-medium">
-                                Etiqueta {globalLabelIndex + 1}
-                              </Label>
+            {loadingContexts ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Carregando dados de {targetTurmas.length} turma(s)…
+              </p>
+            ) : filtersMessage && !labels.length ? (
+              <p className="text-sm text-muted-foreground">{filtersMessage}</p>
+            ) : null}
+
+            {virtualPages.map((page, pageIndex) => (
+              <div key={`page-${pageIndex}`} className="space-y-3">
+                <h3 className="text-base font-semibold">Configuração — Página {pageIndex + 1}</h3>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {page.map((label, labelIndexOnPage) => {
+                    const globalLabelIndex = pageIndex * LABELS_PER_PAGE + labelIndexOnPage;
+                    const labelContext = resolveLabelContext(label);
+                    const isCustom = !label.turmaId;
+                    return (
+                      <div key={label.id} className="space-y-2 rounded-lg border p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <Label className="text-sm font-medium">
+                              Etiqueta {globalLabelIndex + 1}
+                              {isCustom ? " — personalizada" : ""}
+                            </Label>
+                            {labelContext ? (
+                              <p className="truncate text-xs text-muted-foreground">
+                                {etiquetasSerieTurmaTurnoLine(labelContext)}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setPreviewLabelId(label.id)}
+                              disabled={!labelContext}
+                            >
+                              <Eye className="mr-2 h-4 w-4" />
+                              Visualizar
+                            </Button>
+                            {isCustom ? (
                               <Button
                                 type="button"
-                                variant="outline"
+                                variant="ghost"
                                 size="sm"
-                                onClick={() => setPreviewLabelId(label.id)}
+                                className="h-9 px-2 text-destructive"
+                                aria-label={`Remover etiqueta ${globalLabelIndex + 1}`}
+                                onClick={() => removeLabel(label.id)}
                               >
-                                <Eye className="mr-2 h-4 w-4" />
-                                Visualizar
+                                <Trash2 className="h-4 w-4" />
                               </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                        <Input
+                          value={label.titulo}
+                          onChange={(event) => updateLabel(label.id, { titulo: event.target.value })}
+                          placeholder={globalTitle || "Título da etiqueta"}
+                        />
+
+                        {isCustom && label.contextoPersonalizado ? (
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <div className="space-y-1 sm:col-span-2">
+                              <Label htmlFor={`custom-escola-${label.id}`} className="text-xs">
+                                Escola
+                              </Label>
+                              <Input
+                                id={`custom-escola-${label.id}`}
+                                value={label.contextoPersonalizado.escola}
+                                onChange={(event) =>
+                                  updateCustomContext(label, { escola: event.target.value })
+                                }
+                              />
                             </div>
+                            <div className="space-y-1 sm:col-span-2">
+                              <Label htmlFor={`custom-nivel-${label.id}`} className="text-xs">
+                                Modalidade/Etapa
+                              </Label>
+                              <Input
+                                id={`custom-nivel-${label.id}`}
+                                value={label.contextoPersonalizado.nivel}
+                                onChange={(event) =>
+                                  updateCustomContext(label, { nivel: event.target.value })
+                                }
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor={`custom-serie-${label.id}`} className="text-xs">
+                                Série
+                              </Label>
+                              <Input
+                                id={`custom-serie-${label.id}`}
+                                value={label.contextoPersonalizado.serie}
+                                onChange={(event) =>
+                                  updateCustomContext(label, { serie: event.target.value })
+                                }
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor={`custom-turma-${label.id}`} className="text-xs">
+                                Turma
+                              </Label>
+                              <Input
+                                id={`custom-turma-${label.id}`}
+                                value={label.contextoPersonalizado.turma}
+                                onChange={(event) =>
+                                  updateCustomContext(label, { turma: event.target.value })
+                                }
+                              />
+                            </div>
+                            <div className="space-y-1 sm:col-span-2">
+                              <Label htmlFor={`custom-turno-${label.id}`} className="text-xs">
+                                Turno
+                              </Label>
+                              <Input
+                                id={`custom-turno-${label.id}`}
+                                value={label.contextoPersonalizado.turno}
+                                onChange={(event) =>
+                                  updateCustomContext(label, {
+                                    turno: event.target.value,
+                                    shift: event.target.value,
+                                  })
+                                }
+                              />
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="space-y-2">
+                          <Label htmlFor={`texto-livre-${label.id}`}>Texto livre</Label>
+                          <EtiquetaTextToolbar
+                            id={`texto-livre-${label.id}`}
+                            value={label.textoLivre}
+                            onChange={(value) => updateLabel(label.id, { textoLivre: value })}
+                            align={label.textoLivreAlinhamento}
+                            onAlignChange={(value) =>
+                              updateLabel(label.id, { textoLivreAlinhamento: value })
+                            }
+                            fontSize={label.textoLivreTamanho}
+                            onFontSizeChange={(value) =>
+                              updateLabel(label.id, { textoLivreTamanho: value })
+                            }
+                            placeholder="Texto livre da etiqueta"
+                          />
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`signature-${label.id}`}
+                            checked={label.exibirAssinatura}
+                            onCheckedChange={(checked) =>
+                              updateLabel(label.id, { exibirAssinatura: checked === true })
+                            }
+                          />
+                          <Label htmlFor={`signature-${label.id}`}>Exibir assinatura e CPF</Label>
+                        </div>
+
+                        {!label.exibirAssinatura && (
+                          <div className="space-y-2">
+                            <Label htmlFor={`text-color-${label.id}`}>Cor do texto livre</Label>
                             <Input
-                              value={label.titulo}
+                              id={`text-color-${label.id}`}
+                              type="color"
+                              value={label.textoLivreCor}
                               onChange={(event) =>
-                                updateLabel(label.id, { titulo: event.target.value })
+                                updateLabel(label.id, { textoLivreCor: event.target.value })
                               }
-                              placeholder="Título da etiqueta"
+                              className="h-10 max-w-[8rem] cursor-pointer p-1"
                             />
+                          </div>
+                        )}
 
+                        {label.exibirAssinatura && (
+                          <>
                             <div className="space-y-2">
-                              <Label htmlFor={`texto-livre-${label.id}`}>Texto livre</Label>
-                              <EtiquetaTextToolbar
-                                id={`texto-livre-${label.id}`}
-                                value={label.textoLivre}
-                                onChange={(value) => updateLabel(label.id, { textoLivre: value })}
-                                align={label.textoLivreAlinhamento}
-                                onAlignChange={(value) =>
-                                  updateLabel(label.id, { textoLivreAlinhamento: value })
-                                }
-                                fontSize={label.textoLivreTamanho}
-                                onFontSizeChange={(value) =>
-                                  updateLabel(label.id, { textoLivreTamanho: value })
-                                }
-                                placeholder="Texto livre da etiqueta"
-                              />
-                            </div>
-
-                            <div className="flex items-center space-x-2">
-                              <Checkbox
-                                id={`signature-${label.id}`}
-                                checked={label.exibirAssinatura}
-                                onCheckedChange={(checked) =>
-                                  updateLabel(label.id, { exibirAssinatura: checked === true })
+                              <Label htmlFor={`text-above-signature-${label.id}`}>
+                                Texto acima da assinatura (
+                                {label.textoAcimaAssinatura.length}/{TEXTO_ACIMA_ASSINATURA_MAX})
+                              </Label>
+                              <Input
+                                id={`text-above-signature-${label.id}`}
+                                value={label.textoAcimaAssinatura}
+                                maxLength={TEXTO_ACIMA_ASSINATURA_MAX}
+                                placeholder="Ex.: 2º DIA DE APLICAÇÃO – MAT OBJETIVA"
+                                onChange={(event) =>
+                                  updateLabel(label.id, {
+                                    textoAcimaAssinatura: event.target.value,
+                                  })
                                 }
                               />
-                              <Label htmlFor={`signature-${label.id}`}>Exibir assinatura e CPF</Label>
                             </div>
-
-                            {!label.exibirAssinatura && (
+                            <div className="space-y-2">
+                              <p className="text-xs font-medium text-muted-foreground">1º aplicador</p>
+                              <Input
+                                value={label.nomeAplicador}
+                                onChange={(event) =>
+                                  updateLabel(label.id, { nomeAplicador: event.target.value })
+                                }
+                                placeholder="Nome do aplicador"
+                              />
+                              <Input
+                                value={label.cpfAplicador}
+                                onChange={(event) =>
+                                  updateLabel(label.id, {
+                                    cpfAplicador: maskCpf(event.target.value),
+                                  })
+                                }
+                                placeholder="CPF do aplicador"
+                              />
+                            </div>
+                            {label.exibirSegundoAplicador ? (
                               <div className="space-y-2">
-                                <Label htmlFor={`text-color-${label.id}`}>Cor do texto livre</Label>
-                                <Input
-                                  id={`text-color-${label.id}`}
-                                  type="color"
-                                  value={label.textoLivreCor}
-                                  onChange={(event) =>
-                                    updateLabel(label.id, { textoLivreCor: event.target.value })
-                                  }
-                                  className="h-10 max-w-[8rem] cursor-pointer p-1"
-                                />
-                              </div>
-                            )}
-
-                            {label.exibirAssinatura && (
-                              <>
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-xs font-medium text-muted-foreground">
+                                    2º aplicador
+                                  </p>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 px-2 text-destructive"
+                                    onClick={() =>
+                                      updateLabel(label.id, {
+                                        exibirSegundoAplicador: false,
+                                        nomeAplicador2: "",
+                                        cpfAplicador2: "",
+                                        textoAcimaAssinatura2: "",
+                                      })
+                                    }
+                                  >
+                                    <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                    Remover
+                                  </Button>
+                                </div>
                                 <div className="space-y-2">
-                                  <Label htmlFor={`text-above-signature-${label.id}`}>
-                                    Texto acima da assinatura (
-                                    {label.textoAcimaAssinatura.length}/{TEXTO_ACIMA_ASSINATURA_MAX})
+                                  <Label htmlFor={`text-above-signature-2-${label.id}`}>
+                                    Texto acima da assinatura do 2º aplicador (
+                                    {label.textoAcimaAssinatura2.length}/{TEXTO_ACIMA_ASSINATURA_MAX})
                                   </Label>
                                   <Input
-                                    id={`text-above-signature-${label.id}`}
-                                    value={label.textoAcimaAssinatura}
+                                    id={`text-above-signature-2-${label.id}`}
+                                    value={label.textoAcimaAssinatura2}
                                     maxLength={TEXTO_ACIMA_ASSINATURA_MAX}
                                     placeholder="Ex.: 2º DIA DE APLICAÇÃO – MAT OBJETIVA"
                                     onChange={(event) =>
                                       updateLabel(label.id, {
-                                        textoAcimaAssinatura: event.target.value,
+                                        textoAcimaAssinatura2: event.target.value,
                                       })
                                     }
                                   />
                                 </div>
-                                <div className="space-y-2">
-                                  <p className="text-xs font-medium text-muted-foreground">1º aplicador</p>
-                                  <Input
-                                    value={label.nomeAplicador}
-                                    onChange={(event) =>
-                                      updateLabel(label.id, { nomeAplicador: event.target.value })
-                                    }
-                                    placeholder="Nome do aplicador"
-                                  />
-                                  <Input
-                                    value={label.cpfAplicador}
-                                    onChange={(event) =>
-                                      updateLabel(label.id, {
-                                        cpfAplicador: maskCpf(event.target.value),
-                                      })
-                                    }
-                                    placeholder="CPF do aplicador"
-                                  />
-                                </div>
-                                {label.exibirSegundoAplicador ? (
-                                  <div className="space-y-2">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <p className="text-xs font-medium text-muted-foreground">
-                                        2º aplicador
-                                      </p>
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-8 px-2 text-destructive"
-                                        onClick={() =>
-                                          updateLabel(label.id, {
-                                            exibirSegundoAplicador: false,
-                                            nomeAplicador2: "",
-                                            cpfAplicador2: "",
-                                          })
-                                        }
-                                      >
-                                        <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                        Remover
-                                      </Button>
-                                    </div>
-                                    <Input
-                                      value={label.nomeAplicador2}
-                                      onChange={(event) =>
-                                        updateLabel(label.id, { nomeAplicador2: event.target.value })
-                                      }
-                                      placeholder="Nome do 2º aplicador"
-                                    />
-                                    <Input
-                                      value={label.cpfAplicador2}
-                                      onChange={(event) =>
-                                        updateLabel(label.id, {
-                                          cpfAplicador2: maskCpf(event.target.value),
-                                        })
-                                      }
-                                      placeholder="CPF do 2º aplicador"
-                                    />
-                                  </div>
-                                ) : (
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="w-full"
-                                    onClick={() =>
-                                      updateLabel(label.id, { exibirSegundoAplicador: true })
-                                    }
-                                  >
-                                    <UserPlus className="mr-2 h-4 w-4" />
-                                    Adicionar aplicador
-                                  </Button>
-                                )}
-                              </>
+                                <Input
+                                  value={label.nomeAplicador2}
+                                  onChange={(event) =>
+                                    updateLabel(label.id, { nomeAplicador2: event.target.value })
+                                  }
+                                  placeholder="Nome do 2º aplicador"
+                                />
+                                <Input
+                                  value={label.cpfAplicador2}
+                                  onChange={(event) =>
+                                    updateLabel(label.id, {
+                                      cpfAplicador2: maskCpf(event.target.value),
+                                    })
+                                  }
+                                  placeholder="CPF do 2º aplicador"
+                                />
+                              </div>
+                            ) : (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="w-full"
+                                onClick={() =>
+                                  updateLabel(label.id, { exibirSegundoAplicador: true })
+                                }
+                              >
+                                <UserPlus className="mr-2 h-4 w-4" />
+                                Adicionar aplicador
+                              </Button>
                             )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            )}
+            ))}
 
-            <div className="flex flex-wrap gap-2 border-t pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={buildPreview}
-                disabled={loadingPreview || !!validationMessage || !turmaEspecifica}
-                title={!turmaEspecifica ? "Selecione uma turma específica" : undefined}
-              >
-                {loadingPreview ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Eye className="mr-2 h-4 w-4" />
-                )}
-                Montar pré-visualização
-              </Button>
+            {baseContext ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={appendCustomLabel}
+                  className="flex min-h-[140px] flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-4 text-center text-muted-foreground transition-colors hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Plus className="h-6 w-6" />
+                  <span className="text-sm font-medium">Adicionar etiqueta personalizada</span>
+                  <span className="text-xs">
+                    Etiqueta extra com escola, série, turma e turno editáveis.
+                  </span>
+                </button>
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap items-center gap-2 border-t pt-4">
               <Button
                 type="button"
                 onClick={handleGeneratePdf}
-                disabled={loadingPdf || !!validationMessage || !turmaEspecifica || !labels.length}
-                title={!turmaEspecifica ? "Selecione uma turma específica" : undefined}
+                disabled={loadingPdf || !!validationMessage}
+                title={validationMessage ?? undefined}
               >
                 {loadingPdf ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <Download className="mr-2 h-4 w-4" />
                 )}
-                Baixar PDF
+                Baixar PDF ({labels.length} etiqueta{labels.length === 1 ? "" : "s"})
               </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={appendLabel}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Adicionar etiqueta
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleGenerateZip}
-                disabled={loadingPdf || !!validationMessage || turmaEspecifica}
-                title={turmaEspecifica ? 'Deixe a turma em "Todas" para gerar o ZIP' : undefined}
-              >
-                {loadingPdf ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="mr-2 h-4 w-4" />
-                )}
-                Baixar ZIP
-              </Button>
+              {validationMessage && !loadingContexts ? (
+                <p className="text-sm text-muted-foreground">{validationMessage}</p>
+              ) : null}
             </div>
           </CardContent>
         </Card>
@@ -1198,9 +1300,9 @@ export default function EtiquetasPage() {
         onOpenChange={(open) => {
           if (!open) setPreviewLabelId(null);
         }}
-        label={previewLabel}
-        context={displayContext}
-        logoUrl={previewLogoUrl}
+        label={previewLabelResolved}
+        context={previewContext}
+        logoUrl={null}
         labelIndex={previewLabelIndex >= 0 ? previewLabelIndex : undefined}
       />
     </div>

@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { wrapSelectionWithMarker } from "@/utils/richTextMarkers";
 import { EtiquetaAlignToolbar } from "@/components/documents/EtiquetaAlignToolbar";
 import type { EtiquetaTextoLivreAlinhamento } from "@/types/etiquetas";
+import { TEXTO_LIVRE_TAMANHO_PADRAO } from "@/utils/etiquetasDisplay";
 
 export const ETIQUETA_TEXTO_TAMANHO_MIN = 8;
 export const ETIQUETA_TEXTO_TAMANHO_MAX = 20;
@@ -22,7 +23,7 @@ type EtiquetaTextToolbarProps = {
 };
 
 function clampFontSize(value: number): number {
-  if (!Number.isFinite(value)) return 10;
+  if (!Number.isFinite(value)) return TEXTO_LIVRE_TAMANHO_PADRAO;
   return Math.min(ETIQUETA_TEXTO_TAMANHO_MAX, Math.max(ETIQUETA_TEXTO_TAMANHO_MIN, Math.round(value)));
 }
 

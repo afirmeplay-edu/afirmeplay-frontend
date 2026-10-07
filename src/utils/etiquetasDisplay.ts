@@ -2,6 +2,7 @@ import type { EtiquetasDadosResponse } from "@/types/etiquetas";
 import { getClassShiftLabel } from "@/lib/classShift";
 
 export const TEXTO_ACIMA_ASSINATURA_MAX = 50;
+export const TEXTO_LIVRE_TAMANHO_PADRAO = 16;
 
 export function cityStateDisplay(context: EtiquetasDadosResponse): string {
   const city = context.municipio.name.trim();
@@ -71,4 +72,9 @@ export function etiquetasSerieTurmaLine(context: EtiquetasDadosResponse): string
   const serie = enriched.contexto.serie?.trim() || "—";
   const turma = enriched.contexto.turma?.trim() || "—";
   return `${serie} | ${turma}`;
+}
+
+export function etiquetasSerieTurmaTurnoLine(context: EtiquetasDadosResponse): string {
+  const turno = etiquetasTurnoLabel(context).trim() || "—";
+  return `${etiquetasSerieTurmaLine(context)} | ${turno}`;
 }

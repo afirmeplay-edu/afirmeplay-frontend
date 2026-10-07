@@ -180,14 +180,19 @@ export function drawStandardReportCover(doc: jsPDF, params: StandardCoverParams)
 export function drawStandardSectionTitle(doc: jsPDF, title: string, y: number): number {
   const C = STANDARD_PDF_COLORS;
   const pageW = doc.internal.pageSize.getWidth();
+  const fontSize = 13;
+  const lineHeightFactor = 1.15;
+  const lineH = (fontSize * lineHeightFactor * 25.4) / 72;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
+  doc.setFontSize(fontSize);
   doc.setTextColor(...C.primary);
-  doc.text(title, STANDARD_PDF_MARGIN, y);
+  const lines = doc.splitTextToSize(title, pageW - STANDARD_PDF_MARGIN * 2) as string[];
+  doc.text(lines, STANDARD_PDF_MARGIN, y, { lineHeightFactor });
+  const lastBaselineY = y + (lines.length - 1) * lineH;
   doc.setDrawColor(...C.borderLight);
   doc.setLineWidth(0.3);
-  doc.line(STANDARD_PDF_MARGIN, y + 2, pageW - STANDARD_PDF_MARGIN, y + 2);
-  return y + 10;
+  doc.line(STANDARD_PDF_MARGIN, lastBaselineY + 2, pageW - STANDARD_PDF_MARGIN, lastBaselineY + 2);
+  return lastBaselineY + 10;
 }
 
 export function getLastAutoTableFinalY(doc: jsPDF, fallback: number): number {
