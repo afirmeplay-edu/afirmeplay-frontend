@@ -10,6 +10,12 @@ export function cityStateDisplay(context: EtiquetasDadosResponse): string {
   return state ? `${city}/${state}` : city;
 }
 
+/** Chave de agrupamento por escola: etiquetas de escolas distintas não dividem página. */
+export function etiquetaEscolaKey(context: EtiquetasDadosResponse): string {
+  const nome = context.contexto.escola?.replace(/\s+/g, " ").trim().toLowerCase();
+  return nome || context.filters.escola?.trim() || "";
+}
+
 export function etiquetasTurnoLabel(context: EtiquetasDadosResponse): string {
   const ctx = enrichEtiquetasContext(context).contexto;
   const raw = ctx.turno?.trim() || ctx.shift?.trim() || "";

@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Download, Eye, FileText, Filter, Loader2, Plus, Trash2, UserPlus } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { CopyCheck, Download, Eye, FileText, Filter, Loader2, Plus, Trash2, UserPlus } from "lucide-react";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { FormFiltersApiService } from "@/services/formFiltersApi";
 import {
   EvaluationResultsApiService,
@@ -25,6 +26,7 @@ import type {
 import { loadCityBrandingPdfAssets } from "@/utils/pdfCityBranding";
 import {
   enrichEtiquetasContext,
+  etiquetaEscolaKey,
   etiquetasSerieTurmaTurnoLine,
   TEXTO_ACIMA_ASSINATURA_MAX,
   TEXTO_LIVRE_TAMANHO_PADRAO,
@@ -35,13 +37,71 @@ import { inferCursoFromSerieName, matchCourseOptionId } from "@/utils/gradeToCou
 import { normalizeClassShift } from "@/lib/classShift";
 
 type Option = { id: string; name: string };
-type SerieOption = Option & { educationStageId?: string };
-type TurmaOption = Option & { serieId: string };
+type SerieOption = Option & { educationStageId?: string; schoolIds: string[] };
+type TurmaOption = Option & { serieId: string; schoolId: string };
 type NivelOption = { id: string; name: string };
+type LabelGroup = { key: string; escola: string; labels: EtiquetaEditItem[] };
 
 const SERIE_TODAS = "todas";
+const ESCOLA_TODAS = "todas";
 const LABELS_PER_PAGE = 8;
 const CONTEXT_BATCH_SIZE = 5;
+const FILTER_BATCH_SIZE = 6;
+
+/** Campos copiados pelo botão "Aplicar a todos" para as etiquetas da mesma escola. */
+const SHARED_LABEL_FIELDS: (keyof EtiquetaEditItem)[] = [
+  "textoLivre",
+  "textoLivreCor",
+  "textoLivreTamanho",
+  "textoLivreAlinhamento",
+  "exibirAssinatura",
+  "textoAcimaAssinatura",
+  "nomeAplicador",
+  "cpfAplicador",
+  "exibirSegundoAplicador",
+  "textoAcimaAssinatura2",
+  "nomeAplicador2",
+  "cpfAplicador2",
+];
+
+function pickSharedFields(label: EtiquetaEditItem): Partial<EtiquetaEditItem> {
+  return Object.fromEntries(
+    SHARED_LABEL_FIELDS.map((field) => [field, label[field]])
+  ) as Partial<EtiquetaEditItem>;
+}
+
+function sharesFieldsWith(a: EtiquetaEditItem, b: EtiquetaEditItem): boolean {
+  return SHARED_LABEL_FIELDS.every((field) => a[field] === b[field]);
+}
+
+function hasSharedContent(label: EtiquetaEditItem): boolean {
+  const values = [label.textoLivre];
+  if (label.exibirAssinatura) {
+    values.push(label.textoAcimaAssinatura, label.nomeAplicador, label.cpfAplicador);
+    if (label.exibirSegundoAplicador) {
+      values.push(label.textoAcimaAssinatura2, label.nomeAplicador2, label.cpfAplicador2);
+    }
+  }
+  return values.some((value) => value?.trim());
+}
+
+async function mapInBatches<T, R>(
+  items: T[],
+  batchSize: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    results.push(...(await Promise.all(items.slice(i, i + batchSize).map(fn))));
+  }
+  return results;
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const pages: T[][] = [];
+  for (let i = 0; i < items.length; i += size) pages.push(items.slice(i, i + size));
+  return pages;
+}
 
 const TURNO_OPTIONS: Option[] = [
   { id: "MATUTINO", name: "Matutino" },
@@ -139,6 +199,9 @@ export default function EtiquetasPage() {
   const isAppliedMode = modo === "avaliacao" || modo === "cartao_resposta";
   const turmaEspecifica = selectedTurma !== "all";
   const serieTodas = selectedSerie === SERIE_TODAS;
+  const escolaTodas = selectedSchool === ESCOLA_TODAS;
+  const specificSchoolId =
+    selectedSchool !== "all" && !escolaTodas ? selectedSchool : undefined;
   const hasGeoContext = selectedEstado !== "all" && selectedMunicipio !== "all";
 
   const globalTitle = useMemo(() => tituloEtiqueta.trim(), [tituloEtiqueta]);
@@ -151,14 +214,16 @@ export default function EtiquetasPage() {
 
   const targetTurmas = useMemo<TurmaOption[]>(() => {
     if (turmaEspecifica) return turmas.filter((t) => t.id === selectedTurma);
+    const schoolOrder = new Map(schools.map((s, index) => [s.id, index]));
     const serieOrder = new Map(series.map((s, index) => [s.id, index]));
     const collator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" });
     return [...turmas].sort(
       (a, b) =>
+        (schoolOrder.get(a.schoolId) ?? 0) - (schoolOrder.get(b.schoolId) ?? 0) ||
         (serieOrder.get(a.serieId) ?? 0) - (serieOrder.get(b.serieId) ?? 0) ||
         collator.compare(a.name, b.name)
     );
-  }, [turmaEspecifica, turmas, selectedTurma, series]);
+  }, [turmaEspecifica, turmas, selectedTurma, series, schools]);
 
   const localBaseContext = useMemo<EtiquetasDadosResponse | null>(() => {
     if (!hasGeoContext) return null;
@@ -185,7 +250,7 @@ export default function EtiquetasPage() {
       filters: {
         modo,
         municipio: selectedMunicipio,
-        escola: selectedSchool !== "all" ? selectedSchool : "",
+        escola: specificSchoolId ?? "",
         nivel: "",
         serie: "",
         turma: "",
@@ -203,6 +268,7 @@ export default function EtiquetasPage() {
     selectedMunicipio,
     selectedEstado,
     selectedSchool,
+    specificSchoolId,
     selectedNivel,
     modo,
     globalTitle,
@@ -345,19 +411,33 @@ export default function EtiquetasPage() {
 
     let cancelled = false;
     setLoadingSeries(true);
-    FormFiltersApiService.getFormFilterGrades({
-      estado: selectedEstado,
-      municipio: selectedMunicipio,
-      escola: selectedSchool,
-    })
-      .then((list) => {
+    const schoolIds = selectedSchool === ESCOLA_TODAS ? schools.map((s) => s.id) : [selectedSchool];
+    mapInBatches(schoolIds, FILTER_BATCH_SIZE, (schoolId) =>
+      FormFiltersApiService.getFormFilterGrades({
+        estado: selectedEstado,
+        municipio: selectedMunicipio,
+        escola: schoolId,
+      })
+        .then((list) => list.map((s) => ({ serie: s, schoolId })))
+        .catch(() => [])
+    )
+      .then((groups) => {
         if (cancelled) return;
-        const normalized = list.map((s) => ({
-          id: s.id,
-          name: s.nome,
-          educationStageId: s.education_stage_id || s.educationStageId || "",
-        }));
-        setSeries(normalized);
+        const byId = new Map<string, SerieOption>();
+        groups.flat().forEach(({ serie, schoolId }) => {
+          const existing = byId.get(serie.id);
+          if (existing) {
+            existing.schoolIds.push(schoolId);
+            return;
+          }
+          byId.set(serie.id, {
+            id: serie.id,
+            name: serie.nome,
+            educationStageId: serie.education_stage_id || serie.educationStageId || "",
+            schoolIds: [schoolId],
+          });
+        });
+        setSeries([...byId.values()]);
         setSelectedSerie("all");
       })
       .finally(() => {
@@ -367,7 +447,7 @@ export default function EtiquetasPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedSchool, selectedMunicipio, selectedEstado]);
+  }, [selectedSchool, selectedMunicipio, selectedEstado, schools]);
 
   useEffect(() => {
     if (
@@ -386,17 +466,20 @@ export default function EtiquetasPage() {
     }
     let cancelled = false;
     setLoadingTurmas(true);
-    const serieIds =
-      selectedSerie === SERIE_TODAS ? seriesInScope.map((item) => item.id) : [selectedSerie];
-    Promise.all(
-      serieIds.map((serieId) =>
-        FormFiltersApiService.getFormFilterClasses({
-          estado: selectedEstado,
-          municipio: selectedMunicipio,
-          escola: selectedSchool,
-          serie: serieId,
-        }).then((list) => list.map((t) => ({ id: t.id, name: t.nome, serieId })))
-      )
+    const seriesToLoad =
+      selectedSerie === SERIE_TODAS
+        ? seriesInScope
+        : series.filter((item) => item.id === selectedSerie);
+    const requests = seriesToLoad.flatMap((serie) =>
+      serie.schoolIds.map((schoolId) => ({ serieId: serie.id, schoolId }))
+    );
+    mapInBatches(requests, FILTER_BATCH_SIZE, ({ serieId, schoolId }) =>
+      FormFiltersApiService.getFormFilterClasses({
+        estado: selectedEstado,
+        municipio: selectedMunicipio,
+        escola: schoolId,
+        serie: serieId,
+      }).then((list) => list.map((t) => ({ id: t.id, name: t.nome, serieId, schoolId })))
     )
       .then((groups) => {
         if (cancelled) return;
@@ -421,7 +504,7 @@ export default function EtiquetasPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedSerie, seriesInScope, selectedSchool, selectedMunicipio, selectedEstado]);
+  }, [selectedSerie, series, seriesInScope, selectedSchool, selectedMunicipio, selectedEstado]);
 
   useEffect(() => {
     if (!isAppliedMode || selectedMunicipio === "all" || selectedEstado === "all") {
@@ -434,9 +517,7 @@ export default function EtiquetasPage() {
     EvaluationResultsApiService.getFilterEvaluations({
       estado: selectedEstado,
       municipio: selectedMunicipio,
-      ...(modo !== "cartao_resposta" && selectedSchool !== "all"
-        ? { escola: selectedSchool }
-        : {}),
+      ...(modo !== "cartao_resposta" && specificSchoolId ? { escola: specificSchoolId } : {}),
       ...(modo === "cartao_resposta" ? { report_entity_type: REPORT_ENTITY_TYPE_ANSWER_SHEET } : {}),
     })
       .then((items) => {
@@ -457,7 +538,7 @@ export default function EtiquetasPage() {
     return () => {
       cancelled = true;
     };
-  }, [isAppliedMode, modo, selectedEstado, selectedMunicipio, selectedSchool]);
+  }, [isAppliedMode, modo, selectedEstado, selectedMunicipio, specificSchoolId]);
 
   useLayoutEffect(() => {
     labelCacheRef.current.clear();
@@ -511,7 +592,7 @@ export default function EtiquetasPage() {
       return {
         modo,
         municipio: selectedMunicipio,
-        escola: selectedSchool,
+        escola: turma.schoolId,
         nivel,
         serie: turma.serieId,
         turma: turma.id,
@@ -558,7 +639,6 @@ export default function EtiquetasPage() {
     niveis,
     modo,
     selectedMunicipio,
-    selectedSchool,
     selectedNivel,
     selectedAplicadoId,
   ]);
@@ -605,17 +685,79 @@ export default function EtiquetasPage() {
 
   const baseContext = autoEntries[0]?.context ?? localBaseContext;
 
-  const resolveLabelContext = (label: EtiquetaEditItem): EtiquetasDadosResponse | null => {
-    if (label.turmaId) return autoContextByTurma.get(label.turmaId) ?? null;
-    if (!baseContext || !label.contextoPersonalizado) return null;
-    return { ...baseContext, contexto: label.contextoPersonalizado };
-  };
+  const resolveLabelContext = useCallback(
+    (label: EtiquetaEditItem): EtiquetasDadosResponse | null => {
+      if (label.turmaId) return autoContextByTurma.get(label.turmaId) ?? null;
+      if (!baseContext || !label.contextoPersonalizado) return null;
+      return { ...baseContext, contexto: label.contextoPersonalizado };
+    },
+    [autoContextByTurma, baseContext]
+  );
 
   const resolveLabelTitle = (label: EtiquetaEditItem, context: EtiquetasDadosResponse | null): string =>
     label.titulo.trim() || globalTitle || context?.title_reference?.trim() || "";
 
-  const autoCount = labels.filter((item) => item.turmaId).length;
-  const customCount = labels.length - autoCount;
+  const schoolKeyById = useMemo(
+    () =>
+      new Map(
+        labels.map((label) => {
+          const context = resolveLabelContext(label);
+          return [label.id, context ? etiquetaEscolaKey(context) : ""] as const;
+        })
+      ),
+    [labels, resolveLabelContext]
+  );
+
+  /** Etiquetas por turma agrupadas por escola; as personalizadas seguem no fim, na ordem de criação. */
+  const autoGroups = useMemo<LabelGroup[]>(() => {
+    const groups = new Map<string, LabelGroup>();
+    labels
+      .filter((label) => label.turmaId)
+      .forEach((label) => {
+        const key = schoolKeyById.get(label.id) ?? "";
+        const group = groups.get(key);
+        if (group) {
+          group.labels.push(label);
+          return;
+        }
+        const escola = resolveLabelContext(label)?.contexto.escola?.trim() || "";
+        groups.set(key, { key, escola, labels: [label] });
+      });
+    return [...groups.values()];
+  }, [labels, schoolKeyById, resolveLabelContext]);
+
+  const customLabels = useMemo(() => labels.filter((label) => !label.turmaId), [labels]);
+
+  const orderedLabels = useMemo(
+    () => [...autoGroups.flatMap((group) => group.labels), ...customLabels],
+    [autoGroups, customLabels]
+  );
+
+  const labelNumberById = useMemo(
+    () => new Map(orderedLabels.map((label, index) => [label.id, index + 1])),
+    [orderedLabels]
+  );
+
+  const labelsBySchool = useMemo(() => {
+    const map = new Map<string, EtiquetaEditItem[]>();
+    labels.forEach((label) => {
+      const key = schoolKeyById.get(label.id);
+      if (!key) return;
+      map.set(key, [...(map.get(key) ?? []), label]);
+    });
+    return map;
+  }, [labels, schoolKeyById]);
+
+  const sameSchoolLabelsToUpdate = (source: EtiquetaEditItem): EtiquetaEditItem[] => {
+    const key = schoolKeyById.get(source.id);
+    if (!key) return [];
+    return (labelsBySchool.get(key) ?? []).filter(
+      (item) => item.id !== source.id && !sharesFieldsWith(item, source)
+    );
+  };
+
+  const autoCount = labels.length - customLabels.length;
+  const customCount = customLabels.length;
 
   const validationMessage = useMemo(() => {
     if (filtersMessage) return filtersMessage;
@@ -651,6 +793,35 @@ export default function EtiquetasPage() {
     setLabels((prev) => prev.filter((item) => item.id !== id));
   };
 
+  const applySharedToSchool = (source: EtiquetaEditItem) => {
+    const targets = sameSchoolLabelsToUpdate(source);
+    if (!targets.length) return;
+    const patch = pickSharedFields(source);
+    const previous = new Map(targets.map((item) => [item.id, pickSharedFields(item)]));
+    setLabels((prev) => prev.map((item) => (previous.has(item.id) ? { ...item, ...patch } : item)));
+
+    const escola = resolveLabelContext(source)?.contexto.escola?.trim();
+    toast({
+      title: "Informações aplicadas",
+      description: `${targets.length} etiqueta(s) ${escola ? `da escola ${escola}` : "da mesma escola"} atualizada(s).`,
+      action: (
+        <ToastAction
+          altText="Desfazer"
+          onClick={() =>
+            setLabels((prev) =>
+              prev.map((item) => {
+                const old = previous.get(item.id);
+                return old ? { ...item, ...old } : item;
+              })
+            )
+          }
+        >
+          Desfazer
+        </ToastAction>
+      ),
+    });
+  };
+
   const handleGeneratePdf = async () => {
     if (validationMessage) {
       setError(validationMessage);
@@ -659,10 +830,16 @@ export default function EtiquetasPage() {
     setLoadingPdf(true);
     setError(null);
     try {
-      const entries: EtiquetaPdfEntry[] = labels.flatMap((label) => {
+      const entries: EtiquetaPdfEntry[] = orderedLabels.flatMap((label) => {
         const context = resolveLabelContext(label);
         if (!context) return [];
-        return [{ context, label: { ...label, titulo: resolveLabelTitle(label, context) } }];
+        return [
+          {
+            context,
+            label: { ...label, titulo: resolveLabelTitle(label, context) },
+            grupo: schoolKeyById.get(label.id),
+          },
+        ];
       });
       if (!entries.length) {
         setError("Nenhuma etiqueta pronta para gerar o PDF.");
@@ -683,20 +860,36 @@ export default function EtiquetasPage() {
     }
   };
 
-  const virtualPages = useMemo(() => {
-    if (!labels.length) return [];
-    const pages: EtiquetaEditItem[][] = [];
-    for (let i = 0; i < labels.length; i += LABELS_PER_PAGE) {
-      pages.push(labels.slice(i, i + LABELS_PER_PAGE));
+  /** Mesma paginação do PDF: cada escola começa em uma nova página. */
+  const previewSections = useMemo(() => {
+    let pageNumber = 0;
+    const sections = autoGroups.flatMap((group) =>
+      chunk(group.labels, LABELS_PER_PAGE).map((page, pageIndexInGroup) => {
+        pageNumber += 1;
+        return {
+          key: `${group.key}-${pageNumber}`,
+          escola: autoGroups.length > 1 && pageIndexInGroup === 0 ? group.escola || "Escola" : null,
+          title: `Configuração — Página ${pageNumber}`,
+          labels: page,
+        };
+      })
+    );
+    if (customLabels.length) {
+      sections.push({
+        key: "custom",
+        escola: null,
+        title: "Etiquetas personalizadas",
+        labels: customLabels,
+      });
     }
-    return pages;
-  }, [labels]);
+    return sections;
+  }, [autoGroups, customLabels]);
 
   const previewLabel = useMemo(
     () => labels.find((item) => item.id === previewLabelId) ?? null,
     [labels, previewLabelId]
   );
-  const previewLabelIndex = previewLabel ? labels.findIndex((item) => item.id === previewLabelId) : -1;
+  const previewLabelIndex = previewLabel ? (labelNumberById.get(previewLabel.id) ?? 0) - 1 : -1;
   const previewContext = previewLabel ? resolveLabelContext(previewLabel) : null;
   const previewLabelResolved = previewLabel
     ? { ...previewLabel, titulo: resolveLabelTitle(previewLabel, previewContext) }
@@ -831,6 +1024,7 @@ export default function EtiquetasPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Selecione</SelectItem>
+                {schools.length > 1 && <SelectItem value={ESCOLA_TODAS}>Todas</SelectItem>}
                 {schools.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
                     {item.name}
@@ -884,7 +1078,7 @@ export default function EtiquetasPage() {
             <Select
               value={selectedTurma}
               onValueChange={setSelectedTurma}
-              disabled={selectedSerie === "all" || serieTodas || loadingTurmas}
+              disabled={selectedSerie === "all" || serieTodas || escolaTodas || loadingTurmas}
             >
               <SelectTrigger>
                 <SelectValue placeholder={loadingTurmas ? "Carregando..." : "Turma"} />
@@ -951,7 +1145,14 @@ export default function EtiquetasPage() {
                 </div>
                 <div className="rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Escola</p>
-                  <p className="text-base font-semibold">{baseContext.contexto.escola || "—"}</p>
+                  <p className="text-base font-semibold">
+                    {escolaTodas ? "Todas" : baseContext.contexto.escola || "—"}
+                  </p>
+                  {escolaTodas && autoGroups.length > 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      {autoGroups.length} escola(s) com etiquetas, cada uma em páginas próprias
+                    </p>
+                  ) : null}
                 </div>
                 <div className="rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Total de etiquetas</p>
@@ -973,14 +1174,20 @@ export default function EtiquetasPage() {
               <p className="text-sm text-muted-foreground">{filtersMessage}</p>
             ) : null}
 
-            {virtualPages.map((page, pageIndex) => (
-              <div key={`page-${pageIndex}`} className="space-y-3">
-                <h3 className="text-base font-semibold">Configuração — Página {pageIndex + 1}</h3>
+            {previewSections.map((section) => (
+              <div key={section.key} className="space-y-3">
+                {section.escola ? (
+                  <h3 className="border-b pb-2 pt-2 text-lg font-semibold">{section.escola}</h3>
+                ) : null}
+                <h4 className="text-base font-semibold">{section.title}</h4>
                 <div className="grid gap-3 md:grid-cols-2">
-                  {page.map((label, labelIndexOnPage) => {
-                    const globalLabelIndex = pageIndex * LABELS_PER_PAGE + labelIndexOnPage;
+                  {section.labels.map((label) => {
+                    const globalLabelIndex = (labelNumberById.get(label.id) ?? 1) - 1;
                     const labelContext = resolveLabelContext(label);
                     const isCustom = !label.turmaId;
+                    const applyTargetsCount = hasSharedContent(label)
+                      ? sameSchoolLabelsToUpdate(label).length
+                      : 0;
                     return (
                       <div key={label.id} className="space-y-2 rounded-lg border p-3">
                         <div className="flex items-start justify-between gap-2">
@@ -1250,6 +1457,21 @@ export default function EtiquetasPage() {
                             )}
                           </>
                         )}
+
+                        {applyTargetsCount > 0 ? (
+                          <Button
+                            type="button"
+                            className="w-full bg-purple-600 text-white duration-300 animate-in fade-in-0 slide-in-from-top-2 hover:bg-purple-700 focus-visible:ring-purple-500"
+                            onClick={() => applySharedToSchool(label)}
+                            title="Copia texto livre, texto acima da assinatura, nomes e CPFs dos aplicadores para as outras etiquetas desta escola"
+                          >
+                            <CopyCheck className="mr-2 h-4 w-4" />
+                            Aplicar a todos
+                            <span className="ml-1 font-normal opacity-80">
+                              ({applyTargetsCount} etiqueta{applyTargetsCount === 1 ? "" : "s"} da escola)
+                            </span>
+                          </Button>
+                        ) : null}
                       </div>
                     );
                   })}

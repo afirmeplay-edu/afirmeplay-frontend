@@ -18,21 +18,38 @@ type EtiquetaPreviewCanvasProps = {
   className?: string;
 };
 
-function AplicadorBloco({ textoAcima, nome, cpf }: { textoAcima: string; nome: string; cpf: string }) {
+function AplicadorCampo({ rotulo, valor }: { rotulo: string; valor: string }) {
   return (
-    <div className="mt-1 shrink-0 text-black">
+    <p className="flex items-end gap-1">
+      <span className="shrink-0">{rotulo}</span>
+      <span className="min-h-[1.2em] min-w-0 flex-1 truncate border-b border-black">{valor}</span>
+    </p>
+  );
+}
+
+function AplicadorBloco({
+  textoAcima,
+  nome,
+  cpf,
+  compacto,
+}: {
+  textoAcima: string;
+  nome: string;
+  cpf: string;
+  compacto: boolean;
+}) {
+  return (
+    <div className="mt-1 shrink-0 border border-black px-1.5 pb-1 pt-0.5 text-black">
       {textoAcima.trim() && (
         <p className="text-center text-[11px] font-bold uppercase break-words">
           {textoAcima.slice(0, TEXTO_ACIMA_ASSINATURA_MAX)}
         </p>
       )}
-      <div className="mt-0.5 space-y-1 border-t border-black pt-1 text-[8px]">
-        <p>
-          <span>NOME DO APLICADOR:</span> {nome}
-        </p>
-        <p>
-          <span>CPF:</span> {cpf}
-        </p>
+      <div
+        className={`mt-0.5 ${compacto ? "space-y-0.5 text-[6.5px]" : "space-y-1 text-[7px]"}`}
+      >
+        <AplicadorCampo rotulo="NOME DO APLICADOR:" valor={nome} />
+        <AplicadorCampo rotulo="CPF:" valor={cpf} />
       </div>
     </div>
   );
@@ -129,6 +146,7 @@ export function EtiquetaPreviewCanvas({ label, context, logoUrl, className = "" 
           textoAcima={label.textoAcimaAssinatura}
           nome={label.nomeAplicador}
           cpf={label.cpfAplicador}
+          compacto={label.exibirSegundoAplicador}
         />
       )}
       {label.exibirAssinatura && label.exibirSegundoAplicador ? (
@@ -136,6 +154,7 @@ export function EtiquetaPreviewCanvas({ label, context, logoUrl, className = "" 
           textoAcima={label.textoAcimaAssinatura2 ?? ""}
           nome={label.nomeAplicador2}
           cpf={label.cpfAplicador2}
+          compacto
         />
       ) : null}
     </div>
