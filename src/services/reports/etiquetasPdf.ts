@@ -8,6 +8,7 @@ import type {
 } from "@/types/etiquetas";
 import { parseRichMarkers, truncateText } from "@/utils/richTextMarkers";
 import {
+  etiquetaEscolaKey,
   etiquetasSerieTurmaTurnoLine,
   TEXTO_ACIMA_ASSINATURA_MAX,
   TEXTO_LIVRE_TAMANHO_PADRAO,
@@ -20,22 +21,28 @@ const GAP_X = 4;
 const GAP_Y = 4;
 const LABELS_PER_PAGE = COLS * ROWS;
 const LOGO_WIDTH = 8;
+/** Abaixo do mínimo do editor (8pt): só usado para caber todas as linhas na área livre. */
+const TEXTO_LIVRE_AUTO_FIT_MIN = 5;
 
 const PAD = 3;
 /** 3px (96 dpi) em mm. */
 const TITLE_OFFSET_Y = (3 * 25.4) / 96;
 
 const RODAPE_BLOCK_H = 3.4;
-const APLICADOR_SEPARATOR_GAP = 0.6;
+const APLICADOR_SEPARATOR_GAP = 1;
 const APLICADOR_NAME_GAP = 3.4;
 const APLICADOR_ROW_GAP = 3.8;
-const APLICADOR_BOTTOM_GAP = 1;
-const APLICADOR_BLOCK_H =
-  APLICADOR_SEPARATOR_GAP + APLICADOR_NAME_GAP + APLICADOR_ROW_GAP + APLICADOR_BOTTOM_GAP;
+const APLICADOR_BOTTOM_GAP = 1.4;
+const APLICADOR_BASE_FONT = 5.5;
+const APLICADOR_MIN_FONT = 3.5;
+const APLICADOR_UNDERLINE_OFFSET = 0.6;
+const APLICADOR_BOX_PAD_X = 1.5;
 
 export type EtiquetaPdfEntry = {
   context: EtiquetasDadosResponse;
   label: EtiquetaEditItem;
+  /** Etiquetas de grupos (escolas) distintos começam em nova página. */
+  grupo?: string;
 };
 
 type Rgb = [number, number, number];
@@ -118,23 +125,36 @@ function splitOversizedToken(doc: jsPDF, token: RichToken, maxWidth: number, fon
   return parts.length ? parts : [token];
 }
 
-function segmentsToTokens(text: string): RichToken[] {
-  const segments = parseRichMarkers(text);
-  const tokens: RichToken[] = [];
+/** Um parágrafo por quebra de linha; marcadores abertos continuam valendo nas linhas seguintes. */
+function textToParagraphTokens(text: string): RichToken[][] {
+  const paragraphs: RichToken[][] = [[]];
 
-  segments.forEach((segment) => {
-    const chunks = segment.text.split(/(\s+)/).filter(Boolean);
-    chunks.forEach((chunk) =>
-      tokens.push({
-        text: chunk,
-        bold: Boolean(segment.bold),
-        italic: Boolean(segment.italic),
-        underline: Boolean(segment.underline),
-      })
-    );
+  parseRichMarkers(text).forEach((segment) => {
+    segment.text.split("\n").forEach((part, partIndex) => {
+      if (partIndex > 0) paragraphs.push([]);
+      const current = paragraphs[paragraphs.length - 1];
+      part
+        .split(/(\s+)/)
+        .filter(Boolean)
+        .forEach((chunk) =>
+          current.push({
+            text: /^\s+$/.test(chunk) ? " " : chunk,
+            bold: Boolean(segment.bold),
+            italic: Boolean(segment.italic),
+            underline: Boolean(segment.underline),
+          })
+        );
+    });
   });
 
-  return tokens;
+  return paragraphs.map((tokens) => {
+    const isBlank = (token: RichToken) => !token.text.trim();
+    let start = 0;
+    let end = tokens.length;
+    while (start < end && isBlank(tokens[start])) start += 1;
+    while (end > start && isBlank(tokens[end - 1])) end -= 1;
+    return tokens.slice(start, end);
+  });
 }
 
 function packTokensIntoLines(doc: jsPDF, tokens: RichToken[], maxWidth: number, fontSize: number): RichLine[] {
@@ -163,19 +183,14 @@ function packTokensIntoLines(doc: jsPDF, tokens: RichToken[], maxWidth: number, 
 }
 
 function buildRichLines(doc: jsPDF, text: string, maxWidth: number, fontSize: number): RichLine[] {
-  const paragraphs = preserveParagraphs(text).split("\n");
   const lines: RichLine[] = [];
-
-  paragraphs.forEach((paragraph, index) => {
-    const content = paragraph.replace(/\s+/g, " ").trim();
-    if (!content) {
-      if (index < paragraphs.length - 1) lines.push([]);
+  textToParagraphTokens(preserveParagraphs(text).trim()).forEach((tokens) => {
+    if (!tokens.length) {
+      lines.push([]);
       return;
     }
-    lines.push(...packTokensIntoLines(doc, segmentsToTokens(content), maxWidth, fontSize));
-    if (index < paragraphs.length - 1) lines.push([]);
+    lines.push(...packTokensIntoLines(doc, tokens, maxWidth, fontSize));
   });
-
   return lines;
 }
 
@@ -235,7 +250,7 @@ function drawAlignedRichText(
   let lineHeight = lineHeightFor(size);
   let lines = buildRichLines(doc, content, areaW, size);
 
-  while (size > 8 && lines.length * lineHeight > areaH) {
+  while (size > TEXTO_LIVRE_AUTO_FIT_MIN && lines.length * lineHeight > areaH) {
     size -= 0.5;
     lineHeight = lineHeightFor(size);
     lines = buildRichLines(doc, content, areaW, size);
@@ -340,13 +355,56 @@ function aplicadorBlocksFor(item: EtiquetaEditItem): AplicadorBlock[] {
   return blocks;
 }
 
-function aplicadorBlockHeight(block: AplicadorBlock): number {
+type AplicadorLayout = {
+  fontSize: number;
+  nameGap: number;
+  rowGap: number;
+};
+
+/** 1 aplicador: fonte base − 1pt; cada aplicador extra reduz mais 0,5pt para caber na etiqueta. */
+function aplicadorLayoutFor(count: number): AplicadorLayout {
+  const fontSize = Math.max(APLICADOR_MIN_FONT, APLICADOR_BASE_FONT - 1 - 0.5 * Math.max(0, count - 1));
+  const scale = fontSize / APLICADOR_BASE_FONT;
+  return {
+    fontSize,
+    nameGap: APLICADOR_NAME_GAP * scale,
+    rowGap: APLICADOR_ROW_GAP * scale,
+  };
+}
+
+function aplicadorBoxHeight(block: AplicadorBlock, layout: AplicadorLayout): number {
   const hasRodapeLine = normalizeSpaces(block.textoAcima).length > 0;
-  return APLICADOR_BLOCK_H + (hasRodapeLine ? RODAPE_BLOCK_H : 0);
+  return (hasRodapeLine ? RODAPE_BLOCK_H : 0) + layout.nameGap + layout.rowGap + APLICADOR_BOTTOM_GAP;
+}
+
+function aplicadorBlockHeight(block: AplicadorBlock, layout: AplicadorLayout): number {
+  return APLICADOR_SEPARATOR_GAP + aplicadorBoxHeight(block, layout);
 }
 
 function footerHeightFor(item: EtiquetaEditItem): number {
-  return aplicadorBlocksFor(item).reduce((total, block) => total + aplicadorBlockHeight(block), 0);
+  const blocks = aplicadorBlocksFor(item);
+  const layout = aplicadorLayoutFor(blocks.length);
+  return blocks.reduce((total, block) => total + aplicadorBlockHeight(block, layout), 0);
+}
+
+function drawUnderlinedField(
+  doc: jsPDF,
+  fieldLabel: string,
+  value: string,
+  innerX: number,
+  rightX: number,
+  y: number
+) {
+  doc.text(fieldLabel, innerX, y);
+  const lineStartX = innerX + doc.getTextWidth(fieldLabel) + 0.8;
+  doc.setLineWidth(0.15);
+  doc.line(lineStartX, y + APLICADOR_UNDERLINE_OFFSET, rightX, y + APLICADOR_UNDERLINE_OFFSET);
+
+  const content = normalizeSpaces(value);
+  if (!content) return;
+  const valueX = lineStartX + 0.5;
+  const [firstLine] = doc.splitTextToSize(content, Math.max(1, rightX - valueX)) as string[];
+  doc.text(firstLine ?? "", valueX, y);
 }
 
 function drawAplicadorBlock(
@@ -356,42 +414,41 @@ function drawAplicadorBlock(
   innerW: number,
   centerX: number,
   top: number,
-  block: AplicadorBlock
+  block: AplicadorBlock,
+  layout: AplicadorLayout
 ): number {
-  let cursorY = top;
+  const boxTop = top + APLICADOR_SEPARATOR_GAP;
+  const boxHeight = aplicadorBoxHeight(block, layout);
+  const contentX = innerX + APLICADOR_BOX_PAD_X;
+  const contentRightX = rightX - APLICADOR_BOX_PAD_X;
+  let cursorY = boxTop;
+
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.2);
+  doc.rect(innerX, boxTop, rightX - innerX, boxHeight);
   doc.setTextColor(0, 0, 0);
 
   if (normalizeSpaces(block.textoAcima)) {
     const rodapeText = truncateText(block.textoAcima, TEXTO_ACIMA_ASSINATURA_MAX).toUpperCase();
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7);
-    doc.text(rodapeText, centerX, cursorY + 2.6, { align: "center", maxWidth: innerW });
+    doc.text(rodapeText, centerX, cursorY + 2.6, {
+      align: "center",
+      maxWidth: innerW - APLICADOR_BOX_PAD_X * 2,
+    });
     cursorY += RODAPE_BLOCK_H;
   }
 
-  cursorY += APLICADOR_SEPARATOR_GAP;
-  doc.setLineWidth(0.2);
-  doc.line(innerX, cursorY, rightX, cursorY);
-
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(5.5);
+  doc.setFontSize(layout.fontSize);
 
-  cursorY += APLICADOR_NAME_GAP;
-  const nomeLabel = "NOME DO APLICADOR:";
-  doc.text(nomeLabel, innerX, cursorY);
-  if (normalizeSpaces(block.nome)) {
-    const valueX = innerX + doc.getTextWidth(nomeLabel) + 1;
-    doc.text(normalizeSpaces(block.nome), valueX, cursorY, { maxWidth: rightX - valueX });
-  }
+  cursorY += layout.nameGap;
+  drawUnderlinedField(doc, "NOME DO APLICADOR:", block.nome, contentX, contentRightX, cursorY);
 
-  cursorY += APLICADOR_ROW_GAP;
-  const cpfLabel = "CPF:";
-  doc.text(cpfLabel, innerX, cursorY);
-  if (normalizeSpaces(block.cpf)) {
-    doc.text(normalizeSpaces(block.cpf), innerX + doc.getTextWidth(cpfLabel) + 1, cursorY);
-  }
+  cursorY += layout.rowGap;
+  drawUnderlinedField(doc, "CPF:", block.cpf, contentX, contentRightX, cursorY);
 
-  return cursorY + APLICADOR_BOTTOM_GAP;
+  return boxTop + boxHeight;
 }
 
 function drawFooterBlock(
@@ -405,8 +462,10 @@ function drawFooterBlock(
   item: EtiquetaEditItem
 ) {
   let cursorY = footerTop;
-  aplicadorBlocksFor(item).forEach((block) => {
-    cursorY = drawAplicadorBlock(doc, x + width - PAD, innerX, innerW, centerX, cursorY, block);
+  const blocks = aplicadorBlocksFor(item);
+  const layout = aplicadorLayoutFor(blocks.length);
+  blocks.forEach((block) => {
+    cursorY = drawAplicadorBlock(doc, x + width - PAD, innerX, innerW, centerX, cursorY, block, layout);
   });
 }
 
@@ -532,7 +591,10 @@ function drawEtiqueta(
   }
 }
 
-/** Etiquetas de várias turmas/séries seguem em sequência contínua na grade, sem quebra de página entre grupos. */
+/**
+ * Etiquetas de várias turmas/séries da mesma escola seguem em sequência contínua na grade;
+ * ao mudar de escola (grupo), a próxima etiqueta começa em nova página.
+ */
 export function generateEtiquetasPdf(entries: EtiquetaPdfEntry[], logo: PdfImageAsset | null): jsPDF {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -542,16 +604,22 @@ export function generateEtiquetasPdf(entries: EtiquetaPdfEntry[], logo: PdfImage
   const labelWidth = (usableWidth - GAP_X * (COLS - 1)) / COLS;
   const labelHeight = (usableHeight - GAP_Y * (ROWS - 1)) / ROWS;
 
-  entries.forEach(({ context, label }, index) => {
-    if (index > 0 && index % LABELS_PER_PAGE === 0) {
+  let indexOnPage = 0;
+  let previousGroup: string | null = null;
+
+  entries.forEach(({ context, label, grupo }, index) => {
+    const group = grupo ?? etiquetaEscolaKey(context);
+    if (index > 0 && (indexOnPage === LABELS_PER_PAGE || group !== previousGroup)) {
       doc.addPage();
+      indexOnPage = 0;
     }
-    const indexOnPage = index % LABELS_PER_PAGE;
     const row = Math.floor(indexOnPage / COLS);
     const col = indexOnPage % COLS;
     const labelX = PAGE_MARGIN + col * (labelWidth + GAP_X);
     const labelY = PAGE_MARGIN + row * (labelHeight + GAP_Y);
     drawEtiqueta(doc, labelX, labelY, labelWidth, labelHeight, context, label, logo);
+    indexOnPage += 1;
+    previousGroup = group;
   });
 
   return doc;

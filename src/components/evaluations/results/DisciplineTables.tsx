@@ -11,7 +11,8 @@ import { TableHeader } from '../results-table/TableHeader';
 import { TableRow } from '../results-table/TableRow';
 import { TableLegend } from '../results-table/TableLegend';
 import { getSubjectColors } from '@/utils/competition/competitionSubjectColors';
-import { normalizeProficiencyLevelLabel } from '@/utils/report/reportTagStyles';
+import { getReportProficiencyTagClass, normalizeProficiencyLevelLabel } from '@/utils/report/reportTagStyles';
+import { formatDecimal1PtBr } from '@/utils/numberFormat';
 import type { DisciplineMetricCell } from '@/types/results-table';
 
 function isNomeDisciplinaGeral(nome: string): boolean {
@@ -915,15 +916,27 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                     </td>
                     <td className="px-3 py-3 text-center">
                       {aluno.situacao === "participou" && aluno.nota != null
-                        ? Number(aluno.nota).toFixed(2)
+                        ? formatDecimal1PtBr(aluno.nota)
                         : "—"}
                     </td>
                     <td className="px-3 py-3 text-center">
                       {aluno.situacao === "participou" && aluno.proficiencia != null
-                        ? Number(aluno.proficiencia).toFixed(2)
+                        ? formatDecimal1PtBr(aluno.proficiencia)
                         : "—"}
                     </td>
-                    <td className="px-3 py-3">{aluno.classificacao || "—"}</td>
+                    <td className="px-3 py-3">
+                      {aluno.classificacao ? (
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${getReportProficiencyTagClass(
+                            normalizeProficiencyLevelLabel(aluno.classificacao)
+                          )}`}
+                        >
+                          {normalizeProficiencyLevelLabel(aluno.classificacao)}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="px-3 py-3">
                       <Badge
                         variant="outline"
