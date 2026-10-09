@@ -250,6 +250,18 @@ function inferCursoFromSerieName(serieName: string): string {
   return "";
 }
 
+/** Títulos genéricos que o backend devolve quando a lista não tem avaliação/cartão vinculado. */
+function isPlaceholderNomeAvaliacao(raw: string): boolean {
+  const key = normalizeKey(raw).replace(/\s*[–—-]\s*\d{4}$/, "").trim();
+  return (
+    !key ||
+    key === "nome da prova" ||
+    key === "nome da avaliacao" ||
+    key === "prova fisica" ||
+    key === "frequencia diaria"
+  );
+}
+
 function normalizeAtaDisciplina(raw: string): string {
   const key = normalizeKey(raw);
   if (!key) return "";
@@ -900,8 +912,8 @@ export default function AtaSalaPage() {
     }
     const header = results[0].cabecalho;
 
-    if (header.nome_prova_ano && (!isModoAplicada || selectedAvaliacaoId === "all")) {
-      setNomeAvaliacao(header.nome_prova_ano);
+    if (header.nome_prova_ano && !isPlaceholderNomeAvaliacao(header.nome_prova_ano)) {
+      setNomeAvaliacao((prev) => (isPlaceholderNomeAvaliacao(prev) ? header.nome_prova_ano : prev));
     }
     setEscola(header.nome_escola || selectedSchoolLabel);
     setSerieTurma([header.serie, header.turma || header.serie_turma].filter(Boolean).join(" "));
@@ -909,7 +921,9 @@ export default function AtaSalaPage() {
     if (turnoNormalizado) setTurno(turnoNormalizado);
     else if (header.turno) setTurno(header.turno);
     const disciplinaNormalizada = parseDisciplinaList(header.disciplina || "");
-    if (disciplinaNormalizada.length > 0) setSelectedDisciplinas(disciplinaNormalizada);
+    if (disciplinaNormalizada.length > 0) {
+      setSelectedDisciplinas((prev) => (prev.length > 0 ? prev : disciplinaNormalizada));
+    }
     setRede(header.rede || "MUNICIPAL");
     setMunicipioUf(header.municipio_uf || municipioUf);
   };
@@ -952,17 +966,23 @@ export default function AtaSalaPage() {
       findOptionName(header.lista_presenca_curso || "", ATA_CURSO_OPTIONS) ||
       pdfData.cursoLabel;
 
+    const nomeAvaliacaoTurma = [
+      pdfData.nomeAvaliacao,
+      selectedAvaliacaoTitulo,
+      header.nome_prova_ano,
+    ].find((value) => value && !isPlaceholderNomeAvaliacao(value));
+
     return {
       ...pdfData,
-      nomeAvaliacao: selectedAvaliacaoTitulo || header.nome_prova_ano || pdfData.nomeAvaliacao,
+      nomeAvaliacao: nomeAvaliacaoTurma || pdfData.nomeAvaliacao,
+      disciplina:
+        pdfData.disciplina || formatDisciplinaList(parseDisciplinaList(header.disciplina || "")),
       cursoLabel: cursoDaTurma,
       municipioUf: header.municipio_uf || pdfData.municipioUf,
       rede: header.rede || pdfData.rede,
       escola: header.nome_escola || pdfData.escola,
       serieTurma: `${serieTurmaDisplay.serie} ${serieTurmaDisplay.turma}`.trim(),
       turno: normalizeAtaTurno(header.turno || "") || header.turno || pdfData.turno,
-      disciplina:
-        formatDisciplinaList(parseDisciplinaList(header.disciplina || "")) || pdfData.disciplina,
     };
   };
 

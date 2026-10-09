@@ -19,6 +19,7 @@ import { EvaluationInstrumentPicker } from "@/components/filters";
 import { getEtiquetasApiError, getEtiquetasDados } from "@/services/documents/etiquetasApi";
 import { downloadEtiquetasPdf, type EtiquetaPdfEntry } from "@/services/reports/etiquetasPdf";
 import type {
+  EtiquetaAplicadorExtra,
   EtiquetaEditItem,
   EtiquetasDadosResponse,
   EtiquetasModo,
@@ -62,6 +63,7 @@ const SHARED_LABEL_FIELDS: (keyof EtiquetaEditItem)[] = [
   "textoAcimaAssinatura2",
   "nomeAplicador2",
   "cpfAplicador2",
+  "aplicadoresExtras",
 ];
 
 function pickSharedFields(label: EtiquetaEditItem): Partial<EtiquetaEditItem> {
@@ -71,7 +73,11 @@ function pickSharedFields(label: EtiquetaEditItem): Partial<EtiquetaEditItem> {
 }
 
 function sharesFieldsWith(a: EtiquetaEditItem, b: EtiquetaEditItem): boolean {
-  return SHARED_LABEL_FIELDS.every((field) => a[field] === b[field]);
+  return SHARED_LABEL_FIELDS.every((field) =>
+    field === "aplicadoresExtras"
+      ? JSON.stringify(a.aplicadoresExtras ?? []) === JSON.stringify(b.aplicadoresExtras ?? [])
+      : a[field] === b[field]
+  );
 }
 
 function hasSharedContent(label: EtiquetaEditItem): boolean {
@@ -80,6 +86,7 @@ function hasSharedContent(label: EtiquetaEditItem): boolean {
     values.push(label.textoAcimaAssinatura, label.nomeAplicador, label.cpfAplicador);
     if (label.exibirSegundoAplicador) {
       values.push(label.textoAcimaAssinatura2, label.nomeAplicador2, label.cpfAplicador2);
+      (label.aplicadoresExtras ?? []).forEach((extra) => values.push(extra.textoAcima, extra.nome, extra.cpf));
     }
   }
   return values.some((value) => value?.trim());
@@ -148,6 +155,7 @@ function createEtiquetaItem(index: number, patch?: Partial<EtiquetaEditItem>): E
     textoLivreAlinhamento: "center",
     textoAcimaAssinatura: "",
     textoAcimaAssinatura2: "",
+    aplicadoresExtras: [],
     ...patch,
   };
 }
@@ -789,6 +797,46 @@ export default function EtiquetasPage() {
     ]);
   };
 
+  const addAplicador = (label: EtiquetaEditItem) => {
+    if (!label.exibirSegundoAplicador) {
+      updateLabel(label.id, { exibirSegundoAplicador: true });
+      return;
+    }
+    updateLabel(label.id, {
+      aplicadoresExtras: [...(label.aplicadoresExtras ?? []), { textoAcima: "", nome: "", cpf: "" }],
+    });
+  };
+
+  /** Ao remover o 2º aplicador, o 3º (se houver) assume a posição dele. */
+  const removeSegundoAplicador = (label: EtiquetaEditItem) => {
+    const [proximo, ...restantes] = label.aplicadoresExtras ?? [];
+    updateLabel(label.id, {
+      exibirSegundoAplicador: Boolean(proximo),
+      nomeAplicador2: proximo?.nome ?? "",
+      cpfAplicador2: proximo?.cpf ?? "",
+      textoAcimaAssinatura2: proximo?.textoAcima ?? "",
+      aplicadoresExtras: restantes,
+    });
+  };
+
+  const updateAplicadorExtra = (
+    label: EtiquetaEditItem,
+    index: number,
+    patch: Partial<EtiquetaAplicadorExtra>
+  ) => {
+    updateLabel(label.id, {
+      aplicadoresExtras: (label.aplicadoresExtras ?? []).map((extra, i) =>
+        i === index ? { ...extra, ...patch } : extra
+      ),
+    });
+  };
+
+  const removeAplicadorExtra = (label: EtiquetaEditItem, index: number) => {
+    updateLabel(label.id, {
+      aplicadoresExtras: (label.aplicadoresExtras ?? []).filter((_, i) => i !== index),
+    });
+  };
+
   const removeLabel = (id: string) => {
     setLabels((prev) => prev.filter((item) => item.id !== id));
   };
@@ -1394,14 +1442,7 @@ export default function EtiquetasPage() {
                                     variant="ghost"
                                     size="sm"
                                     className="h-8 px-2 text-destructive"
-                                    onClick={() =>
-                                      updateLabel(label.id, {
-                                        exibirSegundoAplicador: false,
-                                        nomeAplicador2: "",
-                                        cpfAplicador2: "",
-                                        textoAcimaAssinatura2: "",
-                                      })
-                                    }
+                                    onClick={() => removeSegundoAplicador(label)}
                                   >
                                     <Trash2 className="mr-1 h-3.5 w-3.5" />
                                     Remover
@@ -1441,20 +1482,67 @@ export default function EtiquetasPage() {
                                   placeholder="CPF do 2º aplicador"
                                 />
                               </div>
-                            ) : (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="w-full"
-                                onClick={() =>
-                                  updateLabel(label.id, { exibirSegundoAplicador: true })
-                                }
-                              >
-                                <UserPlus className="mr-2 h-4 w-4" />
-                                Adicionar aplicador
-                              </Button>
-                            )}
+                            ) : null}
+                            {label.exibirSegundoAplicador
+                              ? (label.aplicadoresExtras ?? []).map((extra, extraIndex) => {
+                                  const ordem = extraIndex + 3;
+                                  return (
+                                    <div key={extraIndex} className="space-y-2">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <p className="text-xs font-medium text-muted-foreground">
+                                          {ordem}º aplicador
+                                        </p>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-8 px-2 text-destructive"
+                                          onClick={() => removeAplicadorExtra(label, extraIndex)}
+                                        >
+                                          <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                          Remover
+                                        </Button>
+                                      </div>
+                                      <Input
+                                        value={extra.textoAcima}
+                                        maxLength={TEXTO_ACIMA_ASSINATURA_MAX}
+                                        placeholder={`Texto acima da assinatura do ${ordem}º aplicador`}
+                                        onChange={(event) =>
+                                          updateAplicadorExtra(label, extraIndex, {
+                                            textoAcima: event.target.value,
+                                          })
+                                        }
+                                      />
+                                      <Input
+                                        value={extra.nome}
+                                        placeholder={`Nome do ${ordem}º aplicador`}
+                                        onChange={(event) =>
+                                          updateAplicadorExtra(label, extraIndex, { nome: event.target.value })
+                                        }
+                                      />
+                                      <Input
+                                        value={extra.cpf}
+                                        placeholder={`CPF do ${ordem}º aplicador`}
+                                        onChange={(event) =>
+                                          updateAplicadorExtra(label, extraIndex, {
+                                            cpf: maskCpf(event.target.value),
+                                          })
+                                        }
+                                      />
+                                    </div>
+                                  );
+                                })
+                              : null}
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="w-full"
+                              onClick={() => addAplicador(label)}
+                            >
+                              <UserPlus className="mr-2 h-4 w-4" />
+                              Adicionar aplicador
+                            </Button>
                           </>
                         )}
 

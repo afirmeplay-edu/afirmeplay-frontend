@@ -25,9 +25,9 @@ import type {
   Estudante,
 } from '@/types/lista-frequencia';
 import {
-  buildListaFrequenciaHierarchyPath,
-  createSingleListaFrequenciaPdfBlob,
+  createListaFrequenciaPdfBlob,
   getSerieTurmaDisplay,
+  groupListaFrequenciaByEscola,
 } from '@/services/reports/listaFrequenciaPdf';
 import { downloadBlob, generateZipBlob, sanitizePathSegment } from '@/services/reports/hierarchicalDownload';
 import { getClassShiftLabel } from '@/lib/classShift';
@@ -38,6 +38,18 @@ function formatLegenda(legenda: Record<string, string>): string {
   return Object.entries(legenda)
     .map(([cod, desc]) => `${cod} = ${desc}`)
     .join('; ');
+}
+
+function formatDisciplinas(names: Array<string | null | undefined>): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of names) {
+    const name = String(raw ?? '').trim().toUpperCase();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out.join(' E ');
 }
 
 export default function ListaFrequencia() {
@@ -66,7 +78,7 @@ export default function ListaFrequencia() {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   const [modoLista, setModoLista] = useState<'turma' | 'avaliacao' | 'cartao_resposta'>('turma');
-  const [avaliacoes, setAvaliacoes] = useState<{ id: string; titulo: string }[]>([]);
+  const [avaliacoes, setAvaliacoes] = useState<{ id: string; titulo: string; disciplinas: string[] }[]>([]);
   const [selectedAvaliacaoId, setSelectedAvaliacaoId] = useState('all');
   const [isLoadingAvaliacoes, setIsLoadingAvaliacoes] = useState(false);
   /** Turmas vinculadas à avaliação/cartão selecionado (GET /test/:id/classes ou opções cartão resposta). */
@@ -76,9 +88,12 @@ export default function ListaFrequencia() {
   const [provaExpirada, setProvaExpirada] = useState<boolean | null>(null);
   /** Nome da avaliação customizado para impressão/PDF (editável antes de imprimir). */
   const [nomeAvaliacaoImpressao, setNomeAvaliacaoImpressao] = useState('');
+  /** Disciplina para impressão/PDF: vem da avaliação/cartão selecionado (o cabeçalho só traz as disciplinas vinculadas à turma). */
+  const [disciplinaImpressao, setDisciplinaImpressao] = useState('');
   const listaRequestRef = useRef(0);
   const listaLoadedRef = useRef(false);
   const nomeImpressaoEditadoRef = useRef(false);
+  const disciplinaImpressaoEditadaRef = useRef(false);
   const gerarListaRef = useRef<(() => Promise<ListaFrequenciaResponse[] | null>) | null>(null);
 
   const isModoAplicada = modoLista === 'avaliacao' || modoLista === 'cartao_resposta';
@@ -277,7 +292,13 @@ export default function ListaFrequencia() {
     })
       .then((items) => {
         if (cancelled) return;
-        setAvaliacoes((items ?? []).map((a) => ({ id: a.id, titulo: a.titulo || a.id })));
+        setAvaliacoes(
+          (items ?? []).map((a) => ({
+            id: a.id,
+            titulo: a.titulo || a.id,
+            disciplinas: a.disciplinas?.length ? a.disciplinas : a.disciplina ? [a.disciplina] : [],
+          }))
+        );
       })
       .catch(() => {
         if (!cancelled) setAvaliacoes([]);
@@ -426,6 +447,46 @@ export default function ListaFrequencia() {
     setError(null);
     setIsLoadingLista(false);
   }, [modoLista, selectedEstado, selectedMunicipio, selectedSchool, selectedSerie, selectedTurma, selectedAvaliacaoId]);
+
+  useEffect(() => {
+    disciplinaImpressaoEditadaRef.current = false;
+    if (!isModoAplicada || !selectedAvaliacaoId || selectedAvaliacaoId === 'all') {
+      setDisciplinaImpressao('');
+      return;
+    }
+    const fromFilter = formatDisciplinas(
+      avaliacoes.find((a) => a.id === selectedAvaliacaoId)?.disciplinas ?? []
+    );
+    if (fromFilter || modoLista !== 'avaliacao') {
+      setDisciplinaImpressao(fromFilter);
+      return;
+    }
+    let cancelled = false;
+    EvaluationResultsApiService.getTestEvaluationById<{
+      subjects_info?: Array<{ name?: string; nome?: string }>;
+      subjects?: Array<{ name?: string; nome?: string } | string>;
+      subject?: { name?: string; nome?: string } | string | null;
+      disciplina?: string;
+    }>(selectedAvaliacaoId)
+      .then((detail) => {
+        if (cancelled || disciplinaImpressaoEditadaRef.current || !detail) return;
+        const names = [
+          ...(detail.subjects_info ?? []).map((s) => s.name || s.nome),
+          ...(detail.subjects ?? []).map((s) => (typeof s === 'string' ? s : s.name || s.nome)),
+          detail.disciplina,
+        ];
+        if (!names.some((n) => n?.trim()) && detail.subject && typeof detail.subject === 'object') {
+          names.push(detail.subject.name || detail.subject.nome);
+        }
+        setDisciplinaImpressao(formatDisciplinas(names));
+      })
+      .catch(() => {
+        if (!cancelled && !disciplinaImpressaoEditadaRef.current) setDisciplinaImpressao('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isModoAplicada, modoLista, selectedAvaliacaoId, avaliacoes]);
 
   // Preencher o nome da avaliação para impressão quando a lista for carregada
   useEffect(() => {
@@ -642,46 +703,39 @@ export default function ListaFrequencia() {
       if (!fresh || fresh.length === 0) return;
       const date = new Date().toISOString().split('T')[0];
       const cityId = selectedMunicipio !== 'all' ? selectedMunicipio : null;
+      const pdfOptions = { cityId, nomeAvaliacaoImpressao, disciplinaImpressao, provaExpirada };
+      const grupos = groupListaFrequenciaByEscola(fresh);
+      const fileNameFor = (escola: string) => `lista-frequencia-${sanitizePathSegment(escola, 'Escola')}.pdf`;
 
-      if (fresh.length === 1) {
-        const singleBlob = await createSingleListaFrequenciaPdfBlob(fresh[0], {
-          cityId,
-          nomeAvaliacaoImpressao,
-          provaExpirada,
-        });
-        const fileName = `lista-frequencia-${date}.pdf`;
-        downloadBlob(singleBlob, fileName);
+      if (grupos.length === 1) {
+        const blob = await createListaFrequenciaPdfBlob(grupos[0].items, pdfOptions);
+        const fileName = fileNameFor(grupos[0].escola).replace(/\.pdf$/i, `-${date}.pdf`);
+        downloadBlob(blob, fileName);
         toast({ title: 'PDF gerado', description: `Arquivo ${fileName} salvo com a frequência atual.` });
         return;
       }
 
       const entries: Array<{ path: string; blob: Blob }> = [];
-      for (const item of fresh) {
-        const blob = await createSingleListaFrequenciaPdfBlob(item, {
-          cityId,
-          nomeAvaliacaoImpressao,
-          provaExpirada,
-        });
-        const hierarchyPath = buildListaFrequenciaHierarchyPath(item);
-        if (item.class_id) {
-          const suffix = sanitizePathSegment(item.class_id).slice(0, 8);
-          const withClassId = hierarchyPath.replace(/lista-frequencia\.pdf$/i, `lista-frequencia-${suffix}.pdf`);
-          entries.push({ path: withClassId, blob });
-        } else {
-          entries.push({ path: hierarchyPath, blob });
-        }
+      for (const grupo of grupos) {
+        const blob = await createListaFrequenciaPdfBlob(grupo.items, pdfOptions);
+        entries.push({ path: fileNameFor(grupo.escola), blob });
       }
 
       const zipBlob = await generateZipBlob(entries);
       const zipName = `lista-frequencia-${date}.zip`;
       downloadBlob(zipBlob, zipName);
-      toast({ title: 'ZIP gerado', description: `Arquivo ${zipName} salvo com a frequência atual.` });
+      toast({
+        title: 'ZIP gerado',
+        description: `Arquivo ${zipName} salvo com ${entries.length} escolas (um PDF por escola).`,
+      });
     } catch {
       toast({ title: 'Erro ao gerar PDF', description: 'Não foi possível gerar o arquivo.', variant: 'destructive' });
     } finally {
       setIsGeneratingPDF(false);
     }
   };
+
+  const totalEscolas = data ? groupListaFrequenciaByEscola(data).length : 0;
 
   const codigosStatus =
     data && data.length > 0
@@ -907,6 +961,19 @@ export default function ListaFrequencia() {
                 className="bg-background"
               />
             </div>
+            <div className="flex flex-col gap-2 min-w-0 sm:max-w-xs">
+              <Label htmlFor="disciplina-impressao">Disciplina (impressão/PDF)</Label>
+              <Input
+                id="disciplina-impressao"
+                placeholder="Usa a disciplina da turma se vazio"
+                value={disciplinaImpressao}
+                onChange={(e) => {
+                  disciplinaImpressaoEditadaRef.current = true;
+                  setDisciplinaImpressao(e.target.value);
+                }}
+                className="bg-background"
+              />
+            </div>
             <Button
               variant="outline"
               size="sm"
@@ -919,7 +986,9 @@ export default function ListaFrequencia() {
               ) : (
                 <Printer className="h-4 w-4" />
               )}
-              {isGeneratingPDF ? (data.length === 1 ? 'Gerando PDF...' : 'Gerando ZIP...') : (data.length === 1 ? 'Baixar PDF' : 'Baixar ZIP')}
+              {isGeneratingPDF
+                ? totalEscolas <= 1 ? 'Gerando PDF...' : 'Gerando ZIP...'
+                : totalEscolas <= 1 ? 'Baixar PDF' : 'Baixar ZIP'}
             </Button>
           </div>
           <div id="lista-frequencia-print" className="rounded-lg overflow-hidden bg-zinc-900 text-white shadow-lg">
@@ -942,8 +1011,8 @@ export default function ListaFrequencia() {
                       <p>TURNO: {getClassShiftLabel(item.cabecalho.turno)}</p>
                       <p className="flex items-baseline gap-1">
                         DISCIPLINA:{' '}
-                        {item.cabecalho.disciplina?.trim() ? (
-                          item.cabecalho.disciplina
+                        {disciplinaImpressao.trim() || item.cabecalho.disciplina?.trim() ? (
+                          disciplinaImpressao.trim() || item.cabecalho.disciplina
                         ) : (
                           <span className="inline-block min-w-[200px] border-b border-white/40" aria-hidden />
                         )}
