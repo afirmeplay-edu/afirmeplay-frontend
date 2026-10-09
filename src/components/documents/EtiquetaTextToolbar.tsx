@@ -6,10 +6,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { wrapSelectionWithMarker } from "@/utils/richTextMarkers";
 import { EtiquetaAlignToolbar } from "@/components/documents/EtiquetaAlignToolbar";
 import type { EtiquetaTextoLivreAlinhamento } from "@/types/etiquetas";
-import { TEXTO_LIVRE_TAMANHO_PADRAO } from "@/utils/etiquetasDisplay";
-
-export const ETIQUETA_TEXTO_TAMANHO_MIN = 8;
-export const ETIQUETA_TEXTO_TAMANHO_MAX = 20;
+import {
+  clampTextoLivreTamanho as clampFontSize,
+  TEXTO_LIVRE_TAMANHO_MAX as ETIQUETA_TEXTO_TAMANHO_MAX,
+  TEXTO_LIVRE_TAMANHO_MIN as ETIQUETA_TEXTO_TAMANHO_MIN,
+} from "@/utils/etiquetasDisplay";
 
 type EtiquetaTextToolbarProps = {
   id: string;
@@ -21,11 +22,6 @@ type EtiquetaTextToolbarProps = {
   onFontSizeChange: (value: number) => void;
   placeholder?: string;
 };
-
-function clampFontSize(value: number): number {
-  if (!Number.isFinite(value)) return TEXTO_LIVRE_TAMANHO_PADRAO;
-  return Math.min(ETIQUETA_TEXTO_TAMANHO_MAX, Math.max(ETIQUETA_TEXTO_TAMANHO_MIN, Math.round(value)));
-}
 
 export function EtiquetaTextToolbar({
   id,
@@ -146,7 +142,7 @@ export function EtiquetaTextToolbar({
       <EtiquetaAlignToolbar id={`${id}-align`} value={align} onChange={onAlignChange} />
 
       <p className="text-xs text-muted-foreground">
-        Use a barra para negrito, itálico, sublinhado e tamanho (8–20 pt). Marcadores: **negrito**, *itálico*,
+        Use a barra para negrito, itálico, sublinhado e tamanho ({ETIQUETA_TEXTO_TAMANHO_MIN}–{ETIQUETA_TEXTO_TAMANHO_MAX} pt). Marcadores: **negrito**, *itálico*,
         __sublinhado__.
       </p>
     </div>

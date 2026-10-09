@@ -6,6 +6,8 @@ type EtiquetaRichTextPreviewProps = {
   align?: EtiquetaTextoLivreAlinhamento;
   color?: string;
   fontSize?: number;
+  /** Tamanho CSS já calculado (ex.: escalado à largura da etiqueta); tem prioridade sobre `fontSize`. */
+  fontSizeCss?: string;
   className?: string;
 };
 
@@ -20,6 +22,7 @@ export function EtiquetaRichTextPreview({
   align = "center",
   color = "#000000",
   fontSize = 10,
+  fontSizeCss,
   className = "",
 }: EtiquetaRichTextPreviewProps) {
   const segments = parseRichMarkers(text || "Texto livre da etiqueta");
@@ -27,7 +30,7 @@ export function EtiquetaRichTextPreview({
   return (
     <p
       className={`whitespace-pre-wrap break-words leading-snug ${ALIGN_CLASS[align]} ${className}`}
-      style={{ color, fontSize: `${Math.max(9, fontSize * 0.95)}px` }}
+      style={{ color, fontSize: fontSizeCss ?? `${Math.max(9, fontSize * 0.95)}px` }}
     >
       {segments.map((segment, index) => (
         <span

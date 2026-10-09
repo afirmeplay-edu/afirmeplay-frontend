@@ -46,6 +46,12 @@ export type EtiquetasDadosResponse = {
 
 export type EtiquetaTextoLivreAlinhamento = "left" | "center" | "right";
 
+export type EtiquetaAplicadorExtra = {
+  textoAcima: string;
+  nome: string;
+  cpf: string;
+};
+
 export type EtiquetaEditItem = {
   id: string;
   titulo: string;
@@ -66,6 +72,8 @@ export type EtiquetaEditItem = {
   textoAcimaAssinatura: string;
   /** Linha única em negrito acima da assinatura do 2º aplicador (até 50 caracteres) */
   textoAcimaAssinatura2: string;
+  /** Aplicadores a partir do 3º (exigem o 2º aplicador ativo). */
+  aplicadoresExtras?: EtiquetaAplicadorExtra[];
   /** Turma de origem das etiquetas geradas automaticamente a partir dos filtros. */
   turmaId?: string;
   /** Cabeçalho editável das etiquetas personalizadas (sem turma de origem). */
