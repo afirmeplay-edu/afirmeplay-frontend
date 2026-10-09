@@ -6,7 +6,7 @@ import { drawMunicipalLogoTopCenter, loadCityBrandingForReportPdf } from "@/util
 export type { AtaOptions, AtaSalaPdfData } from "@/types/ata-sala";
 
 const C = {
-  bg: [236, 236, 236] as [number, number, number],
+  bg: [255, 255, 255] as [number, number, number],
   text: [28, 28, 28] as [number, number, number],
   pink: [223, 31, 166] as [number, number, number],
 };
@@ -28,6 +28,12 @@ const SECTION_V_GAP = 5.5;
 const OPEN_PAD_X = 3.8;
 const OPEN_PAD_BOTTOM = 2.8;
 const OPEN_LINE_STEP = 5.6;
+/** Alturas preferidas e mínimas das caixas abertas da página 1 (itens 4 e 6), que cedem espaço para caber na folha. */
+const Q4_BOX_H_MAX = 50;
+const Q4_BOX_H_MIN = 26;
+const Q5_BOX_H = 44;
+const Q6_BOX_H_MAX = 56;
+const Q6_BOX_H_MIN = 30;
 const Q712_ROW_H = 14;
 const Q712_ROW_GAP = 2.2;
 
@@ -187,8 +193,9 @@ function measureAtaHeaderBoxInnerHeight(
   doc.setFontSize(9);
   const escolaLw = doc.getTextWidth("ESCOLA: ") + 1;
   const nl = escolaEmpty ? 1 : Math.max(1, (splitToLines(doc, escolaT, lineEnd - tx0 - escolaLw) as string[]).length);
-  const escolaH = escolaEmpty ? rowGap : nl * 5 + 0.5;
-  return 6 + rowGap + rowGap + escolaH + 1 + rowGap + rowGap + 5;
+  const escolaH = escolaEmpty ? 5 : nl * 5;
+  // Município, rede, escola, série/turma e turno; abaixo do baseline do turno ficam 4.5 mm de margem.
+  return 6 + rowGap + rowGap + escolaH + 1 + rowGap + 4.5;
 }
 
 function drawHeader(doc: jsPDF, data: AtaSalaPdfData, startY = M): number {
@@ -346,6 +353,15 @@ function fillTextInOpenBox(
   }
 }
 
+/** Divide o espaço disponível entre as caixas dos itens 4 e 6, na proporção das alturas preferidas. */
+function fitOpenBoxHeights(available: number): { q4: number; q6: number } {
+  const preferred = Q4_BOX_H_MAX + Q6_BOX_H_MAX;
+  if (available >= preferred) return { q4: Q4_BOX_H_MAX, q6: Q6_BOX_H_MAX };
+  const q4 = Math.max(Q4_BOX_H_MIN, (available * Q4_BOX_H_MAX) / preferred);
+  const q6 = Math.max(Q6_BOX_H_MIN, available - q4);
+  return { q4, q6 };
+}
+
 async function drawPage1(doc: jsPDF, data: AtaSalaPdfData, cityId: string | null): Promise<void> {
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -357,8 +373,7 @@ async function drawPage1(doc: jsPDF, data: AtaSalaPdfData, cityId: string | null
   let y = M;
   const { logo } = await loadCityBrandingForReportPdf(cityId);
   if (logo) {
-    y = drawMunicipalLogoTopCenter(doc, pageW, y, logo, 34, 13);
-    y += 2;
+    y = drawMunicipalLogoTopCenter(doc, pageW, y, logo, 34, 13) - 4;
   }
   y = drawHeader(doc, data, y);
   y = drawWrappedText(
@@ -409,13 +424,13 @@ async function drawPage1(doc: jsPDF, data: AtaSalaPdfData, cityId: string | null
   drawCodeBoxes(doc, q3FieldX + timeBoxW * 2 + 2.1, y + 3, [data.options.endMinute[0] || "", data.options.endMinute[1] || ""], timeBoxW, 7);
   y += 14;
 
-  const Q4_BOX_H = 50;
+  const { q4: Q4_BOX_H, q6: Q6_BOX_H } = fitOpenBoxHeights(pageH - M - y - Q5_BOX_H - SECTION_V_GAP * 2);
   drawPinkRect(doc, M, y, contentW, Q4_BOX_H);
   drawText(doc, "4. Caso a aplicação do(s) teste(s) NÃO tenha ocorrido, informe o motivo no campo abaixo.", M + 2, y + 5.5, 7.2);
   fillTextInOpenBox(doc, data.options.didNotOccurReason, M, y, contentW, Q4_BOX_H, OPEN_PAD_X, y + 12.5);
   y += Q4_BOX_H + SECTION_V_GAP;
 
-  const Q5_H = 44;
+  const Q5_H = Q5_BOX_H;
   const q5Top = y;
   drawPinkRect(doc, M, q5Top, contentW, Q5_H);
   drawText(
@@ -435,7 +450,6 @@ async function drawPage1(doc: jsPDF, data: AtaSalaPdfData, cityId: string | null
   }
   y += Q5_H + SECTION_V_GAP;
 
-  const Q6_BOX_H = 56;
   drawPinkRect(doc, M, y, contentW, Q6_BOX_H);
   drawText(
     doc,

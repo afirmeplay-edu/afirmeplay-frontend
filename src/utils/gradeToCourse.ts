@@ -19,6 +19,18 @@ export const GRADE_TO_COURSE: Record<string, string> = {
 
 export const COURSE_OPTIONS = ["Anos Iniciais", "Anos Finais", "Ensino Médio"] as const;
 
+/** Cor de destaque de cada curso/modalidade em documentos impressos (ex.: etiquetas). */
+export const COURSE_COLORS = {
+  "Educação Infantil": "#DB2777",
+  "Anos Iniciais": "#2563EB",
+  "Anos Finais": "#16A34A",
+  "Ensino Médio": "#7C3AED",
+  EJA: "#EA580C",
+  "Educação Especial": "#0D9488",
+} as const;
+
+export const COURSE_COLOR_DEFAULT = "#475569";
+
 function normalizeKey(value: string): string {
   return value
     .normalize("NFD")
@@ -46,6 +58,21 @@ export function inferCursoFromSerieName(serieName: string): string {
     return "Anos Iniciais";
   }
   return "";
+}
+
+/** Cor do curso/modalidade pelo nome (tolerante a acentos e variações como "EJA – Ensino Fundamental"). */
+export function getCourseColor(courseName: string | null | undefined): string {
+  const key = normalizeKey(courseName || "");
+  if (!key) return COURSE_COLOR_DEFAULT;
+  if (key.includes("infantil") || key.includes("creche") || key.includes("pre-escola")) {
+    return COURSE_COLORS["Educação Infantil"];
+  }
+  if (/\beja\b/.test(key) || key.includes("jovens e adultos")) return COURSE_COLORS.EJA;
+  if (key.includes("especial") || /\baee\b/.test(key)) return COURSE_COLORS["Educação Especial"];
+  if (key.includes("iniciais")) return COURSE_COLORS["Anos Iniciais"];
+  if (key.includes("finais")) return COURSE_COLORS["Anos Finais"];
+  if (key.includes("medio")) return COURSE_COLORS["Ensino Médio"];
+  return COURSE_COLOR_DEFAULT;
 }
 
 export function matchCourseOptionId(

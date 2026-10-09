@@ -8,35 +8,54 @@ import type {
 } from "@/types/etiquetas";
 import { parseRichMarkers, truncateText } from "@/utils/richTextMarkers";
 import {
+  clampTextoLivreTamanho,
+  ETIQUETA_APLICADORES_GRADE_MIN,
+  ETIQUETA_FONTE,
+  etiquetaAplicadores,
+  type EtiquetaAplicador,
   etiquetaEscolaKey,
+  etiquetaFonteAplicadores,
   etiquetasSerieTurmaTurnoLine,
   TEXTO_ACIMA_ASSINATURA_MAX,
-  TEXTO_LIVRE_TAMANHO_PADRAO,
 } from "@/utils/etiquetasDisplay";
+import { getCourseColor } from "@/utils/gradeToCourse";
 
+const PAGE_WIDTH = 210;
+const PAGE_HEIGHT = 297;
 const PAGE_MARGIN = 10;
 const COLS = 2;
 const ROWS = 4;
 const GAP_X = 4;
 const GAP_Y = 4;
-const LABELS_PER_PAGE = COLS * ROWS;
+const LABEL_WIDTH_DUPLA = PAGE_WIDTH - PAGE_MARGIN * 2;
+const LABEL_WIDTH = (LABEL_WIDTH_DUPLA - GAP_X * (COLS - 1)) / COLS;
+const LABEL_HEIGHT = (PAGE_HEIGHT - PAGE_MARGIN * 2 - GAP_Y * (ROWS - 1)) / ROWS;
 const LOGO_WIDTH = 8;
-/** Abaixo do mínimo do editor (8pt): só usado para caber todas as linhas na área livre. */
+const LOGO_MAX_HEIGHT = 11;
+const LOGO_GAP = 1.5;
+/** Abaixo do mínimo do editor: só usado para caber todas as linhas na área livre. */
 const TEXTO_LIVRE_AUTO_FIT_MIN = 5;
 
-const PAD = 3;
-/** 3px (96 dpi) em mm. */
-const TITLE_OFFSET_Y = (3 * 25.4) / 96;
+/** Na largura normal as fontes encolhem até este fator antes de a etiqueta passar a ocupar a linha inteira. */
+const ESCALA_MIN_NORMAL = 0.85;
+const ESCALA_MIN = 0.6;
+const ESCALA_PASSO = 0.05;
 
-const RODAPE_BLOCK_H = 3.4;
+const PAD = 3;
+const PT_TO_MM = 25.4 / 72;
+/** Menor fração da fonte para o texto acima da assinatura caber em uma linha. */
+const RODAPE_FONT_MIN_RATIO = 0.6;
+
 const APLICADOR_SEPARATOR_GAP = 1;
-const APLICADOR_NAME_GAP = 3.4;
-const APLICADOR_ROW_GAP = 3.8;
-const APLICADOR_BOTTOM_GAP = 1.4;
-const APLICADOR_BASE_FONT = 5.5;
-const APLICADOR_MIN_FONT = 3.5;
-const APLICADOR_UNDERLINE_OFFSET = 0.6;
 const APLICADOR_BOX_PAD_X = 1.5;
+const APLICADOR_BOX_PAD_Y = 0.6;
+const APLICADOR_UNDERLINE_OFFSET = 0.6;
+const APLICADOR_GRID_GAP = 1.5;
+/** Colunas mais estreitas que isto usam "NOME:" em vez de "NOME DO APLICADOR:". */
+const APLICADOR_COMPACTO_MAX_WIDTH = 60;
+
+const MODALIDADE_PILL_PAD_X = 1.4;
+const MODALIDADE_PILL_RADIUS = 0.9;
 
 export type EtiquetaPdfEntry = {
   context: EtiquetasDadosResponse;
@@ -246,7 +265,7 @@ function drawAlignedRichText(
   const content = preserveParagraphs(text).trim();
   if (!content || areaH <= 1) return;
 
-  let size = Math.min(20, Math.max(8, fontSize || TEXTO_LIVRE_TAMANHO_PADRAO));
+  let size = fontSize;
   let lineHeight = lineHeightFor(size);
   let lines = buildRichLines(doc, content, areaW, size);
 
@@ -270,62 +289,174 @@ function drawAlignedRichText(
   });
 }
 
-function drawCenteredWrapped(
-  doc: jsPDF,
-  text: string,
-  centerX: number,
-  y: number,
-  maxWidth: number,
-  fontSize: number,
-  opts?: { style?: "normal" | "bold"; uppercase?: boolean; maxLines?: number }
-): number {
-  const content = normalizeSpaces(text);
-  if (!content) return y;
-
-  const lh = lineHeightFor(fontSize);
-  doc.setFont("helvetica", opts?.style ?? "normal");
-  doc.setFontSize(fontSize);
-  doc.setTextColor(0, 0, 0);
-
-  const printable = opts?.uppercase ? content.toUpperCase() : content;
-  let lines = doc.splitTextToSize(printable, maxWidth) as string[];
-  if (opts?.maxLines) lines = lines.slice(0, opts.maxLines);
-
-  lines.forEach((line) => {
-    doc.text(line, centerX, y, { align: "center" });
-    y += lh;
-  });
-
-  return y;
+/** Altura de uma linha de texto fixo (fonte em pt → mm, com entrelinha). */
+function textLineHeight(fontSize: number): number {
+  return fontSize * PT_TO_MM * 1.18;
 }
 
-function drawWrappedTextLeft(
+function setFont(doc: jsPDF, fontSize: number, style: "normal" | "bold") {
+  doc.setFont("helvetica", style);
+  doc.setFontSize(fontSize);
+}
+
+function fitSingleLine(doc: jsPDF, text: string, maxWidth: number): string {
+  if (doc.getTextWidth(text) <= maxWidth) return text;
+  let end = text.length;
+  while (end > 0 && doc.getTextWidth(`${text.slice(0, end).trimEnd()}…`) > maxWidth) end -= 1;
+  return `${text.slice(0, end).trimEnd()}…`;
+}
+
+/**
+ * Desenha (ou só mede, com `draw = false`) linhas quebradas a partir de `top`.
+ * Retorna o topo livre logo abaixo da última linha.
+ */
+function drawTextLines(
   doc: jsPDF,
   text: string,
-  x: number,
-  y: number,
+  anchorX: number,
+  top: number,
   maxWidth: number,
   fontSize: number,
-  opts?: { style?: "normal" | "bold"; uppercase?: boolean; maxLines?: number; lineHeight?: number }
+  opts: { style: "normal" | "bold"; align: "left" | "center"; maxLines: number; draw: boolean }
 ): number {
   const content = normalizeSpaces(text);
-  if (!content) return y;
+  if (!content) return top;
 
-  const lh = opts?.lineHeight ?? lineHeightFor(fontSize);
-  doc.setFont("helvetica", opts?.style ?? "normal");
-  doc.setFontSize(fontSize);
+  setFont(doc, fontSize, opts.style);
+  const lh = textLineHeight(fontSize);
+  const lines = (doc.splitTextToSize(content, maxWidth) as string[]).slice(0, opts.maxLines);
+  if (opts.draw) {
+    doc.setTextColor(0, 0, 0);
+    lines.forEach((line, index) => {
+      doc.text(line, anchorX, top + lh * index + lh / 2, { align: opts.align, baseline: "middle" });
+    });
+  }
+  return top + lines.length * lh;
+}
+
+/** "Modalidade/Etapa:" seguido do curso em um selo com a cor associada ao curso. */
+function drawModalidade(
+  doc: jsPDF,
+  nivel: string,
+  centerX: number,
+  top: number,
+  innerW: number,
+  fontSize: number,
+  draw: boolean
+): number {
+  const label = "Modalidade/Etapa: ";
+  const value = normalizeSpaces(nivel).toUpperCase();
+  const lh = textLineHeight(fontSize);
+
+  setFont(doc, fontSize, "normal");
+  const labelW = doc.getTextWidth(label);
+
+  if (!value) {
+    if (draw) {
+      doc.setTextColor(0, 0, 0);
+      doc.text(`${label}—`, centerX, top + lh / 2, { align: "center", baseline: "middle" });
+    }
+    return top + lh;
+  }
+
+  setFont(doc, fontSize, "bold");
+  const pillH = lh;
+  const singleRow = labelW + doc.getTextWidth(value) + MODALIDADE_PILL_PAD_X * 2 <= innerW;
+  const pillText = fitSingleLine(doc, value, innerW - MODALIDADE_PILL_PAD_X * 2);
+  const pillW = doc.getTextWidth(pillText) + MODALIDADE_PILL_PAD_X * 2;
+  const totalH = singleRow ? pillH : lh + pillH;
+  if (!draw) return top + totalH + 0.4;
+
+  const pillTop = singleRow ? top : top + lh;
+  const rowStartX = singleRow ? centerX - (labelW + pillW) / 2 : centerX - labelW / 2;
+  const pillX = singleRow ? rowStartX + labelW : centerX - pillW / 2;
+
+  setFont(doc, fontSize, "normal");
+  doc.setTextColor(0, 0, 0);
+  doc.text(label, rowStartX, top + lh / 2, { baseline: "middle" });
+
+  doc.setFillColor(...hexToRgb(getCourseColor(nivel)));
+  doc.roundedRect(pillX, pillTop, pillW, pillH, MODALIDADE_PILL_RADIUS, MODALIDADE_PILL_RADIUS, "F");
+  setFont(doc, fontSize, "bold");
+  doc.setTextColor(255, 255, 255);
+  doc.text(pillText, pillX + MODALIDADE_PILL_PAD_X, pillTop + pillH / 2, { baseline: "middle" });
   doc.setTextColor(0, 0, 0);
 
-  const printable = opts?.uppercase ? content.toUpperCase() : content;
-  let lines = doc.splitTextToSize(printable, maxWidth) as string[];
-  if (opts?.maxLines) lines = lines.slice(0, opts.maxLines);
+  return top + totalH + 0.4;
+}
 
-  lines.forEach((line) => {
-    doc.text(line, x, y);
-    y += lh;
+export type LogoDims = Pick<PdfImageAsset, "iw" | "ih">;
+
+export function logoHeightFor(logo: LogoDims): number {
+  return Math.min(LOGO_MAX_HEIGHT, Math.max(4, (logo.ih * LOGO_WIDTH) / logo.iw));
+}
+
+/**
+ * Cabeçalho (logo, título, município, escola, modalidade, série/turma/turno e divisória).
+ * As linhas centralizadas que ficam na altura do logo são estreitadas dos dois lados para não encostar nele.
+ */
+function layoutHeader(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  width: number,
+  context: EtiquetasDadosResponse,
+  item: EtiquetaEditItem,
+  logo: (LogoDims & { dataUrl?: string }) | null,
+  fontSize: number,
+  draw: boolean
+): number {
+  const innerX = x + PAD;
+  const innerW = width - PAD * 2;
+  const centerX = x + width / 2;
+  let top = y + PAD;
+  let logoBottom = top;
+
+  if (logo) {
+    const logoH = logoHeightFor(logo);
+    if (draw && logo.dataUrl) {
+      doc.addImage(logo.dataUrl, "PNG", x + width - LOGO_WIDTH - PAD, top, LOGO_WIDTH, logoH);
+    }
+    logoBottom = top + logoH;
+  }
+  const widthAt = (lineTop: number) =>
+    logo && lineTop < logoBottom ? innerW - 2 * (LOGO_WIDTH + LOGO_GAP) : innerW;
+
+  top = drawTextLines(doc, item.titulo.toUpperCase(), innerX, top, innerW - LOGO_WIDTH - LOGO_GAP, fontSize, {
+    style: "bold",
+    align: "left",
+    maxLines: 2,
+    draw,
   });
 
-  return y;
+  const destaque = { style: "bold" as const, align: "center" as const, draw };
+  top = drawTextLines(doc, cityStateDisplay(context).toUpperCase(), centerX, top, widthAt(top), fontSize, {
+    ...destaque,
+    maxLines: 1,
+  });
+  top = drawTextLines(doc, context.contexto.escola.toUpperCase(), centerX, top, widthAt(top), fontSize, {
+    ...destaque,
+    maxLines: 2,
+  });
+  top = Math.max(top + 0.4, logoBottom);
+
+  top = drawModalidade(doc, context.contexto.nivel, centerX, top, innerW, fontSize, draw);
+
+  const serieTurmaTurnoText = normalizeSpaces(etiquetasSerieTurmaTurnoLine(context)).toUpperCase();
+  top = drawTextLines(doc, `Série | Turma | Turno: ${serieTurmaTurnoText}`, centerX, top, innerW, fontSize, {
+    style: "normal",
+    align: "center",
+    maxLines: 2,
+    draw,
+  });
+
+  top += 0.6;
+  if (draw) {
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.2);
+    doc.line(innerX, top, x + width - PAD, top);
+  }
+  return top;
 }
 
 function cityStateDisplay(context: EtiquetasDadosResponse): string {
@@ -334,57 +465,32 @@ function cityStateDisplay(context: EtiquetasDadosResponse): string {
   return state ? `${city}/${state}` : city;
 }
 
-type AplicadorBlock = {
-  textoAcima: string;
-  nome: string;
-  cpf: string;
-};
-
-function aplicadorBlocksFor(item: EtiquetaEditItem): AplicadorBlock[] {
-  if (!item.exibirAssinatura) return [];
-  const blocks: AplicadorBlock[] = [
-    { textoAcima: item.textoAcimaAssinatura, nome: item.nomeAplicador, cpf: item.cpfAplicador },
-  ];
-  if (item.exibirSegundoAplicador) {
-    blocks.push({
-      textoAcima: item.textoAcimaAssinatura2 ?? "",
-      nome: item.nomeAplicador2,
-      cpf: item.cpfAplicador2,
-    });
-  }
-  return blocks;
+/** Colunas do rodapé: 1 por linha; grade de 2 a partir de 3 aplicadores; na etiqueta dupla, até 4 lado a lado. */
+function aplicadorColunas(quantidade: number, dupla: boolean): number {
+  if (dupla) return Math.max(1, Math.min(quantidade, 4));
+  return quantidade >= ETIQUETA_APLICADORES_GRADE_MIN ? 2 : 1;
 }
 
-type AplicadorLayout = {
-  fontSize: number;
-  nameGap: number;
-  rowGap: number;
-};
-
-/** 1 aplicador: fonte base − 1pt; cada aplicador extra reduz mais 0,5pt para caber na etiqueta. */
-function aplicadorLayoutFor(count: number): AplicadorLayout {
-  const fontSize = Math.max(APLICADOR_MIN_FONT, APLICADOR_BASE_FONT - 1 - 0.5 * Math.max(0, count - 1));
-  const scale = fontSize / APLICADOR_BASE_FONT;
-  return {
-    fontSize,
-    nameGap: APLICADOR_NAME_GAP * scale,
-    rowGap: APLICADOR_ROW_GAP * scale,
-  };
+function aplicadorRows(aplicadores: EtiquetaAplicador[], colunas: number): EtiquetaAplicador[][] {
+  const rows: EtiquetaAplicador[][] = [];
+  for (let i = 0; i < aplicadores.length; i += colunas) rows.push(aplicadores.slice(i, i + colunas));
+  return rows;
 }
 
-function aplicadorBoxHeight(block: AplicadorBlock, layout: AplicadorLayout): number {
-  const hasRodapeLine = normalizeSpaces(block.textoAcima).length > 0;
-  return (hasRodapeLine ? RODAPE_BLOCK_H : 0) + layout.nameGap + layout.rowGap + APLICADOR_BOTTOM_GAP;
+function rowHasRodape(row: EtiquetaAplicador[]): boolean {
+  return row.some((aplicador) => normalizeSpaces(aplicador.textoAcima).length > 0);
 }
 
-function aplicadorBlockHeight(block: AplicadorBlock, layout: AplicadorLayout): number {
-  return APLICADOR_SEPARATOR_GAP + aplicadorBoxHeight(block, layout);
+function aplicadorBoxHeight(hasRodapeLine: boolean, fontSize: number): number {
+  const rows = (hasRodapeLine ? 1 : 0) + 2;
+  return rows * textLineHeight(fontSize) + APLICADOR_BOX_PAD_Y * 2;
 }
 
-function footerHeightFor(item: EtiquetaEditItem): number {
-  const blocks = aplicadorBlocksFor(item);
-  const layout = aplicadorLayoutFor(blocks.length);
-  return blocks.reduce((total, block) => total + aplicadorBlockHeight(block, layout), 0);
+function footerHeightFor(aplicadores: EtiquetaAplicador[], colunas: number, fontSize: number): number {
+  return aplicadorRows(aplicadores, colunas).reduce(
+    (total, row) => total + APLICADOR_SEPARATOR_GAP + aplicadorBoxHeight(rowHasRodape(row), fontSize),
+    0
+  );
 }
 
 function drawUnderlinedField(
@@ -407,48 +513,51 @@ function drawUnderlinedField(
   doc.text(firstLine ?? "", valueX, y);
 }
 
+/** Uma caixa de aplicador; em colunas estreitas (`compacto`) os rótulos são abreviados. */
 function drawAplicadorBlock(
   doc: jsPDF,
+  leftX: number,
   rightX: number,
-  innerX: number,
-  innerW: number,
-  centerX: number,
-  top: number,
-  block: AplicadorBlock,
-  layout: AplicadorLayout
-): number {
-  const boxTop = top + APLICADOR_SEPARATOR_GAP;
-  const boxHeight = aplicadorBoxHeight(block, layout);
-  const contentX = innerX + APLICADOR_BOX_PAD_X;
+  boxTop: number,
+  boxHeight: number,
+  hasRodapeRow: boolean,
+  block: EtiquetaAplicador,
+  fontSize: number,
+  compacto: boolean
+) {
+  const contentX = leftX + APLICADOR_BOX_PAD_X;
   const contentRightX = rightX - APLICADOR_BOX_PAD_X;
-  let cursorY = boxTop;
+  const centerX = (leftX + rightX) / 2;
+  const lh = textLineHeight(fontSize);
+  let rowTop = boxTop + APLICADOR_BOX_PAD_Y;
 
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.2);
-  doc.rect(innerX, boxTop, rightX - innerX, boxHeight);
+  doc.rect(leftX, boxTop, rightX - leftX, boxHeight);
   doc.setTextColor(0, 0, 0);
 
-  if (normalizeSpaces(block.textoAcima)) {
+  if (hasRodapeRow) {
     const rodapeText = truncateText(block.textoAcima, TEXTO_ACIMA_ASSINATURA_MAX).toUpperCase();
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7);
-    doc.text(rodapeText, centerX, cursorY + 2.6, {
+    const maxWidth = contentRightX - contentX;
+    let rodapeSize = fontSize;
+    setFont(doc, rodapeSize, "bold");
+    while (rodapeSize > fontSize * RODAPE_FONT_MIN_RATIO && doc.getTextWidth(rodapeText) > maxWidth) {
+      rodapeSize -= 0.25;
+      setFont(doc, rodapeSize, "bold");
+    }
+    doc.text(fitSingleLine(doc, rodapeText, maxWidth), centerX, rowTop + lh / 2, {
       align: "center",
-      maxWidth: innerW - APLICADOR_BOX_PAD_X * 2,
+      baseline: "middle",
     });
-    cursorY += RODAPE_BLOCK_H;
+    rowTop += lh;
   }
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(layout.fontSize);
-
-  cursorY += layout.nameGap;
-  drawUnderlinedField(doc, "NOME DO APLICADOR:", block.nome, contentX, contentRightX, cursorY);
-
-  cursorY += layout.rowGap;
-  drawUnderlinedField(doc, "CPF:", block.cpf, contentX, contentRightX, cursorY);
-
-  return boxTop + boxHeight;
+  setFont(doc, fontSize, "normal");
+  const baselineOffset = lh * 0.72;
+  const nomeLabel = compacto ? "NOME:" : "NOME DO APLICADOR:";
+  drawUnderlinedField(doc, nomeLabel, block.nome, contentX, contentRightX, rowTop + baselineOffset);
+  rowTop += lh;
+  drawUnderlinedField(doc, "CPF:", block.cpf, contentX, contentRightX, rowTop + baselineOffset);
 }
 
 function drawFooterBlock(
@@ -456,123 +565,161 @@ function drawFooterBlock(
   x: number,
   width: number,
   footerTop: number,
-  innerX: number,
-  innerW: number,
-  centerX: number,
-  item: EtiquetaEditItem
+  aplicadores: EtiquetaAplicador[],
+  plano: EtiquetaPlano
 ) {
+  const leftX = x + PAD;
+  const rightX = x + width - PAD;
+  const colunas = plano.colunasAplicadores;
+  const colW = (rightX - leftX - APLICADOR_GRID_GAP * (colunas - 1)) / colunas;
+
   let cursorY = footerTop;
-  const blocks = aplicadorBlocksFor(item);
-  const layout = aplicadorLayoutFor(blocks.length);
-  blocks.forEach((block) => {
-    cursorY = drawAplicadorBlock(doc, x + width - PAD, innerX, innerW, centerX, cursorY, block, layout);
+  aplicadorRows(aplicadores, colunas).forEach((row) => {
+    const boxTop = cursorY + APLICADOR_SEPARATOR_GAP;
+    const hasRodape = rowHasRodape(row);
+    const boxHeight = aplicadorBoxHeight(hasRodape, plano.fonteAplicadores);
+    row.forEach((block, col) => {
+      const cellLeft = leftX + col * (colW + APLICADOR_GRID_GAP);
+      drawAplicadorBlock(
+        doc,
+        cellLeft,
+        cellLeft + colW,
+        boxTop,
+        boxHeight,
+        hasRodape,
+        block,
+        plano.fonteAplicadores,
+        plano.aplicadoresCompactos
+      );
+    });
+    cursorY = boxTop + boxHeight;
   });
+}
+
+/** Decisões de layout de uma etiqueta, compartilhadas entre PDF e pré-visualização. */
+export type EtiquetaPlano = {
+  /** Ocupa a largura das duas colunas da página (só quando o conteúdo não cabe na largura normal). */
+  dupla: boolean;
+  larguraMm: number;
+  alturaMm: number;
+  fonteFixa: number;
+  fonteAplicadores: number;
+  fonteTextoLivre: number;
+  colunasAplicadores: number;
+  aplicadoresCompactos: boolean;
+};
+
+function fitFreeTextSize(doc: jsPDF, text: string, areaW: number, areaH: number, startSize: number): number {
+  const content = preserveParagraphs(text).trim();
+  if (!content) return startSize;
+  let size = startSize;
+  while (
+    size > TEXTO_LIVRE_AUTO_FIT_MIN &&
+    buildRichLines(doc, content, areaW, size).length * lineHeightFor(size) > areaH
+  ) {
+    size -= 0.5;
+  }
+  return size;
+}
+
+function planWith(
+  doc: jsPDF,
+  context: EtiquetasDadosResponse,
+  item: EtiquetaEditItem,
+  logo: LogoDims | null,
+  dupla: boolean,
+  escala: number
+): { plano: EtiquetaPlano; cabe: boolean } {
+  const larguraMm = dupla ? LABEL_WIDTH_DUPLA : LABEL_WIDTH;
+  const aplicadores = etiquetaAplicadores(item);
+  const colunasAplicadores = aplicadorColunas(aplicadores.length, dupla);
+  const fonteFixa = ETIQUETA_FONTE * escala;
+  const fonteAplicadores = etiquetaFonteAplicadores(aplicadores.length) * escala;
+  const innerW = larguraMm - PAD * 2;
+  const colW = (innerW - APLICADOR_GRID_GAP * (colunasAplicadores - 1)) / colunasAplicadores;
+
+  const headerBottom = layoutHeader(doc, 0, 0, larguraMm, context, item, logo, fonteFixa, false);
+  const footerTop = LABEL_HEIGHT - PAD - footerHeightFor(aplicadores, colunasAplicadores, fonteAplicadores);
+  const freeAreaH = footerTop - 0.5 - (headerBottom + 1.5);
+  const tamanhoDesejado = clampTextoLivreTamanho(item.textoLivreTamanho) * escala;
+  const content = preserveParagraphs(item.textoLivre).trim();
+  const freeNeeded = content
+    ? buildRichLines(doc, content, innerW, tamanhoDesejado).length * lineHeightFor(tamanhoDesejado)
+    : 0;
+
+  return {
+    cabe: freeAreaH >= freeNeeded,
+    plano: {
+      dupla,
+      larguraMm,
+      alturaMm: LABEL_HEIGHT,
+      fonteFixa,
+      fonteAplicadores,
+      fonteTextoLivre: fitFreeTextSize(doc, item.textoLivre, innerW, Math.max(1, freeAreaH), tamanhoDesejado),
+      colunasAplicadores,
+      aplicadoresCompactos: colW < APLICADOR_COMPACTO_MAX_WIDTH,
+    },
+  };
+}
+
+/**
+ * Tenta, em ordem: largura normal reduzindo levemente as fontes; largura dupla reduzindo até o mínimo.
+ * Se nada couber, usa a largura dupla na menor escala e o texto livre encolhe até caber.
+ */
+function planEtiquetaWith(
+  doc: jsPDF,
+  context: EtiquetasDadosResponse,
+  item: EtiquetaEditItem,
+  logo: LogoDims | null
+): EtiquetaPlano {
+  for (let escala = 1; escala >= ESCALA_MIN_NORMAL - 1e-6; escala -= ESCALA_PASSO) {
+    const { plano, cabe } = planWith(doc, context, item, logo, false, escala);
+    if (cabe) return plano;
+  }
+  for (let escala = 1; escala >= ESCALA_MIN - 1e-6; escala -= ESCALA_PASSO) {
+    const { plano, cabe } = planWith(doc, context, item, logo, true, escala);
+    if (cabe) return plano;
+  }
+  return planWith(doc, context, item, logo, true, ESCALA_MIN).plano;
+}
+
+export function planEtiqueta(
+  context: EtiquetasDadosResponse,
+  item: EtiquetaEditItem,
+  logo: LogoDims | null
+): EtiquetaPlano {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  return planEtiquetaWith(doc, context, item, logo);
 }
 
 function drawEtiqueta(
   doc: jsPDF,
   x: number,
   y: number,
-  width: number,
-  height: number,
   context: EtiquetasDadosResponse,
   item: EtiquetaEditItem,
-  logo: PdfImageAsset | null
+  logo: PdfImageAsset | null,
+  plano: EtiquetaPlano
 ) {
+  const width = plano.larguraMm;
+  const height = plano.alturaMm;
   const innerX = x + PAD;
   const innerW = width - PAD * 2;
-  const innerBottom = y + height - PAD;
-  const centerX = x + width / 2;
-  const footerHeight = footerHeightFor(item);
-  const footerTop = innerBottom - footerHeight;
+  const aplicadores = etiquetaAplicadores(item);
+  const footerTop =
+    y + height - PAD - footerHeightFor(aplicadores, plano.colunasAplicadores, plano.fonteAplicadores);
 
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.25);
   doc.rect(x, y, width, height);
 
-  const titleMaxWidth = logo ? innerW - LOGO_WIDTH - 2 : innerW;
-  let headerBottom = y + PAD;
+  const headerBottom = layoutHeader(doc, x, y, width, context, item, logo, plano.fonteFixa, true);
 
-  if (logo) {
-    const logoH = Math.min(11, Math.max(4, (logo.ih * LOGO_WIDTH) / logo.iw));
-    doc.addImage(logo.dataUrl, "PNG", x + width - LOGO_WIDTH - PAD, y + PAD, LOGO_WIDTH, logoH);
-    headerBottom = Math.max(headerBottom, y + PAD + logoH);
-  }
-
-  let cursorY = drawWrappedTextLeft(
-    doc,
-    item.titulo,
-    innerX,
-    y + PAD + TITLE_OFFSET_Y,
-    titleMaxWidth,
-    8.5,
-    {
-      style: "bold",
-      uppercase: true,
-      maxLines: 2,
-      lineHeight: 3.8,
-    }
-  );
-
-  cursorY = Math.max(cursorY, headerBottom) + 1;
-
-  cursorY = drawCenteredWrapped(
-    doc,
-    cityStateDisplay(context),
-    centerX,
-    cursorY,
-    innerW,
-    5.5,
-    { style: "bold", uppercase: true, maxLines: 2 }
-  );
-  cursorY += 0.3;
-
-  cursorY = drawCenteredWrapped(
-    doc,
-    context.contexto.escola,
-    centerX,
-    cursorY,
-    innerW,
-    5.5,
-    { style: "bold", uppercase: true, maxLines: 3 }
-  );
-  cursorY += 0.3;
-
-  cursorY = drawCenteredWrapped(
-    doc,
-    `Modalidade/Etapa: ${normalizeSpaces(context.contexto.nivel).toUpperCase()}`,
-    centerX,
-    cursorY,
-    innerW,
-    5.2,
-    { style: "normal", uppercase: false, maxLines: 2 }
-  );
-  cursorY += 0.2;
-
-  const serieTurmaTurnoText = normalizeSpaces(etiquetasSerieTurmaTurnoLine(context)).toUpperCase();
-  cursorY = drawCenteredWrapped(
-    doc,
-    `Série | Turma | Turno: ${serieTurmaTurnoText}`,
-    centerX,
-    cursorY,
-    innerW,
-    4.8,
-    { style: "normal", uppercase: false, maxLines: 2 }
-  );
-
-  cursorY += 0.6;
-  doc.setLineWidth(0.2);
-  doc.line(innerX, cursorY, x + width - PAD, cursorY);
-
-  const freeAreaTop = cursorY + 1.5;
+  const freeAreaTop = headerBottom + 1.5;
   const freeAreaBottom = footerTop - 0.5;
-  const freeAreaHeight = freeAreaBottom - freeAreaTop;
-
-  const freeFontSize = item.textoLivreTamanho || TEXTO_LIVRE_TAMANHO_PADRAO;
   const freeColor = item.exibirAssinatura
     ? ([0, 0, 0] as Rgb)
     : hexToRgb(item.textoLivreCor || "#000000");
-  const freeAlign = item.textoLivreAlinhamento || "center";
 
   drawAlignedRichText(
     doc,
@@ -580,45 +727,53 @@ function drawEtiqueta(
     innerX,
     freeAreaTop,
     innerW,
-    freeAreaHeight,
-    freeFontSize,
-    freeAlign,
+    freeAreaBottom - freeAreaTop,
+    plano.fonteTextoLivre,
+    item.textoLivreAlinhamento || "center",
     freeColor
   );
 
-  if (item.exibirAssinatura) {
-    drawFooterBlock(doc, x, width, footerTop, innerX, innerW, centerX, item);
+  if (aplicadores.length) {
+    drawFooterBlock(doc, x, width, footerTop, aplicadores, plano);
   }
 }
 
 /**
- * Etiquetas de várias turmas/séries da mesma escola seguem em sequência contínua na grade;
- * ao mudar de escola (grupo), a próxima etiqueta começa em nova página.
+ * Etiquetas da mesma escola seguem em sequência contínua na grade 2×4; ao mudar de escola,
+ * a próxima começa em nova página. Etiquetas duplas ocupam uma linha inteira.
  */
 export function generateEtiquetasPdf(entries: EtiquetaPdfEntry[], logo: PdfImageAsset | null): jsPDF {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const usableWidth = pageWidth - PAGE_MARGIN * 2;
-  const usableHeight = pageHeight - PAGE_MARGIN * 2;
-  const labelWidth = (usableWidth - GAP_X * (COLS - 1)) / COLS;
-  const labelHeight = (usableHeight - GAP_Y * (ROWS - 1)) / ROWS;
 
-  let indexOnPage = 0;
+  let row = 0;
+  let col = 0;
   let previousGroup: string | null = null;
+  const newPage = () => {
+    doc.addPage();
+    row = 0;
+    col = 0;
+  };
 
   entries.forEach(({ context, label, grupo }, index) => {
     const group = grupo ?? etiquetaEscolaKey(context);
-    if (index > 0 && (indexOnPage === LABELS_PER_PAGE || group !== previousGroup)) {
-      doc.addPage();
-      indexOnPage = 0;
+    const plano = planEtiquetaWith(doc, context, label, logo);
+
+    if (index > 0 && group !== previousGroup) newPage();
+    if (plano.dupla && col !== 0) {
+      row += 1;
+      col = 0;
     }
-    const row = Math.floor(indexOnPage / COLS);
-    const col = indexOnPage % COLS;
-    const labelX = PAGE_MARGIN + col * (labelWidth + GAP_X);
-    const labelY = PAGE_MARGIN + row * (labelHeight + GAP_Y);
-    drawEtiqueta(doc, labelX, labelY, labelWidth, labelHeight, context, label, logo);
-    indexOnPage += 1;
+    if (row >= ROWS) newPage();
+
+    const labelX = PAGE_MARGIN + col * (LABEL_WIDTH + GAP_X);
+    const labelY = PAGE_MARGIN + row * (LABEL_HEIGHT + GAP_Y);
+    drawEtiqueta(doc, labelX, labelY, context, label, logo, plano);
+
+    col = plano.dupla ? COLS : col + 1;
+    if (col >= COLS) {
+      col = 0;
+      row += 1;
+    }
     previousGroup = group;
   });
 

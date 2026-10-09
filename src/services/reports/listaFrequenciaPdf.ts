@@ -12,6 +12,8 @@ const STATUS_ORDER = ["P", "A", "T", "NE", "SE", "SS", "I"];
 export type ListaFrequenciaPdfOptions = {
   cityId: string | null;
   nomeAvaliacaoImpressao?: string;
+  /** Sobrepõe a disciplina do cabeçalho (vazia quando a turma não tem disciplinas vinculadas). */
+  disciplinaImpressao?: string;
   provaExpirada: boolean | null;
 };
 
@@ -192,6 +194,7 @@ async function drawListaSection(
     sectionIndex: number;
     cityBranding: Awaited<ReturnType<typeof loadCityBrandingForReportPdf>>;
     nomeAvaliacaoImpressao?: string;
+    disciplinaImpressao?: string;
     provaExpirada: boolean | null;
   }
 ): Promise<void> {
@@ -229,7 +232,7 @@ async function drawListaSection(
   if (options.sectionIndex > 0) doc.addPage();
   let y = margin;
 
-  if (options.sectionIndex === 0 && options.cityBranding.letterhead) {
+  if (options.cityBranding.letterhead) {
     paintLetterheadBackground(doc, options.cityBranding.letterhead, pageWidth, pageHeight);
   } else {
     doc.setFillColor(255, 255, 255);
@@ -272,7 +275,7 @@ async function drawListaSection(
   boxY += 5;
   doc.text(`TURNO: ${turnoDisplay}`, boxX, boxY, { align: "left" });
   boxY += 5;
-  const disciplinaVal = cab.disciplina?.trim() ?? "";
+  const disciplinaVal = options.disciplinaImpressao?.trim() || cab.disciplina?.trim() || "";
   doc.text(disciplinaVal ? `DISCIPLINA: ${disciplinaVal}` : "DISCIPLINA: ", boxX, boxY, { align: "left" });
   if (!disciplinaVal) {
     const lineX0 = boxX + doc.getTextWidth("DISCIPLINA: ");
@@ -457,6 +460,7 @@ export async function createListaFrequenciaPdfDoc(
       sectionIndex,
       cityBranding,
       nomeAvaliacaoImpressao: options.nomeAvaliacaoImpressao,
+      disciplinaImpressao: options.disciplinaImpressao,
       provaExpirada: options.provaExpirada,
     });
   }
@@ -464,12 +468,48 @@ export async function createListaFrequenciaPdfDoc(
   return doc;
 }
 
+export async function createListaFrequenciaPdfBlob(
+  items: ListaFrequenciaResponse[],
+  options: ListaFrequenciaPdfOptions
+): Promise<Blob> {
+  const doc = await createListaFrequenciaPdfDoc(items, options);
+  return doc.output("blob");
+}
+
 export async function createSingleListaFrequenciaPdfBlob(
   item: ListaFrequenciaResponse,
   options: ListaFrequenciaPdfOptions
 ): Promise<Blob> {
-  const doc = await createListaFrequenciaPdfDoc([item], options);
-  return doc.output("blob");
+  return createListaFrequenciaPdfBlob([item], options);
+}
+
+export type ListaFrequenciaEscolaGroup = {
+  escola: string;
+  items: ListaFrequenciaResponse[];
+};
+
+const compareText = (a: string, b: string) =>
+  a.localeCompare(b, "pt-BR", { numeric: true, sensitivity: "base" });
+
+/** Agrupa as turmas por escola (ordem alfabética), ordenando as turmas por série e turma. */
+export function groupListaFrequenciaByEscola(items: ListaFrequenciaResponse[]): ListaFrequenciaEscolaGroup[] {
+  const groups = new Map<string, ListaFrequenciaEscolaGroup>();
+  for (const item of items) {
+    const escola = item.cabecalho.nome_escola?.trim() || "Escola";
+    const key = escola.toLocaleUpperCase("pt-BR");
+    const group = groups.get(key);
+    if (group) group.items.push(item);
+    else groups.set(key, { escola, items: [item] });
+  }
+  const sorted = [...groups.values()].sort((a, b) => compareText(a.escola, b.escola));
+  sorted.forEach((group) => {
+    group.items.sort((a, b) => {
+      const da = getSerieTurmaDisplay(a.cabecalho);
+      const db = getSerieTurmaDisplay(b.cabecalho);
+      return compareText(da.serie, db.serie) || compareText(da.turma, db.turma);
+    });
+  });
+  return sorted;
 }
 
 export function buildListaFrequenciaHierarchyPath(item: ListaFrequenciaResponse): string {
