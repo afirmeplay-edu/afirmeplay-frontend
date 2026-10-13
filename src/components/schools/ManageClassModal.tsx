@@ -622,8 +622,8 @@ export function ManageClassModal({
                     )}
 
                     {rosterView === "teachers" ? (
-                    <div className="flex min-h-0 flex-1 flex-col">
-                      <div className="border rounded-lg flex-1 overflow-hidden bg-card border-border">
+                    <div className="flex flex-col">
+                      <div className="border rounded-lg bg-card border-border">
                         {teachers.length === 0 ? (
                           <div className="flex flex-col items-center justify-center p-6 sm:p-8 h-full min-h-[200px]">
                             <div className="bg-blue-50 dark:bg-blue-950/40 p-4 rounded-full mb-4">
@@ -652,7 +652,7 @@ export function ManageClassModal({
                             </Button>
                           </div>
                         ) : (
-                          <div className="p-3 sm:p-4 h-full overflow-y-auto scrollbar-thin scrollbar-thumb-blue-300 dark:scrollbar-thumb-blue-700 scrollbar-track-transparent scroll-smooth">
+                          <div className="p-3 sm:p-4">
                             <div className="space-y-2 sm:space-y-3">
                               {filteredTeachers.map((teacher) => (
                                 <div
@@ -703,8 +703,8 @@ export function ManageClassModal({
                       </div>
                     </div>
                     ) : (
-                    <div className="flex min-h-0 flex-1 flex-col">
-                      <div className="border rounded-lg flex-1 overflow-hidden bg-card border-border">
+                    <div className="flex flex-col">
+                      <div className="border rounded-lg bg-card border-border">
                         {students.length === 0 ? (
                           <div className="flex flex-col items-center justify-center p-6 sm:p-8 h-full min-h-[200px]">
                             <div className="bg-green-50 dark:bg-green-950/40 p-4 rounded-full mb-4">
@@ -733,7 +733,7 @@ export function ManageClassModal({
                             </Button>
                           </div>
                         ) : (
-                          <div className="p-3 sm:p-4 h-full overflow-y-auto scrollbar-thin scrollbar-thumb-green-300 dark:scrollbar-thumb-green-700 scrollbar-track-transparent scroll-smooth">
+                          <div className="p-3 sm:p-4">
                             <div className="space-y-2 sm:space-y-3">
                               {filteredStudents.map((student) => (
                                 <div
