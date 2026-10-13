@@ -1,8 +1,12 @@
 import { jsPDF } from "jspdf";
 import type { PdfImageAsset } from "@/utils/pdfCityBranding";
-import { drawReportHeaderLogoWithFallback } from "@/utils/pdfCityBranding";
-import { downloadBlob, buildHierarchyPath } from "@/services/reports/hierarchicalDownload";
-import type { TermoCompromissoDadosResponse, TermoCompromissoFormData } from "@/types/termo-compromisso";
+import { drawMunicipalLogoTopCenter, loadDefaultReportLogoAsset } from "@/utils/pdfCityBranding";
+import { generateZipBlob, sanitizePathSegment } from "@/services/reports/hierarchicalDownload";
+import type {
+  TermoCompromissoExportFormat,
+  TermoCompromissoLoteResponse,
+  TermoCompromissoTurma,
+} from "@/types/termo-compromisso";
 import { getClassShiftLabel } from "@/lib/classShift";
 
 const MARGIN = 16;
@@ -14,6 +18,8 @@ const SIGNATURE_BOTTOM_MARGIN = 18;
 const SIGNATURE_LINE_ABOVE_LABEL = 5;
 /** Espaço mínimo entre o fim do texto (data) e a linha de assinatura. */
 const MIN_GAP_CONTENT_TO_SIGNATURE = 10;
+/** A cada N termos, devolve o controle ao navegador para não travar a interface. */
+const YIELD_EVERY = 10;
 
 type TermoTypography = {
   lineHeight: number;
@@ -75,49 +81,91 @@ const COLORS = {
   line: [140, 140, 140] as [number, number, number],
 };
 
-function normalizeSpaces(value: string): string {
+const DEFAULT_NOME_APLICACAO = "AVALIE — Avaliação Institucional da Educação";
+
+/** Logo resolvido uma única vez por exportação (municipal ou institucional). */
+type TermoHeaderLogo = { asset: PdfImageAsset; maxW: number; maxH: number } | null;
+
+type TermoExportProgress = (current: number, total: number) => void;
+
+export type TermoCompromissoExportResult = {
+  blob: Blob;
+  fileName: string;
+  totalTermos: number;
+  totalArquivos: number;
+};
+
+function normalizeSpaces(value: string | null | undefined): string {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
-function municipioCorpoDisplay(payload: TermoCompromissoDadosResponse): string {
-  const fromPayload = normalizeSpaces(payload.contexto.municipio_corpo);
+function compareNatural(a: string, b: string): number {
+  return a.localeCompare(b, "pt-BR", { numeric: true, sensitivity: "base" });
+}
+
+function sortTurmas(turmas: TermoCompromissoTurma[]): TermoCompromissoTurma[] {
+  return [...turmas].sort(
+    (a, b) =>
+      compareNatural(a.escola, b.escola) ||
+      compareNatural(a.serie, b.serie) ||
+      compareNatural(a.turma, b.turma)
+  );
+}
+
+function groupTurmas(
+  turmas: TermoCompromissoTurma[],
+  keyOf: (turma: TermoCompromissoTurma) => string
+): TermoCompromissoTurma[][] {
+  const groups = new Map<string, TermoCompromissoTurma[]>();
+  for (const turma of turmas) {
+    const key = keyOf(turma);
+    const group = groups.get(key);
+    if (group) group.push(turma);
+    else groups.set(key, [turma]);
+  }
+  return Array.from(groups.values());
+}
+
+async function resolveHeaderLogo(municipalLogo: PdfImageAsset | null): Promise<TermoHeaderLogo> {
+  if (municipalLogo) return { asset: municipalLogo, maxW: 50, maxH: 26 };
+  try {
+    const fallback = await loadDefaultReportLogoAsset();
+    return fallback ? { asset: fallback, maxW: 50, maxH: 22 } : null;
+  } catch {
+    return null;
+  }
+}
+
+function municipioCorpoDisplay(lote: TermoCompromissoLoteResponse): string {
+  const fromPayload = normalizeSpaces(lote.contexto.municipio_corpo);
   if (fromPayload) return fromPayload;
-  const city = normalizeSpaces(payload.municipio.name);
-  const state = normalizeSpaces(payload.municipio.state);
+  const city = normalizeSpaces(lote.municipio.name);
+  const state = normalizeSpaces(lote.municipio.state);
   return state ? `${city}/${state}` : city;
 }
 
-function fieldDisplay(value: string): string {
-  return normalizeSpaces(value);
-}
-
-const DEFAULT_NOME_APLICACAO = "AVALIE — Avaliação Institucional da Educação";
-
-function applicationNameDisplay(
-  form: TermoCompromissoFormData,
-  payload: TermoCompromissoDadosResponse
-): string {
+function applicationNameDisplay(nomeAplicacao: string, lote: TermoCompromissoLoteResponse): string {
   return (
-    fieldDisplay(form.nomeAplicacao) ||
-    normalizeSpaces(payload.contexto.nome_aplicacao_referencia) ||
+    normalizeSpaces(nomeAplicacao) ||
+    normalizeSpaces(lote.contexto.nome_aplicacao_referencia) ||
     DEFAULT_NOME_APLICACAO
   );
 }
 
-function periodoAvaliacaoDisplay(payload: TermoCompromissoDadosResponse): string {
-  const fromPayload = normalizeSpaces(payload.contexto.periodo_texto);
+function periodoAvaliacaoDisplay(lote: TermoCompromissoLoteResponse): string {
+  const fromPayload = normalizeSpaces(lote.contexto.periodo_texto);
   if (fromPayload) return fromPayload;
   const mes =
-    normalizeSpaces(payload.contexto.mes_avaliacao) ||
+    normalizeSpaces(lote.contexto.mes_avaliacao) ||
     new Date().toLocaleDateString("pt-BR", { month: "long" });
-  const ano = payload.contexto.ano || new Date().getFullYear();
+  const ano = lote.contexto.ano || new Date().getFullYear();
   return `no período de ${mes} de ${ano}`;
 }
 
-function dataDocumentoDisplay(payload: TermoCompromissoDadosResponse): string {
-  const fromPayload = normalizeSpaces(payload.contexto.data_documento);
+function dataDocumentoDisplay(lote: TermoCompromissoLoteResponse): string {
+  const fromPayload = normalizeSpaces(lote.contexto.data_documento);
   if (fromPayload) return `${fromPayload}.`;
-  const city = normalizeSpaces(payload.municipio.name);
+  const city = normalizeSpaces(lote.municipio.name);
   const date = new Date().toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "long",
@@ -126,22 +174,24 @@ function dataDocumentoDisplay(payload: TermoCompromissoDadosResponse): string {
   return `${city}, ${date}.`;
 }
 
-async function drawHeader(
+function drawHeader(
   doc: jsPDF,
-  payload: TermoCompromissoDadosResponse,
-  logo: PdfImageAsset | null,
+  lote: TermoCompromissoLoteResponse,
+  logo: TermoHeaderLogo,
   typography: TermoTypography
-): Promise<number> {
+): number {
   const pageWidth = doc.internal.pageSize.getWidth();
   let y = 8;
 
-  y = await drawReportHeaderLogoWithFallback(doc, pageWidth, y, logo);
+  if (logo) {
+    y = drawMunicipalLogoTopCenter(doc, pageWidth, y, logo.asset, logo.maxW, logo.maxH);
+  }
   y += 1;
 
   doc.setTextColor(...COLORS.text);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(typography.headerPrefeituraFontSize);
-  doc.text(payload.municipio.prefeitura_label || "PREFEITURA MUNICIPAL", pageWidth / 2, y, {
+  doc.text(lote.municipio.prefeitura_label || "PREFEITURA MUNICIPAL", pageWidth / 2, y, {
     align: "center",
   });
   y += 4;
@@ -150,7 +200,7 @@ async function drawHeader(
   doc.setFontSize(typography.headerSecretariaFontSize);
   doc.setTextColor(...COLORS.muted);
   doc.text(
-    payload.municipio.secretaria_label || "SECRETARIA MUNICIPAL DE EDUCAÇÃO",
+    lote.municipio.secretaria_label || "SECRETARIA MUNICIPAL DE EDUCAÇÃO",
     pageWidth / 2,
     y,
     { align: "center" }
@@ -199,7 +249,7 @@ function drawIdentField(
   const labelWidth = doc.getTextWidth(`${labelText} `);
   const fieldX = x + labelWidth;
   const fieldWidth = maxWidth - labelWidth;
-  const displayValue = fieldDisplay(value);
+  const displayValue = normalizeSpaces(value);
 
   if (displayValue) {
     doc.setFont("helvetica", "normal");
@@ -220,29 +270,27 @@ function drawIdentField(
 
 function drawContextBlock(
   doc: jsPDF,
-  payload: TermoCompromissoDadosResponse,
+  turma: TermoCompromissoTurma,
   x: number,
   y: number,
   maxWidth: number,
   typography: TermoTypography
 ): number {
-  const ctx = payload.contexto;
-  const turno = getClassShiftLabel(ctx.turno ?? ctx.shift);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(typography.sectionTitleFontSize);
   doc.setTextColor(...COLORS.text);
   doc.text("CONTEXTO DA APLICAÇÃO", x + maxWidth / 2, y, { align: "center" });
   y += typography.sectionTitleGap;
-  y = drawIdentField(doc, "Escola", ctx.escola, x, y, maxWidth, typography);
-  y = drawIdentField(doc, "Série", ctx.serie, x, y, maxWidth, typography);
-  y = drawIdentField(doc, "Turma", ctx.turma, x, y, maxWidth, typography);
-  y = drawIdentField(doc, "Turno", turno, x, y, maxWidth, typography);
+  y = drawIdentField(doc, "Escola", turma.escola, x, y, maxWidth, typography);
+  y = drawIdentField(doc, "Série", turma.serie, x, y, maxWidth, typography);
+  y = drawIdentField(doc, "Turma", turma.turma, x, y, maxWidth, typography);
+  y = drawIdentField(doc, "Turno", getClassShiftLabel(turma.shift), x, y, maxWidth, typography);
   return y + BLOCK_GAP;
 }
 
+/** Dados do(a) declarante são sempre preenchidos à mão no documento impresso. */
 function drawIdentBlock(
   doc: jsPDF,
-  form: TermoCompromissoFormData,
   x: number,
   y: number,
   maxWidth: number,
@@ -253,9 +301,9 @@ function drawIdentBlock(
   doc.setTextColor(...COLORS.text);
   doc.text("DADOS DO(A) DECLARANTE", x + maxWidth / 2, y, { align: "center" });
   y += typography.sectionTitleGap;
-  y = drawIdentField(doc, "Nome completo", form.nome, x, y, maxWidth, typography);
-  y = drawIdentField(doc, "CPF", form.cpf, x, y, maxWidth, typography);
-  y = drawIdentField(doc, "RG", form.rg, x, y, maxWidth, typography);
+  y = drawIdentField(doc, "Nome completo", "", x, y, maxWidth, typography);
+  y = drawIdentField(doc, "CPF", "", x, y, maxWidth, typography);
+  y = drawIdentField(doc, "RG", "", x, y, maxWidth, typography);
   return y + BLOCK_GAP;
 }
 
@@ -294,22 +342,23 @@ function drawClause(
   return y + lines.length * typography.lineHeight + typography.clauseGap;
 }
 
-async function renderTermoContent(
+function renderTermoContent(
   doc: jsPDF,
-  payload: TermoCompromissoDadosResponse,
-  form: TermoCompromissoFormData,
-  logo: PdfImageAsset | null,
+  lote: TermoCompromissoLoteResponse,
+  turma: TermoCompromissoTurma,
+  nomeAplicacao: string,
+  logo: TermoHeaderLogo,
   typography: TermoTypography
-): Promise<number> {
+): number {
   const pageWidth = doc.internal.pageSize.getWidth();
   const contentWidth = pageWidth - MARGIN * 2;
-  const city = municipioCorpoDisplay(payload);
-  const periodoTexto = periodoAvaliacaoDisplay(payload);
-  const nomeAplicacao = applicationNameDisplay(form, payload);
+  const city = municipioCorpoDisplay(lote);
+  const periodoTexto = periodoAvaliacaoDisplay(lote);
+  const nomeAplicacaoTexto = applicationNameDisplay(nomeAplicacao, lote);
   const tituloDocumento =
-    normalizeSpaces(payload.documento?.titulo) || "TERMO DE COMPROMISSO E CONFIDENCIALIDADE";
+    normalizeSpaces(lote.documento?.titulo) || "TERMO DE COMPROMISSO E CONFIDENCIALIDADE";
 
-  let y = await drawHeader(doc, payload, logo, typography);
+  let y = drawHeader(doc, lote, logo, typography);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(typography.docTitleFontSize);
@@ -317,12 +366,12 @@ async function renderTermoContent(
   doc.text(tituloDocumento, pageWidth / 2, y, { align: "center" });
   y += typography.titleBottomGap;
 
-  y = drawContextBlock(doc, payload, MARGIN, y, contentWidth, typography);
-  y = drawIdentBlock(doc, form, MARGIN, y, contentWidth, typography);
+  y = drawContextBlock(doc, turma, MARGIN, y, contentWidth, typography);
+  y = drawIdentBlock(doc, MARGIN, y, contentWidth, typography);
 
   y = drawParagraph(
     doc,
-    `Assumo o compromisso de manter confidencialidade e sigilo sobre todas as informações e documentos confidenciais a que tiver acesso durante o desempenho de minhas funções de aplicador(a) e/ou coordenador(a) das aplicações do ${nomeAplicacao} do município de ${city}, ${periodoTexto}.`,
+    `Assumo o compromisso de manter confidencialidade e sigilo sobre todas as informações e documentos confidenciais a que tiver acesso durante o desempenho de minhas funções de aplicador(a) e/ou coordenador(a) das aplicações do ${nomeAplicacaoTexto} do município de ${city}, ${periodoTexto}.`,
     MARGIN,
     y,
     contentWidth,
@@ -356,7 +405,7 @@ async function renderTermoContent(
   y += 1;
   y = drawParagraph(
     doc,
-    `Estou ciente de que a confidencialidade é obrigatória mesmo após o encerramento de minhas funções como aplicador(a) e/ou coordenador(a) das aplicações do ${nomeAplicacao} do município de ${city}.`,
+    `Estou ciente de que a confidencialidade é obrigatória mesmo após o encerramento de minhas funções como aplicador(a) e/ou coordenador(a) das aplicações do ${nomeAplicacaoTexto} do município de ${city}.`,
     MARGIN,
     y,
     contentWidth,
@@ -364,15 +413,9 @@ async function renderTermoContent(
     { gapAfter: 3 }
   );
 
-  return drawParagraph(
-    doc,
-    dataDocumentoDisplay(payload),
-    MARGIN,
-    y,
-    contentWidth,
-    typography,
-    { gapAfter: 0 }
-  );
+  return drawParagraph(doc, dataDocumentoDisplay(lote), MARGIN, y, contentWidth, typography, {
+    gapAfter: 0,
+  });
 }
 
 function drawSignatureBlock(doc: jsPDF, typography: TermoTypography): void {
@@ -391,59 +434,111 @@ function drawSignatureBlock(doc: jsPDF, typography: TermoTypography): void {
   doc.text("Assinatura do(a) declarante", pageWidth / 2, signatureLabelY, { align: "center" });
 }
 
-export async function generateTermoCompromissoPdf(
-  payload: TermoCompromissoDadosResponse,
-  form: TermoCompromissoFormData,
-  logo: PdfImageAsset | null
-): Promise<jsPDF> {
-  const pageHeight = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" }).internal.pageSize.getHeight();
-  const typographyCandidates = [TERMO_TYPOGRAPHY_DEFAULT, TERMO_TYPOGRAPHY_COMPACT];
+/**
+ * Acrescenta uma página com o termo da turma. Tenta a tipografia padrão e, se o conteúdo
+ * colidir com a assinatura, descarta a página e redesenha com a compacta.
+ */
+function appendTermoPage(
+  doc: jsPDF,
+  lote: TermoCompromissoLoteResponse,
+  turma: TermoCompromissoTurma,
+  nomeAplicacao: string,
+  logo: TermoHeaderLogo
+): void {
+  const pageHeight = doc.internal.pageSize.getHeight();
 
-  for (const typography of typographyCandidates) {
-    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-    const y = await renderTermoContent(doc, payload, form, logo, typography);
+  for (const typography of [TERMO_TYPOGRAPHY_DEFAULT, TERMO_TYPOGRAPHY_COMPACT]) {
+    doc.addPage();
+    const y = renderTermoContent(doc, lote, turma, nomeAplicacao, logo, typography);
     if (contentFitsWithBottomSignature(y, pageHeight)) {
       drawSignatureBlock(doc, typography);
-      return doc;
+      return;
     }
+    doc.deletePage(doc.getNumberOfPages());
   }
 
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  await renderTermoContent(doc, payload, form, logo, TERMO_TYPOGRAPHY_COMPACT);
+  doc.addPage();
+  renderTermoContent(doc, lote, turma, nomeAplicacao, logo, TERMO_TYPOGRAPHY_COMPACT);
   drawSignatureBlock(doc, TERMO_TYPOGRAPHY_COMPACT);
-  return doc;
 }
 
-export async function createTermoCompromissoPdfBlob(
-  payload: TermoCompromissoDadosResponse,
-  form: TermoCompromissoFormData,
-  logo: PdfImageAsset | null
+async function buildTermosPdfBlob(
+  lote: TermoCompromissoLoteResponse,
+  turmas: TermoCompromissoTurma[],
+  nomeAplicacao: string,
+  logo: TermoHeaderLogo,
+  onTermo: () => void
 ): Promise<Blob> {
-  const doc = await generateTermoCompromissoPdf(payload, form, logo);
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  for (const [index, turma] of turmas.entries()) {
+    appendTermoPage(doc, lote, turma, nomeAplicacao, logo);
+    onTermo();
+    if ((index + 1) % YIELD_EVERY === 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  // jsPDF nasce com uma página em branco; os termos são acrescentados após ela.
+  doc.deletePage(1);
   return doc.output("blob");
 }
 
-export async function downloadTermoCompromissoPdf(
-  payload: TermoCompromissoDadosResponse,
-  form: TermoCompromissoFormData,
-  logo: PdfImageAsset | null
-): Promise<void> {
-  const blob = await createTermoCompromissoPdfBlob(payload, form, logo);
-  const date = new Date().toISOString().slice(0, 10);
-  const slug = fieldDisplay(form.nome).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  const fileName = `termo-compromisso-${slug || "documento"}-${date}.pdf`;
-  downloadBlob(blob, fileName);
-}
+/**
+ * Gera os termos do lote no formato escolhido:
+ * - `pdf_unico`: um PDF com todos os termos (escola → série → turma);
+ * - `zip_escola`: ZIP com um PDF por escola;
+ * - `zip_serie`: ZIP com pastas por escola e um PDF por série (todas as turmas).
+ */
+export async function exportTermoCompromisso(params: {
+  lote: TermoCompromissoLoteResponse;
+  format: TermoCompromissoExportFormat;
+  nomeAplicacao: string;
+  municipalLogo: PdfImageAsset | null;
+  onProgress?: TermoExportProgress;
+}): Promise<TermoCompromissoExportResult> {
+  const { lote, format, nomeAplicacao, municipalLogo, onProgress } = params;
+  const turmas = sortTurmas(lote.turmas);
+  if (turmas.length === 0) {
+    throw new Error("Nenhuma turma encontrada para os filtros selecionados.");
+  }
 
-export function buildTermoCompromissoHierarchyPath(params: {
-  escola: string;
-  serie: string;
-  turma: string;
-}): string {
-  return buildHierarchyPath({
-    escola: params.escola,
-    serie: params.serie,
-    turma: params.turma,
-    fileName: "termo-compromisso.pdf",
-  });
+  const logo = await resolveHeaderLogo(municipalLogo);
+  const total = turmas.length;
+  let done = 0;
+  const onTermo = () => {
+    done += 1;
+    onProgress?.(done, total);
+  };
+  const date = new Date().toISOString().slice(0, 10);
+
+  if (format === "pdf_unico") {
+    const blob = await buildTermosPdfBlob(lote, turmas, nomeAplicacao, logo, onTermo);
+    return { blob, fileName: `termo-compromisso-${date}.pdf`, totalTermos: total, totalArquivos: 1 };
+  }
+
+  const groups =
+    format === "zip_escola"
+      ? groupTurmas(turmas, (t) => t.escola_id)
+      : groupTurmas(turmas, (t) => `${t.escola_id}|${t.serie_id}`);
+
+  const entries: Array<{ path: string; blob: Blob }> = [];
+  for (const group of groups) {
+    const first = group[0];
+    const escola = sanitizePathSegment(first.escola, "Escola");
+    const path =
+      format === "zip_escola"
+        ? `${escola}.pdf`
+        : `${escola}/${sanitizePathSegment(first.serie, "Serie")}.pdf`;
+    entries.push({
+      path,
+      blob: await buildTermosPdfBlob(lote, group, nomeAplicacao, logo, onTermo),
+    });
+  }
+
+  const suffix = format === "zip_escola" ? "por-escola" : "por-serie";
+  return {
+    blob: await generateZipBlob(entries),
+    fileName: `termo-compromisso-${suffix}-${date}.zip`,
+    totalTermos: total,
+    totalArquivos: entries.length,
+  };
 }

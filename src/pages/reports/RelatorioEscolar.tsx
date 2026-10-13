@@ -2004,8 +2004,9 @@ export default function RelatorioEscolar({
                   avaliacao.serie ?? serieVal
                 )
               : null;
-          // Prioriza distribuição/classificação agregada do backend para evitar divergência
-          // quando a conversão por média usa faixas de outra série/escopo.
+          // Regra: nível = classificação da média de proficiência (`nivel_classificacao`, tratado acima).
+          // Sem esse campo (backend antigo): moda da distribuição; a conversão local por média
+          // fica por último porque usa faixas diferentes das do backend.
           const level = levelFromDist ?? levelFromMedia;
           if (level) {
             row.proficiencyLevel = level;
