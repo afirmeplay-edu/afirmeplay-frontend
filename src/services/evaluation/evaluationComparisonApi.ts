@@ -134,6 +134,14 @@ export interface Comparison {
   general_comparison: GeneralComparison;
   subject_comparison: SubjectComparison;
   skills_comparison: SkillsComparison;
+  /** Disciplinas de só um dos pontos (pontos juntados ou séries diferentes). */
+  subjects_without_comparison?: SubjectWithoutComparison[];
+}
+
+export interface SubjectWithoutComparison {
+  subject_id: string;
+  subject: string;
+  present_in: Array<'evaluation_1' | 'evaluation_2'>;
 }
 
 export interface ParticipationSnapshot {
@@ -223,6 +231,8 @@ export interface ComparisonResponse {
   comparisons: Comparison[];
   total_comparisons: number;
   participation?: ComparisonParticipation;
+  /** Pontos de séries diferentes: ordem do usuário e sem comparação de habilidades. */
+  series_diferentes?: boolean;
 }
 
 export interface StudentComparisonResponse {
@@ -306,7 +316,8 @@ export class EvaluationComparisonApiService {
   static async compareEvaluations(
     testIds: string[],
     scopeFilters?: EvolutionCompareScopeFilters,
-    grupos?: string[][]
+    grupos?: string[][],
+    nomes?: Array<string | null>
   ): Promise<ComparisonResponse> {
     try {
       if (testIds.length < 2) {
@@ -316,6 +327,7 @@ export class EvaluationComparisonApiService {
       const payload = {
         test_ids: testIds,
         ...(grupos && grupos.some((group) => group.length > 1) ? { grupos } : {}),
+        ...(nomes && nomes.some((name) => name && name.trim()) ? { nomes } : {}),
         estado: scopeFilters?.estado ?? null,
         municipio: scopeFilters?.municipio ?? null,
         escola: scopeFilters?.escola ?? null,
