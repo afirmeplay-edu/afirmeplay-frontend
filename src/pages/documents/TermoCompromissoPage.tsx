@@ -15,21 +15,17 @@ import {
 import { EvaluationInstrumentPicker } from "@/components/filters";
 import {
   getTermoCompromissoApiError,
-  getTermoCompromissoDados,
+  getTermoCompromissoLote,
 } from "@/services/documents/termoCompromissoApi";
-import {
-  buildTermoCompromissoHierarchyPath,
-  createTermoCompromissoPdfBlob,
-  downloadTermoCompromissoPdf,
-} from "@/services/reports/termoCompromissoPdf";
+import { exportTermoCompromisso } from "@/services/reports/termoCompromissoPdf";
 import type {
-  TermoCompromissoDadosResponse,
-  TermoCompromissoFormData,
+  TermoCompromissoExportFormat,
+  TermoCompromissoLoteResponse,
   TermoCompromissoModo,
 } from "@/types/termo-compromisso";
 import { loadCityBrandingPdfAssets } from "@/utils/pdfCityBranding";
 import { getClassShiftLabel } from "@/lib/classShift";
-import { downloadBlob, generateZipBlob } from "@/services/reports/hierarchicalDownload";
+import { downloadBlob } from "@/services/reports/hierarchicalDownload";
 
 type Option = { id: string; name: string };
 
@@ -39,20 +35,26 @@ const MODO_OPTIONS: { value: TermoCompromissoModo; label: string }[] = [
   { value: "cartao_resposta", label: "Cartão-resposta" },
 ];
 
+const EXPORT_FORMAT_OPTIONS: { value: TermoCompromissoExportFormat; label: string; hint: string }[] = [
+  {
+    value: "pdf_unico",
+    label: "PDF único",
+    hint: "Um único PDF com todos os termos, organizados por escola, série e turma.",
+  },
+  {
+    value: "zip_escola",
+    label: "ZIP por escola",
+    hint: "Um PDF por escola, com os termos de todas as turmas da escola.",
+  },
+  {
+    value: "zip_serie",
+    label: "ZIP por série",
+    hint: "Uma pasta por escola e um PDF por série, com os termos de todas as turmas da série.",
+  },
+];
+
 function getAppliedTitle(optionId: string, options: Option[]): string {
   return options.find((item) => item.id === optionId)?.name?.trim() || "";
-}
-
-function onlyDigits(value: string): string {
-  return value.replace(/\D/g, "");
-}
-
-function maskCpf(value: string): string {
-  const digits = onlyDigits(value).slice(0, 11);
-  return digits
-    .replace(/^(\d{3})(\d)/, "$1.$2")
-    .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
-    .replace(/\.(\d{3})(\d)/, ".$1-$2");
 }
 
 export default function TermoCompromissoPage() {
@@ -73,13 +75,7 @@ export default function TermoCompromissoPage() {
   const [selectedTurma, setSelectedTurma] = useState("all");
   const [selectedAplicadoId, setSelectedAplicadoId] = useState("all");
   const [manualTitle, setManualTitle] = useState("");
-
-  const [form, setForm] = useState<TermoCompromissoFormData>({
-    nome: "",
-    cpf: "",
-    rg: "",
-    nomeAplicacao: "",
-  });
+  const [exportFormat, setExportFormat] = useState<TermoCompromissoExportFormat>("pdf_unico");
 
   const [loadingEstados, setLoadingEstados] = useState(false);
   const [loadingMunicipios, setLoadingMunicipios] = useState(false);
@@ -89,19 +85,30 @@ export default function TermoCompromissoPage() {
   const [loadingAplicados, setLoadingAplicados] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [loadingPdf, setLoadingPdf] = useState(false);
+  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
 
-  const [preview, setPreview] = useState<TermoCompromissoDadosResponse | null>(null);
+  const [preview, setPreview] = useState<TermoCompromissoLoteResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const isManualMode = modo === "manual";
   const isAppliedMode = modo === "avaliacao" || modo === "cartao_resposta";
   const turmaEspecifica = selectedTurma !== "all";
+  const effectiveFormat: TermoCompromissoExportFormat = turmaEspecifica ? "pdf_unico" : exportFormat;
 
   const resolvedNomeAplicacao = useMemo(() => {
     if (isManualMode) return manualTitle.trim();
     if (selectedAplicadoId === "all") return "";
     return getAppliedTitle(selectedAplicadoId, aplicados);
   }, [aplicados, isManualMode, manualTitle, selectedAplicadoId]);
+
+  const previewSummary = useMemo(() => {
+    if (!preview) return null;
+    return {
+      escolas: new Set(preview.turmas.map((t) => t.escola_id)).size,
+      series: new Set(preview.turmas.map((t) => `${t.escola_id}|${t.serie_id}`)).size,
+      turmas: preview.turmas.length,
+    };
+  }, [preview]);
 
   useEffect(() => {
     let cancelled = false;
@@ -281,9 +288,6 @@ export default function TermoCompromissoPage() {
     selectedSchool,
     selectedSerie,
     selectedTurma,
-    form.nome,
-    form.cpf,
-    form.rg,
     modo,
     manualTitle,
     selectedAplicadoId,
@@ -291,39 +295,18 @@ export default function TermoCompromissoPage() {
 
   const validationMessage = useMemo(() => {
     if (!selectedMunicipio || selectedMunicipio === "all") return "Selecione o município.";
-    if (!selectedSchool || selectedSchool === "all") return "Selecione a escola.";
-    if (!selectedSerie || selectedSerie === "all") return "Selecione a série.";
-    if (turmaEspecifica === false && turmas.length === 0) return "Nenhuma turma encontrada para a série.";
     if (isManualMode && !manualTitle.trim()) return "Informe o nome da aplicação.";
     if (isAppliedMode && selectedAplicadoId === "all") {
       return modo === "cartao_resposta" ? "Selecione o cartão-resposta." : "Selecione a avaliação.";
     }
     return null;
-  }, [
-    isAppliedMode,
-    isManualMode,
-    manualTitle,
-    modo,
-    selectedAplicadoId,
-    selectedMunicipio,
-    selectedSchool,
-    selectedSerie,
-    turmaEspecifica,
-    turmas.length,
-  ]);
+  }, [isAppliedMode, isManualMode, manualTitle, modo, selectedAplicadoId, selectedMunicipio]);
 
-  const buildFormData = (): TermoCompromissoFormData => ({
-    nome: form.nome.trim(),
-    cpf: form.cpf.trim(),
-    rg: form.rg.trim(),
-    nomeAplicacao: resolvedNomeAplicacao,
-  });
-
-  const buildParams = (turmaId?: string) => ({
+  const buildParams = () => ({
     municipio: selectedMunicipio,
     escola: selectedSchool !== "all" ? selectedSchool : undefined,
     serie: selectedSerie !== "all" ? selectedSerie : undefined,
-    turma: turmaId ?? (selectedTurma !== "all" ? selectedTurma : undefined),
+    turma: selectedTurma !== "all" ? selectedTurma : undefined,
     modo,
     evaluation_id: modo === "avaliacao" && selectedAplicadoId !== "all" ? selectedAplicadoId : undefined,
     answer_sheet_id:
@@ -335,15 +318,14 @@ export default function TermoCompromissoPage() {
       setError(validationMessage);
       return;
     }
-    if (!turmaEspecifica) {
-      setError("Selecione uma turma específica para pré-visualizar o contexto.");
-      return;
-    }
     setLoadingPreview(true);
     setError(null);
     try {
-      const data = await getTermoCompromissoDados(buildParams());
+      const data = await getTermoCompromissoLote(buildParams());
       setPreview(data);
+      if (data.turmas.length === 0) {
+        setError("Nenhuma turma encontrada para os filtros selecionados.");
+      }
     } catch (err) {
       const msg = getTermoCompromissoApiError(err, "Não foi possível carregar os dados do termo.");
       setError(msg);
@@ -360,56 +342,46 @@ export default function TermoCompromissoPage() {
       return;
     }
     setLoadingPdf(true);
+    setProgress(null);
     setError(null);
     try {
-      const formData = buildFormData();
+      const lote = preview ?? (await getTermoCompromissoLote(buildParams()));
+      setPreview(lote);
+      if (lote.turmas.length === 0) {
+        setError("Nenhuma turma encontrada para os filtros selecionados.");
+        return;
+      }
+
       const branding = await loadCityBrandingPdfAssets(selectedMunicipio);
-
-      if (turmaEspecifica) {
-        const data = preview ?? (await getTermoCompromissoDados(buildParams()));
-        setPreview(data);
-        await downloadTermoCompromissoPdf(data, formData, branding.logo);
-        toast({ title: "PDF gerado", description: "O termo foi baixado com sucesso." });
-        return;
-      }
-
-      if (turmas.length === 0) {
-        setError("Nenhuma turma encontrada para gerar o lote.");
-        return;
-      }
-
-      const zipEntries: Array<{ path: string; blob: Blob }> = [];
-      const schoolName = schools.find((s) => s.id === selectedSchool)?.name || "Escola";
-      const serieName = series.find((s) => s.id === selectedSerie)?.name || "Serie";
-
-      for (const turma of turmas) {
-        const data = await getTermoCompromissoDados(buildParams(turma.id));
-        const blob = await createTermoCompromissoPdfBlob(data, formData, branding.logo);
-        zipEntries.push({
-          path: buildTermoCompromissoHierarchyPath({
-            escola: data.contexto.escola || schoolName,
-            serie: data.contexto.serie || serieName,
-            turma: data.contexto.turma || turma.name,
-          }),
-          blob,
-        });
-      }
-
-      const date = new Date().toISOString().slice(0, 10);
-      const zipBlob = await generateZipBlob(zipEntries);
-      downloadBlob(zipBlob, `termo-compromisso-${date}.zip`);
+      const result = await exportTermoCompromisso({
+        lote,
+        format: effectiveFormat,
+        nomeAplicacao: resolvedNomeAplicacao,
+        municipalLogo: branding.logo,
+        onProgress: (current, total) => setProgress({ current, total }),
+      });
+      downloadBlob(result.blob, result.fileName);
       toast({
-        title: "ZIP gerado",
-        description: `${zipEntries.length} termo(s) exportado(s).`,
+        title: effectiveFormat === "pdf_unico" ? "PDF gerado" : "ZIP gerado",
+        description:
+          effectiveFormat === "pdf_unico"
+            ? `${result.totalTermos} termo(s) exportado(s).`
+            : `${result.totalTermos} termo(s) em ${result.totalArquivos} PDF(s).`,
       });
     } catch (err) {
-      const msg = getTermoCompromissoApiError(err, "Não foi possível gerar o PDF.");
+      const msg =
+        err instanceof Error && !("response" in err)
+          ? err.message
+          : getTermoCompromissoApiError(err, "Não foi possível gerar o PDF.");
       setError(msg);
       toast({ title: "Erro", description: msg, variant: "destructive" });
     } finally {
       setLoadingPdf(false);
+      setProgress(null);
     }
   };
+
+  const singleTurma = preview && preview.turmas.length === 1 ? preview.turmas[0] : null;
 
   return (
     <div className="container mx-auto max-w-5xl space-y-6 p-4 md:p-6">
@@ -418,8 +390,8 @@ export default function TermoCompromissoPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Termo de compromisso e responsabilidade</h1>
           <p className="text-sm text-muted-foreground">
-            Selecione o contexto da aplicação e, se desejar, informe os dados pessoais. Campos em branco
-            ficam disponíveis no PDF para preenchimento manual.
+            Selecione o contexto da aplicação e a forma de organização do download. Os dados do(a)
+            declarante (nome, CPF e RG) são preenchidos à mão no documento impresso.
           </p>
         </div>
       </div>
@@ -477,7 +449,7 @@ export default function TermoCompromissoPage() {
                 <SelectValue placeholder={loadingSchools ? "Carregando..." : "Escola"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Selecione</SelectItem>
+                <SelectItem value="all">Todas</SelectItem>
                 {schools.map((s) => (
                   <SelectItem key={s.id} value={s.id}>
                     {s.name}
@@ -494,7 +466,7 @@ export default function TermoCompromissoPage() {
                 <SelectValue placeholder={loadingSeries ? "Carregando..." : "Série"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Selecione</SelectItem>
+                <SelectItem value="all">Todas</SelectItem>
                 {series.map((s) => (
                   <SelectItem key={s.id} value={s.id}>
                     {s.name}
@@ -574,45 +546,39 @@ export default function TermoCompromissoPage() {
                     allLabel="Selecione"
                     placeholder={loadingAplicados ? "Carregando..." : "Selecione"}
                   />
+                  {modo === "avaliacao" && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Somente turmas em que a avaliação foi aplicada recebem termo.
+                    </p>
+                  )}
                 </div>
               )}
-
             </div>
           </div>
 
-          <div className="space-y-3 rounded-lg border bg-muted/30 p-4 sm:col-span-2">
-            <p className="text-sm font-medium">Dados do(a) declarante (opcional)</p>
+          <div className="space-y-2 sm:col-span-2">
+            <Label>Organização do download</Label>
+            <Select
+              value={effectiveFormat}
+              onValueChange={(value) => setExportFormat(value as TermoCompromissoExportFormat)}
+              disabled={turmaEspecifica}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {EXPORT_FORMAT_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <p className="text-xs text-muted-foreground">
-              Deixe em branco para gerar linhas de preenchimento no PDF.
+              {turmaEspecifica
+                ? "Com uma turma específica, o download é um único PDF."
+                : EXPORT_FORMAT_OPTIONS.find((option) => option.value === effectiveFormat)?.hint}
             </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2 sm:col-span-2">
-                <Label>Nome completo</Label>
-                <Input
-                  placeholder="Opcional — deixe em branco para preencher no PDF"
-                  value={form.nome}
-                  onChange={(e) => setForm((prev) => ({ ...prev, nome: e.target.value }))}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>CPF</Label>
-                <Input
-                  placeholder="Opcional — 000.000.000-00"
-                  value={form.cpf}
-                  onChange={(e) => setForm((prev) => ({ ...prev, cpf: maskCpf(e.target.value) }))}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>RG</Label>
-                <Input
-                  placeholder="Opcional — deixe em branco para preencher no PDF"
-                  value={form.rg}
-                  onChange={(e) => setForm((prev) => ({ ...prev, rg: e.target.value }))}
-                />
-              </div>
-            </div>
           </div>
 
           {error && (
@@ -626,57 +592,72 @@ export default function TermoCompromissoPage() {
               type="button"
               variant="outline"
               onClick={handlePreview}
-              disabled={loadingPreview || !!validationMessage || !turmaEspecifica}
+              disabled={loadingPreview || loadingPdf || !!validationMessage}
             >
               {loadingPreview ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
-              Pré-visualizar contexto
+              Pré-visualizar recorte
             </Button>
             <Button type="button" onClick={handleGeneratePdf} disabled={loadingPdf || !!validationMessage}>
               {loadingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-              {turmaEspecifica ? "Baixar PDF" : "Baixar ZIP"}
+              {loadingPdf && progress
+                ? `Gerando ${progress.current} de ${progress.total}...`
+                : effectiveFormat === "pdf_unico"
+                  ? "Baixar PDF"
+                  : "Baixar ZIP"}
             </Button>
           </div>
-          {!turmaEspecifica && (
-            <p className="text-xs text-muted-foreground sm:col-span-2">
-              Com &quot;Todas&quot; as turmas, o download gera um ZIP (um termo por turma). A pré-visualização
-              exige turma específica.
-            </p>
-          )}
         </CardContent>
       </Card>
 
-      {preview && (
+      {preview && previewSummary && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Resumo do contexto</CardTitle>
+            <CardTitle className="text-lg">Resumo do recorte</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-lg border p-3">
+          <CardContent className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border p-3 sm:col-span-3">
               <p className="text-xs text-muted-foreground">Município</p>
               <p className="text-base font-semibold">
                 {preview.municipio.name}
                 {preview.municipio.state ? ` - ${preview.municipio.state}` : ""}
               </p>
             </div>
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Escola</p>
-              <p className="text-base font-semibold">{preview.contexto.escola}</p>
-            </div>
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Série</p>
-              <p className="text-base font-semibold">{preview.contexto.serie}</p>
-            </div>
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Turma</p>
-              <p className="text-base font-semibold">{preview.contexto.turma}</p>
-            </div>
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Turno</p>
-              <p className="text-base font-semibold">
-                {getClassShiftLabel(preview.contexto.turno ?? preview.contexto.shift)}
-              </p>
-            </div>
-            <div className="rounded-lg border p-3 sm:col-span-2">
+            {singleTurma ? (
+              <>
+                <div className="rounded-lg border p-3 sm:col-span-3">
+                  <p className="text-xs text-muted-foreground">Escola</p>
+                  <p className="text-base font-semibold">{singleTurma.escola}</p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Série</p>
+                  <p className="text-base font-semibold">{singleTurma.serie}</p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Turma</p>
+                  <p className="text-base font-semibold">{singleTurma.turma}</p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Turno</p>
+                  <p className="text-base font-semibold">{getClassShiftLabel(singleTurma.shift)}</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Escolas</p>
+                  <p className="text-base font-semibold">{previewSummary.escolas}</p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Séries (por escola)</p>
+                  <p className="text-base font-semibold">{previewSummary.series}</p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Turmas / termos</p>
+                  <p className="text-base font-semibold">{previewSummary.turmas}</p>
+                </div>
+              </>
+            )}
+            <div className="rounded-lg border p-3 sm:col-span-3">
               <p className="text-xs text-muted-foreground">Nome da aplicação no termo</p>
               <p className="text-base font-semibold">{resolvedNomeAplicacao || "—"}</p>
             </div>

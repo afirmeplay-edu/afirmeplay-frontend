@@ -1,16 +1,16 @@
 import { api } from "@/lib/api";
 import type {
-  TermoCompromissoDadosParams,
-  TermoCompromissoDadosResponse,
+  TermoCompromissoLoteParams,
+  TermoCompromissoLoteResponse,
 } from "@/types/termo-compromisso";
 
 function requestConfig(cityId?: string) {
   return cityId && cityId !== "all" ? { meta: { cityId } } : {};
 }
 
-export async function getTermoCompromissoDados(
-  params: TermoCompromissoDadosParams
-): Promise<TermoCompromissoDadosResponse> {
+export async function getTermoCompromissoLote(
+  params: TermoCompromissoLoteParams
+): Promise<TermoCompromissoLoteResponse> {
   const query = new URLSearchParams();
   query.append("municipio", params.municipio);
   if (params.escola?.trim()) query.append("escola", params.escola.trim());
@@ -20,8 +20,8 @@ export async function getTermoCompromissoDados(
   if (params.evaluation_id?.trim()) query.append("evaluation_id", params.evaluation_id.trim());
   if (params.answer_sheet_id?.trim()) query.append("answer_sheet_id", params.answer_sheet_id.trim());
 
-  const response = await api.get<TermoCompromissoDadosResponse>(
-    `/documentos/termo-compromisso/dados?${query.toString()}`,
+  const response = await api.get<TermoCompromissoLoteResponse>(
+    `/documentos/termo-compromisso/lote?${query.toString()}`,
     requestConfig(params.municipio)
   );
   return response.data;
