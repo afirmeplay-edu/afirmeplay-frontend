@@ -289,6 +289,35 @@ export const EvolutionPDFLayout = ({
         </div>
       )}
 
+      {((processedData.subjectsWithoutComparison?.length ?? 0) > 0 || processedData.seriesDiferentes) && (
+        <div data-pdf-section="subject-sem-comparacao" style={{ marginTop: 12, pageBreakInside: 'avoid' }}>
+          {(processedData.subjectsWithoutComparison?.length ?? 0) > 0 && (
+            <>
+              <h3 style={{ fontSize: 12, fontWeight: 'bold', color: '#1f2937', margin: '8px 0' }}>
+                Disciplinas sem comparação
+              </h3>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 9, color: '#1f2937' }}>
+                <tbody>
+                  {processedData.subjectsWithoutComparison?.map((row) => (
+                    <tr key={`${row.subject}-${row.presentIn.join('|')}`}>
+                      <td style={{ border: '1px solid #e5e7eb', padding: 6 }}>{row.subject}</td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: 6 }}>
+                        Sem comparação{row.presentIn.length === 1 ? ` (só em ${row.presentIn[0]})` : ''}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+          {processedData.seriesDiferentes && (
+            <p style={{ fontSize: 9, color: '#4b5563', margin: '8px 0 0' }}>
+              Habilidades só são comparáveis dentro da mesma série.
+            </p>
+          )}
+        </div>
+      )}
+
       {levels.length > 0 && (
         <div style={{ marginTop: 20 }}>
           <h2 style={{ fontSize: 13, fontWeight: 'bold', marginBottom: 12, color: '#1f2937', marginTop: 0 }}>

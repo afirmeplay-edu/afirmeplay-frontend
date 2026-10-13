@@ -73,9 +73,12 @@ interface Evaluation {
 interface EvolutionPoint {
   ids: string[];
   members: Evaluation[];
+  /** Nome digitado pelo usuário; vazio usa o nome automático. */
+  name?: string;
 }
 
 function pointTitle(point: EvolutionPoint): string {
+  if (point.name?.trim()) return point.name.trim();
   if (point.members.length <= 1) return point.members[0]?.titulo ?? 'Avaliação';
   const subjects = point.members.flatMap((member) =>
     member.disciplinas.length > 0 ? member.disciplinas : member.disciplina ? [member.disciplina] : []
@@ -278,6 +281,14 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
       description: 'A avaliação foi removida da comparação.',
     });
   }, [toast]);
+
+  const handleRenamePoint = useCallback((index: number, rawName: string) => {
+    const name = rawName.trim() || undefined;
+    setComparisonPoints((prev) => {
+      if (!prev[index] || (prev[index].name ?? undefined) === name) return prev;
+      return prev.map((point, pointIndex) => (pointIndex === index ? { ...point, name } : point));
+    });
+  }, []);
 
   const handleClearEvaluations = useCallback(() => {
     setComparisonPoints([]);
@@ -620,11 +631,13 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
       // Remover duplicatas usando Set para garantir IDs únicos
       const evaluationIds = comparisonPoints.flatMap((point) => point.ids);
       const grupos = comparisonPoints.map((point) => point.ids);
+      const nomes = comparisonPoints.map((point) => point.name?.trim() || null);
 
       const comparison = await EvaluationComparisonApiService.compareEvaluations(
         evaluationIds,
         scopeFilters,
-        grupos
+        grupos,
+        nomes
       );
       setComparisonData(comparison);
 
@@ -686,6 +699,12 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     [comparisonPoints]
   );
 
+  // Ordem e nomes dos pontos: com séries diferentes, a ordem do usuário define a comparação.
+  const pointsLayoutKey = useMemo(
+    () => comparisonPoints.map((point) => `${point.ids.join(',')}:${point.name?.trim() ?? ''}`).join('|'),
+    [comparisonPoints]
+  );
+
   const comparisonRequestKey = useMemo(
     () =>
       [
@@ -695,8 +714,9 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
         scopeFilters.escola ?? '',
         scopeFilters.serie ?? '',
         scopeFilters.turma ?? '',
+        pointsLayoutKey,
       ].join('|'),
-    [selectedIdsKey, scopeFilters]
+    [selectedIdsKey, scopeFilters, pointsLayoutKey]
   );
 
   // Carregar gráficos automaticamente quando a seleção ou o escopo mudarem (2+ avaliações).
@@ -727,10 +747,12 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
       try {
         const evaluationIds = comparisonPoints.flatMap((point) => point.ids);
         const grupos = comparisonPoints.map((point) => point.ids);
+        const nomes = comparisonPoints.map((point) => point.name?.trim() || null);
         const comparison = await EvaluationComparisonApiService.compareEvaluations(
           evaluationIds,
           scopeFilters,
-          grupos
+          grupos,
+          nomes
         );
 
         if (selectedIdsRef.current !== requestedKey) return;
@@ -1038,10 +1060,12 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                     // Remover duplicatas usando Set para garantir IDs únicos
                     const uniqueTestIds = comparisonPoints.flatMap((point) => point.ids);
                     const grupos = comparisonPoints.map((point) => point.ids);
+                    const nomes = comparisonPoints.map((point) => point.name?.trim() || null);
                     
                     const payload = {
                       test_ids: uniqueTestIds,
                       grupos,
+                      ...(nomes.some(Boolean) ? { nomes } : {}),
                       estado: selectedState !== 'all' ? selectedState : null,
                       municipio: selectedMunicipality !== 'all' ? selectedMunicipality : null,
                       escola: selectedSchool !== 'all' ? selectedSchool : null,
@@ -1336,6 +1360,11 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                 Selecione pelo menos 2 pontos para iniciar a comparação. Avaliações da mesma série e de disciplinas diferentes podem ser mescladas em um único ponto.
               </p>
             )}
+            {selectedGrade !== 'all' && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Para comparar séries diferentes (ex.: 1º ano × 2º ano), deixe o filtro Série em “Todas”.
+              </p>
+            )}
           </div>
 
           </CardContent>
@@ -1433,6 +1462,19 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                           <Badge variant="secondary" className="mt-1">Mesclada</Badge>
                         )}
                         <EvolutionScopeMetaLines evaluation={scopeMeta ?? localScope} />
+                        {point.ids.length > 1 && (
+                          <Input
+                            className="mt-2 h-8 max-w-xs text-sm"
+                            placeholder="Nome do ponto (opcional)"
+                            aria-label="Nome do ponto (opcional)"
+                            maxLength={120}
+                            defaultValue={point.name ?? ''}
+                            onBlur={(e) => handleRenamePoint(index, e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') e.currentTarget.blur();
+                            }}
+                          />
+                        )}
                       </div>
                       <div className="flex shrink-0 flex-wrap justify-end gap-1">
                         {point.members.map((member) => (

@@ -40,6 +40,7 @@ import {
   Building2,
 } from 'lucide-react';
 import { Eye, EyeOff } from 'lucide-react';
+import type { SubjectWithoutComparisonRow } from '@/utils/evolution/evolutionDataProcessor';
 
 export interface ProcessedEvolutionData {
   /** "Geral" por etapa (notas) */
@@ -60,6 +61,10 @@ export interface ProcessedEvolutionData {
   evaluationNames: string[];
   /** metadados completos (série, turmas, datas) */
   evaluations: EvaluationInfo[];
+  /** Pontos de séries diferentes: textos de "comparação entre séries". */
+  seriesDiferentes?: boolean;
+  /** Disciplinas presentes em só um ponto de uma comparação. */
+  subjectsWithoutComparison?: SubjectWithoutComparisonRow[];
 }
 
 interface EvolutionChartsProps {
@@ -92,6 +97,7 @@ function EvolutionChartPanel({
   yAxisName,
   seriesName,
   controls,
+  variationLabel,
 }: {
   title: React.ReactNode;
   icon: React.ComponentType<{ className?: string }>;
@@ -103,6 +109,7 @@ function EvolutionChartPanel({
   yAxisName?: string;
   seriesName: string;
   controls: React.ReactNode;
+  variationLabel?: string;
 }) {
   if (series.values.length === 0) return null;
   return (
@@ -144,6 +151,7 @@ function EvolutionChartPanel({
             yDomain={yDomain}
             yAxisName={yAxisName}
             seriesName={seriesName}
+            variationLabel={variationLabel}
           />
           {controls}
         </CardContent>
@@ -166,6 +174,9 @@ export function EvolutionCharts({
   groupRefreshKey,
 }: EvolutionChartsProps) {
   const showGroupsTab = Boolean(groupTestIds && groupTestIds.length >= 2 && groupScopeFilters);
+  const crossSeries = Boolean(data?.seriesDiferentes);
+  const variationLabel = crossSeries ? 'Diferença' : undefined;
+  const subjectsWithoutComparison = data?.subjectsWithoutComparison ?? [];
   const initialTab =
     defaultTab === 'groups' && !showGroupsTab ? 'general' : defaultTab;
   const [activeTab, setActiveTab] = useState<'general' | 'subjects' | 'levels' | 'groups'>(initialTab);
@@ -398,9 +409,13 @@ export function EvolutionCharts({
               <Activity className="w-5 h-5 text-foreground" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-foreground">Análise de Evolução - Geral</h3>
+              <h3 className="text-lg font-semibold text-foreground">
+                {crossSeries ? 'Comparação entre séries - Geral' : 'Análise de Evolução - Geral'}
+              </h3>
               <p className="text-sm text-muted-foreground">
-                Comparação entre avaliações selecionadas
+                {crossSeries
+                  ? 'Diferença entre séries diferentes (não é a evolução dos mesmos alunos)'
+                  : 'Comparação entre avaliações selecionadas'}
               </p>
             </div>
           </div>
@@ -442,7 +457,7 @@ export function EvolutionCharts({
                   ) : (
                     <ArrowRight className="w-4 h-4 text-muted-foreground" />
                   )}
-                  <span className="text-sm font-medium text-muted-foreground">Variação</span>
+                  <span className="text-sm font-medium text-muted-foreground">{crossSeries ? 'Diferença' : 'Variação'}</span>
                 </div>
                 <p className={`text-2xl font-semibold ${
                   generalStats.variacaoTotal != null && generalStats.variacaoTotal > 0
@@ -482,6 +497,7 @@ export function EvolutionCharts({
             yDomain={[0, 10]}
             seriesName="Nota"
             controls={visibilityControls('general-nota', data.evaluationNames)}
+            variationLabel={variationLabel}
           />
           <EvolutionChartPanel
             title="Proficiência Geral"
@@ -494,6 +510,7 @@ export function EvolutionCharts({
             yAxisName="Proficiência"
             seriesName="Proficiência"
             controls={visibilityControls('general-prof', data.evaluationNames)}
+            variationLabel={variationLabel}
           />
         </div>
       </TabsContent>
@@ -569,6 +586,7 @@ export function EvolutionCharts({
                       yDomain={[0, 10]}
                       seriesName="Nota"
                       controls={visibilityControls(`subject-${subject}-nota`, data.evaluationNames)}
+                      variationLabel={variationLabel}
                     />
                     {profSeries && (
                       <EvolutionChartPanel
@@ -582,6 +600,7 @@ export function EvolutionCharts({
                         yAxisName="Proficiência"
                         seriesName="Proficiência"
                         controls={visibilityControls(`subject-${subject}-prof`, data.evaluationNames)}
+                        variationLabel={variationLabel}
                       />
                     )}
                   </div>
@@ -589,6 +608,38 @@ export function EvolutionCharts({
               );
             })}
           </div>
+        )}
+
+        {subjectsWithoutComparison.length > 0 && (
+          <Card className="border border-border">
+            <CardHeader className="bg-muted border-b border-border">
+              <CardTitle className="flex items-center gap-2 text-foreground text-base">
+                <BookOpen className="h-5 w-5 text-muted-foreground" />
+                Disciplinas sem comparação
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4">
+              <ul className="space-y-2">
+                {subjectsWithoutComparison.map((row) => (
+                  <li
+                    key={`${row.subject}-${row.presentIn.join('|')}`}
+                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-sm"
+                  >
+                    <span className="font-medium text-foreground">{row.subject}</span>
+                    <span className="text-muted-foreground">
+                      Sem comparação{row.presentIn.length === 1 ? ` (só em ${row.presentIn[0]})` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
+        {crossSeries && (
+          <p className="text-sm text-muted-foreground border border-border rounded-lg p-3 bg-muted/40">
+            Habilidades só são comparáveis dentro da mesma série.
+          </p>
         )}
       </TabsContent>
 
@@ -652,6 +703,7 @@ export function EvolutionCharts({
                   seriesName="Quantidade de Alunos"
                   yAxisName="Quantidade de Alunos"
                   controls={visibilityControls(`level-${levelName}`, data.evaluationNames)}
+                  variationLabel={variationLabel}
                 />
               );
             })}
