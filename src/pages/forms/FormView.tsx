@@ -31,6 +31,9 @@ import {
 } from '@/services/formRecipientsApi';
 import { FormFiltersApiService } from '@/services/formFiltersApi';
 import { FormMultiSelect } from '@/components/ui/form-multi-select';
+import { canGenerateFormPrintPackage } from '@/services/formPrintPackagesApi';
+import { FormPrintPackageCard } from '@/components/forms/FormPrintPackageCard';
+import { useAuth } from '@/context/authContext';
 import {
   Dialog,
   DialogContent,
@@ -69,7 +72,8 @@ interface FormData {
   isActive: boolean;
   deadline?: string;
   createdAt: string;
-  createdBy?: { name?: string };
+  createdBy?: { id?: string; name?: string } | string;
+  createdById?: string;
   selectedSchools?: string[];
   selectedGrades?: string[];
   selectedClasses?: string[];
@@ -179,6 +183,7 @@ const FormView = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const [formData, setFormData] = useState<FormData | null>(null);
   const [resolvedRecipients, setResolvedRecipients] = useState<ResolvedRecipients | null>(null);
@@ -735,6 +740,10 @@ const FormView = () => {
   const recipientsTotal = formData.statistics?.totalRecipients ?? formData.recipientsCount;
   const completedResponses = formData.statistics?.completedResponses ?? 0;
 
+  const creatorName =
+    typeof formData.createdBy === 'object' ? formData.createdBy?.name : undefined;
+  const canGeneratePrintPackage = canGenerateFormPrintPackage(formData, user);
+
   const infoRows: DetailRow[] = [
     { label: 'Nome', value: formTitle },
     ...(formData.description
@@ -900,7 +909,7 @@ const FormView = () => {
           <CardTitle className="text-base">Informações do Questionário</CardTitle>
           <CardDescription className="text-xs">
             Criado em {new Date(formData.createdAt).toLocaleDateString('pt-BR', { dateStyle: 'long' })}
-            {formData.createdBy?.name && ` por ${formData.createdBy.name}`}
+            {creatorName && ` por ${creatorName}`}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 px-4 pb-4">
@@ -914,6 +923,8 @@ const FormView = () => {
           </div>
         </CardContent>
       </Card>
+
+      {canGeneratePrintPackage && id && <FormPrintPackageCard formId={id} />}
 
       <Card>
         <CardHeader className="px-4 pb-2 pt-4">
