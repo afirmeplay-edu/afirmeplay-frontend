@@ -60,6 +60,9 @@ import {
 } from '@/data/formsData';
 import { Question } from '@/types/forms';
 import { fetchFormTemplateQuestions, isStudentFormType } from '@/services/formTemplatesApi';
+import { canGenerateFormPrintPackage } from '@/services/formPrintPackagesApi';
+import { FormPrintPackageListActions } from '@/components/forms/FormPrintPackageListActions';
+import { useAuth } from '@/context/authContext';
 import {
   EJA_EDUCATION_STAGE_ID,
   RIGID_EDUCATION_STAGE_TO_FORM_TYPE,
@@ -210,6 +213,7 @@ interface ListedForm {
 const FormRegistration = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
 
   // Estados dos filtros
   const [selectedState, setSelectedState] = useState<string>('all');
@@ -1435,7 +1439,10 @@ const FormRegistration = () => {
                         </div>
                       </div>
                     </CardHeader>
-                    <div className="mt-auto border-t bg-muted/20 px-6 pb-4 pt-4">
+                    <div className="mt-auto space-y-3 border-t bg-muted/20 px-6 pb-4 pt-4">
+                      {canGenerateFormPrintPackage(form, user) && (
+                        <FormPrintPackageListActions formId={form.id} />
+                      )}
                       <div className="flex flex-wrap items-center gap-2">
                         <Button
                           type="button"
