@@ -340,7 +340,11 @@ function addFiltersInfoPage(
       pdf.setFontSize(14);
       pdf.setTextColor(...COLORS.primary);
       pdf.setFont('helvetica', 'bold');
-      pdf.text('ANÁLISE DE EVOLUÇÃO GERAL', margin, currentY);
+      pdf.text(
+        processedData.seriesDiferentes ? 'COMPARAÇÃO ENTRE SÉRIES - GERAL' : 'ANÁLISE DE EVOLUÇÃO GERAL',
+        margin,
+        currentY
+      );
 
       currentY += 15;
 
@@ -383,7 +387,7 @@ function addFiltersInfoPage(
       pdf.setFontSize(9);
       pdf.setTextColor(...COLORS.textGray);
       pdf.setFont('helvetica', 'normal');
-      pdf.text('Variação Total', rightColX + 8, currentY + 8);
+      pdf.text(processedData.seriesDiferentes ? 'Diferença Total' : 'Variação Total', rightColX + 8, currentY + 8);
       
       const variacaoColor =
         generalStats.variacaoTotal != null && generalStats.variacaoTotal > 0
@@ -475,7 +479,12 @@ async function addCoverPage(
   pdf.setTextColor(...COLORS.white);
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(17);
-  pdf.text('ANÁLISE DE EVOLUÇÃO', centerX, titleY, { align: 'center' });
+  pdf.text(
+    comparisonData?.series_diferentes ? 'COMPARAÇÃO ENTRE SÉRIES' : 'ANÁLISE DE EVOLUÇÃO',
+    centerX,
+    titleY,
+    { align: 'center' }
+  );
   pdf.setFontSize(11);
   const subtitle = isStudentReport(filterInfo)
     ? 'RELATÓRIO INDIVIDUAL DO ALUNO'

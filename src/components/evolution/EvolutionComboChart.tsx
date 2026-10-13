@@ -47,6 +47,8 @@ export interface EvolutionComboChartProps {
   yAxisName?: string;
   mode?: EvolutionChartMode;
   seriesName?: string;
+  /** Rótulo do % entre pontos no tooltip. Default: "Variação". */
+  variationLabel?: string;
 }
 
 const METRIC_KIND: Record<EvolutionChartMetric, EvolutionMetricKind> = {
@@ -303,7 +305,7 @@ export function buildEvolutionComboOption(props: EvolutionComboChartProps, theme
             const variationText =
               index === 0
                 ? ''
-                : `<div style="margin-top:2px">Variação: ${variation == null ? '—' : formatSignedEvolutionPercent(variation)}</div>`;
+                : `<div style="margin-top:2px">${escapeHtml(props.variationLabel ?? 'Variação')}: ${variation == null ? '—' : formatSignedEvolutionPercent(variation)}</div>`;
             return `<div><strong>${escapeHtml(fullName)}</strong><div style="margin-top:4px">${METRIC_LABEL[metric]}: ${formatEvolutionMetric(value, kind)}</div>${variationText}</div>`;
           },
         }
@@ -441,6 +443,7 @@ export function EvolutionComboChart({
   yAxisName,
   mode = 'screen',
   seriesName,
+  variationLabel,
 }: EvolutionComboChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [themeTick, setThemeTick] = useState(0);
@@ -474,10 +477,11 @@ export function EvolutionComboChart({
           yAxisName,
           mode,
           seriesName,
+          variationLabel,
         },
         resolveThemeColors(mode)
       ),
-    [metric, evaluationNames, values, variations, colors, yMin, yMax, yAxisName, mode, seriesName, themeTick]
+    [metric, evaluationNames, values, variations, colors, yMin, yMax, yAxisName, mode, seriesName, variationLabel, themeTick]
   );
 
   useEffect(() => {

@@ -32,6 +32,33 @@ export interface ProcessedEvolutionData {
   evaluationNames: string[];
   /** metadados completos (série, turmas, datas) */
   evaluations: EvaluationInfo[];
+  /** Pontos de séries diferentes: textos de "comparação entre séries". */
+  seriesDiferentes?: boolean;
+  /** Disciplinas presentes em só um ponto de uma comparação. */
+  subjectsWithoutComparison?: SubjectWithoutComparisonRow[];
+}
+
+export interface SubjectWithoutComparisonRow {
+  subject: string;
+  /** Pontos em que a disciplina aparece. */
+  presentIn: string[];
+}
+
+function processSubjectsWithoutComparison(comparison: ComparisonResponse): SubjectWithoutComparisonRow[] {
+  const rows: SubjectWithoutComparisonRow[] = [];
+  const seen = new Set<string>();
+  (comparison.comparisons ?? []).forEach((comp) => {
+    (comp.subjects_without_comparison ?? []).forEach((item) => {
+      const presentIn = (item.present_in ?? []).map((key) =>
+        key === 'evaluation_1' ? comp.from_evaluation?.title ?? '' : comp.to_evaluation?.title ?? ''
+      ).filter(Boolean);
+      const key = `${item.subject}|${presentIn.join('|')}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      rows.push({ subject: item.subject, presentIn });
+    });
+  });
+  return rows;
 }
 
 /**
@@ -59,6 +86,8 @@ export function processComparisonData(comparison: ComparisonResponse): Processed
     levelsData,
     evaluationNames,
     evaluations,
+    seriesDiferentes: Boolean(comparison.series_diferentes),
+    subjectsWithoutComparison: processSubjectsWithoutComparison(comparison),
   };
 }
 
