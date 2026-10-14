@@ -1,4 +1,5 @@
-import { AlertCircle, CheckCircle2, Download, FileDown, Loader2, TriangleAlert } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Download, FileDown, Loader2, ScanLine, TriangleAlert } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -12,6 +13,7 @@ const formatShortDateTime = (iso: string | null) => {
 };
 
 export function FormPrintPackageListActions({ formId }: { formId: string }) {
+  const navigate = useNavigate();
   const { state, isLoading, isStarting, isDownloading, pollError, handleStart, handleDownload } =
     useFormPrintPackageActions(formId);
 
@@ -110,6 +112,16 @@ export function FormPrintPackageListActions({ formId }: { formId: string }) {
         >
           {isDownloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
           <span className="ml-1.5">Baixar ZIP</span>
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="min-w-[8.5rem] flex-1"
+          onClick={() => navigate(`/app/questionarios/${formId}/correcao`)}
+        >
+          <ScanLine className="h-4 w-4" />
+          <span className="ml-1.5">Corrigir cartões</span>
         </Button>
       </div>
     </div>

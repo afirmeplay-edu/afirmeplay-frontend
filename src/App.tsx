@@ -85,6 +85,7 @@ const HabilidadesPage = React.lazy(() => import("@/pages/questions/HabilidadesPa
 const FormRegistration = React.lazy(() => import("@/pages/forms/FormRegistration"));
 const FormView = React.lazy(() => import("@/pages/forms/FormView"));
 const FormCreate = React.lazy(() => import("@/pages/forms/FormCreate"));
+const FormAnswerSheetCorrection = React.lazy(() => import("@/pages/forms/FormAnswerSheetCorrection"));
 const QuestionarioList = React.lazy(() => import("@/pages/forms/QuestionarioList"));
 const QuestionarioRespond = React.lazy(() => import("@/pages/forms/QuestionarioRespond"));
 
@@ -455,6 +456,7 @@ const App = () => {
               <Route path="/app/questionarios/cadastro" element={<PrivateRoute><FormRegistration /></PrivateRoute>} />
               <Route path="/app/questionarios/criar/:formType" element={<PrivateRoute><FormCreate /></PrivateRoute>} />
               <Route path="/app/questionarios/:id" element={<PrivateRoute><FormView /></PrivateRoute>} />
+              <Route path="/app/questionarios/:id/correcao" element={<PrivateRoute><FormAnswerSheetCorrection /></PrivateRoute>} />
               <Route path="/app/questionarios/relatorios-socio-economicos" element={<PrivateRoute><FormReports /></PrivateRoute>} />
               <Route path="/app/questionarios/resultados-socioeconomicos" element={<PrivateRoute><FormRespostasReport /></PrivateRoute>} />
               <Route path="/app/questionarios/inse-avaliacao" element={<PrivateRoute><InseAvaliacaoReport /></PrivateRoute>} />
