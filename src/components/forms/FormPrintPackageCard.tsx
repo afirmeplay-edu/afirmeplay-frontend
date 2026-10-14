@@ -1,4 +1,5 @@
-import { AlertCircle, CheckCircle2, Download, FileDown, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Download, FileDown, Loader2, RefreshCw, ScanLine, TriangleAlert } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -15,6 +16,7 @@ const formatDateTime = (iso: string | null) => {
 const pluralAlunos = (n: number) => `${n} aluno${n !== 1 ? 's' : ''}`;
 
 export function FormPrintPackageCard({ formId }: { formId: string }) {
+  const navigate = useNavigate();
   const {
     state,
     isLoading,
@@ -171,6 +173,14 @@ export function FormPrintPackageCard({ formId }: { formId: string }) {
               <Download className="mr-1.5 h-4 w-4" />
             )}
             Baixar ZIP
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate(`/app/questionarios/${formId}/correcao`)}
+          >
+            <ScanLine className="mr-1.5 h-4 w-4" />
+            Corrigir cartões
           </Button>
         </div>
       </CardContent>
