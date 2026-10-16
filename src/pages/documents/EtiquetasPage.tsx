@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { CopyCheck, Download, Eye, FileText, Filter, Loader2, Plus, Trash2, UserPlus } from "lucide-react";
+import { CopyCheck, Download, Eye, FileText, Filter, Info, Loader2, Plus, Trash2, UserPlus } from "lucide-react";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { FormFiltersApiService } from "@/services/formFiltersApi";
@@ -49,7 +50,7 @@ const LABELS_PER_PAGE = 8;
 const CONTEXT_BATCH_SIZE = 5;
 const FILTER_BATCH_SIZE = 6;
 
-/** Campos copiados pelo botão "Aplicar a todos" para as etiquetas da mesma escola. */
+/** Campos copiados pelo botão "Aplicar a todos" para as etiquetas da mesma escola (inclui aplicadores). */
 const SHARED_LABEL_FIELDS: (keyof EtiquetaEditItem)[] = [
   "textoLivre",
   "textoLivreCor",
@@ -66,10 +67,61 @@ const SHARED_LABEL_FIELDS: (keyof EtiquetaEditItem)[] = [
   "aplicadoresExtras",
 ];
 
+/**
+ * Campos copiados por "Aplicar a todas as escolas".
+ * Não inclui nomes/CPFs dos aplicadores — esses permanecem por escola.
+ */
+const CROSS_SCHOOL_FIELDS: (keyof EtiquetaEditItem)[] = [
+  "textoLivre",
+  "textoLivreCor",
+  "textoLivreTamanho",
+  "textoLivreAlinhamento",
+  "exibirAssinatura",
+  "textoAcimaAssinatura",
+  "exibirSegundoAplicador",
+  "textoAcimaAssinatura2",
+];
+
 function pickSharedFields(label: EtiquetaEditItem): Partial<EtiquetaEditItem> {
   return Object.fromEntries(
     SHARED_LABEL_FIELDS.map((field) => [field, label[field]])
   ) as Partial<EtiquetaEditItem>;
+}
+
+function pickCrossSchoolFields(label: EtiquetaEditItem): Partial<EtiquetaEditItem> {
+  const patch = Object.fromEntries(
+    CROSS_SCHOOL_FIELDS.map((field) => [field, label[field]])
+  ) as Partial<EtiquetaEditItem>;
+
+  // Mantém nomes/CPFs já preenchidos no destino; só alinha textos acima dos extras.
+  const sourceExtras = label.aplicadoresExtras ?? [];
+  patch.aplicadoresExtras = sourceExtras.map((extra) => ({
+    textoAcima: extra.textoAcima,
+    nome: "",
+    cpf: "",
+  }));
+  return patch;
+}
+
+function mergeCrossSchoolFields(
+  target: EtiquetaEditItem,
+  sourcePatch: Partial<EtiquetaEditItem>
+): EtiquetaEditItem {
+  const sourceExtras = sourcePatch.aplicadoresExtras ?? [];
+  const targetExtras = target.aplicadoresExtras ?? [];
+  return {
+    ...target,
+    ...sourcePatch,
+    nomeAplicador: target.nomeAplicador,
+    cpfAplicador: target.cpfAplicador,
+    nomeAplicador2: target.nomeAplicador2,
+    cpfAplicador2: target.cpfAplicador2,
+    aplicadoresExtras: sourceExtras.map((extra, index) => ({
+      textoAcima: extra.textoAcima,
+      nome: targetExtras[index]?.nome ?? "",
+      cpf: targetExtras[index]?.cpf ?? "",
+    })),
+  };
 }
 
 function sharesFieldsWith(a: EtiquetaEditItem, b: EtiquetaEditItem): boolean {
@@ -80,6 +132,15 @@ function sharesFieldsWith(a: EtiquetaEditItem, b: EtiquetaEditItem): boolean {
   );
 }
 
+function sharesCrossSchoolFieldsWith(a: EtiquetaEditItem, b: EtiquetaEditItem): boolean {
+  const sameBase = CROSS_SCHOOL_FIELDS.every((field) => a[field] === b[field]);
+  if (!sameBase) return false;
+  const aExtras = a.aplicadoresExtras ?? [];
+  const bExtras = b.aplicadoresExtras ?? [];
+  if (aExtras.length !== bExtras.length) return false;
+  return aExtras.every((extra, index) => extra.textoAcima === bExtras[index]?.textoAcima);
+}
+
 function hasSharedContent(label: EtiquetaEditItem): boolean {
   const values = [label.textoLivre];
   if (label.exibirAssinatura) {
@@ -87,6 +148,18 @@ function hasSharedContent(label: EtiquetaEditItem): boolean {
     if (label.exibirSegundoAplicador) {
       values.push(label.textoAcimaAssinatura2, label.nomeAplicador2, label.cpfAplicador2);
       (label.aplicadoresExtras ?? []).forEach((extra) => values.push(extra.textoAcima, extra.nome, extra.cpf));
+    }
+  }
+  return values.some((value) => value?.trim());
+}
+
+function hasCrossSchoolContent(label: EtiquetaEditItem): boolean {
+  const values = [label.textoLivre];
+  if (label.exibirAssinatura) {
+    values.push(label.textoAcimaAssinatura);
+    if (label.exibirSegundoAplicador) {
+      values.push(label.textoAcimaAssinatura2);
+      (label.aplicadoresExtras ?? []).forEach((extra) => values.push(extra.textoAcima));
     }
   }
   return values.some((value) => value?.trim());
@@ -764,6 +837,9 @@ export default function EtiquetasPage() {
     );
   };
 
+  const allSchoolsLabelsToUpdate = (source: EtiquetaEditItem): EtiquetaEditItem[] =>
+    labels.filter((item) => item.id !== source.id && !sharesCrossSchoolFieldsWith(item, source));
+
   const autoCount = labels.length - customLabels.length;
   const customCount = customLabels.length;
 
@@ -860,6 +936,36 @@ export default function EtiquetasPage() {
               prev.map((item) => {
                 const old = previous.get(item.id);
                 return old ? { ...item, ...old } : item;
+              })
+            )
+          }
+        >
+          Desfazer
+        </ToastAction>
+      ),
+    });
+  };
+
+  const applySharedToAllSchools = (source: EtiquetaEditItem) => {
+    const targets = allSchoolsLabelsToUpdate(source);
+    if (!targets.length) return;
+    const patch = pickCrossSchoolFields(source);
+    const previous = new Map(targets.map((item) => [item.id, { ...item }]));
+    setLabels((prev) =>
+      prev.map((item) => (previous.has(item.id) ? mergeCrossSchoolFields(item, patch) : item))
+    );
+
+    toast({
+      title: "Informações aplicadas a todas as escolas",
+      description: `${targets.length} etiqueta(s) atualizada(s). Nomes e CPFs dos aplicadores foram preservados.`,
+      action: (
+        <ToastAction
+          altText="Desfazer"
+          onClick={() =>
+            setLabels((prev) =>
+              prev.map((item) => {
+                const old = previous.get(item.id);
+                return old ?? item;
               })
             )
           }
@@ -1236,6 +1342,9 @@ export default function EtiquetasPage() {
                     const applyTargetsCount = hasSharedContent(label)
                       ? sameSchoolLabelsToUpdate(label).length
                       : 0;
+                    const applyAllSchoolsCount = hasCrossSchoolContent(label)
+                      ? allSchoolsLabelsToUpdate(label).length
+                      : 0;
                     return (
                       <div key={label.id} className="space-y-2 rounded-lg border p-3">
                         <div className="flex items-start justify-between gap-2">
@@ -1546,19 +1655,71 @@ export default function EtiquetasPage() {
                           </>
                         )}
 
-                        {applyTargetsCount > 0 ? (
-                          <Button
-                            type="button"
-                            className="w-full bg-purple-600 text-white duration-300 animate-in fade-in-0 slide-in-from-top-2 hover:bg-purple-700 focus-visible:ring-purple-500"
-                            onClick={() => applySharedToSchool(label)}
-                            title="Copia texto livre, texto acima da assinatura, nomes e CPFs dos aplicadores para as outras etiquetas desta escola"
-                          >
-                            <CopyCheck className="mr-2 h-4 w-4" />
-                            Aplicar a todos
-                            <span className="ml-1 font-normal opacity-80">
-                              ({applyTargetsCount} etiqueta{applyTargetsCount === 1 ? "" : "s"} da escola)
-                            </span>
-                          </Button>
+                        {applyTargetsCount > 0 || applyAllSchoolsCount > 0 ? (
+                          <div className="flex flex-col gap-2 duration-300 animate-in fade-in-0 slide-in-from-top-2 sm:flex-row sm:items-stretch">
+                            {applyTargetsCount > 0 ? (
+                              <div className="flex min-w-0 flex-1 items-center gap-1">
+                                <Button
+                                  type="button"
+                                  className="min-w-0 flex-1 bg-purple-600 text-white hover:bg-purple-700 focus-visible:ring-purple-500"
+                                  onClick={() => applySharedToSchool(label)}
+                                >
+                                  <CopyCheck className="mr-2 h-4 w-4 shrink-0" />
+                                  <span className="truncate">Aplicar a todos</span>
+                                  <span className="ml-1 shrink-0 font-normal opacity-80">
+                                    ({applyTargetsCount})
+                                  </span>
+                                </Button>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                      aria-label="Diferença: aplicar a todos da escola"
+                                    >
+                                      <Info className="h-4 w-4" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs text-left">
+                                    Copia texto livre, textos acima da assinatura e dados dos aplicadores
+                                    (nomes e CPFs) para as outras etiquetas desta mesma escola.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </div>
+                            ) : null}
+                            {applyAllSchoolsCount > 0 ? (
+                              <div className="flex min-w-0 flex-1 items-center gap-1">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="min-w-0 flex-1 border-purple-300 text-purple-800 hover:bg-purple-50 hover:text-purple-900 focus-visible:ring-purple-500"
+                                  onClick={() => applySharedToAllSchools(label)}
+                                >
+                                  <CopyCheck className="mr-2 h-4 w-4 shrink-0" />
+                                  <span className="truncate">Aplicar a todas as escolas</span>
+                                  <span className="ml-1 shrink-0 font-normal opacity-80">
+                                    ({applyAllSchoolsCount})
+                                  </span>
+                                </Button>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                      aria-label="Diferença: aplicar a todas as escolas"
+                                    >
+                                      <Info className="h-4 w-4" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs text-left">
+                                    Copia texto livre, formatação e textos acima da assinatura para
+                                    etiquetas de todas as escolas. Não altera nomes nem CPFs dos
+                                    aplicadores, que continuam distintos por escola.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </div>
+                            ) : null}
+                          </div>
                         ) : null}
                       </div>
                     );

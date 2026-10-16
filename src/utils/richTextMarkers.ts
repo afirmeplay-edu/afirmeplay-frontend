@@ -37,6 +37,33 @@ export function stripBoldMarkers(text: string): string {
   return stripRichMarkers(text);
 }
 
+/**
+ * Marcadores colados na palavra seguinte (`**Ata**de`) removem o espaço visual.
+ * Reinsere um espaço quando dois segmentos alfanuméricos ficam adjacentes sem whitespace.
+ */
+function ensureSegmentWordGaps(segments: RichSegment[]): RichSegment[] {
+  const result: RichSegment[] = [];
+  for (const segment of segments) {
+    if (result.length > 0) {
+      const prev = result[result.length - 1];
+      const left = prev.text;
+      const right = segment.text;
+      if (
+        left &&
+        right &&
+        !/\s$/.test(left) &&
+        !/^\s/.test(right) &&
+        /[\p{L}\p{N}]$/u.test(left) &&
+        /^[\p{L}\p{N}]/u.test(right)
+      ) {
+        result.push({ text: " " });
+      }
+    }
+    result.push(segment);
+  }
+  return result;
+}
+
 export function parseRichMarkers(text: string): RichSegment[] {
   const source = String(text || "");
   if (!source) return [];
@@ -72,7 +99,7 @@ export function parseRichMarkers(text: string): RichSegment[] {
     cursor = next.index + next.token.length;
   }
 
-  return segments.filter((segment) => segment.text.length > 0);
+  return ensureSegmentWordGaps(segments.filter((segment) => segment.text.length > 0));
 }
 
 /** @deprecated use parseRichMarkers */
