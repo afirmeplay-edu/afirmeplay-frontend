@@ -116,7 +116,33 @@ function fontStyleFor(token: Pick<RichToken, "bold" | "italic">): "normal" | "bo
 function measureTokenWidth(doc: jsPDF, token: RichToken, fontSize: number): number {
   doc.setFont("helvetica", fontStyleFor(token));
   doc.setFontSize(fontSize);
+  if (/^\s+$/.test(token.text)) {
+    // Alguns builds do jsPDF reportam 0 para " "; deriva a largura pelo par "a a".
+    const measured = doc.getTextWidth(" ");
+    if (measured > 0) return measured * token.text.length;
+    const derived = doc.getTextWidth("a a") - doc.getTextWidth("aa");
+    return Math.max(derived, fontSize * 0.2) * token.text.length;
+  }
   return doc.getTextWidth(token.text);
+}
+
+/** Junta tokens consecutivos do mesmo estilo (inclui espaços) para o jsPDF avançar o cursor corretamente. */
+function coalesceRichLine(line: RichLine): RichLine {
+  const merged: RichLine = [];
+  line.forEach((token) => {
+    const last = merged[merged.length - 1];
+    if (
+      last &&
+      last.bold === token.bold &&
+      last.italic === token.italic &&
+      last.underline === token.underline
+    ) {
+      last.text += token.text;
+      return;
+    }
+    merged.push({ ...token });
+  });
+  return merged;
 }
 
 function splitOversizedToken(doc: jsPDF, token: RichToken, maxWidth: number, fontSize: number): RichToken[] {
@@ -229,17 +255,20 @@ function drawRichLine(
 ) {
   if (!line.length) return;
 
-  const lineWidth = measureRichLineWidth(doc, line, fontSize);
+  const runs = coalesceRichLine(line);
+  const lineWidth = measureRichLineWidth(doc, runs, fontSize);
   let x = areaX;
   if (align === "center") x = areaX + Math.max(0, (areaW - lineWidth) / 2);
   if (align === "right") x = areaX + Math.max(0, areaW - lineWidth);
 
   doc.setTextColor(...color);
-  line.forEach((token) => {
+  runs.forEach((token) => {
     doc.setFont("helvetica", fontStyleFor(token));
     doc.setFontSize(fontSize);
-    doc.text(token.text, x, y);
-    const tokenWidth = doc.getTextWidth(token.text);
+    const tokenWidth = measureTokenWidth(doc, token, fontSize);
+    if (token.text) {
+      doc.text(token.text, x, y);
+    }
     if (token.underline && token.text.trim()) {
       doc.setDrawColor(...color);
       doc.setLineWidth(0.18);
