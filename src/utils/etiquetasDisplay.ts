@@ -10,6 +10,37 @@ export const ETIQUETA_FONTE = 9;
 /** A partir desta quantidade, os aplicadores são dispostos em grade de 2 colunas. */
 export const ETIQUETA_APLICADORES_GRADE_MIN = 3;
 
+export const MARCADOR_QUANTIDADE = "{quantidade}";
+export const TEXTO_LIVRE_PADRAO_PROVAS = `Neste envelope contém **${MARCADOR_QUANTIDADE}** provas`;
+
+const MARCADOR_QUANTIDADE_RE = /\{quantidade\}/gi;
+/** Marcador seguido de "provas", com marcadores de formatação e espaços entre eles. */
+const MARCADOR_QUANTIDADE_PROVAS_RE = /\{quantidade\}((?:\*\*|\*|__|\s)*)(provas)(?![\p{L}\p{N}])/giu;
+
+export function textoTemMarcadorQuantidade(texto: string): boolean {
+  return /\{quantidade\}/i.test(texto || "");
+}
+
+/**
+ * Troca {quantidade} pelo número; sem quantidade (etiqueta sem turma), o marcador vira vazio.
+ * Com 1, o "provas" logo após o marcador vai para o singular.
+ */
+export function substituirQuantidade(texto: string, quantidade: number | null | undefined): string {
+  const source = texto || "";
+  if (quantidade === null || quantidade === undefined || !Number.isFinite(quantidade)) {
+    return source.replace(MARCADOR_QUANTIDADE_RE, "");
+  }
+  const valor = String(quantidade);
+  const singular =
+    quantidade === 1
+      ? source.replace(
+          MARCADOR_QUANTIDADE_PROVAS_RE,
+          (_match, entre: string, palavra: string) => `${valor}${entre}${palavra.slice(0, -1)}`
+        )
+      : source;
+  return singular.replace(MARCADOR_QUANTIDADE_RE, valor);
+}
+
 export type EtiquetaAplicador = EtiquetaAplicadorExtra;
 
 /** Aplicadores exibidos na etiqueta, na ordem (vazio se a assinatura estiver oculta). */
