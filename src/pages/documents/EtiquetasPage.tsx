@@ -30,8 +30,11 @@ import {
   enrichEtiquetasContext,
   etiquetaEscolaKey,
   etiquetasSerieTurmaTurnoLine,
+  substituirQuantidade,
   TEXTO_ACIMA_ASSINATURA_MAX,
+  TEXTO_LIVRE_PADRAO_PROVAS,
   TEXTO_LIVRE_TAMANHO_PADRAO,
+  textoTemMarcadorQuantidade,
 } from "@/utils/etiquetasDisplay";
 import { EtiquetaTextToolbar } from "@/components/documents/EtiquetaTextToolbar";
 import { EtiquetaPreviewDialog } from "@/components/documents/EtiquetaPreviewDialog";
@@ -194,7 +197,25 @@ const MODO_OPTIONS: { value: EtiquetasModo; label: string }[] = [
   { value: "manual", label: "Personalizável" },
   { value: "avaliacao", label: "Avaliação" },
   { value: "cartao_resposta", label: "Cartão resposta" },
+  { value: "provas", label: "Etiqueta de provas" },
 ];
+
+/** Quantidade só existe para etiquetas geradas a partir de uma turma. */
+function quantidadeDaEtiqueta(
+  label: EtiquetaEditItem,
+  context: EtiquetasDadosResponse | null
+): number | undefined {
+  return label.turmaId ? context?.contexto.quantidade_alunos : undefined;
+}
+
+function adapResumo(context: EtiquetasDadosResponse | null): string | null {
+  const adap = context?.contexto.adap;
+  if (!adap) return null;
+  const niveis = (["1", "2", "3"] as const).filter((nivel) => (adap[nivel] ?? 0) > 0);
+  if (!niveis.length) return null;
+  const total = niveis.reduce((sum, nivel) => sum + adap[nivel], 0);
+  return `ADAP: ${total} (${niveis.map((nivel) => `ADAP ${nivel}: ${adap[nivel]}`).join(", ")})`;
+}
 
 function onlyDigits(value: string): string {
   return value.replace(/\D/g, "");
@@ -752,7 +773,10 @@ export default function EtiquetasPage() {
         (entry, index) =>
           byTurma.get(entry.turmaId) ??
           labelCacheRef.current.get(entry.turmaId) ??
-          createEtiquetaItem(index + 1, { turmaId: entry.turmaId })
+          createEtiquetaItem(index + 1, {
+            turmaId: entry.turmaId,
+            ...(entry.context.modo === "provas" ? { textoLivre: TEXTO_LIVRE_PADRAO_PROVAS } : {}),
+          })
       );
       return [...auto, ...custom];
     });
@@ -777,6 +801,18 @@ export default function EtiquetasPage() {
 
   const resolveLabelTitle = (label: EtiquetaEditItem, context: EtiquetasDadosResponse | null): string =>
     label.titulo.trim() || globalTitle || context?.title_reference?.trim() || "";
+
+  /** Etiqueta como vai para a pré-visualização e o PDF (título final e, no modo provas, quantidade no texto). */
+  const resolveLabelForOutput = (
+    label: EtiquetaEditItem,
+    context: EtiquetasDadosResponse | null
+  ): EtiquetaEditItem => ({
+    ...label,
+    titulo: resolveLabelTitle(label, context),
+    ...(modo === "provas"
+      ? { textoLivre: substituirQuantidade(label.textoLivre, quantidadeDaEtiqueta(label, context)) }
+      : {}),
+  });
 
   const schoolKeyById = useMemo(
     () =>
@@ -990,7 +1026,7 @@ export default function EtiquetasPage() {
         return [
           {
             context,
-            label: { ...label, titulo: resolveLabelTitle(label, context) },
+            label: resolveLabelForOutput(label, context),
             grupo: schoolKeyById.get(label.id),
           },
         ];
@@ -1045,9 +1081,7 @@ export default function EtiquetasPage() {
   );
   const previewLabelIndex = previewLabel ? (labelNumberById.get(previewLabel.id) ?? 0) - 1 : -1;
   const previewContext = previewLabel ? resolveLabelContext(previewLabel) : null;
-  const previewLabelResolved = previewLabel
-    ? { ...previewLabel, titulo: resolveLabelTitle(previewLabel, previewContext) }
-    : null;
+  const previewLabelResolved = previewLabel ? resolveLabelForOutput(previewLabel, previewContext) : null;
 
   return (
     <div className="container mx-auto max-w-6xl space-y-6 p-4 md:p-6">
@@ -1473,7 +1507,30 @@ export default function EtiquetasPage() {
                               updateLabel(label.id, { textoLivreTamanho: value })
                             }
                             placeholder="Texto livre da etiqueta"
+                            showQuantidadeMarker={modo === "provas"}
                           />
+                          {modo === "provas" ? (
+                            <div className="space-y-0.5 text-xs">
+                              {quantidadeDaEtiqueta(label, labelContext) !== undefined ? (
+                                <p className="text-muted-foreground">
+                                  Quantidade de alunos:{" "}
+                                  <span className="font-semibold text-foreground">
+                                    {quantidadeDaEtiqueta(label, labelContext)}
+                                  </span>
+                                  {adapResumo(labelContext) ? ` · ${adapResumo(labelContext)}` : ""}
+                                </p>
+                              ) : null}
+                              {isCustom ? (
+                                <p className="text-amber-700 dark:text-amber-400">
+                                  Etiqueta sem turma: a quantidade não vai aparecer.
+                                </p>
+                              ) : !textoTemMarcadorQuantidade(label.textoLivre) ? (
+                                <p className="text-amber-700 dark:text-amber-400">
+                                  Texto sem {"{quantidade}"}: a quantidade não vai aparecer nesta etiqueta.
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
 
                         <div className="flex items-center space-x-2">

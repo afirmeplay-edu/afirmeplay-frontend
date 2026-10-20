@@ -1,4 +1,6 @@
-export type EtiquetasModo = "manual" | "avaliacao" | "cartao_resposta";
+export type EtiquetasModo = "manual" | "avaliacao" | "cartao_resposta" | "provas";
+
+export type EtiquetaAdapContagem = Record<"1" | "2" | "3", number>;
 
 export type EtiquetasDadosParams = {
   modo: EtiquetasModo;
@@ -28,6 +30,10 @@ export type EtiquetasDadosResponse = {
     /** Valor bruto da API (`class.shift`); preferir `turno` ou helper para exibição. */
     shift?: string;
     ano: number;
+    /** Só no modo "provas", com turma: alunos da turma. */
+    quantidade_alunos?: number;
+    /** Só no modo "provas", com turma: alunos por nível de subturma ADAP. */
+    adap?: EtiquetaAdapContagem;
   };
   modo: EtiquetasModo;
   title_reference?: string | null;
