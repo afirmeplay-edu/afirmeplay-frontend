@@ -21,6 +21,8 @@ type EtiquetaTextToolbarProps = {
   fontSize: number;
   onFontSizeChange: (value: number) => void;
   placeholder?: string;
+  /** Inclui {quantidade} na ajuda dos marcadores (modo "provas"). */
+  showQuantidadeMarker?: boolean;
 };
 
 export function EtiquetaTextToolbar({
@@ -32,6 +34,7 @@ export function EtiquetaTextToolbar({
   fontSize,
   onFontSizeChange,
   placeholder,
+  showQuantidadeMarker = false,
 }: EtiquetaTextToolbarProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const currentSize = clampFontSize(fontSize);
@@ -143,7 +146,7 @@ export function EtiquetaTextToolbar({
 
       <p className="text-xs text-muted-foreground">
         Use a barra para negrito, itálico, sublinhado e tamanho ({ETIQUETA_TEXTO_TAMANHO_MIN}–{ETIQUETA_TEXTO_TAMANHO_MAX} pt). Marcadores: **negrito**, *itálico*,
-        __sublinhado__.
+        __sublinhado__{showQuantidadeMarker ? ", {quantidade} (quantidade de alunos da turma)" : ""}.
       </p>
     </div>
   );
