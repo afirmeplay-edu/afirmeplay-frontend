@@ -35,7 +35,6 @@ const EvaluationCorrection = React.lazy(() => import("@/pages/evaluations/Evalua
 const ViewEvaluation = React.lazy(() => import("@/pages/evaluations/ViewEvaluation"));
 const CoverTemplatePage = React.lazy(() => import("@/pages/evaluations/CoverTemplatePage"));
 const SkillsHeatMapPage = React.lazy(() => import("@/pages/evaluations/SkillsHeatMapPage"));
-const AnaliseAvaliacoes = React.lazy(() => import("@/pages/evaluations/AnaliseAvaliacoes"));
 const SubjectiveEvaluations = React.lazy(() => import("@/pages/evaluations/subjective/SubjectiveEvaluations"));
 const CreateSubjectiveEvaluation = React.lazy(() => import("@/pages/evaluations/subjective/CreateSubjectiveEvaluation"));
 const ViewSubjectiveEvaluation = React.lazy(() => import("@/pages/evaluations/subjective/ViewSubjectiveEvaluation"));
@@ -52,6 +51,7 @@ const AnswerSheetCorrection = React.lazy(() => import("@/pages/answer-sheet/Answ
 
 // reports
 const RelatoriosAcertoNiveisHub = React.lazy(() => import("@/pages/reports/RelatoriosAcertoNiveisHub"));
+const RelatoriosAnaliseAvaliacoesHub = React.lazy(() => import("@/pages/reports/RelatoriosAnaliseAvaliacoesHub"));
 const RelatoriosRelatorioEscolarHub = React.lazy(() => import("@/pages/reports/RelatoriosRelatorioEscolarHub"));
 const RelatoriosRelatorioGeralHub = React.lazy(() => import("@/pages/reports/RelatoriosRelatorioGeralHub"));
 const RelatoriosResultadosHub = React.lazy(() => import("@/pages/reports/RelatoriosResultadosHub"));
@@ -466,7 +466,7 @@ const App = () => {
               <Route path="/app/questionario/responder/:formId" element={<PrivateRoute><QuestionarioRespond /></PrivateRoute>} />
 
               {/* Rotas de Relatórios */}
-              <Route path="/app/relatorios/analise-avaliacoes" element={<PrivateRoute><AnaliseAvaliacoes /></PrivateRoute>} />
+              <Route path="/app/relatorios/analise-avaliacoes" element={<PrivateRoute><RelatoriosAnaliseAvaliacoesHub /></PrivateRoute>} />
               <Route path="/app/relatorios/acerto-niveis" element={<PrivateRoute><RelatoriosAcertoNiveisHub /></PrivateRoute>} />
               <Route
                 path="/app/relatorios/acerto-niveis-cartao"
