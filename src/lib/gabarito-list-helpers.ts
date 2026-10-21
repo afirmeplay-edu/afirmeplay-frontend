@@ -38,6 +38,16 @@ export function generationClassLabelsFromSnapshot(gen: GabaritoGeneration): stri
   return s.class_ids.map(classEntryLabel).filter(Boolean);
 }
 
+/** Selo do formato do ZIP. Geração antiga, sem pdf_mode, é um PDF por aluno. */
+export function generationPdfModeLabel(gen: GabaritoGeneration): string {
+  const mode = gen.scope_snapshot && typeof gen.scope_snapshot === 'object'
+    ? gen.scope_snapshot.pdf_mode
+    : undefined;
+  if (mode === 'per_class') return 'Por turma';
+  if (mode === 'both') return 'Ambos';
+  return 'Por aluno';
+}
+
 export function formatGenerationScopeSummary(gen: GabaritoGeneration): string {
   const s = gen.scope_snapshot;
   if (!s || typeof s !== 'object') {
