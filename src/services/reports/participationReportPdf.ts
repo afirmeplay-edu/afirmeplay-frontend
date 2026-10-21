@@ -184,6 +184,18 @@ async function drawCoverPage(
     { label: 'AVALIADOS', value: formatNumber(metricas.avaliados) },
     { label: 'TURMAS (TOTAL)', value: formatNumber(metricas.total_turmas) },
     { label: 'PARTICIPAÇÃO', value: formatPercent(metricas.percentual_participacao) },
+    ...(metricas.participacao_completa
+      ? [{
+          label: 'PARTICIPAÇÃO COMPLETA',
+          value: `${formatNumber(metricas.participacao_completa.presentes)} (${formatPercent(metricas.participacao_completa.percentual)})`,
+        }]
+      : []),
+    ...(metricas.participacao_pelo_menos_uma
+      ? [{
+          label: 'PELO MENOS UMA',
+          value: `${formatNumber(metricas.participacao_pelo_menos_uma.presentes)} (${formatPercent(metricas.participacao_pelo_menos_uma.percentual)})`,
+        }]
+      : []),
     { label: 'GERADO EM', value: dataGeracao },
   ];
 

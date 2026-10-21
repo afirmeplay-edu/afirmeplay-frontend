@@ -13,6 +13,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { FormFiltersApiService } from "@/services/formFiltersApi";
 import { EvaluationResultsApiService, REPORT_ENTITY_TYPE_ANSWER_SHEET } from "@/services/evaluation/evaluationResultsApi";
 import { EvaluationInstrumentPicker } from "@/components/filters";
+import { AlunosFiltroSelect } from "@/components/filters/AlunosFiltroSelect";
+import { RESULTADOS_ALUNOS_FILTRO_PADRAO } from "@/constants/resultadosAlunosFiltro";
 import { RelatorioConsolidadoItensPicker } from "@/components/reports/relatorio-geral/RelatorioConsolidadoItensPicker";
 import { FormMultiSelect } from "@/components/ui/form-multi-select";
 import {
@@ -106,6 +108,7 @@ export default function RankingHub() {
   const [evaluationItems, setEvaluationItems] = useState<RankingItemOption[]>([]);
   const [answerSheetItems, setAnswerSheetItems] = useState<RankingItemOption[]>([]);
   const [periodPickerOpen, setPeriodPickerOpen] = useState(false);
+  const [selectedAlunos, setSelectedAlunos] = useState(RESULTADOS_ALUNOS_FILTRO_PADRAO);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [periodDraft, setPeriodDraft] = useState(() => {
     const now = new Date();
@@ -202,6 +205,15 @@ export default function RankingHub() {
     } else {
       delete base.disciplina;
     }
+    const enviaAlunos =
+      rankingEntityTab === "avaliacao" &&
+      selectedEvaluationIds.length > 0 &&
+      selectedAnswerSheetIds.length === 0;
+    if (enviaAlunos) {
+      base.alunos = selectedAlunos;
+    } else {
+      delete base.alunos;
+    }
     return base;
   }, [
     filters,
@@ -211,6 +223,8 @@ export default function RankingHub() {
     tab,
     schoolIdForOtherTabs,
     disciplinaForSharedQuery,
+    rankingEntityTab,
+    selectedAlunos,
   ]);
   const rankingQueryKey = useMemo(
     () =>
@@ -227,6 +241,7 @@ export default function RankingHub() {
         selectedAnswerSheetIds.join(","),
         requestFilters.scope || "",
         disciplinaForSharedQuery,
+        requestFilters.alunos || "",
       ] as const,
     [
       filters.estado,
@@ -240,6 +255,7 @@ export default function RankingHub() {
       selectedAnswerSheetIds,
       disciplinaForSharedQuery,
       requestFilters.scope,
+      requestFilters.alunos,
     ]
   );
   const normalizedSelectedPeriod = useMemo(
@@ -1061,6 +1077,10 @@ export default function RankingHub() {
               </PopoverContent>
             </Popover>
           </div>
+
+          {rankingEntityTab === "avaliacao" && selectedEvaluationIds.length > 0 ? (
+            <AlunosFiltroSelect value={selectedAlunos} onChange={setSelectedAlunos} />
+          ) : null}
 
           {rankingEntityTab === "avaliacao" ? (
             allowMultiInstruments ? (

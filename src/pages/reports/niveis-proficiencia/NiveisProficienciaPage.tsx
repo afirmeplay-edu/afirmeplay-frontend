@@ -4,6 +4,7 @@ import { canFilterByAreaType } from '@/lib/schoolAreaType';
 import { Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { CLASS_SHIFT_OPTIONS } from '@/lib/classShift';
+import { RESULTADOS_ALUNOS_FILTRO_PADRAO, type ResultadosAlunosFiltro } from '@/constants/resultadosAlunosFiltro';
 import { normalizeResultsPeriodYm } from '@/utils/resultsPeriod';
 import {
   fetchAnswerSheetFilterOptions,
@@ -76,6 +77,7 @@ type BranchState = {
   turno: string;
   nivel: string;
   disciplina: string;
+  alunos: ResultadosAlunosFiltro;
   estados: FilterEntity[];
   municipios: FilterEntity[];
   escolas: FilterEntity[];
@@ -94,6 +96,7 @@ const initialBranch = (): BranchState => ({
   turno: 'all',
   nivel: 'all',
   disciplina: 'all',
+  alunos: RESULTADOS_ALUNOS_FILTRO_PADRAO,
   estados: [],
   municipios: [],
   escolas: [],
@@ -143,6 +146,7 @@ export default function NiveisProficienciaPage() {
     setOnline((prev) => ({
       ...initialBranch(),
       estados: prev.estados,
+      alunos: prev.alunos,
     }));
     setCartao((prev) => ({
       ...initialBranch(),
@@ -351,7 +355,7 @@ export default function NiveisProficienciaPage() {
         ...(periodoYm ? { periodo: periodoYm } : {}),
         ...(branch.tipoArea !== 'all' ? { tipo_area: branch.tipoArea } : {}),
         ...(fonte === 'online'
-          ? { avaliacao: branch.instrumento }
+          ? { avaliacao: branch.instrumento, alunos: branch.alunos }
           : { gabarito: branch.instrumento }),
       };
       const data =
@@ -382,6 +386,7 @@ export default function NiveisProficienciaPage() {
     branch.turno,
     branch.nivel,
     branch.disciplina,
+    branch.alunos,
     fonte,
     periodoYm,
     toast,
@@ -458,6 +463,7 @@ export default function NiveisProficienciaPage() {
         turno={branch.turno}
         nivel={branch.nivel}
         disciplina={branch.disciplina}
+        alunos={branch.alunos}
         onEstadoChange={(v) => {
           setDisciplinas([]);
           patchBranch({
@@ -498,6 +504,7 @@ export default function NiveisProficienciaPage() {
         onTurmaChange={(v) => patchBranch({ turma: v })}
         onTurnoChange={(v) => patchBranch({ turno: v })}
         onNivelChange={(v) => patchBranch({ nivel: v })}
+        onAlunosChange={(v) => patchBranch({ alunos: v })}
         onDisciplinaChange={(v) => patchBranch({ disciplina: v })}
         estados={branch.estados}
         municipios={branch.municipios}

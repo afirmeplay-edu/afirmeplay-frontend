@@ -1,5 +1,6 @@
 import type { ProficiencyLevelsAluno } from '@/services/evaluation/proficiencyLevelsApi';
 import {
+  isBlankProficiencyLevel,
   normalizeProficiencyLevelLabel,
   type ReportProficiencyLabel,
 } from '@/utils/report/reportTagStyles';
@@ -24,6 +25,7 @@ export function buildHomogeneousGroups(
   const buckets = new Map<string, ProficiencyLevelsAluno[]>();
 
   for (const aluno of list) {
+    if (isBlankProficiencyLevel(aluno.nivel)) continue;
     const serie = (aluno.serie || 'Sem série').trim() || 'Sem série';
     const nivel = normalizeProficiencyLevelLabel(aluno.nivel);
     const key = `${serie}||${nivel}`;

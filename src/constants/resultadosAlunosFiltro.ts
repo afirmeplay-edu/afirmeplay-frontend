@@ -21,3 +21,21 @@ export function labelResultadosAlunosFiltro(value: string): string {
     "Regular"
   );
 }
+
+const RESULTADOS_FILTROS_STORAGE_KEY = "results_filters";
+
+/** Valor de Alunos gravado pela tela de Resultados. Ausente ou inválido volta para regular. */
+export function readResultadosAlunosFiltroSalvo(): ResultadosAlunosFiltro {
+  try {
+    const stored =
+      sessionStorage.getItem(RESULTADOS_FILTROS_STORAGE_KEY) ??
+      localStorage.getItem(RESULTADOS_FILTROS_STORAGE_KEY);
+    if (!stored) return RESULTADOS_ALUNOS_FILTRO_PADRAO;
+    const filters = JSON.parse(stored) as { selectedAlunos?: unknown };
+    return isResultadosAlunosFiltro(filters.selectedAlunos)
+      ? filters.selectedAlunos
+      : RESULTADOS_ALUNOS_FILTRO_PADRAO;
+  } catch {
+    return RESULTADOS_ALUNOS_FILTRO_PADRAO;
+  }
+}
