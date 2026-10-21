@@ -65,7 +65,9 @@ import {
   RESULTS_MONTH_NAMES_PT,
 } from "@/utils/resultsPeriod";
 import { DisciplineTables } from "@/components/evaluations/results/DisciplineTables";
+import { AdapStudentCard } from "@/components/evaluations/results/AdapStudentCard";
 import { StudentCard } from "@/components/evaluations/student/StudentCard";
+import { resumoTabelaAdap } from "@/utils/evaluation/tabelaAdap";
 import { QuestionData as TableQuestionData, DetailedReport as TableDetailedReport } from "@/types/results-table";
 import { generatePendingStudentsPdf } from "@/services/reports/pendingStudentsPdf";
 import { generateRankingPdf } from "@/services/reports/rankingPdf";
@@ -1838,6 +1840,11 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
     );
   }, [transformedStudents]);
 
+  const tabelaAdapRows = useMemo(
+    () => (Array.isArray(apiData?.tabela_adap) ? apiData.tabela_adap : []),
+    [apiData?.tabela_adap]
+  );
+
   /** Ranking = sempre `apiData.ranking[]` do backend (posição e critério do servidor). */
   const rankingStudents = useMemo(() => {
     if (!apiData?.ranking?.length) return [];
@@ -2188,6 +2195,8 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
       escola: a.escola,
       serie: a.serie,
       turma: a.turma,
+      adap_nivel: a.adap_nivel,
+      adap_rotulo: a.adap_rotulo,
     }));
   }, [apiData?.estatisticas_gerais]);
 
@@ -2260,7 +2269,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
   const [isExportingCardsPdf, setIsExportingCardsPdf] = useState(false);
 
   const handleExportCardsPdf = useCallback(async () => {
-    if (filteredStudents.length === 0 || isExportingCardsPdf) return;
+    if ((filteredStudents.length === 0 && tabelaAdapRows.length === 0) || isExportingCardsPdf) return;
     setIsExportingCardsPdf(true);
     try {
       await generateStudentCardsPdf({
@@ -2268,20 +2277,44 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
         filterLabels: rankingPdfFilterLabels,
         cityId: selectedMunicipality !== 'all' ? selectedMunicipality : null,
         subjects: derivedSubjects,
-        students: filteredStudents.map((s) => ({
-          nome: s.nome,
-          turma: s.turma,
-          escola: (s as { escola?: string }).escola,
-          serie: (s as { serie?: string }).serie,
-          nota: s.nota,
-          proficiencia: s.proficiencia,
-          classificacao: s.classificacao,
-          status: s.status,
-          questoes_respondidas: s.questoes_respondidas,
-          acertos: s.acertos,
-          erros: s.erros,
-          totalQuestions: computedTotalQuestions || s.questoes_respondidas || 0,
-        })),
+        students: [
+          ...filteredStudents.map((s) => ({
+            nome: s.nome,
+            turma: s.turma,
+            escola: (s as { escola?: string }).escola,
+            serie: (s as { serie?: string }).serie,
+            nota: s.nota,
+            proficiencia: s.proficiencia,
+            classificacao: s.classificacao,
+            status: s.status,
+            questoes_respondidas: s.questoes_respondidas,
+            acertos: s.acertos,
+            erros: s.erros,
+            totalQuestions: computedTotalQuestions || s.questoes_respondidas || 0,
+          })),
+          ...tabelaAdapRows.map((aluno) => ({
+            nome: aluno.nome,
+            turma: aluno.turma,
+            nota: 0,
+            proficiencia: 0,
+            classificacao: "",
+            status: "pendente" as const,
+            questoes_respondidas: 0,
+            acertos: 0,
+            erros: 0,
+            totalQuestions: 0,
+            adap: {
+              rotulo: aluno.rotulo || `ADAP ${aluno.nivel}`,
+              situacao: aluno.situacao,
+              nota: aluno.situacao === "participou" ? aluno.nota ?? null : null,
+              proficiencia: aluno.situacao === "participou" ? aluno.proficiencia ?? null : null,
+              classificacao: aluno.situacao === "participou" ? aluno.classificacao ?? null : null,
+              acertos: aluno.situacao === "participou" ? aluno.acertos ?? null : null,
+              totalQuestoes: aluno.situacao === "participou" ? aluno.total_questoes ?? null : null,
+              provaOrigem: aluno.prova_origem_titulo ?? null,
+            },
+          })),
+        ],
         fileNameBase: `resultados-alunos-${evaluationInfo?.titulo ?? 'avaliacao'}`,
       });
       toast({ title: 'PDF gerado', description: 'Os cards dos alunos foram exportados com sucesso.' });
@@ -2297,6 +2330,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
     }
   }, [
     filteredStudents,
+    tabelaAdapRows,
     isExportingCardsPdf,
     evaluationInfo?.titulo,
     rankingPdfFilterLabels,
@@ -2950,7 +2984,8 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                       <CardTitle className="flex items-center justify-between">
                         <span>Resultados dos Alunos</span>
                         <Badge variant="outline">
-                          {filteredStudents.length} {filteredStudents.length === 1 ? 'aluno' : 'alunos'}
+                          {filteredStudents.length + tabelaAdapRows.length}{" "}
+                          {filteredStudents.length + tabelaAdapRows.length === 1 ? "aluno" : "alunos"}
                         </Badge>
                       </CardTitle>
                     </CardHeader>
@@ -3007,7 +3042,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                         </div>
                       )}
                       
-                      {filteredStudents.length > 0 ? (
+                      {filteredStudents.length > 0 || tabelaAdapRows.length > 0 ? (
                         <>
 
 
@@ -3065,7 +3100,14 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
 
                           {/* Conteúdo baseado no modo de visualização */}
                           {viewMode === 'table' ? (
-                            isTableReady && !isLoadingStudents && apiData?.tabela_detalhada ? (
+                            filteredStudents.length === 0 && tabelaAdapRows.length > 0 ? (
+                              <DisciplineTables
+                                tabelaDetalhada={{ disciplinas: [] }}
+                                tabelaAdap={tabelaAdapRows}
+                                onViewStudentDetails={handleViewStudentDetails}
+                                onOpenInNewTab={handleOpenInNewTab}
+                              />
+                            ) : isTableReady && !isLoadingStudents && apiData?.tabela_detalhada ? (
                               <DisciplineTables
                                 tabelaDetalhada={{
                                   disciplinas: apiData.tabela_detalhada.disciplinas ?? [],
@@ -3088,11 +3130,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                                     }))
                                   } : undefined
                                 }}
-                                tabelaAdap={
-                                  Array.isArray(apiData.tabela_adap) && apiData.tabela_adap.length > 0
-                                    ? apiData.tabela_adap
-                                    : undefined
-                                }
+                                tabelaAdap={tabelaAdapRows.length > 0 ? tabelaAdapRows : undefined}
                                 onViewStudentDetails={handleViewStudentDetails}
                                 onOpenInNewTab={handleOpenInNewTab}
                               />
@@ -3110,27 +3148,36 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                               </div>
                             )
                           ) : (
-                            /* Visão em Cards Melhorada */
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5">
-                              {filteredStudents.map((student, index) => (
-                                <StudentCard
-                                  key={`${student.id}-${index}`}
-                                  student={student}
-                                  totalQuestions={computedTotalQuestions || student.questoes_respondidas || 0}
-                                  subjects={derivedSubjects}
-                                  onViewDetails={handleViewStudentDetails}
-                                />
-                              ))}
+                            <div className="space-y-6">
+                              {filteredStudents.length > 0 && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5">
+                                  {filteredStudents.map((student, index) => (
+                                    <StudentCard
+                                      key={`${student.id}-${index}`}
+                                      student={student}
+                                      totalQuestions={computedTotalQuestions || student.questoes_respondidas || 0}
+                                      subjects={derivedSubjects}
+                                      onViewDetails={handleViewStudentDetails}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                              {tabelaAdapRows.length > 0 && (
+                                <div className="space-y-3">
+                                  <div>
+                                    <h3 className="text-base font-semibold text-foreground">Alunos ADAP</h3>
+                                    <p className="text-sm text-muted-foreground">{resumoTabelaAdap(tabelaAdapRows)}</p>
+                                  </div>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5">
+                                    {tabelaAdapRows.map((aluno) => (
+                                      <AdapStudentCard key={aluno.id} aluno={aluno} />
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
-              )}
+                          )}
             </>
-                      ) : Array.isArray(apiData?.tabela_adap) && apiData.tabela_adap.length > 0 ? (
-                        <DisciplineTables
-                          tabelaDetalhada={{ disciplinas: [] }}
-                          tabelaAdap={apiData.tabela_adap}
-                          onViewStudentDetails={handleViewStudentDetails}
-                          onOpenInNewTab={handleOpenInNewTab}
-                        />
                       ) : (
                         <div className="text-center py-12">
                           <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">

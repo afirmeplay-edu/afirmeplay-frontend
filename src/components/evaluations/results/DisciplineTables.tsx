@@ -13,6 +13,12 @@ import { TableLegend } from '../results-table/TableLegend';
 import { getSubjectColors } from '@/utils/competition/competitionSubjectColors';
 import { getReportProficiencyTagClass, normalizeProficiencyLevelLabel } from '@/utils/report/reportTagStyles';
 import { formatDecimal1PtBr } from '@/utils/numberFormat';
+import {
+  adapTemResultado,
+  classeBadgeSituacaoAdap,
+  labelSituacaoAdap,
+  resumoTabelaAdap,
+} from '@/utils/evaluation/tabelaAdap';
 import type { DisciplineMetricCell } from '@/types/results-table';
 
 function isNomeDisciplinaGeral(nome: string): boolean {
@@ -875,8 +881,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
               <div className="min-w-0">
                 <h2 className="text-lg sm:text-xl font-bold">Alunos ADAP</h2>
                 <p className="text-teal-100 text-xs sm:text-sm">
-                  {tabelaAdap.length}{" "}
-                  {tabelaAdap.length === 1 ? "aluno" : "alunos"} · resultado da prova pareada
+                  {resumoTabelaAdap(tabelaAdap)}
                 </p>
               </div>
             </CardTitle>
@@ -910,22 +915,22 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                       {aluno.prova_origem_titulo || "—"}
                     </td>
                     <td className="px-3 py-3 text-center">
-                      {aluno.situacao === "participou" && aluno.acertos != null && aluno.total_questoes != null
+                      {adapTemResultado(aluno.situacao) && aluno.acertos != null && aluno.total_questoes != null
                         ? `${aluno.acertos}/${aluno.total_questoes}`
                         : "—"}
                     </td>
                     <td className="px-3 py-3 text-center">
-                      {aluno.situacao === "participou" && aluno.nota != null
+                      {adapTemResultado(aluno.situacao) && aluno.nota != null
                         ? formatDecimal1PtBr(aluno.nota)
                         : "—"}
                     </td>
                     <td className="px-3 py-3 text-center">
-                      {aluno.situacao === "participou" && aluno.proficiencia != null
+                      {adapTemResultado(aluno.situacao) && aluno.proficiencia != null
                         ? formatDecimal1PtBr(aluno.proficiencia)
                         : "—"}
                     </td>
                     <td className="px-3 py-3">
-                      {aluno.classificacao ? (
+                      {adapTemResultado(aluno.situacao) && aluno.classificacao ? (
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${getReportProficiencyTagClass(
                             normalizeProficiencyLevelLabel(aluno.classificacao)
@@ -938,15 +943,8 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                       )}
                     </td>
                     <td className="px-3 py-3">
-                      <Badge
-                        variant="outline"
-                        className={
-                          aluno.situacao === "participou"
-                            ? "border-green-300 text-green-700 dark:text-green-400"
-                            : "border-red-300 text-red-600 dark:text-red-400"
-                        }
-                      >
-                        {aluno.situacao === "participou" ? "Participou" : "Pendente"}
+                      <Badge variant="outline" className={classeBadgeSituacaoAdap(aluno.situacao)}>
+                        {labelSituacaoAdap(aluno.situacao)}
                       </Badge>
                     </td>
                   </tr>

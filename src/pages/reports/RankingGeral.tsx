@@ -11,6 +11,8 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FormFiltersApiService } from "@/services/formFiltersApi";
 import { EvaluationResultsApiService } from "@/services/evaluation/evaluationResultsApi";
+import { AlunosFiltroSelect } from "@/components/filters/AlunosFiltroSelect";
+import { RESULTADOS_ALUNOS_FILTRO_PADRAO } from "@/constants/resultadosAlunosFiltro";
 import { RelatorioConsolidadoItensPicker } from "@/components/reports/relatorio-geral/RelatorioConsolidadoItensPicker";
 import {
   RankingApiService,
@@ -65,6 +67,7 @@ export default function RankingGeral() {
   const [turmas, setTurmas] = useState<FilterOption[]>([]);
   const [evaluationItems, setEvaluationItems] = useState<RankingItemOption[]>([]);
   const [periodPickerOpen, setPeriodPickerOpen] = useState(false);
+  const [selectedAlunos, setSelectedAlunos] = useState(RESULTADOS_ALUNOS_FILTRO_PADRAO);
   const [periodDraft, setPeriodDraft] = useState(() => {
     const now = new Date();
     return { y: now.getFullYear(), m: now.getMonth() };
@@ -302,6 +305,7 @@ export default function RankingGeral() {
       ...(filters.serie ? { serie: filters.serie } : {}),
       ...(turmaNomeFromFilter ? { turma_nome: turmaNomeFromFilter } : {}),
       ...(turnoFilter ? { turno: turnoFilter } : {}),
+      alunos: selectedAlunos,
     };
   }, [
     selectedEvaluationIds,
@@ -310,6 +314,7 @@ export default function RankingGeral() {
     filters.serie,
     turmaNomeFromFilter,
     turnoFilter,
+    selectedAlunos,
   ]);
 
   const rankingQuery = useQuery({
@@ -322,6 +327,7 @@ export default function RankingGeral() {
       requestFilters?.serie,
       requestFilters?.turma_nome,
       requestFilters?.turno,
+      requestFilters?.alunos,
       (requestFilters?.evaluation_ids || [requestFilters?.evaluation_id]).filter(Boolean).join(","),
       page,
     ],
@@ -579,6 +585,8 @@ export default function RankingGeral() {
               </PopoverContent>
             </Popover>
           </div>
+
+          <AlunosFiltroSelect value={selectedAlunos} onChange={setSelectedAlunos} />
 
           <RelatorioConsolidadoItensPicker
             label="Avaliações"

@@ -13,6 +13,11 @@ import {
   ResultsPeriodMonthYearPicker,
 } from '@/components/filters';
 import { REPORT_ENTITY_TYPE_ANSWER_SHEET } from '@/services/evaluation/evaluationResultsApi';
+import {
+  isResultadosAlunosFiltro,
+  RESULTADOS_ALUNOS_OPCOES,
+  type ResultadosAlunosFiltro,
+} from '@/constants/resultadosAlunosFiltro';
 import { getClassShiftLabel } from '@/lib/classShift';
 import { cn } from '@/lib/utils';
 import { PROFICIENCY_LEVELS } from '../lib/proficiencyLevelTokens';
@@ -45,6 +50,7 @@ type FiltrosPainelProps = {
   turno: string;
   nivel: string;
   disciplina: string;
+  alunos: ResultadosAlunosFiltro;
 
   onEstadoChange: (v: string) => void;
   onMunicipioChange: (v: string) => void;
@@ -54,6 +60,7 @@ type FiltrosPainelProps = {
   onTurmaChange: (v: string) => void;
   onTurnoChange: (v: string) => void;
   onNivelChange: (v: string) => void;
+  onAlunosChange: (v: ResultadosAlunosFiltro) => void;
   onDisciplinaChange: (v: string) => void;
 
   estados: FilterEntity[];
@@ -286,6 +293,29 @@ export function FiltrosPainel(props: FiltrosPainelProps) {
               </SelectContent>
             </Select>
           </div>
+
+          {isOnline ? (
+            <div>
+              <FieldLabel>Alunos</FieldLabel>
+              <Select
+                value={props.alunos}
+                onValueChange={(next) => {
+                  if (isResultadosAlunosFiltro(next)) props.onAlunosChange(next);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Alunos" />
+                </SelectTrigger>
+                <SelectContent>
+                  {RESULTADOS_ALUNOS_OPCOES.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
 
           <div>
             <FieldLabel>Nível de proficiência</FieldLabel>

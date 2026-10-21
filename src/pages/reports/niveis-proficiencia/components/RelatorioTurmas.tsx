@@ -9,6 +9,7 @@ import {
   formatPercent,
   getLevelSurfaceClasses,
 } from '../lib/proficiencyLevelTokens';
+import { isBlankProficiencyLevel } from '@/utils/report/reportTagStyles';
 import { NivelBadge } from './NivelBadge';
 
 type RelatorioTurmasProps = {
@@ -108,7 +109,7 @@ export function RelatorioTurmas({ porTurma }: RelatorioTurmasProps) {
                       </tr>
                     </thead>
                     <tbody>
-                      {(turma.alunos || []).map((aluno, i) => {
+                      {(turma.alunos || []).filter((aluno) => !isBlankProficiencyLevel(aluno.nivel)).map((aluno, i) => {
                         const surface = getLevelSurfaceClasses(aluno.nivel);
                         return (
                           <tr key={aluno.id || `${i}`} className="border-b border-border/50 last:border-0">
@@ -130,7 +131,7 @@ export function RelatorioTurmas({ porTurma }: RelatorioTurmasProps) {
                           </tr>
                         );
                       })}
-                      {(turma.alunos || []).length === 0 ? (
+                      {(turma.alunos || []).filter((aluno) => !isBlankProficiencyLevel(aluno.nivel)).length === 0 ? (
                         <tr>
                           <td colSpan={7} className="py-6 text-center text-muted-foreground">
                             Sem alunos nesta turma.

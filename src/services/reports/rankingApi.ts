@@ -18,6 +18,8 @@ export interface RankingFilters {
   answer_sheet_id?: string;
   /** CSV de IDs de cartão — equivalente a evaluation_ids. */
   answer_sheet_ids?: string;
+  /** Só com evaluation_id na aba online. */
+  alunos?: string;
 }
 
 export interface RankingResponseItem {
@@ -484,6 +486,7 @@ export class RankingApiService {
       "serie",
       "turma_nome",
       "turno",
+      "alunos",
     ];
     for (const key of optionalKeys) {
       const value = String(filters[key] || "").trim();
@@ -537,6 +540,7 @@ export interface ClassPeerRankingFilters {
   serie?: string;
   turma_nome?: string;
   turno?: string;
+  alunos?: string;
 }
 
 export interface ClassPeerSubjectMetrics {

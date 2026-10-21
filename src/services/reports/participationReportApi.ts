@@ -1,3 +1,4 @@
+import { isResultadosAlunosFiltro } from '@/constants/resultadosAlunosFiltro';
 import { api } from '@/lib/api';
 import { REPORT_ENTITY_TYPE_ANSWER_SHEET } from '@/services/evaluation/evaluationResultsApi';
 import type {
@@ -37,6 +38,13 @@ function buildQuery(params: ParticipationOpcoesFiltrosParams | ParticipationResu
   setCsvParam(q, 'escolas', params.escolas);
   setCsvParam(q, 'series', params.series);
   setCsvParam(q, 'turmas', params.turmas);
+  if (
+    !params.report_entity_type &&
+    'alunos' in params &&
+    isResultadosAlunosFiltro(params.alunos)
+  ) {
+    q.set('alunos', params.alunos);
+  }
   const s = q.toString();
   return s ? `?${s}` : '';
 }

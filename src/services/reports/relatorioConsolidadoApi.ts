@@ -1,3 +1,4 @@
+import { isResultadosAlunosFiltro } from '@/constants/resultadosAlunosFiltro';
 import { api } from '@/lib/api';
 import type {
   OpcoesFiltrosCartao,
@@ -21,6 +22,7 @@ export type RelatorioConsolidadoParams = {
   estado?: string;
   itemIds: string[];
   tipo_area?: string;
+  alunos?: string;
 };
 
 function withCityMeta(municipio?: string) {
@@ -106,6 +108,9 @@ export class RelatorioConsolidadoApiService {
     if (params.estado && params.estado !== 'all') q.set('estado', params.estado);
     if (params.tipo_area && params.tipo_area !== 'all') q.set('tipo_area', params.tipo_area);
     q.set(flow === 'cartao' ? 'gabarito_ids' : 'avaliacao_ids', ids.join(','));
+    if (flow === 'digital' && isResultadosAlunosFiltro(params.alunos)) {
+      q.set('alunos', params.alunos);
+    }
 
     const url = `${basePath(flow)}?${q.toString()}`;
     const { data } = await api.get<RelatorioConsolidado>(url, withCityMeta(params.municipio));

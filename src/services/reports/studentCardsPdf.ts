@@ -11,6 +11,7 @@ import {
 } from '@/services/reports/rankingPdf';
 import { normalizeProficiencyLevelLabel, type ReportProficiencyLabel } from '@/utils/report/reportTagStyles';
 import { formatDecimal1PtBr, formatPercent1PtBr } from '@/utils/numberFormat';
+import { labelSituacaoAdap } from '@/utils/evaluation/tabelaAdap';
 
 type RGB = [number, number, number];
 
@@ -33,6 +34,21 @@ const C = {
 const STATUS_COLORS: Record<'concluida' | 'pendente', RGB> = {
   concluida: [34, 197, 94],
   pendente: [234, 179, 8],
+};
+
+const ADAP = {
+  header: [15, 118, 110] as RGB,
+  headerTint: [13, 148, 136] as RGB,
+  boxBg: [240, 253, 250] as RGB,
+  boxBorder: [153, 246, 228] as RGB,
+  value: [17, 94, 89] as RGB,
+  label: [15, 118, 110] as RGB,
+};
+
+const ADAP_SITUACAO_COLORS: Record<string, RGB> = {
+  participou: [22, 163, 74],
+  pendente: [217, 119, 6],
+  inconsistente: [220, 38, 38],
 };
 
 const LEVEL_COLORS: Record<ReportProficiencyLabel, RGB> = {
@@ -58,6 +74,17 @@ const HEADER_H = 18;
 const SECTION_TOP = 15;
 const CARDS_TOP = 27;
 
+export type StudentCardsPdfAdap = {
+  rotulo: string;
+  situacao: string;
+  nota: number | null;
+  proficiencia: number | null;
+  classificacao: string | null;
+  acertos: number | null;
+  totalQuestoes: number | null;
+  provaOrigem: string | null;
+};
+
 export type StudentCardsPdfStudent = {
   nome: string;
   turma?: string;
@@ -71,6 +98,8 @@ export type StudentCardsPdfStudent = {
   acertos: number;
   erros: number;
   totalQuestions: number;
+  /** Quando presente, o card mostra o bloco ADAP e ignora nota/status regulares. */
+  adap?: StudentCardsPdfAdap;
 };
 
 type StudentGroup = {
@@ -189,6 +218,135 @@ function drawStatBox(
   doc.setFontSize(6);
   doc.setTextColor(...opts.label);
   doc.text(label, tx, y + h - 1.6, { align: opts.align });
+}
+
+function formatOuTraco(valor: number | null | undefined): string {
+  if (valor == null || Number.isNaN(Number(valor))) return '—';
+  return formatDecimal1PtBr(valor);
+}
+
+function drawAdapStudentCard(doc: jsPDF, x: number, y: number, w: number, student: StudentCardsPdfStudent): void {
+  const adap = student.adap;
+  if (!adap) return;
+  const h = CARD_H;
+  const pad = 3;
+  const comResultado = adap.situacao === 'participou';
+
+  doc.setFillColor(...C.white);
+  doc.roundedRect(x, y, w, h, 2, 2, 'F');
+
+  doc.setFillColor(...ADAP.header);
+  doc.roundedRect(x, y, w, HEADER_H, 2, 2, 'F');
+  doc.rect(x, y + HEADER_H - 2, w, 2, 'F');
+
+  doc.setFillColor(...ADAP.headerTint);
+  doc.circle(x + pad + 3, y + 6.2, 3, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.4);
+  doc.setTextColor(...C.white);
+  doc.text('A', x + pad + 3, y + 7.2, { align: 'center' });
+
+  const turmaLabel = (student.turma || '').trim() || '—';
+  doc.setFontSize(6.6);
+  const turmaText = fitText(doc, turmaLabel, 22);
+  const turmaW = doc.getTextWidth(turmaText) + 3.6;
+  drawPill(doc, x + w - pad - turmaW, y + 2.6, turmaText, { fill: ADAP.headerTint, text: C.white });
+
+  const nameX = x + pad + 8;
+  const nameMaxW = w - (nameX - x) - turmaW - pad - 2;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.4);
+  doc.setTextColor(...C.white);
+  const wrapped = doc.splitTextToSize((student.nome || '—').trim(), nameMaxW) as string[];
+  if (wrapped.length <= 1) {
+    doc.text(wrapped[0] ?? '—', nameX, y + 7);
+  } else {
+    const second = wrapped.slice(1).join(' ');
+    doc.text(wrapped[0], nameX, y + 5.6);
+    doc.text(fitText(doc, second, nameMaxW), nameX, y + 9.1);
+  }
+
+  const situacaoFill = ADAP_SITUACAO_COLORS[adap.situacao] ?? C.textGray;
+  let bx = x + pad;
+  bx += drawPill(doc, bx, y + 11.8, fitText(doc, adap.rotulo || 'ADAP', 28), {
+    fill: C.white,
+    text: ADAP.header,
+  });
+  drawPill(doc, bx + 1.5, y + 11.8, labelSituacaoAdap(adap.situacao), {
+    fill: situacaoFill,
+    text: C.white,
+  });
+
+  const innerX = x + pad;
+  const innerW = w - pad * 2;
+  let cy = y + HEADER_H + 3;
+  const halfW = (innerW - 2) / 2;
+  drawStatBox(doc, innerX, cy, halfW, 8.5, comResultado ? formatOuTraco(adap.nota) : '—', 'Nota', {
+    fill: C.mutedBg,
+    border: C.border,
+    value: C.textDark,
+    label: C.textGray,
+    valueSize: 10,
+    align: 'left',
+  });
+  drawStatBox(
+    doc,
+    innerX + halfW + 2,
+    cy,
+    halfW,
+    8.5,
+    comResultado ? formatOuTraco(adap.proficiencia) : '—',
+    'Proficiência',
+    {
+      fill: ADAP.boxBg,
+      border: ADAP.boxBorder,
+      value: ADAP.value,
+      label: ADAP.label,
+      valueSize: 10,
+      align: 'left',
+    }
+  );
+  cy += 8.5 + 4;
+
+  const acertos =
+    comResultado && adap.acertos != null && adap.totalQuestoes != null
+      ? `${adap.acertos}/${adap.totalQuestoes}`
+      : '—';
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.8);
+  doc.setTextColor(...C.textGray);
+  doc.text('Acertos', innerX, cy);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...C.textDark);
+  doc.text(acertos, innerX + innerW, cy, { align: 'right' });
+  cy += 4.2;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.8);
+  doc.setTextColor(...C.textGray);
+  doc.text('Classificação', innerX, cy);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...C.textDark);
+  const classificacao =
+    comResultado && adap.classificacao?.trim()
+      ? normalizeProficiencyLevelLabel(adap.classificacao)
+      : '—';
+  doc.text(fitText(doc, classificacao, innerW * 0.55), innerX + innerW, cy, { align: 'right' });
+  cy += 4.2;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.2);
+  doc.setTextColor(...C.textGray);
+  doc.text('Prova de origem', innerX, cy);
+  cy += 3.2;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(...C.textDark);
+  doc.text(fitText(doc, adap.provaOrigem?.trim() || '—', innerW), innerX, cy);
+
+  doc.setDrawColor(...ADAP.boxBorder);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(x, y, w, h, 2, 2, 'S');
 }
 
 function drawStudentCard(
@@ -434,14 +592,13 @@ export async function generateStudentCardsPdf(opts: {
       group.students.slice(start, start + perPage).forEach((student, i) => {
         const col = i % COLS;
         const row = Math.floor(i / COLS);
-        drawStudentCard(
-          pdf,
-          MARGIN + col * (cardW + GAP_X),
-          CARDS_TOP + row * (CARD_H + GAP_Y),
-          cardW,
-          student,
-          opts.subjects
-        );
+        const cardX = MARGIN + col * (cardW + GAP_X);
+        const cardY = CARDS_TOP + row * (CARD_H + GAP_Y);
+        if (student.adap) {
+          drawAdapStudentCard(pdf, cardX, cardY, cardW, student);
+        } else {
+          drawStudentCard(pdf, cardX, cardY, cardW, student, opts.subjects);
+        }
       });
     }
   }
