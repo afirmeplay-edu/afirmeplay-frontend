@@ -18,6 +18,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { AlunosFiltroSelect } from '@/components/filters/AlunosFiltroSelect';
+import { RESULTADOS_ALUNOS_FILTRO_PADRAO } from '@/constants/resultadosAlunosFiltro';
 import { RelatorioConsolidadoItensPicker } from '@/components/reports/relatorio-geral/RelatorioConsolidadoItensPicker';
 import type { RelatorioConsolidadoItemOption } from '@/components/reports/relatorio-geral/RelatorioConsolidadoItensModal';
 import { RelatorioConsolidadoReportSections } from '@/components/reports/relatorio-geral/RelatorioConsolidadoReportSections';
@@ -72,6 +74,7 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
   const [selectedAreaType, setSelectedAreaType] = useState('all');
   const [selectedPeriodo, setSelectedPeriodo] = useState('');
   const [selectedItens, setSelectedItens] = useState<string[]>([]);
+  const [selectedAlunos, setSelectedAlunos] = useState(RESULTADOS_ALUNOS_FILTRO_PADRAO);
   const [tituloAvaliacao, setTituloAvaliacao] = useState('');
   const [periodoLabel, setPeriodoLabel] = useState<string | null>(null);
 
@@ -330,6 +333,7 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
         estado: selectedEstado,
         itemIds: selectedItens,
         ...(selectedAreaType !== 'all' ? { tipo_area: selectedAreaType } : {}),
+        ...(isCartao ? {} : { alunos: selectedAlunos }),
       });
       setReport(data);
       if (
@@ -521,6 +525,9 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
                 </p>
               )}
             </div>
+            {!isCartao ? (
+              <AlunosFiltroSelect value={selectedAlunos} onChange={setSelectedAlunos} disabled={generating} />
+            ) : null}
           </div>
 
           <div className="grid grid-cols-1 gap-4">

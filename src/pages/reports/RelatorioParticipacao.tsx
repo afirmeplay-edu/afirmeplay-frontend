@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AlunosFiltroSelect } from '@/components/filters/AlunosFiltroSelect';
+import { RESULTADOS_ALUNOS_FILTRO_PADRAO } from '@/constants/resultadosAlunosFiltro';
+import type { ParticipationRecorte } from '@/types/participation-report';
 import {
   AlertCircle,
   BarChart3,
@@ -87,6 +90,29 @@ function formatPercent(value: number): string {
   })}%`;
 }
 
+function ParticipacaoRecorteCard({
+  title,
+  description,
+  recorte,
+}: {
+  title: string;
+  description: string;
+  recorte: ParticipationRecorte;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardDescription>{title}</CardDescription>
+        <CardTitle className="text-2xl tabular-nums">{formatPercent(recorte.percentual)}</CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0 text-sm text-muted-foreground">
+        {formatNumber(recorte.presentes)} de {formatNumber(recorte.matriculados)} presentes
+        <p className="mt-1 text-xs">{description}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function formatNumber(value: number): string {
   return value.toLocaleString('pt-BR');
 }
@@ -129,6 +155,7 @@ export default function RelatorioParticipacao({
   const [selectedEscolas, setSelectedEscolas] = useState<string[]>([]);
   const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
   const [selectedTurmas, setSelectedTurmas] = useState<string[]>([]);
+  const [selectedAlunos, setSelectedAlunos] = useState(RESULTADOS_ALUNOS_FILTRO_PADRAO);
 
   const [loadingEstados, setLoadingEstados] = useState(false);
   const [loadingMunicipios, setLoadingMunicipios] = useState(false);
@@ -625,6 +652,7 @@ export default function RelatorioParticipacao({
         series: selectedSeries.length > 0 ? selectedSeries : undefined,
         turmas: selectedTurmas.length > 0 ? selectedTurmas : undefined,
         report_entity_type: reportEntityType,
+        ...(isCartao ? {} : { alunos: selectedAlunos }),
       });
       setReport(data);
       if (!data.por_escola?.length && !data.por_turma?.length && data.metricas.matriculados === 0) {
@@ -872,6 +900,10 @@ export default function RelatorioParticipacao({
                 }
               />
             </div>
+
+            {!isCartao ? (
+              <AlunosFiltroSelect value={selectedAlunos} onChange={setSelectedAlunos} />
+            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-3 pt-2">
@@ -988,6 +1020,25 @@ export default function RelatorioParticipacao({
               </CardHeader>
             </Card>
           </div>
+
+          {(report.metricas.participacao_completa || report.metricas.participacao_pelo_menos_uma) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {report.metricas.participacao_completa ? (
+                <ParticipacaoRecorteCard
+                  title="Participação completa"
+                  description="Rede: fez todas as disciplinas."
+                  recorte={report.metricas.participacao_completa}
+                />
+              ) : null}
+              {report.metricas.participacao_pelo_menos_uma ? (
+                <ParticipacaoRecorteCard
+                  title="Pelo menos uma disciplina"
+                  description="Rede: fez ao menos uma disciplina."
+                  recorte={report.metricas.participacao_pelo_menos_uma}
+                />
+              ) : null}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card>

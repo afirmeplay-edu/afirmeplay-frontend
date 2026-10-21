@@ -5,6 +5,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EvaluationInstrumentPicker } from "@/components/filters";
+import { AlunosFiltroSelect } from "@/components/filters/AlunosFiltroSelect";
+import {
+  isResultadosAlunosFiltro,
+  RESULTADOS_ALUNOS_FILTRO_PADRAO,
+  type ResultadosAlunosFiltro,
+} from "@/constants/resultadosAlunosFiltro";
 import { useToast } from "@/hooks/use-toast";
 import { FileText, Filter, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/authContext";
@@ -529,6 +535,7 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
   const [selectedSchoolId, setSelectedSchoolId] = useState<string>("");
   const [selectedGradeId, setSelectedGradeId] = useState<string>("");
   const [selectedClassId, setSelectedClassId] = useState<string>("");
+  const [selectedAlunos, setSelectedAlunos] = useState<ResultadosAlunosFiltro>(RESULTADOS_ALUNOS_FILTRO_PADRAO);
   const adminCityIdQuery = useMemo(
     () => cityIdQueryParamForAdmin(user?.role, selectedMunicipality || undefined),
     [user?.role, selectedMunicipality]
@@ -649,7 +656,7 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
 
   const buildUnifiedFilters = React.useCallback((
     evaluationId: string,
-    overrides: { schoolId?: string; gradeId?: string; classId?: string } = {}
+    overrides: { schoolId?: string; gradeId?: string; classId?: string; alunos?: ResultadosAlunosFiltro } = {}
   ) => {
     const filters: {
       estado?: string;
@@ -660,6 +667,7 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
       turma?: string;
       city_id?: string;
       periodo?: string;
+      alunos?: string;
     } = {};
 
     const estadoValor = getStateFilterValue();
@@ -671,16 +679,18 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
     if (overrides.classId) filters.turma = overrides.classId;
     if (adminCityIdQuery) filters.city_id = adminCityIdQuery;
     if (periodoYmRelatorio) filters.periodo = periodoYmRelatorio;
+    filters.alunos = isResultadosAlunosFiltro(overrides.alunos) ? overrides.alunos : selectedAlunos;
 
     return filters;
-  }, [selectedMunicipality, getStateFilterValue, adminCityIdQuery, periodoYmRelatorio]);
+  }, [selectedMunicipality, getStateFilterValue, adminCityIdQuery, periodoYmRelatorio, selectedAlunos]);
 
   const fetchEvaluationData = React.useCallback(
     async (
       evaluationId: string,
-      overrides: { schoolId?: string; gradeId?: string; classId?: string } = {}
+      overrides: { schoolId?: string; gradeId?: string; classId?: string; alunos?: ResultadosAlunosFiltro } = {}
     ): Promise<FetchEvaluationDataResult> => {
-      const cacheKey = `${evaluationId}|${overrides.schoolId ?? ''}|${overrides.gradeId ?? ''}|${overrides.classId ?? ''}|ev|${adminCityIdQuery ?? ''}|${periodoYmRelatorio ?? ''}`;
+      const alunosKey = isResultadosAlunosFiltro(overrides.alunos) ? overrides.alunos : selectedAlunos;
+      const cacheKey = `${evaluationId}|${overrides.schoolId ?? ''}|${overrides.gradeId ?? ''}|${overrides.classId ?? ''}|ev|${adminCityIdQuery ?? ''}|${periodoYmRelatorio ?? ''}|${alunosKey}`;
 
       // Reutilizar requisição já em andamento (evita duplicatas)
       const inFlight = fetchEvaluationDataInFlightRef.current.get(cacheKey);
@@ -761,7 +771,7 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
       fetchEvaluationDataInFlightRef.current.set(cacheKey, promise);
       return promise;
     },
-    [buildUnifiedFilters, adminCityIdQuery, periodoYmRelatorio]
+    [buildUnifiedFilters, adminCityIdQuery, periodoYmRelatorio, selectedAlunos]
   );
 
   const applyFetchResult = React.useCallback((
@@ -792,6 +802,36 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
       });
     }
   }, []);
+
+  const handleAlunosChange = React.useCallback(async (value: ResultadosAlunosFiltro) => {
+    setSelectedAlunos(value);
+    if (!selectedState || !selectedMunicipality || !selectedEvaluationId) return;
+    const overrides: { schoolId?: string; gradeId?: string; classId?: string; alunos: ResultadosAlunosFiltro } = {
+      alunos: value,
+    };
+    if (selectedSchoolId) overrides.schoolId = selectedSchoolId;
+    if (selectedGradeId) overrides.gradeId = selectedGradeId;
+    if (selectedClassId) overrides.classId = selectedClassId;
+    try {
+      setIsLoading(true);
+      const dataResult = await fetchEvaluationData(selectedEvaluationId, overrides);
+      applyFetchResult(dataResult);
+    } catch {
+      toast({ title: "Erro", description: "Não foi possível recarregar os dados", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [
+    selectedState,
+    selectedMunicipality,
+    selectedEvaluationId,
+    selectedSchoolId,
+    selectedGradeId,
+    selectedClassId,
+    fetchEvaluationData,
+    applyFetchResult,
+    toast,
+  ]);
 
   const resumoStats = useMemo(() => {
     const totalAlunos =
@@ -3957,6 +3997,13 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
                     </SelectContent>
                   </Select>
                 </div>
+                <AlunosFiltroSelect
+                  value={selectedAlunos}
+                  onChange={(value) => {
+                    void handleAlunosChange(value);
+                  }}
+                  disabled={!selectedEvaluationId || isLoading}
+                />
               </div>
             </div>
           )}

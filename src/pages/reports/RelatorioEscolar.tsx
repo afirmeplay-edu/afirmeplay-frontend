@@ -40,6 +40,7 @@ import {
   REPORT_ENTITY_TYPE_ANSWER_SHEET,
   type AnaliseIaRouteResponse,
 } from "@/services/evaluation/evaluationResultsApi";
+import { readResultadosAlunosFiltroSalvo } from "@/constants/resultadosAlunosFiltro";
 import { RelatorioCompleto } from "@/types/evaluation-results";
 import { useAuth } from "@/context/authContext";
 import { FilterComponentAnalise, ResultsPeriodMonthYearPicker, InstrumentPickerField } from "@/components/filters";
@@ -4575,6 +4576,7 @@ export default function RelatorioEscolar({
       ...(reportEntityTypeParam ? { report_entity_type: reportEntityTypeParam } : {}),
       ...(periodoYmRelatorio ? { periodo: periodoYmRelatorio } : {}),
       ...(selectedAreaType !== 'all' ? { tipo_area: selectedAreaType } : {}),
+      alunos: readResultadosAlunosFiltroSalvo(),
     };
 
     const applyIaErrorMessage = (ia: AnaliseIaRouteResponse) => {

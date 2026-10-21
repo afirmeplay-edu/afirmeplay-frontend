@@ -8,6 +8,12 @@ export type ReportProficiencyLabel =
   | "Adequado"
   | "Avançado";
 
+/** Nível vazio não entra na escala: o normalizador trataria isso como Abaixo do Básico. */
+export function isBlankProficiencyLevel(raw: string | null | undefined): boolean {
+  const t = (raw ?? "").trim();
+  return !t || t === "—" || t === "-" || t === "?";
+}
+
 /** Rótulo canônico para PDF/tags (desconhecido → Abaixo do Básico). */
 export function normalizeProficiencyLevelLabel(
   raw: string | null | undefined

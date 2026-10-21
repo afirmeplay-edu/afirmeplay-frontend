@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { ProficiencyLevelsAluno } from '@/services/evaluation/proficiencyLevelsApi';
-import { normalizeProficiencyLevelLabel } from '@/utils/report/reportTagStyles';
+import { isBlankProficiencyLevel, normalizeProficiencyLevelLabel } from '@/utils/report/reportTagStyles';
 import { cn } from '@/lib/utils';
 import {
   LEVEL_FAIXA_LABEL,
@@ -19,6 +19,7 @@ export function ColunasNivel({ alunos }: ColunasNivelProps) {
       PROFICIENCY_LEVELS.map((n) => [n, [] as ProficiencyLevelsAluno[]])
     );
     for (const aluno of alunos || []) {
+      if (isBlankProficiencyLevel(aluno.nivel)) continue;
       const nivel = normalizeProficiencyLevelLabel(aluno.nivel);
       map[nivel].push(aluno);
     }

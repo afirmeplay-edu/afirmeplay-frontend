@@ -1,3 +1,4 @@
+import { isResultadosAlunosFiltro } from '@/constants/resultadosAlunosFiltro';
 import { api } from '@/lib/api';
 import { normalizeResultsPeriodYm } from '@/utils/resultsPeriod';
 
@@ -121,6 +122,7 @@ export type ProficiencyLevelsFilterParams = {
   turno?: string;
   nivel?: string;
   disciplina?: string;
+  alunos?: string;
 };
 
 function buildQuery(params: ProficiencyLevelsFilterParams, mode: 'online' | 'cartao') {
@@ -138,6 +140,9 @@ function buildQuery(params: ProficiencyLevelsFilterParams, mode: 'online' | 'car
   if (params.turma && params.turma !== 'all') q.set('turma', params.turma);
   if (params.turno && params.turno !== 'all') q.set('turno', params.turno);
   if (params.nivel && params.nivel !== 'all') q.set('nivel', params.nivel);
+  if (mode === 'online' && isResultadosAlunosFiltro(params.alunos)) {
+    q.set('alunos', params.alunos);
+  }
   q.set('disciplina', params.disciplina && params.disciplina !== 'all' ? params.disciplina : 'all');
   appendPeriodo(q, params.periodo);
   return q;

@@ -49,6 +49,14 @@ export type ParticipationResumoParams = {
   series?: string[];
   turmas?: string[];
   report_entity_type?: 'answer_sheet';
+  /** Só a aba online. Cartão ignora o parâmetro. */
+  alunos?: string;
+};
+
+export type ParticipationRecorte = {
+  presentes: number;
+  matriculados: number;
+  percentual: number;
 };
 
 export type ParticipationMetricas = {
@@ -56,6 +64,9 @@ export type ParticipationMetricas = {
   avaliados: number;
   total_turmas: number;
   percentual_participacao: number;
+  /** Só no recorte de rede. */
+  participacao_completa?: ParticipationRecorte;
+  participacao_pelo_menos_uma?: ParticipationRecorte;
 };
 
 export type ParticipationPorEscola = {
@@ -85,6 +96,7 @@ export type ParticipationResumo = {
     escolas: string[];
     series: string[];
     turmas: string[];
+    alunos?: string | null;
   };
   metricas: ParticipationMetricas;
   por_escola: ParticipationPorEscola[];

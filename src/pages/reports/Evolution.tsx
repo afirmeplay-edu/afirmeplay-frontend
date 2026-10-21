@@ -18,6 +18,8 @@ import { processComparisonData } from '@/utils/evolution/evolutionDataProcessor'
 import { generateEvolutionPDFFromHTML } from '@/utils/evolution/evolutionPdfService';
 import { AREA_TYPE_FILTER_OPTIONS, areaTypeFilterLabel, canFilterByAreaType } from '@/lib/schoolAreaType';
 import { EvolutionScopeMetaLines } from '@/components/evolution/EvolutionEvaluationsScopeList';
+import { AlunosFiltroSelect } from '@/components/filters/AlunosFiltroSelect';
+import { RESULTADOS_ALUNOS_FILTRO_PADRAO } from '@/constants/resultadosAlunosFiltro';
 import { InstrumentPickerModal } from '@/components/filters/InstrumentPickerModal';
 import { buildPickerContextLines, toInstrumentPickerItems } from '@/components/filters/instrumentPickerHelpers';
 import { formatTurmasFromRefs } from '@/utils/evolution/formatTurmasAgrupadas';
@@ -123,6 +125,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
   const [selectedAreaType, setSelectedAreaType] = useState<string>('all');
   const [selectedGrade, setSelectedGrade] = useState<string>('all');
   const [selectedClass, setSelectedClass] = useState<string>('all');
+  const [selectedAlunos, setSelectedAlunos] = useState(RESULTADOS_ALUNOS_FILTRO_PADRAO);
   const [periodStart, setPeriodStart] = useState<string>('');
   const [periodEnd, setPeriodEnd] = useState<string>('');
   const [evaluationSearch, setEvaluationSearch] = useState<string>('');
@@ -599,8 +602,9 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
       serie: selectedGrade !== 'all' ? selectedGrade : null,
       turma: selectedClass !== 'all' ? selectedClass : null,
       tipo_area: selectedAreaType !== 'all' ? selectedAreaType : null,
+      alunos: selectedAlunos,
     }),
-    [selectedState, selectedMunicipality, selectedSchool, selectedAreaType, selectedGrade, selectedClass]
+    [selectedState, selectedMunicipality, selectedSchool, selectedAreaType, selectedGrade, selectedClass, selectedAlunos]
   );
 
   const handleCompareEvaluations = useCallback(async () => {
@@ -695,6 +699,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
         scopeFilters.escola ?? '',
         scopeFilters.serie ?? '',
         scopeFilters.turma ?? '',
+        scopeFilters.alunos ?? '',
       ].join('|'),
     [selectedIdsKey, scopeFilters]
   );
@@ -1275,6 +1280,8 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                 </SelectContent>
               </Select>
             </div>
+
+            <AlunosFiltroSelect value={selectedAlunos} onChange={setSelectedAlunos} disabled={isLoadingFilters} />
           </div>
 
           {/* Filtro de Período */}

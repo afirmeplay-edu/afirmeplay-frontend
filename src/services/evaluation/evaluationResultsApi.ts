@@ -1,3 +1,4 @@
+import { isResultadosAlunosFiltro } from '@/constants/resultadosAlunosFiltro';
 import { api, apiWithRetry, apiWithTimeout } from '@/lib/api';
 import { EvaluationResultsData, StudentProficiency, ResultsFilters, calculateProficiency, RelatorioCompleto } from '@/types/evaluation-results';
 import { normalizeApiList } from '@/utils/normalizeApiList';
@@ -66,7 +67,7 @@ export interface AlunoPendenteDetalheEstatisticas {
   escola?: string;
   serie?: string;
   turma?: string;
-  /** Presente quando o aluno é ADAP 1/2 no filtro com pareamento. */
+  /** Presente quando o pendente é ADAP 1, 2 ou 3. */
   adap_nivel?: number;
   adap_rotulo?: string;
 }
@@ -85,7 +86,7 @@ export interface TabelaAdapAluno {
   nota?: number | null;
   proficiencia?: number | null;
   classificacao?: string | null;
-  situacao: "participou" | "pendente" | string;
+  situacao: "participou" | "pendente" | "inconsistente";
 }
 
 /** Estatísticas por disciplina no mesmo escopo da rota (GET /evaluation-results/avaliacoes). */
@@ -478,7 +479,7 @@ export interface NovaRespostaAPI {
     };
   };
   tabela_detalhada?: TabelaDetalhada;
-  /** Alunos ADAP 1/2 com resultado pareado (ausente no backend antigo). */
+  /** Alunos ADAP 1, 2 ou 3 do pareamento. Ausente quando a query não envia `alunos`. */
   tabela_adap?: TabelaAdapAluno[];
   ranking?: RankingItem[];
   opcoes_proximos_filtros: OpcoesProximosFiltros;
@@ -935,6 +936,8 @@ export class EvaluationResultsApiService {
       /** YYYY-MM: aplicação (online) ou corrected_at (cartão). */
       periodo?: string;
       tipo_area?: string;
+      /** Só Acerto e Níveis online. Omitir deixa a nota como está hoje. */
+      alunos?: string;
     } = {}
   ): Promise<NovaRespostaAPI | null> {
     try {
@@ -968,6 +971,12 @@ export class EvaluationResultsApiService {
       }
       if (filters.tipo_area && filters.tipo_area !== 'all') {
         params.append('tipo_area', filters.tipo_area);
+      }
+      if (
+        !filters.report_entity_type &&
+        isResultadosAlunosFiltro(filters.alunos)
+      ) {
+        params.append('alunos', filters.alunos);
       }
       if (filters.report_entity_type) {
         params.append('report_entity_type', filters.report_entity_type);
@@ -1052,6 +1061,7 @@ export class EvaluationResultsApiService {
       city_id?: string;
       periodo?: string;
       tipo_area?: string;
+      alunos?: string;
     } = {}
   ): Promise<AnaliseIaRouteResponse | null> {
     try {
@@ -1076,6 +1086,9 @@ export class EvaluationResultsApiService {
       }
       if (filters.tipo_area && filters.tipo_area !== 'all') {
         params.append('tipo_area', filters.tipo_area);
+      }
+      if (isResultadosAlunosFiltro(filters.alunos)) {
+        params.append('alunos', filters.alunos);
       }
       if (filters.report_entity_type) {
         params.append('report_entity_type', filters.report_entity_type);

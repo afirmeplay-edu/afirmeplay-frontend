@@ -1,3 +1,4 @@
+import { isResultadosAlunosFiltro } from '@/constants/resultadosAlunosFiltro';
 import { api } from '@/lib/api';
 
 // Interfaces baseadas no retorno do backend (evaluation_comparison_service.py)
@@ -161,6 +162,7 @@ export interface EvolutionCompareScopeFilters {
   serie?: string | null;
   turma?: string | null;
   tipo_area?: string | null;
+  alunos?: string | null;
 }
 
 export type EvolutionGroupViewBy = 'turma' | 'serie' | 'escola';
@@ -322,6 +324,7 @@ export class EvaluationComparisonApiService {
         serie: scopeFilters?.serie ?? null,
         turma: scopeFilters?.turma ?? null,
         tipo_area: scopeFilters?.tipo_area && scopeFilters.tipo_area !== 'all' ? scopeFilters.tipo_area : null,
+        ...(isResultadosAlunosFiltro(scopeFilters?.alunos) ? { alunos: scopeFilters.alunos } : {}),
       };
 
       const requestConfig = scopeFilters?.municipio
@@ -360,6 +363,7 @@ export class EvaluationComparisonApiService {
       serie: scopeFilters?.serie ?? null,
       turma: scopeFilters?.turma ?? null,
       tipo_area: scopeFilters?.tipo_area && scopeFilters.tipo_area !== 'all' ? scopeFilters.tipo_area : null,
+      ...(isResultadosAlunosFiltro(scopeFilters?.alunos) ? { alunos: scopeFilters.alunos } : {}),
     };
 
     const requestConfig = scopeFilters?.municipio
