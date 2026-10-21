@@ -39,10 +39,12 @@ import {
   formatGenerationScopeSummary,
   generationCanDownload,
   generationClassLabelsFromSnapshot,
+  generationPdfModeLabel,
   gabaritoDownloadLoadingKey,
   resolveGabaritoDownloadUrl,
   resolveGenerationDownloadUrl,
 } from '@/lib/gabarito-list-helpers';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Gabarito, GabaritosResponse } from '@/types/answer-sheet';
 import { useAuth } from '@/context/authContext';
 import { MunicipalityAvailabilityBadge } from '@/components/municipality-availability/MunicipalityAvailabilityBadge';
@@ -350,6 +352,7 @@ export default function AnswerSheetGenerateCards() {
 
   // Filtros (escopo)
   const [selectedFilters, setSelectedFilters] = useState<SelectedFilters>({});
+  const [pdfMode, setPdfMode] = useState<'per_student' | 'per_class' | 'both'>('per_class');
   const [filterLabels, setFilterLabels] = useState<Record<FilterLevel, string>>({
     state: '',
     city: '',
@@ -1864,8 +1867,15 @@ export default function AnswerSheetGenerateCards() {
       setLastJobStatus(null);
       setJobErrorsOpen(true);
 
-      const payload: { gabarito_id: string; school_ids?: string[]; grade_ids?: string[]; class_ids?: string[] } = {
+      const payload: {
+        gabarito_id: string;
+        pdf_mode: 'per_student' | 'per_class' | 'both';
+        school_ids?: string[];
+        grade_ids?: string[];
+        class_ids?: string[];
+      } = {
         gabarito_id: selectedGabaritoId,
+        pdf_mode: pdfMode,
       };
       if (selectedFilters.school_ids?.length) payload.school_ids = selectedFilters.school_ids;
       if (selectedFilters.grade_ids?.length) payload.grade_ids = selectedFilters.grade_ids;
@@ -2165,6 +2175,34 @@ export default function AnswerSheetGenerateCards() {
                     )}
                   </div>
                 )}
+
+                <div className="space-y-2 border-l-2 border-primary/30 pl-4">
+                  <Label>Formato dos PDFs</Label>
+                  <RadioGroup
+                    value={pdfMode}
+                    onValueChange={(value) => setPdfMode(value as 'per_student' | 'per_class' | 'both')}
+                    className="gap-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="per_class" id="pdf-mode-per-class" />
+                      <Label htmlFor="pdf-mode-per-class" className="font-normal cursor-pointer">
+                        Um PDF por turma
+                      </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="per_student" id="pdf-mode-per-student" />
+                      <Label htmlFor="pdf-mode-per-student" className="font-normal cursor-pointer">
+                        Um PDF por aluno
+                      </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="both" id="pdf-mode-both" />
+                      <Label htmlFor="pdf-mode-both" className="font-normal cursor-pointer">
+                        Ambos
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -2587,6 +2625,9 @@ export default function AnswerSheetGenerateCards() {
                                           </p>
                                         </div>
                                         <div className="flex flex-wrap items-center gap-2 shrink-0">
+                                          <Badge variant="outline" className="text-xs">
+                                            {generationPdfModeLabel(gen)}
+                                          </Badge>
                                           {genStatus === 'completed' ? (
                                             <Badge variant="default" className="bg-green-600 dark:bg-green-700 text-xs">
                                               Concluída
