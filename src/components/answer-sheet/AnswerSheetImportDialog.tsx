@@ -14,14 +14,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
 
-export type AnswerSheetLetter = 'A' | 'B' | 'C' | 'D';
+export type AnswerSheetLetter = 'A' | 'B' | 'C' | 'D' | 'E';
 
-const LETTERS = ['A', 'B', 'C', 'D', 'E'] as const;
+const LETTERS: AnswerSheetLetter[] = ['A', 'B', 'C', 'D', 'E'];
 const MIN_ALTERNATIVES = 2;
-/** O cartão impresso ainda não suporta a 5ª alternativa (E). */
-const MAX_SUPPORTED_ALTERNATIVES = 4;
+const MAX_ALTERNATIVES = LETTERS.length;
 const DEFAULT_ALTERNATIVES = 4;
-const UNSUPPORTED_ALTERNATIVE_NOTICE = 'A 5ª alternativa (E) ainda não é suportada no cartão impresso.';
 const ALLOWED_EXTENSIONS = ['csv', 'xlsx', 'xls'];
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -67,7 +65,7 @@ export type AnswerSheetImportDraft = {
   skillCodes: Record<string, string>;
 };
 
-type GlobalAlternatives = 'sheet' | 'custom' | '3' | '4';
+type GlobalAlternatives = 'sheet' | 'custom' | '3' | '4' | '5';
 
 interface AnswerSheetImportDialogProps {
   open: boolean;
@@ -178,7 +176,7 @@ export function AnswerSheetImportDialog({
 
   const changeQuestionAlternatives = (question: number, delta: number) => {
     setAlternativeCounts((prev) => {
-      const next = Math.min(MAX_SUPPORTED_ALTERNATIVES, Math.max(MIN_ALTERNATIVES, (prev[question] ?? DEFAULT_ALTERNATIVES) + delta));
+      const next = Math.min(MAX_ALTERNATIVES, Math.max(MIN_ALTERNATIVES, (prev[question] ?? DEFAULT_ALTERNATIVES) + delta));
       return { ...prev, [question]: next };
     });
     setGlobalAlternatives('custom');
@@ -188,9 +186,7 @@ export function AnswerSheetImportDialog({
     const errors = [...row.errors];
     if (row.question === null) return errors;
     const count = alternativeCounts[row.question] ?? DEFAULT_ALTERNATIVES;
-    if (count > MAX_SUPPORTED_ALTERNATIVES) {
-      errors.push(`${UNSUPPORTED_ALTERNATIVE_NOTICE} Reduza para até ${MAX_SUPPORTED_ALTERNATIVES}.`);
-    } else if (row.answer && LETTERS.indexOf(row.answer as (typeof LETTERS)[number]) >= count) {
+    if (row.answer && LETTERS.indexOf(row.answer as AnswerSheetLetter) >= count) {
       errors.push(`Resposta ${row.answer} fora das alternativas (A–${LETTERS[count - 1]}).`);
     }
     return errors;
@@ -228,7 +224,7 @@ export function AnswerSheetImportDialog({
       numQuestions: rows.length,
       correctAnswers: Object.fromEntries(rows.map((r) => [r.question, r.answer])),
       alternativesByQuestion: Object.fromEntries(
-        rows.map((r) => [r.question, LETTERS.slice(0, alternativeCounts[r.question] ?? DEFAULT_ALTERNATIVES) as AnswerSheetLetter[]])
+        rows.map((r) => [r.question, LETTERS.slice(0, alternativeCounts[r.question] ?? DEFAULT_ALTERNATIVES)])
       ),
       blocks: preview.blocks,
       questionSkills: Object.fromEntries(withSkill.map((r) => [r.question, [r.skill!.id]])),
@@ -376,11 +372,10 @@ export function AnswerSheetImportDialog({
                   <SelectItem value="sheet">Conforme a planilha</SelectItem>
                   <SelectItem value="3">Todas com 3 (A–C)</SelectItem>
                   <SelectItem value="4">Todas com 4 (A–D)</SelectItem>
-                  <SelectItem value="5" disabled>Todas com 5 (A–E) — indisponível</SelectItem>
+                  <SelectItem value="5">Todas com 5 (A–E)</SelectItem>
                   <SelectItem value="custom" disabled>Personalizado por questão</SelectItem>
                 </SelectContent>
               </Select>
-              <span className="text-xs text-muted-foreground">{UNSUPPORTED_ALTERNATIVE_NOTICE}</span>
             </div>
 
             <div className="max-h-[45vh] overflow-auto rounded-md border">
@@ -418,19 +413,17 @@ export function AnswerSheetImportDialog({
                                 <Minus className="h-3 w-3" />
                               </Button>
                               <span className="w-12 text-center text-xs font-mono">A–{LETTERS[count - 1]}</span>
-                              <span title={count >= MAX_SUPPORTED_ALTERNATIVES ? UNSUPPORTED_ALTERNATIVE_NOTICE : undefined}>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="icon"
-                                  className="h-6 w-6"
-                                  onClick={() => changeQuestionAlternatives(row.question as number, 1)}
-                                  disabled={count >= MAX_SUPPORTED_ALTERNATIVES}
-                                  aria-label={`Adicionar alternativa na questão ${row.question}`}
-                                >
-                                  <Plus className="h-3 w-3" />
-                                </Button>
-                              </span>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-6 w-6"
+                                onClick={() => changeQuestionAlternatives(row.question as number, 1)}
+                                disabled={count >= MAX_ALTERNATIVES}
+                                aria-label={`Adicionar alternativa na questão ${row.question}`}
+                              >
+                                <Plus className="h-3 w-3" />
+                              </Button>
                             </div>
                           )}
                         </TableCell>
