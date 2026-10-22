@@ -42,11 +42,6 @@ import {
 
 const STEPS = ['Informações', 'Questões', 'Blocos', 'Habilidades', 'Revisar'];
 
-const ALTERNATIVE_LETTERS = ['A', 'B', 'C', 'D', 'E'] as const;
-type AlternativeLetter = (typeof ALTERNATIVE_LETTERS)[number];
-const MIN_ALTERNATIVES = 2;
-const MAX_ALTERNATIVES = ALTERNATIVE_LETTERS.length;
-
 type BlockByDiscipline = {
   block_id: number;
   subject_name: string;
@@ -72,10 +67,10 @@ export default function AnswerSheetCreateGabarito() {
 
   // Step 1: questões e gabarito
   const [numQuestions, setNumQuestions] = useState(0);
-  const [correctAnswers, setCorrectAnswers] = useState<Record<number, AlternativeLetter>>({});
+  const [correctAnswers, setCorrectAnswers] = useState<Record<number, 'A' | 'B' | 'C' | 'D'>>({});
   const [useGlobalAlternatives, setUseGlobalAlternatives] = useState(true);
-  const [globalAlternatives, setGlobalAlternatives] = useState<AlternativeLetter[]>(['A', 'B', 'C', 'D']);
-  const [questionsOptions, setQuestionsOptions] = useState<Record<number, AlternativeLetter[]>>({});
+  const [globalAlternatives, setGlobalAlternatives] = useState<('A' | 'B' | 'C' | 'D')[]>(['A', 'B', 'C', 'D']);
+  const [questionsOptions, setQuestionsOptions] = useState<Record<number, ('A' | 'B' | 'C' | 'D')[]>>({});
   const [editingQuestionAlternatives, setEditingQuestionAlternatives] = useState<number | null>(null);
 
   // Step 2: blocos (apenas por disciplina)
@@ -337,22 +332,18 @@ export default function AnswerSheetCreateGabarito() {
     return { isValid: true, warnings };
   };
 
-  const getAvailableAlternatives = (q: number): AlternativeLetter[] =>
+  const getAvailableAlternatives = (q: number): ('A' | 'B' | 'C' | 'D')[] =>
     useGlobalAlternatives ? globalAlternatives : (questionsOptions[q] || ['A', 'B', 'C', 'D']);
 
-  const handleToggleGlobalAlternative = (alternative: AlternativeLetter, checked: boolean) => {
+  const handleToggleGlobalAlternative = (alternative: 'A' | 'B' | 'C' | 'D', checked: boolean) => {
     if (checked) {
-      if (globalAlternatives.length >= MAX_ALTERNATIVES) {
-        toast({
-          title: `Máximo ${MAX_ALTERNATIVES} alternativas`,
-          description: `Selecione no máximo ${MAX_ALTERNATIVES} alternativas (${ALTERNATIVE_LETTERS.join(', ')}).`,
-          variant: 'destructive',
-        });
+      if (globalAlternatives.length >= 4) {
+        toast({ title: 'Máximo 4 alternativas', description: 'Selecione no máximo 4 alternativas (A, B, C, D).', variant: 'destructive' });
         return;
       }
-      setGlobalAlternatives([...globalAlternatives, alternative].sort() as AlternativeLetter[]);
+      setGlobalAlternatives([...globalAlternatives, alternative].sort() as ('A' | 'B' | 'C' | 'D')[]);
     } else {
-      if (globalAlternatives.length <= MIN_ALTERNATIVES) {
+      if (globalAlternatives.length <= 2) {
         toast({ title: 'Mínimo 2 alternativas', description: 'Cada questão deve ter pelo menos 2 alternativas.', variant: 'destructive' });
         return;
       }
@@ -368,16 +359,16 @@ export default function AnswerSheetCreateGabarito() {
     }
   };
 
-  const handleToggleQuestionAlternative = (questionNumber: number, alternative: AlternativeLetter, checked: boolean) => {
+  const handleToggleQuestionAlternative = (questionNumber: number, alternative: 'A' | 'B' | 'C' | 'D', checked: boolean) => {
     const current = questionsOptions[questionNumber] || ['A', 'B', 'C', 'D'];
     if (checked) {
-      if (current.length >= MAX_ALTERNATIVES) {
-        toast({ title: `Máximo ${MAX_ALTERNATIVES} alternativas`, variant: 'destructive' });
+      if (current.length >= 4) {
+        toast({ title: 'Máximo 4 alternativas', variant: 'destructive' });
         return;
       }
-      setQuestionsOptions((prev) => ({ ...prev, [questionNumber]: [...current, alternative].sort() as AlternativeLetter[] }));
+      setQuestionsOptions((prev) => ({ ...prev, [questionNumber]: [...current, alternative].sort() as ('A' | 'B' | 'C' | 'D')[] }));
     } else {
-      if (current.length <= MIN_ALTERNATIVES) {
+      if (current.length <= 2) {
         toast({ title: 'Mínimo 2 alternativas', variant: 'destructive' });
         return;
       }
@@ -395,7 +386,7 @@ export default function AnswerSheetCreateGabarito() {
       toast({ title: 'Selecione pelo menos 2 alternativas', variant: 'destructive' });
       return;
     }
-    const newOptions: Record<number, AlternativeLetter[]> = {};
+    const newOptions: Record<number, ('A' | 'B' | 'C' | 'D')[]> = {};
     for (let i = 1; i <= numQuestions; i++) newOptions[i] = [...globalAlternatives];
     setQuestionsOptions(newOptions);
     setUseGlobalAlternatives(false);
@@ -722,15 +713,15 @@ export default function AnswerSheetCreateGabarito() {
                 </div>
                 {useGlobalAlternatives && (
                   <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
-                    <Label>Alternativas disponíveis (mín. {MIN_ALTERNATIVES}, máx. {MAX_ALTERNATIVES})</Label>
+                    <Label>Alternativas disponíveis (mín. 2, máx. 4)</Label>
                     <div className="flex flex-wrap gap-4">
-                      {ALTERNATIVE_LETTERS.map((alt) => (
+                      {(['A', 'B', 'C', 'D'] as const).map((alt) => (
                         <div key={alt} className="flex items-center space-x-2">
                           <Checkbox
                             id={`global-alt-${alt}`}
                             checked={globalAlternatives.includes(alt)}
                             onCheckedChange={(c) => handleToggleGlobalAlternative(alt, c === true)}
-                            disabled={!globalAlternatives.includes(alt) && globalAlternatives.length >= MAX_ALTERNATIVES}
+                            disabled={!globalAlternatives.includes(alt) && globalAlternatives.length >= 4}
                           />
                           <Label htmlFor={`global-alt-${alt}`} className="text-sm font-medium cursor-pointer">{alt}</Label>
                         </div>
@@ -748,13 +739,13 @@ export default function AnswerSheetCreateGabarito() {
                   </div>
                 )}
                 {!useGlobalAlternatives && numQuestions >= 1 && (
-                  <p className="text-xs text-muted-foreground">Configure {MIN_ALTERNATIVES} a {MAX_ALTERNATIVES} alternativas por questão usando o botão &quot;Configurar&quot; em cada linha abaixo.</p>
+                  <p className="text-xs text-muted-foreground">Configure 2 a 4 alternativas por questão usando o botão &quot;Configurar&quot; em cada linha abaixo.</p>
                 )}
                 {numQuestions >= 1 && (
                   <>
                     <div className="space-y-2">
                       <Label>Gabarito (resposta correta por questão)</Label>
-                      <p className="text-xs text-muted-foreground">Clique na letra para definir a resposta correta. Use &quot;Configurar&quot; para definir as alternativas da questão (mín. {MIN_ALTERNATIVES}, máx. {MAX_ALTERNATIVES}).</p>
+                      <p className="text-xs text-muted-foreground">Clique na letra para definir a resposta correta. Use &quot;Configurar&quot; para definir as alternativas da questão (mín. 2, máx. 4).</p>
                       <div className="flex flex-wrap gap-2">
                         {Array.from({ length: numQuestions }, (_, i) => i + 1).map((n) => {
                           const opts = getAvailableAlternatives(n);
@@ -793,11 +784,11 @@ export default function AnswerSheetCreateGabarito() {
                       <DialogContent className="max-w-sm">
                         <DialogHeader>
                           <DialogTitle>Alternativas — Questão {editingQuestionAlternatives ?? ''}</DialogTitle>
-                          <DialogDescription>Selecione de {MIN_ALTERNATIVES} a {MAX_ALTERNATIVES} alternativas para esta questão.</DialogDescription>
+                          <DialogDescription>Selecione de 2 a 4 alternativas para esta questão.</DialogDescription>
                         </DialogHeader>
                         {editingQuestionAlternatives !== null && (
                           <div className="flex flex-wrap gap-4 py-2">
-                            {ALTERNATIVE_LETTERS.map((alt) => {
+                            {(['A', 'B', 'C', 'D'] as const).map((alt) => {
                               const cur = questionsOptions[editingQuestionAlternatives] || ['A', 'B', 'C', 'D'];
                               const isChecked = cur.includes(alt);
                               return (
@@ -806,7 +797,7 @@ export default function AnswerSheetCreateGabarito() {
                                     id={`q${editingQuestionAlternatives}-${alt}`}
                                     checked={isChecked}
                                     onCheckedChange={(c) => handleToggleQuestionAlternative(editingQuestionAlternatives, alt, c === true)}
-                                    disabled={!isChecked && cur.length >= MAX_ALTERNATIVES}
+                                    disabled={!isChecked && cur.length >= 4}
                                   />
                                   <Label htmlFor={`q${editingQuestionAlternatives}-${alt}`} className="cursor-pointer">{alt}</Label>
                                 </div>

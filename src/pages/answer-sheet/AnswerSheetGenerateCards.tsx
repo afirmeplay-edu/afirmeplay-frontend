@@ -139,10 +139,6 @@ interface JobStatusResponse {
 
 type Alternative = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H';
 
-/** Alternativas suportadas pelo cartão impresso. */
-const ALTERNATIVE_LETTERS = ['A', 'B', 'C', 'D', 'E'] as const;
-const MAX_ALTERNATIVES = ALTERNATIVE_LETTERS.length;
-
 interface GabaritoDetailResponse {
   id: string;
   title?: string;
@@ -1163,10 +1159,10 @@ export default function AnswerSheetGenerateCards() {
 
   const handleToggleGlobalAlternative = useCallback((alternative: string, checked: boolean) => {
     if (checked) {
-      if (globalAlternatives.length >= MAX_ALTERNATIVES) {
+      if (globalAlternatives.length >= 4) {
         toast({ 
-          title: `Máximo ${MAX_ALTERNATIVES} alternativas`, 
-          description: `Selecione no máximo ${MAX_ALTERNATIVES} alternativas.`,
+          title: 'Máximo 4 alternativas', 
+          description: 'Selecione no máximo 4 alternativas.',
           variant: 'destructive' 
         });
         return;
@@ -1188,10 +1184,10 @@ export default function AnswerSheetGenerateCards() {
   const handleToggleQuestionAlternative = useCallback((questionNumber: number, alternative: string, checked: boolean) => {
     const current = structEditQuestionsOptions[String(questionNumber)] || ['A', 'B', 'C', 'D'];
     if (checked) {
-      if (current.length >= MAX_ALTERNATIVES) {
+      if (current.length >= 4) {
         toast({ 
-          title: `Máximo ${MAX_ALTERNATIVES} alternativas`,
-          description: `Selecione no máximo ${MAX_ALTERNATIVES} alternativas.`,
+          title: 'Máximo 4 alternativas',
+          description: 'Selecione no máximo 4 alternativas.',
           variant: 'destructive' 
         });
         return;
@@ -3281,16 +3277,16 @@ export default function AnswerSheetGenerateCards() {
 
                       {useGlobalAlternatives && (
                         <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
-                          <Label className="text-sm">Alternativas disponíveis (mín. 2, máx. {MAX_ALTERNATIVES})</Label>
+                          <Label className="text-sm">Alternativas disponíveis (mín. 2, máx. 4)</Label>
                           <div className="flex flex-wrap gap-4">
-                            {ALTERNATIVE_LETTERS.map((alt) => (
+                            {(['A', 'B', 'C', 'D'] as const).map((alt) => (
                               <div key={alt} className="flex items-center space-x-2">
                                 <Checkbox
                                   id={`global-alt-${alt}`}
                                   checked={globalAlternatives.includes(alt)}
                                   onCheckedChange={(c) => handleToggleGlobalAlternative(alt, c === true)}
                                   disabled={
-                                    (!globalAlternatives.includes(alt) && globalAlternatives.length >= MAX_ALTERNATIVES) ||
+                                    (!globalAlternatives.includes(alt) && globalAlternatives.length >= 4) ||
                                     structEditSaving ||
                                     structEditHasCorrections
                                   }
@@ -3581,12 +3577,12 @@ export default function AnswerSheetGenerateCards() {
             <DialogContent className="max-w-sm">
               <DialogHeader>
                 <DialogTitle>Alternativas — Questão {editingQuestionAlternativesNum ?? ''}</DialogTitle>
-                <DialogDescription>Selecione de 2 a {MAX_ALTERNATIVES} alternativas para esta questão.</DialogDescription>
+                <DialogDescription>Selecione de 2 a 4 alternativas para esta questão.</DialogDescription>
               </DialogHeader>
               {editingQuestionAlternativesNum !== null && (
                 <>
                   <div className="flex flex-wrap gap-4 py-2">
-                    {ALTERNATIVE_LETTERS.map((alt) => {
+                    {(['A', 'B', 'C', 'D'] as const).map((alt) => {
                       const cur = structEditQuestionsOptions[String(editingQuestionAlternativesNum)] || ['A', 'B', 'C', 'D'];
                       const isChecked = cur.includes(alt);
                       return (
@@ -3595,7 +3591,7 @@ export default function AnswerSheetGenerateCards() {
                             id={`q${editingQuestionAlternativesNum}-${alt}`}
                             checked={isChecked}
                             onCheckedChange={(c) => handleToggleQuestionAlternative(editingQuestionAlternativesNum, alt, c === true)}
-                            disabled={!isChecked && cur.length >= MAX_ALTERNATIVES}
+                            disabled={!isChecked && cur.length >= 4}
                           />
                           <Label htmlFor={`q${editingQuestionAlternativesNum}-${alt}`} className="cursor-pointer">
                             {alt}
