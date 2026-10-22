@@ -12,9 +12,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { ArrowLeft, Loader2, Plus, Trash2, Check } from "lucide-react";
+import { isSpecialEducationStage } from "@/lib/subturma";
 import {
   subjectiveTestApi,
   type SubjectiveTestPayload,
+  type SubjectiveTestSubturmaRef,
   type SubjectiveTestType,
 } from "@/services/evaluation/subjectiveTestApi";
 import { SubjectiveRubricGroupsEditor } from "@/components/evaluations/subjective/SubjectiveRubricGroupsEditor";
@@ -28,7 +30,7 @@ const CREATE_STEPS = [
   { id: "dados", title: "Dados gerais", hint: "Título, disciplina e data" },
   { id: "marcas", title: "Grupos de critérios", hint: "Marcações por grupo" },
   { id: "questoes", title: "Questões e habilidades", hint: "Estrutura da prova" },
-  { id: "turma", title: "Turma avaliada", hint: "Série, escolas e turmas" },
+  { id: "turma", title: "Turma avaliada", hint: "Série regular, turmas e ADAP" },
 ] as const;
 
 interface Option {
@@ -41,12 +43,99 @@ interface SchoolOption {
   name: string;
 }
 
+interface ClassSubturmaOption {
+  id: string;
+  class_id: string;
+  name: string;
+  display_name?: string;
+  support_level?: number;
+  students_count?: number;
+  schoolId?: string;
+  grade_id?: string;
+}
+
 interface ClassOption {
   id: string;
   name: string;
   school?: { id: string; name: string };
   grade?: { id: string; name: string };
   students_count?: number;
+  subturmas?: ClassSubturmaOption[];
+}
+
+function readCount(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  return undefined;
+}
+
+function mapClassSubturmas(raw: unknown, classId: string, schoolId?: string): ClassSubturmaOption[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const obj = item as Record<string, unknown>;
+    const id = obj.id != null ? String(obj.id).trim() : "";
+    if (!id) return [];
+    const parentId = obj.class_id != null ? String(obj.class_id).trim() : classId;
+    const displayName = obj.display_name != null ? String(obj.display_name) : undefined;
+    return [
+      {
+        id,
+        class_id: parentId || classId,
+        name: String(obj.name ?? displayName ?? "ADAP"),
+        display_name: displayName,
+        support_level: typeof obj.support_level === "number" ? obj.support_level : undefined,
+        students_count: readCount(obj.students_count),
+        schoolId,
+      },
+    ];
+  });
+}
+
+function mapClassOption(raw: unknown): ClassOption | null {
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  const id = obj.id != null ? String(obj.id).trim() : "";
+  if (!id) return null;
+  const schoolRaw = obj.school;
+  const gradeRaw = obj.grade;
+  const school =
+    schoolRaw && typeof schoolRaw === "object"
+      ? {
+          id: String((schoolRaw as { id?: unknown }).id ?? ""),
+          name: String((schoolRaw as { name?: unknown }).name ?? ""),
+        }
+      : undefined;
+  const grade =
+    gradeRaw && typeof gradeRaw === "object"
+      ? {
+          id: String((gradeRaw as { id?: unknown }).id ?? ""),
+          name: String((gradeRaw as { name?: unknown }).name ?? ""),
+        }
+      : undefined;
+  return {
+    id,
+    name: String(obj.name ?? obj.nome ?? "Turma"),
+    school: school?.id ? school : undefined,
+    grade: grade?.id ? grade : undefined,
+    students_count: readCount(obj.students_count),
+    subturmas: mapClassSubturmas(obj.subturmas, id, school?.id || undefined),
+  };
+}
+
+function subturmaFromDetail(raw: SubjectiveTestSubturmaRef): ClassSubturmaOption | null {
+  const id = raw.id?.trim();
+  const classId = (raw.class_id || raw.class?.id || "").trim();
+  if (!id || !classId) return null;
+  return {
+    id,
+    class_id: classId,
+    name: raw.name || raw.display_name || "ADAP",
+    display_name: raw.display_name,
+    support_level: raw.support_level,
+    students_count: raw.students_count,
+    schoolId: raw.school?.id || raw.class?.school?.id,
+  };
 }
 
 interface QuestionDraft {
@@ -77,6 +166,7 @@ const CreateSubjectiveEvaluation = () => {
   const [municipality, setMunicipality] = useState("");
   const [selectedSchools, setSelectedSchools] = useState<SchoolOption[]>([]);
   const [selectedClasses, setSelectedClasses] = useState<ClassOption[]>([]);
+  const [selectedSubturmas, setSelectedSubturmas] = useState<ClassSubturmaOption[]>([]);
 
   const [courses, setCourses] = useState<Option[]>([]);
   const [grades, setGrades] = useState<Option[]>([]);
@@ -85,13 +175,16 @@ const CreateSubjectiveEvaluation = () => {
   const [subjects, setSubjects] = useState<Option[]>([]);
   const [schools, setSchools] = useState<SchoolOption[]>([]);
   const [availableClasses, setAvailableClasses] = useState<ClassOption[]>([]);
+  const [availableAdap, setAvailableAdap] = useState<ClassSubturmaOption[]>([]);
   const [schoolsLoading, setSchoolsLoading] = useState(false);
+  const [gradesLoading, setGradesLoading] = useState(false);
   const [classesLoading, setClassesLoading] = useState(false);
 
   const [numQuestions, setNumQuestions] = useState(10);
   const [questions, setQuestions] = useState<QuestionDraft[]>([]);
   const [groups, setGroups] = useState<SubjectiveRubricGroup[]>(() => [createDefaultRubricGroup(0)]);
   const [step, setStep] = useState(0);
+  const specialEducation = isSpecialEducationStage(course);
 
   useEffect(() => {
     const valid = new Set(groups.map((g) => g.temp_key));
@@ -134,11 +227,65 @@ const CreateSubjectiveEvaluation = () => {
       setGrades([]);
       return;
     }
+    if (specialEducation) {
+      if (!municipality && selectedSchools.length === 0) {
+        setGrades([]);
+        return;
+      }
+      let active = true;
+      setGradesLoading(true);
+      const requests =
+        selectedSchools.length > 0
+          ? selectedSchools.map((school) =>
+              subjectiveTestApi.getAvailableSeries({
+                educationStageId: course,
+                municipalityId: municipality || undefined,
+                schoolId: school.id,
+              })
+            )
+          : [
+              subjectiveTestApi.getAvailableSeries({
+                educationStageId: course,
+                municipalityId: municipality || undefined,
+              }),
+            ];
+      Promise.all(requests)
+        .then((lists) => {
+          if (!active) return;
+          const unique = Array.from(new Map(lists.flat().map((grade) => [grade.id, grade])).values()).sort((a, b) =>
+            a.name.localeCompare(b.name, "pt-BR")
+          );
+          setGrades(unique);
+          setGradeId((current) => (unique.some((grade) => grade.id === current) ? current : ""));
+        })
+        .catch(() => {
+          if (!active) return;
+          setGrades([]);
+        })
+        .finally(() => {
+          if (active) setGradesLoading(false);
+        });
+      return () => {
+        active = false;
+      };
+    }
+    let active = true;
+    setGradesLoading(true);
     api
       .get(`/grades/education-stage/${course}`)
-      .then((res) => setGrades(res.data || []))
-      .catch(() => setGrades([]));
-  }, [course]);
+      .then((res) => {
+        if (active) setGrades(res.data || []);
+      })
+      .catch(() => {
+        if (active) setGrades([]);
+      })
+      .finally(() => {
+        if (active) setGradesLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [course, specialEducation, municipality, selectedSchools]);
 
   useEffect(() => {
     if (!state) {
@@ -192,8 +339,61 @@ const CreateSubjectiveEvaluation = () => {
   }, [municipality, gradeId]);
 
   useEffect(() => {
+    if (specialEducation) {
+      if (selectedSchools.length === 0 || !gradeId) {
+        setAvailableClasses([]);
+        setAvailableAdap([]);
+        return;
+      }
+      let active = true;
+      setClassesLoading(true);
+      Promise.all(
+        selectedSchools.map((school) =>
+          subjectiveTestApi.getAvailableTurmas({
+            educationStageId: course,
+            gradeId,
+            schoolId: school.id,
+          })
+        )
+      )
+        .then((lists) => {
+          if (!active) return;
+          const rows = lists.flatMap((list, index) =>
+            list.map((row) => ({
+              id: row.subturma_id || row.id,
+              class_id: row.class_id,
+              name: row.name,
+              support_level: row.support_level,
+              students_count: row.students_count,
+              schoolId: selectedSchools[index]?.id,
+              grade_id: row.grade_id,
+            }))
+          );
+          const unique = Array.from(new Map(rows.map((row) => [row.id, row])).values()).sort((a, b) =>
+            a.name.localeCompare(b.name, "pt-BR")
+          );
+          setAvailableAdap(unique);
+          setAvailableClasses([]);
+          const ids = new Set(unique.map((row) => row.id));
+          setSelectedSubturmas((prev) => prev.filter((row) => ids.has(row.id)));
+          setSelectedClasses([]);
+        })
+        .catch(() => {
+          if (!active) return;
+          setAvailableAdap([]);
+          setAvailableClasses([]);
+        })
+        .finally(() => {
+          if (active) setClassesLoading(false);
+        });
+      return () => {
+        active = false;
+      };
+    }
+
     if (selectedSchools.length === 0) {
       setAvailableClasses([]);
+      setAvailableAdap([]);
       return;
     }
     let active = true;
@@ -201,10 +401,18 @@ const CreateSubjectiveEvaluation = () => {
     Promise.all(selectedSchools.map((s) => api.get(`/classes/school/${s.id}`)))
       .then((responses) => {
         if (!active) return;
-        const all = responses.flatMap((r) => r.data || []) as ClassOption[];
+        const all = responses.flatMap((r) => {
+          const data = r.data;
+          const list = Array.isArray(data) ? data : Array.isArray(data?.classes) ? data.classes : [];
+          return list.map(mapClassOption).filter((c): c is ClassOption => c != null);
+        });
         const filtered = gradeId ? all.filter((c) => c.grade?.id === gradeId) : all;
         const unique = Array.from(new Map(filtered.map((c) => [c.id, c])).values());
         setAvailableClasses(unique);
+        setAvailableAdap([]);
+        const classIds = new Set(unique.map((c) => c.id));
+        setSelectedClasses((prev) => prev.filter((c) => classIds.has(c.id)));
+        if (course) setSelectedSubturmas([]);
       })
       .catch(() => {
         if (active) setAvailableClasses([]);
@@ -215,7 +423,7 @@ const CreateSubjectiveEvaluation = () => {
     return () => {
       active = false;
     };
-  }, [selectedSchools, gradeId]);
+  }, [selectedSchools, gradeId, course, specialEducation]);
 
   useEffect(() => {
     if (!id) return;
@@ -243,6 +451,9 @@ const CreateSubjectiveEvaluation = () => {
             school: c.school,
             students_count: c.students_count,
           }))
+        );
+        setSelectedSubturmas(
+          (detail.subturmas || []).map(subturmaFromDetail).filter((s): s is ClassSubturmaOption => s != null)
         );
         const loadedGroups: SubjectiveRubricGroup[] =
           detail.rubric_groups && detail.rubric_groups.length > 0
@@ -352,8 +563,21 @@ const CreateSubjectiveEvaluation = () => {
       return prev.filter((s) => s.id !== school.id);
     });
     if (!checked) {
+      const removedClassIds = new Set(
+        availableClasses.filter((c) => c.school?.id === school.id).map((c) => c.id)
+      );
       setSelectedClasses((prev) => prev.filter((c) => c.school?.id !== school.id));
+      setSelectedSubturmas((prev) =>
+        prev.filter((s) => s.schoolId !== school.id && !removedClassIds.has(s.class_id))
+      );
     }
+  };
+
+  const toggleSubturma = (subturma: ClassSubturmaOption, checked: boolean) => {
+    setSelectedSubturmas((prev) => {
+      if (checked) return prev.some((s) => s.id === subturma.id) ? prev : [...prev, subturma];
+      return prev.filter((s) => s.id !== subturma.id);
+    });
   };
 
   const toggleClass = (cls: ClassOption, checked: boolean) => {
@@ -364,8 +588,21 @@ const CreateSubjectiveEvaluation = () => {
   };
 
   const selectAllSchools = () => setSelectedSchools([...schools]);
-  const selectAllClasses = () => setSelectedClasses(availableClasses);
-  const clearClasses = () => setSelectedClasses([]);
+  const selectAllVisible = () => {
+    if (specialEducation) {
+      setSelectedClasses([]);
+      setSelectedSubturmas(availableAdap);
+      return;
+    }
+    setSelectedSubturmas([]);
+    setSelectedClasses(availableClasses);
+  };
+  const clearClasses = () => {
+    setSelectedClasses([]);
+    setSelectedSubturmas([]);
+  };
+  const selectedScopeCount = specialEducation ? selectedSubturmas.length : selectedClasses.length;
+  const visibleCount = specialEducation ? availableAdap.length : availableClasses.length;
 
   const classesBySchool = useMemo(() => {
     const map = new Map<string, ClassOption[]>();
@@ -377,6 +614,17 @@ const CreateSubjectiveEvaluation = () => {
     }
     return Array.from(map.entries());
   }, [availableClasses]);
+
+  const adapBySchool = useMemo(() => {
+    const map = new Map<string, ClassSubturmaOption[]>();
+    for (const row of availableAdap) {
+      const key = row.schoolId || "unknown";
+      const arr = map.get(key) || [];
+      arr.push(row);
+      map.set(key, arr);
+    }
+    return Array.from(map.entries());
+  }, [availableAdap]);
 
   const validateStep = (index: number): boolean => {
     if (index === 0) {
@@ -445,8 +693,8 @@ const CreateSubjectiveEvaluation = () => {
         toast({ title: "Selecione a série", variant: "destructive" });
         return false;
       }
-      if (selectedClasses.length === 0) {
-        toast({ title: "Selecione ao menos uma turma", variant: "destructive" });
+      if (selectedClasses.length === 0 && selectedSubturmas.length === 0) {
+        toast({ title: "Selecione ao menos uma turma ou uma subturma ADAP", variant: "destructive" });
         return false;
       }
       return true;
@@ -476,8 +724,8 @@ const CreateSubjectiveEvaluation = () => {
       toast({ title: "Informe a data de aplicação", variant: "destructive" });
       return;
     }
-    if (selectedClasses.length === 0) {
-      toast({ title: "Selecione ao menos uma turma", variant: "destructive" });
+    if (selectedClasses.length === 0 && selectedSubturmas.length === 0) {
+      toast({ title: "Selecione ao menos uma turma ou uma subturma ADAP", variant: "destructive" });
       return;
     }
     if (questions.length === 0) {
@@ -499,7 +747,8 @@ const CreateSubjectiveEvaluation = () => {
       application_date: applicationDate,
       municipalities: municipality && municipality !== "all" ? [municipality] : [],
       schools: selectedSchools.map((s) => s.id),
-      classes: selectedClasses.map((c) => c.id),
+      classes: specialEducation ? [] : selectedClasses.map((c) => c.id),
+      subturmas: course && !specialEducation ? [] : selectedSubturmas.map((s) => s.id),
       questions: questions.map((q, i) => ({
         number: i + 1,
         code: q.code.trim() || `Q${String(i + 1).padStart(2, "0")}`,
@@ -753,7 +1002,18 @@ const CreateSubjectiveEvaluation = () => {
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
               <Label>Curso *</Label>
-              <Select value={course} onValueChange={(v) => { setCourse(v); setGradeId(""); }}>
+              <Select
+                value={course}
+                onValueChange={(v) => {
+                  setCourse(v);
+                  setGradeId("");
+                  setGrades([]);
+                  setSelectedClasses([]);
+                  setSelectedSubturmas([]);
+                  setAvailableClasses([]);
+                  setAvailableAdap([]);
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o curso" />
                 </SelectTrigger>
@@ -766,9 +1026,21 @@ const CreateSubjectiveEvaluation = () => {
             </div>
             <div className="space-y-2">
               <Label>Série *</Label>
-              <Select value={gradeId} onValueChange={setGradeId} disabled={!course}>
+              <Select
+                value={gradeId}
+                onValueChange={setGradeId}
+                disabled={!course || (specialEducation && !municipality && selectedSchools.length === 0)}
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione a série" />
+                  <SelectValue
+                    placeholder={
+                      gradesLoading
+                        ? "Carregando séries…"
+                        : specialEducation && !municipality
+                          ? "Selecione o município"
+                          : "Selecione a série"
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {grades.map((g) => (
@@ -776,10 +1048,15 @@ const CreateSubjectiveEvaluation = () => {
                   ))}
                 </SelectContent>
               </Select>
+              {specialEducation && (
+                <p className="text-xs text-muted-foreground">
+                  Série regular com ADAP, por exemplo 5º Ano. As linhas 5º Ano A ADAP aparecem depois de escolher a série e as escolas.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Estado</Label>
-              <Select value={state} onValueChange={(v) => { setState(v); setMunicipality(""); setSelectedSchools([]); setSelectedClasses([]); }}>
+              <Select value={state} onValueChange={(v) => { setState(v); setMunicipality(""); setSelectedSchools([]); setSelectedClasses([]); setSelectedSubturmas([]); }}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o estado" />
                 </SelectTrigger>
@@ -794,7 +1071,7 @@ const CreateSubjectiveEvaluation = () => {
               <Label>Município</Label>
               <Select
                 value={municipality}
-                onValueChange={(v) => { setMunicipality(v); setSelectedSchools([]); setSelectedClasses([]); }}
+                onValueChange={(v) => { setMunicipality(v); setSelectedSchools([]); setSelectedClasses([]); setSelectedSubturmas([]); }}
                 disabled={!state}
               >
                 <SelectTrigger>
@@ -826,9 +1103,11 @@ const CreateSubjectiveEvaluation = () => {
               {schoolsLoading && <p className="text-xs text-muted-foreground">Carregando escolas…</p>}
               {!schoolsLoading && schools.length === 0 && (
                 <p className="text-xs text-muted-foreground">
-                  {!municipality || !gradeId
-                    ? "Selecione município e série para listar escolas."
-                    : "Nenhuma escola encontrada para os filtros selecionados."}
+                  {!municipality
+                    ? "Selecione o município para listar escolas."
+                    : !specialEducation && !gradeId
+                      ? "Selecione a série para listar escolas."
+                      : "Nenhuma escola encontrada para os filtros selecionados."}
                 </p>
               )}
               {schools.map((school) => {
@@ -845,47 +1124,93 @@ const CreateSubjectiveEvaluation = () => {
 
           <div className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Label>Turmas ({selectedClasses.length} selecionadas)</Label>
-              <div className="flex gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={selectAllClasses} disabled={availableClasses.length === 0}>
-                  Selecionar todas ({availableClasses.length})
+              <Label>{specialEducation ? "Subturmas ADAP" : "Turmas"} ({selectedScopeCount} selecionadas)</Label>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={selectAllVisible}
+                  disabled={visibleCount === 0}
+                >
+                  Selecionar todas ({visibleCount})
                 </Button>
                 <Button type="button" variant="ghost" size="sm" onClick={clearClasses}>
                   Limpar
                 </Button>
               </div>
             </div>
-            <div className="max-h-56 space-y-3 overflow-y-auto rounded-md border p-3">
+            <p className="text-xs text-muted-foreground">
+              {specialEducation
+                ? "A série é a regular, por exemplo 5º Ano. Cada linha é a subturma, como 5º Ano A ADAP 3."
+                : "Turmas regulares da série selecionada."}
+            </p>
+            <div className="max-h-72 space-y-3 overflow-y-auto rounded-md border p-3">
               {classesLoading && <p className="text-xs text-muted-foreground">Carregando turmas…</p>}
-              {!classesLoading && availableClasses.length === 0 && (
-                <p className="text-xs text-muted-foreground">Selecione escolas para listar turmas.</p>
+              {!classesLoading && visibleCount === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {specialEducation
+                    ? !gradeId
+                      ? "Selecione a série regular para listar as subturmas ADAP."
+                      : selectedSchools.length === 0
+                        ? "Selecione escolas para listar as subturmas ADAP."
+                        : "Nenhuma subturma ADAP nesta série."
+                    : "Selecione escolas para listar turmas."}
+                </p>
               )}
-              {classesBySchool.map(([schoolId, classes]) => (
-                <div key={schoolId}>
-                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-primary">
-                    {selectedSchools.find((s) => s.id === schoolId)?.name || "Escola"}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {classes.map((cls) => {
-                      const on = selectedClasses.some((c) => c.id === cls.id);
-                      return (
-                        <label
-                          key={cls.id}
-                          className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
-                            on ? "border-primary bg-primary/10" : "bg-card"
-                          }`}
-                        >
-                          <Checkbox checked={on} onCheckedChange={(v) => toggleClass(cls, v === true)} />
-                          {cls.name}
-                          {typeof cls.students_count === "number" && (
-                            <span className="text-muted-foreground">({cls.students_count})</span>
-                          )}
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
+              {specialEducation
+                ? adapBySchool.map(([schoolId, rows]) => (
+                    <div key={schoolId}>
+                      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-primary">
+                        {selectedSchools.find((s) => s.id === schoolId)?.name || "Escola"}
+                      </p>
+                      <div className="space-y-2">
+                        {rows.map((row) => {
+                          const on = selectedSubturmas.some((item) => item.id === row.id);
+                          return (
+                            <label
+                              key={row.id}
+                              className={`flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-sm ${
+                                on ? "border-primary bg-primary/10" : "bg-card"
+                              }`}
+                            >
+                              <Checkbox checked={on} onCheckedChange={(v) => toggleSubturma(row, v === true)} />
+                              <span className="font-medium">{row.name}</span>
+                              {typeof row.students_count === "number" && (
+                                <span className="text-xs text-muted-foreground">({row.students_count})</span>
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                : classesBySchool.map(([schoolId, classes]) => (
+                    <div key={schoolId}>
+                      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-primary">
+                        {selectedSchools.find((s) => s.id === schoolId)?.name || "Escola"}
+                      </p>
+                      <div className="space-y-2">
+                        {classes.map((cls) => {
+                          const on = selectedClasses.some((c) => c.id === cls.id);
+                          return (
+                            <label
+                              key={cls.id}
+                              className={`flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-sm ${
+                                on ? "border-primary bg-primary/10" : "bg-card"
+                              }`}
+                            >
+                              <Checkbox checked={on} onCheckedChange={(v) => toggleClass(cls, v === true)} />
+                              <span className="font-medium">{cls.name}</span>
+                              {typeof cls.students_count === "number" && (
+                                <span className="text-xs text-muted-foreground">({cls.students_count})</span>
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
             </div>
           </div>
         </CardContent>

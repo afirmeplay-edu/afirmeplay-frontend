@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,8 +17,19 @@ import {
 import SubjectiveCorrectionMatrix from "@/components/evaluations/subjective/SubjectiveCorrectionMatrix";
 import { subjectiveTestApi, type SubjectiveTest } from "@/services/evaluation/subjectiveTestApi";
 
+function correctionTargetKey(classId: string, subturmaId?: string | null) {
+  return subturmaId ? `${classId}:${subturmaId}` : classId;
+}
+
+function correctionPath(testId: string, classId: string, subturmaId?: string | null) {
+  const base = `/app/avaliacoes-subjetivas/${testId}/correcao/${classId}`;
+  return subturmaId ? `${base}?subturma_id=${encodeURIComponent(subturmaId)}` : base;
+}
+
 const SubjectiveCorrectionPage = () => {
   const { id, classId } = useParams<{ id: string; classId?: string }>();
+  const [searchParams] = useSearchParams();
+  const subturmaId = searchParams.get("subturma_id");
   const navigate = useNavigate();
   const [test, setTest] = useState<SubjectiveTest | null>(null);
   const [loading, setLoading] = useState(true);
@@ -70,7 +81,18 @@ const SubjectiveCorrectionPage = () => {
     );
   }
 
-  const classItems = test.class_progress || test.classes || [];
+  const classItems =
+    test.class_progress ??
+    [
+      ...(test.classes || []),
+      ...(test.subturmas || []).map((subturma) => ({
+        id: subturma.class_id,
+        name: subturma.name || subturma.display_name || "ADAP",
+        subturma_id: subturma.id,
+        students_count: subturma.students_count,
+        school: subturma.school || subturma.class?.school || null,
+      })),
+    ];
 
   return (
     <div className="container mx-auto space-y-6 px-2 py-4 md:px-4 md:py-6">
@@ -119,6 +141,7 @@ const SubjectiveCorrectionPage = () => {
         <SubjectiveCorrectionMatrix
           testId={id}
           classId={classId}
+          subturmaId={subturmaId}
           municipalityName={test.municipalities?.[0]?.name}
           municipalityId={test.municipalities?.[0]?.id}
           schoolName={test.schools?.[0]?.name}
@@ -134,11 +157,12 @@ const SubjectiveCorrectionPage = () => {
           ) : (
             classItems.map((cls) => {
               const progress = "status" in cls ? cls : undefined;
+              const rowSubturmaId = cls.subturma_id || null;
               return (
                 <Card
-                  key={cls.id}
+                  key={correctionTargetKey(cls.id, rowSubturmaId)}
                   className="cursor-pointer transition-shadow hover:shadow-md"
-                  onClick={() => navigate(`/app/avaliacoes-subjetivas/${id}/correcao/${cls.id}`)}
+                  onClick={() => navigate(correctionPath(id, cls.id, rowSubturmaId))}
                 >
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center justify-between gap-2 text-base">

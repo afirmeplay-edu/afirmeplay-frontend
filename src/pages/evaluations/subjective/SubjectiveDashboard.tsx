@@ -35,6 +35,8 @@ import {
 import type { InstrumentPickerItem } from "@/components/filters";
 import {
   subjectiveTestApi,
+  parseSubjectiveTurmaFilterValue,
+  subjectiveTurmaFilterValue,
   type SubjectiveDashboardResponse,
   type SubjectiveFilterEntity,
   type SubjectiveFilterEvaluation,
@@ -186,7 +188,7 @@ const SubjectiveDashboard = () => {
           setSelectedClass("all");
         } else if (
           selectedClass !== "all" &&
-          !(opts.turmas || []).some((t) => t.id === selectedClass)
+          !(opts.turmas || []).some((t) => subjectiveTurmaFilterValue(t) === selectedClass)
         ) {
           setSelectedClass("all");
         }
@@ -225,11 +227,13 @@ const SubjectiveDashboard = () => {
     let active = true;
     setLoadingDash(true);
     setError(null);
+    const turmaFiltro = selectedClass === "all" ? null : parseSubjectiveTurmaFilterValue(selectedClass);
     subjectiveTestApi
       .getDashboard(
         selectedEvaluation,
-        selectedClass === "all" ? null : selectedClass,
-        selectedMunicipality
+        turmaFiltro?.classId ?? null,
+        selectedMunicipality,
+        turmaFiltro?.subturmaId
       )
       .then((data) => {
         if (active) setDash(data);
@@ -299,7 +303,7 @@ const SubjectiveDashboard = () => {
       disciplina: evaluationSubjectName(evalItem) || dash?.subjective_test?.subject?.name || "—",
       turma:
         selectedClass !== "all"
-          ? classes.find((c) => c.id === selectedClass)?.nome ?? "—"
+          ? classes.find((c) => subjectiveTurmaFilterValue(c) === selectedClass)?.nome ?? "—"
           : "Todas",
     };
     },
@@ -336,7 +340,7 @@ const SubjectiveDashboard = () => {
           selectedGrade !== "all" ? grades.find((g) => g.id === selectedGrade)?.nome : "Todas",
         turma:
           selectedClass !== "all"
-            ? classes.find((c) => c.id === selectedClass)?.nome
+            ? classes.find((c) => subjectiveTurmaFilterValue(c) === selectedClass)?.nome
             : "Todas as turmas",
         avaliacaoTitulo:
           evaluations.find((e) => e.id === selectedEvaluation)?.titulo ||
@@ -371,7 +375,7 @@ const SubjectiveDashboard = () => {
       setIsExportingResponses(true);
       const turmaLabel =
         selectedClass !== "all"
-          ? classes.find((c) => c.id === selectedClass)?.nome || "Turma"
+          ? classes.find((c) => subjectiveTurmaFilterValue(c) === selectedClass)?.nome || "Turma"
           : "Todas as turmas";
       await generateSubjectiveCorrectionResponsesPdf({
         subjective_test: dash.subjective_test,
@@ -697,11 +701,14 @@ const SubjectiveDashboard = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas as turmas</SelectItem>
-                  {classes.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nome}
-                    </SelectItem>
-                  ))}
+                  {classes.map((c) => {
+                    const value = subjectiveTurmaFilterValue(c);
+                    return (
+                      <SelectItem key={value} value={value}>
+                        {c.nome}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>

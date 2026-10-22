@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,11 +23,12 @@ import {
   Building2,
   AlertCircle,
   X,
-  Target,
+  FileSpreadsheet,
+  Search,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { MultiSelect } from '@/components/ui/multi-select';
-import SkillsSelector from '@/components/evaluations/questions/SkillsSelector';
+import { AnswerSheetImportDialog, type AnswerSheetImportDraft } from '@/components/answer-sheet/AnswerSheetImportDialog';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useAuth } from '@/context/authContext';
 import { MunicipalityAvailabilityControls } from '@/components/municipality-availability/MunicipalityAvailabilityControls';
@@ -91,13 +92,19 @@ export default function AnswerSheetCreateGabarito() {
   const [gabaritoSkills, setGabaritoSkills] = useState<{ id: string; code: string; description: string; name: string }[]>([]);
   const [isLoadingGabaritoSkills, setIsLoadingGabaritoSkills] = useState(false);
   const [questionSkills, setQuestionSkills] = useState<Record<number, string[]>>({});
-  const [editingQuestionSkills, setEditingQuestionSkills] = useState<number | null>(null);
+  /** Modo sequencial: questão em edição, busca e avanço automático ao escolher */
+  const [currentSkillQuestion, setCurrentSkillQuestion] = useState(1);
+  const [skillSearch, setSkillSearch] = useState('');
+  const [autoAdvanceSkills, setAutoAdvanceSkills] = useState(true);
   /** Cache id → code para não perder códigos ao trocar de disciplina */
   const [skillCodeCache, setSkillCodeCache] = useState<Record<string, string>>({});
 
   // Submit
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdGabarito, setCreatedGabarito] = useState<{ gabarito_id: string; title: string; num_questions: number } | null>(null);
+
+  // Importação
+  const [isImportOpen, setIsImportOpen] = useState(false);
 
   const handleResetForm = () => {
     setCreatedGabarito(null);
@@ -117,8 +124,46 @@ export default function AnswerSheetCreateGabarito() {
     setSkillSubjectId('');
     setSkillGradeId('');
     setQuestionSkills({});
-    setEditingQuestionSkills(null);
+    setCurrentSkillQuestion(1);
+    setSkillSearch('');
     setSkillCodeCache({});
+  };
+
+  const handleApplyImport = (draft: AnswerSheetImportDraft) => {
+    if (draft.title) setTitle(draft.title);
+    if (draft.institution) setInstitution(draft.institution);
+    if (draft.gradeIds.length > 0) {
+      setGradeIds(draft.gradeIds);
+      setSkillGradeId(draft.gradeIds[0]);
+    }
+    setNumQuestions(draft.numQuestions);
+    setCorrectAnswers(draft.correctAnswers);
+
+    const options = Object.values(draft.alternativesByQuestion);
+    if (options.length > 0 && options.every((o) => o.length === options[0].length)) {
+      setUseGlobalAlternatives(true);
+      setGlobalAlternatives([...options[0]]);
+      setQuestionsOptions({});
+    } else {
+      setUseGlobalAlternatives(false);
+      setQuestionsOptions(draft.alternativesByQuestion);
+    }
+    setEditingQuestionAlternatives(null);
+
+    setBlocksByDiscipline(
+      draft.blocks.length >= MIN_BLOCKS ? draft.blocks.map((b, index) => ({ block_id: index + 1, ...b })) : []
+    );
+    if (draft.blocks.length === 1) setSkillSubjectId(draft.blocks[0].subject_id);
+
+    setQuestionSkills(draft.questionSkills);
+    setSkillCodeCache((prev) => ({ ...prev, ...draft.skillCodes }));
+    setCurrentSkillQuestion(1);
+    setSkillSearch('');
+    setStep(0);
+    toast({
+      title: 'Cartão-resposta importado',
+      description: `${draft.numQuestions} questões carregadas. Revise as etapas antes de cadastrar.`,
+    });
   };
 
   // Carregar disciplinas (para blocos)
@@ -362,6 +407,40 @@ export default function AnswerSheetCreateGabarito() {
     return ids.map((id) => skillCodeCache[id] ?? gabaritoSkills.find((s) => s.id === id)?.code).filter(Boolean) as string[];
   };
 
+  const activeSkillQuestion = Math.min(Math.max(1, currentSkillQuestion), Math.max(1, numQuestions));
+  const activeBlockSubjectId = blocksByDiscipline.find(
+    (b) => activeSkillQuestion >= b.start_question && activeSkillQuestion <= b.end_question
+  )?.subject_id;
+
+  // Disciplina automática: segue o bloco da questão atual (ainda pode ser trocada manualmente)
+  useEffect(() => {
+    if (step !== 3) return;
+    if (activeBlockSubjectId) setSkillSubjectId(activeBlockSubjectId);
+    if (!skillGradeId && gradeIds.length > 0) setSkillGradeId(gradeIds[0]);
+  }, [step, activeBlockSubjectId, skillGradeId, gradeIds]);
+
+  const filteredGabaritoSkills = useMemo(() => {
+    const term = skillSearch.trim().toLowerCase();
+    if (!term) return gabaritoSkills;
+    return gabaritoSkills.filter(
+      (s) => s.code.toLowerCase().includes(term) || s.description.toLowerCase().includes(term)
+    );
+  }, [gabaritoSkills, skillSearch]);
+
+  const goToSkillQuestion = (questionNumber: number) => {
+    setCurrentSkillQuestion(Math.min(Math.max(1, questionNumber), numQuestions));
+    setSkillSearch('');
+  };
+
+  const handleSelectQuestionSkill = (skillId: string) => {
+    const questionNumber = activeSkillQuestion;
+    const alreadySelected = (questionSkills[questionNumber] ?? []).includes(skillId);
+    setQuestionSkills((prev) => ({ ...prev, [questionNumber]: alreadySelected ? [] : [skillId] }));
+    if (!alreadySelected && autoAdvanceSkills && questionNumber < numQuestions) {
+      goToSkillQuestion(questionNumber + 1);
+    }
+  };
+
   const buildQuestionsOptions = (): Record<string, string[]> | undefined => {
     const sorted = [...globalAlternatives].sort();
     if (useGlobalAlternatives && JSON.stringify(sorted) === JSON.stringify(['A', 'B', 'C', 'D'])) return undefined;
@@ -490,8 +569,25 @@ export default function AnswerSheetCreateGabarito() {
     <div className="space-y-8 pb-12">
       <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/5 via-background to-primary/5 p-6 md:p-8">
         <div className="relative z-10">
-          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Cadastrar cartão resposta</h1>
-          <p className="mt-1 text-muted-foreground">Preencha as etapas abaixo para criar um novo gabarito. Depois você poderá gerar os cartões a partir dele.</p>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Cadastrar cartão resposta</h1>
+              <p className="mt-1 text-muted-foreground">Preencha as etapas abaixo para criar um novo gabarito. Depois você poderá gerar os cartões a partir dele.</p>
+            </div>
+            <Button type="button" variant="outline" onClick={() => setIsImportOpen(true)}>
+              <FileSpreadsheet className="mr-2 h-4 w-4" />
+              Importar cartão-resposta
+            </Button>
+          </div>
+          <AnswerSheetImportDialog
+            open={isImportOpen}
+            onOpenChange={setIsImportOpen}
+            gradeIds={gradeIds}
+            minBlocks={MIN_BLOCKS}
+            maxBlocks={MAX_BLOCKS}
+            maxQuestionsPerBlock={MAX_QUESTIONS_PER_BLOCK}
+            onApply={handleApplyImport}
+          />
           <div className="mt-8">
             <Steps steps={STEPS} currentStep={step} />
           </div>
@@ -856,14 +952,19 @@ export default function AnswerSheetCreateGabarito() {
                   </div>
                   <div>
                     <CardTitle>Habilidades (opcional)</CardTitle>
-                    <CardDescription>Associe habilidades às questões para relatórios.</CardDescription>
+                    <CardDescription>
+                      Associe uma habilidade por questão, em sequência. A disciplina segue o bloco da questão atual.
+                    </CardDescription>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label>Disciplina</Label>
+                    <Label>
+                      Disciplina{' '}
+                      {activeBlockSubjectId && <span className="text-xs font-normal text-muted-foreground">(automática pelo bloco)</span>}
+                    </Label>
                     <Select value={skillSubjectId} onValueChange={setSkillSubjectId}>
                       <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                       <SelectContent>
@@ -885,73 +986,131 @@ export default function AnswerSheetCreateGabarito() {
                     </Select>
                   </div>
                 </div>
-                {(gabaritoSkills.length > 0 || Object.keys(skillCodeCache).length > 0) && numQuestions >= 1 && (
-                  <div className="space-y-2">
-                    <Label>Habilidades por questão</Label>
-                    <p className="text-xs text-muted-foreground">Clique no número da questão para associar habilidades. Troque de disciplina/série para adicionar de outras — as já adicionadas são mantidas.</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-                      {Array.from({ length: numQuestions }, (_, i) => i + 1).map((n) => {
-                        const codes = getSkillCodesForQuestion(n);
-                        return (
-                          <div key={n} className="flex flex-col gap-1 rounded-md border bg-muted/20 p-2">
+                {numQuestions >= 1 ? (
+                  <>
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => goToSkillQuestion(activeSkillQuestion - 1)}
+                        disabled={activeSkillQuestion <= 1}
+                      >
+                        <ArrowLeft className="mr-2 h-4 w-4" />
+                        Anterior
+                      </Button>
+                      <div className="text-center">
+                        <p className="font-semibold">Questão {activeSkillQuestion} de {numQuestions}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {subjectsForSkills.find((s) => s.id === skillSubjectId)?.name ?? 'Selecione a disciplina'}
+                          {' · '}
+                          {getSkillCodesForQuestion(activeSkillQuestion).join(', ') || 'sem habilidade'}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => goToSkillQuestion(activeSkillQuestion + 1)}
+                        disabled={activeSkillQuestion >= numQuestions}
+                      >
+                        Próxima
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
+                      <div className="flex max-h-[420px] flex-wrap content-start gap-1.5 overflow-y-auto">
+                        {Array.from({ length: numQuestions }, (_, i) => i + 1).map((n) => {
+                          const hasSkill = (questionSkills[n] ?? []).length > 0;
+                          return (
+                            <Button
+                              key={n}
+                              type="button"
+                              size="sm"
+                              variant={n === activeSkillQuestion ? 'default' : 'outline'}
+                              className={`h-8 w-12 px-0 text-xs ${hasSkill && n !== activeSkillQuestion ? 'border-emerald-500 text-emerald-700 dark:text-emerald-400' : ''}`}
+                              onClick={() => goToSkillQuestion(n)}
+                              title={getSkillCodesForQuestion(n).join(', ') || 'Sem habilidade'}
+                            >
+                              Q{n}
+                            </Button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="space-y-3">
+                        {(questionSkills[activeSkillQuestion] ?? []).length > 0 && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-muted-foreground">Selecionada:</span>
+                            <Badge variant="secondary" className="font-mono">
+                              {getSkillCodesForQuestion(activeSkillQuestion).join(', ')}
+                            </Badge>
                             <Button
                               type="button"
-                              variant={editingQuestionSkills === n ? 'default' : 'outline'}
+                              variant="ghost"
                               size="sm"
-                              className="w-full justify-start"
-                              onClick={() => setEditingQuestionSkills(editingQuestionSkills === n ? null : n)}
+                              onClick={() => setQuestionSkills((prev) => ({ ...prev, [activeSkillQuestion]: [] }))}
                             >
-                              <Target className="h-3 w-3 mr-1.5 shrink-0" />
-                              <span className="font-medium">Q{n}</span>
-                              {codes.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{codes.length}</Badge>}
+                              <X className="mr-1 h-3 w-3" />
+                              Remover
                             </Button>
-                            {codes.length > 0 && (
-                              <span className="text-[11px] text-muted-foreground font-mono leading-tight break-words">
-                                {codes.join(', ')}
-                              </span>
-                            )}
                           </div>
-                        );
-                      })}
+                        )}
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <Input
+                            placeholder="Buscar por código ou descrição..."
+                            value={skillSearch}
+                            onChange={(e) => setSkillSearch(e.target.value)}
+                            className="pl-9"
+                          />
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="skills-auto-advance"
+                            checked={autoAdvanceSkills}
+                            onCheckedChange={(c) => setAutoAdvanceSkills(c === true)}
+                          />
+                          <Label htmlFor="skills-auto-advance" className="text-sm font-normal">
+                            Ir para a próxima questão ao escolher
+                          </Label>
+                        </div>
+                        <div className="max-h-[360px] space-y-2 overflow-y-auto rounded-md border p-2">
+                          {!skillSubjectId || !skillGradeId ? (
+                            <p className="p-4 text-center text-sm text-muted-foreground">Selecione disciplina e série para carregar habilidades.</p>
+                          ) : isLoadingGabaritoSkills ? (
+                            <p className="flex items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Carregando habilidades...
+                            </p>
+                          ) : filteredGabaritoSkills.length === 0 ? (
+                            <p className="p-4 text-center text-sm text-muted-foreground">Nenhuma habilidade encontrada.</p>
+                          ) : (
+                            filteredGabaritoSkills.map((skill) => {
+                              const isSelected = (questionSkills[activeSkillQuestion] ?? []).includes(skill.id);
+                              return (
+                                <button
+                                  key={skill.id}
+                                  type="button"
+                                  onClick={() => handleSelectQuestionSkill(skill.id)}
+                                  className={`flex w-full items-start gap-3 rounded-md border p-2 text-left transition hover:bg-muted ${
+                                    isSelected ? 'border-primary bg-primary/10' : ''
+                                  }`}
+                                >
+                                  <span className="shrink-0 font-mono text-xs font-semibold text-primary">{skill.code}</span>
+                                  <span className="text-sm leading-tight">{skill.description}</span>
+                                  {isSelected && <CheckCircle2 className="ml-auto h-4 w-4 shrink-0 text-primary" />}
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <Dialog open={editingQuestionSkills !== null} onOpenChange={(open) => !open && setEditingQuestionSkills(null)}>
-                      <DialogContent className="max-w-md">
-                        <DialogHeader>
-                          <DialogTitle>Questão {editingQuestionSkills ?? ''}</DialogTitle>
-                          <DialogDescription>Selecione as habilidades associadas a esta questão. Habilidades de outras disciplinas já escolhidas permanecem selecionadas.</DialogDescription>
-                        </DialogHeader>
-                        {editingQuestionSkills !== null && (() => {
-                          const selectedIds = questionSkills[editingQuestionSkills] ?? [];
-                          const currentIds = new Set(gabaritoSkills.map((s) => s.id));
-                          const cachedSkills = selectedIds
-                            .filter((id) => !currentIds.has(id))
-                            .map((id) => ({
-                              id,
-                              code: skillCodeCache[id] ?? id,
-                              description: '',
-                              name: skillCodeCache[id] ?? id,
-                            }));
-                          const skillsForSelector = [...gabaritoSkills, ...cachedSkills];
-                          return (
-                            <SkillsSelector
-                              skills={skillsForSelector}
-                              selected={selectedIds}
-                              onChange={(ids) => setQuestionSkills((prev) => ({ ...prev, [editingQuestionSkills]: ids }))}
-                              placeholder="Habilidades"
-                              allGrades={gradesForSkills}
-                              subjectId={skillSubjectId}
-                              subjectName={subjectsForSkills.find((s) => s.id === skillSubjectId)?.name}
-                              gradeId={skillGradeId}
-                              gradeName={gradesForSkills.find((g) => g.id === skillGradeId)?.name}
-                            />
-                          );
-                        })()}
-                      </DialogContent>
-                    </Dialog>
-                  </div>
-                )}
-                {(!skillSubjectId || !skillGradeId) && (
-                  <p className="text-sm text-muted-foreground">Selecione disciplina e série para carregar habilidades.</p>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Defina a quantidade de questões na etapa Questões.</p>
                 )}
               </CardContent>
             </Card>

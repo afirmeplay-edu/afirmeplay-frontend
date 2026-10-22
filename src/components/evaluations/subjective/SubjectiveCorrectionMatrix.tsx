@@ -28,6 +28,7 @@ import {
 interface SubjectiveCorrectionMatrixProps {
   testId: string;
   classId: string;
+  subturmaId?: string | null;
   municipalityName?: string;
   municipalityId?: string | null;
   schoolName?: string;
@@ -96,6 +97,7 @@ function formatPct(value: number) {
 export function SubjectiveCorrectionMatrix({
   testId,
   classId,
+  subturmaId,
   municipalityName,
   municipalityId,
   schoolName,
@@ -145,7 +147,7 @@ export function SubjectiveCorrectionMatrix({
     setError(null);
     setFinalizeResult(null);
     subjectiveTestApi
-      .getCorrectionMatrix(testId, classId)
+      .getCorrectionMatrix(testId, classId, subturmaId)
       .then(async (response) => {
         if (!active) return;
         setData(response);
@@ -203,7 +205,7 @@ export function SubjectiveCorrectionMatrix({
     return () => {
       active = false;
     };
-  }, [testId, classId]);
+  }, [testId, classId, subturmaId]);
 
   const totalQuestions = data?.questions.length ?? 0;
   const rubricMarks = marksFromData(data?.rubric_marks);
@@ -300,7 +302,7 @@ export function SubjectiveCorrectionMatrix({
   const handleFinalize = async () => {
     setFinalizing(true);
     try {
-      const result = await subjectiveTestApi.finalizeClassCorrection(testId, classId);
+      const result = await subjectiveTestApi.finalizeClassCorrection(testId, classId, subturmaId);
       setFinalizeResult(result);
 
       const processedById = new Map(

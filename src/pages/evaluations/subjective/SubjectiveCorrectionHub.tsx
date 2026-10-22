@@ -110,7 +110,13 @@ const SubjectiveCorrectionHub = () => {
       if (subjectFilter !== "all" && item.subject?.id !== subjectFilter) return false;
       if (typeFilter !== "all" && (item.test_type || "AVALIACAO") !== typeFilter) return false;
       if (!q) return true;
-      const hay = [item.title, item.subject?.name, item.grade?.name, ...(item.classes || []).map((c) => c.name)]
+      const hay = [
+        item.title,
+        item.subject?.name,
+        item.grade?.name,
+        ...(item.classes || []).map((c) => c.name),
+        ...(item.subturmas || []).map((s) => s.name || s.display_name),
+      ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -281,12 +287,12 @@ const SubjectiveCorrectionHub = () => {
                           {item.grade.name}
                         </Badge>
                       ) : null}
-                      {item.classes && item.classes.length > 0 ? (
+                      {(item.classes?.length || 0) + (item.subturmas?.length || 0) > 0 ? (
                         <Badge
                           variant="outline"
                           className="text-xs border-border bg-muted/20 dark:bg-muted/40"
                         >
-                          {item.classes.length} turma(s)
+                          {(item.classes?.length || 0) + (item.subturmas?.length || 0)} turma(s)
                         </Badge>
                       ) : null}
                     </div>

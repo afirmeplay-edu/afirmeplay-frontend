@@ -101,6 +101,8 @@ export interface GabaritoScopeSnapshot {
   class_ids?: Array<string | GabaritoScopeClassEntry>;
   school_ids?: string[];
   grade_ids?: string[];
+  /** per_student | per_class | both. Ausente = geração antiga (um PDF por aluno). */
+  pdf_mode?: string;
   [key: string]: unknown;
 }
 

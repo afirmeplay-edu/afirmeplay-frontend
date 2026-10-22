@@ -40,6 +40,24 @@ export interface SubjectiveTestEntityRef {
 export interface SubjectiveTestClassRef extends SubjectiveTestEntityRef {
   students_count?: number;
   school?: SubjectiveTestEntityRef;
+  /** Nulo quando o recorte é a turma inteira. */
+  subturma_id?: string | null;
+}
+
+/** Subturma ADAP vinculada à prova. `id` é a subturma; `class_id` é a turma-mãe. */
+export interface SubjectiveTestSubturmaRef {
+  id: string;
+  class_id: string;
+  name?: string;
+  display_name?: string;
+  support_level?: number;
+  students_count?: number;
+  school?: SubjectiveTestEntityRef | null;
+  class?: {
+    id?: string;
+    name?: string;
+    school?: SubjectiveTestEntityRef | null;
+  } | null;
 }
 
 export interface SubjectiveTestCreatedBy {
@@ -50,6 +68,8 @@ export interface SubjectiveTestCreatedBy {
 export interface SubjectiveClassProgress {
   id: string;
   name: string;
+  /** Nulo na turma inteira. O `id` continua sendo a turma-mãe. */
+  subturma_id?: string | null;
   school?: SubjectiveTestEntityRef | null;
   students_count?: number;
   filled_cells?: number;
@@ -75,7 +95,10 @@ export interface SubjectiveTestPayload {
   application_date: string;
   municipalities: string[];
   schools: string[];
+  /** Turma inteira. O id da subturma ADAP fica fora daqui. */
   classes: string[];
+  /** Só o recorte ADAP. Cada id é o da subturma, não o da turma-mãe. */
+  subturmas?: string[];
   questions: SubjectiveTestQuestionInput[];
   /** Legado: um único conjunto de marcações (vira 1 grupo no backend). */
   rubric_marks?: SubjectiveRubricMark[];
@@ -95,6 +118,7 @@ export interface SubjectiveTest {
   municipalities?: SubjectiveTestEntityRef[];
   schools?: SubjectiveTestEntityRef[];
   classes?: SubjectiveTestClassRef[];
+  subturmas?: SubjectiveTestSubturmaRef[];
   status?: string;
   createdBy?: SubjectiveTestCreatedBy;
   createdAt?: string;
@@ -330,6 +354,22 @@ export interface SubjectiveDashboardResponse {
 export interface SubjectiveFilterEntity {
   id: string;
   nome: string;
+  /** Preenchido quando a linha do filtro é o recorte ADAP da turma. */
+  subturma_id?: string | null;
+}
+
+/** Valor único do select: turma inteira usa o id; ADAP usa `turmaId::subturmaId`. */
+export function subjectiveTurmaFilterValue(item: { id: string; subturma_id?: string | null }): string {
+  const subturmaId = item.subturma_id?.trim();
+  return subturmaId ? `${item.id}::${subturmaId}` : item.id;
+}
+
+export function parseSubjectiveTurmaFilterValue(value: string): { classId: string; subturmaId: string | null } {
+  const separator = value.indexOf("::");
+  if (separator === -1) return { classId: value, subturmaId: null };
+  const classId = value.slice(0, separator);
+  const subturmaId = value.slice(separator + 2).trim();
+  return { classId, subturmaId: subturmaId || null };
 }
 
 /** Avaliação em GET /subjective-tests/opcoes-filtros */
@@ -375,7 +415,12 @@ function normalizeFilterEntity(raw: unknown): SubjectiveFilterEntity | null {
   const id = obj.id != null ? String(obj.id) : "";
   if (!id) return null;
   const nome = String(obj.nome ?? obj.name ?? id);
-  return { id, nome };
+  const subRaw = obj.subturma_id;
+  const subturmaId =
+    subRaw != null && String(subRaw).trim() && String(subRaw).trim().toLowerCase() !== "null"
+      ? String(subRaw).trim()
+      : null;
+  return subturmaId ? { id, nome, subturma_id: subturmaId } : { id, nome };
 }
 
 function normalizeFilterEntities(raw: unknown): SubjectiveFilterEntity[] {
@@ -417,6 +462,72 @@ function normalizeFilterEvaluations(raw: unknown): SubjectiveFilterEvaluation[] 
       } satisfies SubjectiveFilterEvaluation;
     })
     .filter((e): e is SubjectiveFilterEvaluation => e != null);
+}
+
+export interface SubjectiveAvailableGrade {
+  id: string;
+  name: string;
+}
+
+export interface SubjectiveAvailableTurma {
+  id: string;
+  subturma_id: string;
+  name: string;
+  class_id: string;
+  grade_id?: string;
+  students_count?: number;
+  support_level?: number;
+}
+
+function readOptionalCount(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  return undefined;
+}
+
+function normalizeIdNameList(raw: unknown): SubjectiveAvailableGrade[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const obj = item as Record<string, unknown>;
+    const id = obj.id != null ? String(obj.id).trim() : "";
+    if (!id) return [];
+    return [{ id, name: String(obj.name ?? obj.nome ?? id) }];
+  });
+}
+
+function normalizeAvailableTurmas(raw: unknown): SubjectiveAvailableTurma[] {
+  const list = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object" && Array.isArray((raw as { turmas?: unknown }).turmas)
+      ? (raw as { turmas: unknown[] }).turmas
+      : raw && typeof raw === "object" && Array.isArray((raw as { classes?: unknown }).classes)
+        ? (raw as { classes: unknown[] }).classes
+        : [];
+  return list.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const obj = item as Record<string, unknown>;
+    const subturmaId = String(obj.subturma_id ?? obj.id ?? "").trim();
+    const classId = obj.class_id != null ? String(obj.class_id).trim() : "";
+    if (!subturmaId || !classId) return [];
+    const level = readOptionalCount(obj.support_level);
+    return [
+      {
+        id: subturmaId,
+        subturma_id: subturmaId,
+        name: String(obj.name ?? obj.display_name ?? "ADAP"),
+        class_id: classId,
+        grade_id: obj.grade_id != null ? String(obj.grade_id) : undefined,
+        students_count: readOptionalCount(obj.students_count),
+        support_level: level,
+      },
+    ];
+  });
+}
+
+function subturmaQuery(subturmaId?: string | null): { subturma_id: string } | undefined {
+  const id = subturmaId?.trim();
+  return id ? { subturma_id: id } : undefined;
 }
 
 function isFilterAll(value?: string | null): boolean {
@@ -475,9 +586,48 @@ export const subjectiveTestApi = {
     await api.delete(`/subjective-tests/${id}`);
   },
 
-  async getCorrectionMatrix(testId: string, classId: string): Promise<SubjectiveCorrectionMatrixResponse> {
+  /** Séries regulares que têm ADAP. Educação Especial não usa /grades/education-stage. */
+  async getAvailableSeries(params: {
+    educationStageId: string;
+    municipalityId?: string;
+    schoolId?: string;
+  }): Promise<SubjectiveAvailableGrade[]> {
+    const query: Record<string, string> = { education_stage_id: params.educationStageId };
+    if (params.municipalityId) query.municipality_id = params.municipalityId;
+    if (params.schoolId) query.school_id = params.schoolId;
+    const response = await api.get("/subjective-tests/series-disponiveis", { params: query });
+    const data = response.data;
+    const grades =
+      data && typeof data === "object" && Array.isArray((data as { grades?: unknown }).grades)
+        ? (data as { grades: unknown }).grades
+        : data;
+    return normalizeIdNameList(grades);
+  },
+
+  /** Uma linha por subturma ADAP. O id é o da subturma; class_id é a turma-mãe. */
+  async getAvailableTurmas(params: {
+    educationStageId: string;
+    gradeId: string;
+    schoolId: string;
+  }): Promise<SubjectiveAvailableTurma[]> {
+    const response = await api.get("/subjective-tests/turmas-disponiveis", {
+      params: {
+        education_stage_id: params.educationStageId,
+        grade_id: params.gradeId,
+        school_id: params.schoolId,
+      },
+    });
+    return normalizeAvailableTurmas(response.data);
+  },
+
+  async getCorrectionMatrix(
+    testId: string,
+    classId: string,
+    subturmaId?: string | null
+  ): Promise<SubjectiveCorrectionMatrixResponse> {
     const response = await api.get<SubjectiveCorrectionMatrixResponse>(
-      `/subjective-tests/${testId}/turmas/${classId}/correcao`
+      `/subjective-tests/${testId}/turmas/${classId}/correcao`,
+      { params: subturmaQuery(subturmaId) }
     );
     return response.data;
   },
@@ -503,9 +653,15 @@ export const subjectiveTestApi = {
     return response.data;
   },
 
-  async finalizeClassCorrection(testId: string, classId: string): Promise<FinalizeClassCorrectionResponse> {
+  async finalizeClassCorrection(
+    testId: string,
+    classId: string,
+    subturmaId?: string | null
+  ): Promise<FinalizeClassCorrectionResponse> {
     const response = await api.post<FinalizeClassCorrectionResponse>(
-      `/subjective-tests/${testId}/turmas/${classId}/finalizar`
+      `/subjective-tests/${testId}/turmas/${classId}/finalizar`,
+      undefined,
+      { params: subturmaQuery(subturmaId) }
     );
     return response.data;
   },
@@ -518,10 +674,14 @@ export const subjectiveTestApi = {
   async getDashboard(
     testId: string,
     classId?: string | null,
-    cityId?: string | null
+    cityId?: string | null,
+    subturmaId?: string | null
   ): Promise<SubjectiveDashboardResponse> {
+    const params: Record<string, string> = {};
+    if (classId && !isFilterAll(classId)) params.class_id = classId;
+    if (subturmaId && !isFilterAll(subturmaId)) params.subturma_id = subturmaId;
     const response = await api.get<SubjectiveDashboardResponse>(`/subjective-tests/${testId}/dashboard`, {
-      params: classId ? { class_id: classId } : undefined,
+      params: Object.keys(params).length > 0 ? params : undefined,
       ...(cityId && !isFilterAll(cityId) ? { meta: { cityId } } : {}),
     });
     return response.data;

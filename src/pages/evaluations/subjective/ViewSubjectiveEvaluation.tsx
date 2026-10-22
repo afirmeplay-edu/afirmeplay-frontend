@@ -126,7 +126,7 @@ const ViewSubjectiveEvaluation = () => {
             <CardTitle className="text-base">Turmas</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {(data.classes || []).length === 0 && (
+            {(data.classes || []).length === 0 && (data.subturmas || []).length === 0 && (
               <p className="text-sm text-muted-foreground">Nenhuma turma vinculada.</p>
             )}
             {(data.classes || []).map((c) => (
@@ -137,6 +137,19 @@ const ViewSubjectiveEvaluation = () => {
                 </div>
                 {typeof c.students_count === "number" && (
                   <span className="text-xs text-muted-foreground">{c.students_count} alunos</span>
+                )}
+              </div>
+            ))}
+            {(data.subturmas || []).map((subturma) => (
+              <div key={subturma.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                <div>
+                  <p className="font-medium">{subturma.name || subturma.display_name || "ADAP"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {subturma.school?.name || subturma.class?.school?.name || "Subturma ADAP"}
+                  </p>
+                </div>
+                {typeof subturma.students_count === "number" && (
+                  <span className="text-xs text-muted-foreground">{subturma.students_count} alunos</span>
                 )}
               </div>
             ))}
