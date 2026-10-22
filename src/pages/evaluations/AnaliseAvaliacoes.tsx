@@ -32,8 +32,6 @@ import { getClassShiftLabel } from "@/lib/classShift";
 import { useAuth } from "@/context/authContext";
 import { BarChartComponent, DonutChartComponent } from "@/components/ui/charts";
 import { FilterComponentAnalise } from "@/components/filters";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import { getUserHierarchyContext, getRestrictionMessage, validateReportAccess, UserHierarchyContext, cityIdQueryParamForAdmin } from "@/utils/userHierarchy";
 import { normalizeRelatorioCompletoForAnaliseUI } from "@/utils/report/relatorioCompletoNormalize";
 import { generateRelatorioOrganizadoPdf } from "@/services/reports/analiseAvaliacoesPdf";
@@ -144,8 +142,19 @@ const formatTurmaLabel = (row: TurmaRowLike) => {
   return `${serie} ${turma}`.trim();
 };
 
-export default function AnaliseAvaliacoes() {
+export type AnaliseAvaliacoesFlow = 'digital' | 'cartao';
+
+type AnaliseAvaliacoesProps = {
+  flow?: AnaliseAvaliacoesFlow;
+  hidePageHeading?: boolean;
+};
+
+export default function AnaliseAvaliacoes({
+  flow = 'digital',
+  hidePageHeading = false,
+}: AnaliseAvaliacoesProps = {}) {
   const { autoLogin, user } = useAuth();
+  const reportAnswerSheet = flow === 'cartao';
   const [apiData, setApiData] = useState<RelatorioCompleto | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingFilters, setIsLoadingFilters] = useState(false);
@@ -162,7 +171,6 @@ export default function AnaliseAvaliacoes() {
   const [selectedSchool, setSelectedSchool] = useState<string>('all');
   const [selectedEvaluation, setSelectedEvaluation] = useState<string>('all');
   const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
-  const [reportAnswerSheet, setReportAnswerSheet] = useState(false);
 
   // Estados para hierarquia do usuário
   const [userHierarchyContext, setUserHierarchyContext] = useState<UserHierarchyContext | null>(null);
@@ -516,6 +524,7 @@ export default function AnaliseAvaliacoes() {
   return (
     <div className="w-full min-w-0 space-y-6">
       {/* Header — mobile: título/desc alinhados, badge centralizado abaixo */}
+      {!hidePageHeading && (
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1.5">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex flex-wrap items-center gap-2 sm:gap-3">
@@ -540,22 +549,7 @@ export default function AnaliseAvaliacoes() {
           </Badge>
         </div>
       </div>
-
-      <div className="flex items-start gap-3 rounded-lg border border-border bg-card p-4">
-        <Checkbox
-          id="report-answer-sheet-analise"
-          checked={reportAnswerSheet}
-          onCheckedChange={(v) => {
-            const checked = v === true;
-            setReportAnswerSheet(checked);
-            setSelectedEvaluation('all');
-            setApiData(null);
-          }}
-        />
-        <Label htmlFor="report-answer-sheet-analise" className="text-sm font-normal leading-snug cursor-pointer">
-          Marque para ver relatórios de um cartão resposta
-        </Label>
-      </div>
+      )}
 
       {/* Filtros */}
       <FilterComponentAnalise
@@ -655,7 +649,7 @@ export default function AnaliseAvaliacoes() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <FileText className="h-5 w-5" />
-                  Informações da Avaliação
+                  {reportAnswerSheet ? "Informações do Cartão-resposta" : "Informações da Avaliação"}
                 </CardTitle>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
