@@ -26,7 +26,9 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024;
 type PreviewRow = {
   line: number;
   question: number | null;
+  question_input: string;
   answer: string | null;
+  answer_input: string;
   alternatives_count: number | null;
   subject: { id: string; name: string } | null;
   subject_input: string;
@@ -67,6 +69,11 @@ export type AnswerSheetImportDraft = {
 
 type GlobalAlternatives = 'sheet' | 'custom' | '3' | '4' | '5';
 
+/** Valores editáveis de uma linha da pré-visualização (revalidados no backend ao reanalisar). */
+type RowFields = { question: string; answer: string; subject: string; skill: string };
+
+const PREVIEW_URL = '/answer-sheets/import/preview';
+
 interface AnswerSheetImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -93,16 +100,25 @@ export function AnswerSheetImportDialog({
   const [pasteText, setPasteText] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
+  /** Quantidade de alternativas por linha da pré-visualização (chave: row.line). */
   const [alternativeCounts, setAlternativeCounts] = useState<Record<number, number>>({});
   const [globalAlternatives, setGlobalAlternatives] = useState<GlobalAlternatives>('sheet');
+  /** Linhas editadas e ainda não reanalisadas (chave: row.line). */
+  const [edits, setEdits] = useState<Record<number, RowFields>>({});
+  const hasPendingEdits = Object.keys(edits).length > 0;
+
+  const clearPreview = () => {
+    setPreview(null);
+    setAlternativeCounts({});
+    setGlobalAlternatives('sheet');
+    setEdits({});
+  };
 
   const resetState = () => {
     setSource('file');
     setFile(null);
     setPasteText('');
-    setPreview(null);
-    setAlternativeCounts({});
-    setGlobalAlternatives('sheet');
+    clearPreview();
   };
 
   const handleOpenChange = (next: boolean) => {
@@ -110,13 +126,30 @@ export function AnswerSheetImportDialog({
     onOpenChange(next);
   };
 
+  /** Sem quantidade informada, usa o padrão ou o suficiente para conter a resposta (ex.: E ⇒ 5). */
   const countsFromSheet = (rows: PreviewRow[]): Record<number, number> =>
     Object.fromEntries(
-      rows.filter((r) => r.question !== null).map((r) => [r.question as number, r.alternatives_count ?? DEFAULT_ALTERNATIVES])
+      rows.map((r) => [
+        r.line,
+        r.alternatives_count ??
+          Math.max(DEFAULT_ALTERNATIVES, LETTERS.indexOf(r.answer as AnswerSheetLetter) + 1),
+      ])
     );
 
+  const rowFields = (row: PreviewRow): RowFields =>
+    edits[row.line] ?? {
+      question: row.question_input ?? String(row.question ?? ''),
+      answer: row.answer_input ?? row.answer ?? '',
+      subject: row.subject?.name || row.subject_input || '',
+      skill: row.skill?.code || row.skill_input || '',
+    };
+
+  const updateRowField = (row: PreviewRow, field: keyof RowFields, value: string) => {
+    setEdits((prev) => ({ ...prev, [row.line]: { ...rowFields(row), [field]: value } }));
+  };
+
   const handleFileChange = (selected: File | null) => {
-    setPreview(null);
+    clearPreview();
     if (!selected) {
       setFile(null);
       return;
@@ -135,24 +168,14 @@ export function AnswerSheetImportDialog({
     setFile(selected);
   };
 
-  const handleAnalyze = async () => {
+  const runPreview = async (request: () => Promise<{ data: PreviewResponse }>, keepMetadataFrom?: PreviewResponse) => {
     try {
       setIsAnalyzing(true);
-      let response;
-      if (source === 'file') {
-        if (!file) return;
-        const formData = new FormData();
-        formData.append('file', file);
-        gradeIds.forEach((id) => formData.append('grade_ids', id));
-        response = await api.post<PreviewResponse>('/answer-sheets/import/preview', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
-      } else {
-        response = await api.post<PreviewResponse>('/answer-sheets/import/preview', { text: pasteText, grade_ids: gradeIds });
-      }
-      setPreview(response.data);
-      setAlternativeCounts(countsFromSheet(response.data.rows));
+      const { data } = await request();
+      setPreview(keepMetadataFrom ? { ...data, metadata: keepMetadataFrom.metadata, warnings: keepMetadataFrom.warnings } : data);
+      setAlternativeCounts(countsFromSheet(data.rows));
       setGlobalAlternatives('sheet');
+      setEdits({});
     } catch (err: unknown) {
       const message = isAxiosError(err)
         ? (err.response?.data as { error?: string } | undefined)?.error || 'Não foi possível ler os dados.'
@@ -163,6 +186,33 @@ export function AnswerSheetImportDialog({
     }
   };
 
+  const handleAnalyze = () => {
+    if (source === 'file') {
+      if (!file) return;
+      const formData = new FormData();
+      formData.append('file', file);
+      gradeIds.forEach((id) => formData.append('grade_ids', id));
+      return runPreview(() =>
+        api.post<PreviewResponse>(PREVIEW_URL, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+      );
+    }
+    return runPreview(() => api.post<PreviewResponse>(PREVIEW_URL, { text: pasteText, grade_ids: gradeIds }));
+  };
+
+  /** Reenvia a tabela editada como texto tabulado; Título/Secretaria/Séries da leitura original são mantidos. */
+  const handleReanalyze = () => {
+    if (!preview) return;
+    const clean = (value: string | number) => String(value).replace(/[\t\r\n]+/g, ' ').trim();
+    const lines = preview.rows.map((row) => {
+      const fields = rowFields(row);
+      const neededForAnswer = LETTERS.indexOf(fields.answer.trim() as AnswerSheetLetter) + 1;
+      const count = Math.max(alternativeCounts[row.line] ?? DEFAULT_ALTERNATIVES, neededForAnswer);
+      return [fields.question, fields.answer, fields.subject, fields.skill, count].map(clean).join('\t');
+    });
+    const text = ['Questão\tResposta\tDisciplina\tHabilidade\tAlternativas', ...lines].join('\n');
+    return runPreview(() => api.post<PreviewResponse>(PREVIEW_URL, { text, grade_ids: gradeIds }), preview);
+  };
+
   const handleGlobalAlternativesChange = (value: GlobalAlternatives) => {
     if (!preview) return;
     setGlobalAlternatives(value);
@@ -170,22 +220,21 @@ export function AnswerSheetImportDialog({
       setAlternativeCounts(countsFromSheet(preview.rows));
     } else if (value !== 'custom') {
       const count = Number(value);
-      setAlternativeCounts(Object.fromEntries(Object.keys(alternativeCounts).map((q) => [Number(q), count])));
+      setAlternativeCounts(Object.fromEntries(preview.rows.map((r) => [r.line, count])));
     }
   };
 
-  const changeQuestionAlternatives = (question: number, delta: number) => {
+  const changeRowAlternatives = (line: number, delta: number) => {
     setAlternativeCounts((prev) => {
-      const next = Math.min(MAX_ALTERNATIVES, Math.max(MIN_ALTERNATIVES, (prev[question] ?? DEFAULT_ALTERNATIVES) + delta));
-      return { ...prev, [question]: next };
+      const next = Math.min(MAX_ALTERNATIVES, Math.max(MIN_ALTERNATIVES, (prev[line] ?? DEFAULT_ALTERNATIVES) + delta));
+      return { ...prev, [line]: next };
     });
     setGlobalAlternatives('custom');
   };
 
   const rowErrors = (row: PreviewRow): string[] => {
     const errors = [...row.errors];
-    if (row.question === null) return errors;
-    const count = alternativeCounts[row.question] ?? DEFAULT_ALTERNATIVES;
+    const count = alternativeCounts[row.line] ?? DEFAULT_ALTERNATIVES;
     if (row.answer && LETTERS.indexOf(row.answer as AnswerSheetLetter) >= count) {
       errors.push(`Resposta ${row.answer} fora das alternativas (A–${LETTERS[count - 1]}).`);
     }
@@ -211,7 +260,8 @@ export function AnswerSheetImportDialog({
   }, [preview, minBlocks, maxBlocks, maxQuestionsPerBlock]);
 
   const rowsWithErrors = preview ? preview.rows.filter((r) => rowErrors(r).length > 0).length : 0;
-  const canApply = !!preview && preview.rows.length > 0 && generalErrors.length === 0 && rowsWithErrors === 0;
+  const canApply =
+    !!preview && preview.rows.length > 0 && !hasPendingEdits && generalErrors.length === 0 && rowsWithErrors === 0;
 
   const handleApply = () => {
     if (!preview || !canApply) return;
@@ -224,7 +274,7 @@ export function AnswerSheetImportDialog({
       numQuestions: rows.length,
       correctAnswers: Object.fromEntries(rows.map((r) => [r.question, r.answer])),
       alternativesByQuestion: Object.fromEntries(
-        rows.map((r) => [r.question, LETTERS.slice(0, alternativeCounts[r.question] ?? DEFAULT_ALTERNATIVES)])
+        rows.map((r) => [r.question, LETTERS.slice(0, alternativeCounts[r.line] ?? DEFAULT_ALTERNATIVES)])
       ),
       blocks: preview.blocks,
       questionSkills: Object.fromEntries(withSkill.map((r) => [r.question, [r.skill!.id]])),
@@ -279,7 +329,24 @@ export function AnswerSheetImportDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={source} onValueChange={(v) => { setSource(v as 'file' | 'paste'); setPreview(null); }}>
+        {preview ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">
+              Origem: {source === 'file' ? file?.name ?? 'planilha' : 'conteúdo colado do Excel'}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => { clearPreview(); if (source === 'file') setFile(null); }}
+              disabled={isAnalyzing}
+            >
+              Usar outros dados
+            </Button>
+          </div>
+        ) : (
+        <>
+        <Tabs value={source} onValueChange={(v) => { setSource(v as 'file' | 'paste'); clearPreview(); }}>
           <TabsList>
             <TabsTrigger value="file"><FileSpreadsheet className="mr-2 h-4 w-4" />Planilha</TabsTrigger>
             <TabsTrigger value="paste"><ClipboardPaste className="mr-2 h-4 w-4" />Colar do Excel</TabsTrigger>
@@ -311,7 +378,7 @@ export function AnswerSheetImportDialog({
               id="answer-sheet-import-paste"
               rows={8}
               value={pasteText}
-              onChange={(e) => { setPasteText(e.target.value); setPreview(null); }}
+              onChange={(e) => setPasteText(e.target.value)}
               placeholder={'Questão\tResposta\tDisciplina\tHabilidade\tAlternativas\n1\tB\tLíngua Portuguesa\tEF05LP01\t4'}
               className="font-mono text-xs"
             />
@@ -327,6 +394,8 @@ export function AnswerSheetImportDialog({
             {isAnalyzing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Analisando...</> : 'Analisar'}
           </Button>
         </div>
+        </>
+        )}
 
         {preview && (
           <div className="space-y-4">
@@ -393,50 +462,78 @@ export function AnswerSheetImportDialog({
                 <TableBody>
                   {preview.rows.map((row) => {
                     const errors = rowErrors(row);
-                    const count = row.question !== null ? alternativeCounts[row.question] ?? DEFAULT_ALTERNATIVES : null;
+                    const fields = rowFields(row);
+                    const isEdited = !!edits[row.line];
+                    const count = alternativeCounts[row.line] ?? DEFAULT_ALTERNATIVES;
+                    const label = `linha ${row.line}`;
                     return (
                       <TableRow key={row.line}>
-                        <TableCell className="font-medium">{row.question ?? '—'}</TableCell>
-                        <TableCell>{row.answer ?? '—'}</TableCell>
                         <TableCell>
-                          {row.question !== null && count !== null && (
-                            <div className="flex items-center gap-1">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => changeQuestionAlternatives(row.question as number, -1)}
-                                disabled={count <= MIN_ALTERNATIVES}
-                                aria-label={`Remover alternativa da questão ${row.question}`}
-                              >
-                                <Minus className="h-3 w-3" />
-                              </Button>
-                              <span className="w-12 text-center text-xs font-mono">A–{LETTERS[count - 1]}</span>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => changeQuestionAlternatives(row.question as number, 1)}
-                                disabled={count >= MAX_ALTERNATIVES}
-                                aria-label={`Adicionar alternativa na questão ${row.question}`}
-                              >
-                                <Plus className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          )}
+                          <Input
+                            value={fields.question}
+                            onChange={(e) => updateRowField(row, 'question', e.target.value)}
+                            className="h-8 w-14 px-2"
+                            inputMode="numeric"
+                            aria-label={`Questão (${label})`}
+                          />
                         </TableCell>
-                        <TableCell>{row.subject?.name || row.subject_input || '—'}</TableCell>
                         <TableCell>
-                          {row.skill ? (
-                            <span className="font-mono text-xs" title={row.skill.description}>{row.skill.code}</span>
-                          ) : (
-                            <span className="text-muted-foreground">{row.skill_input || '—'}</span>
-                          )}
+                          <Input
+                            value={fields.answer}
+                            onChange={(e) => updateRowField(row, 'answer', e.target.value.toUpperCase())}
+                            className="h-8 w-12 px-2 text-center font-semibold"
+                            maxLength={3}
+                            aria-label={`Resposta (${label})`}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => changeRowAlternatives(row.line, -1)}
+                              disabled={count <= MIN_ALTERNATIVES}
+                              aria-label={`Remover alternativa (${label})`}
+                            >
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                            <span className="w-12 text-center text-xs font-mono">A–{LETTERS[count - 1]}</span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => changeRowAlternatives(row.line, 1)}
+                              disabled={count >= MAX_ALTERNATIVES}
+                              aria-label={`Adicionar alternativa (${label})`}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            value={fields.subject}
+                            onChange={(e) => updateRowField(row, 'subject', e.target.value)}
+                            className="h-8 min-w-[140px] px-2"
+                            aria-label={`Disciplina (${label})`}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            value={fields.skill}
+                            onChange={(e) => updateRowField(row, 'skill', e.target.value)}
+                            className="h-8 w-28 px-2 font-mono text-xs"
+                            title={row.skill?.description}
+                            aria-label={`Habilidade (${label})`}
+                          />
                         </TableCell>
                         <TableCell className="text-xs">
-                          {errors.length > 0 ? (
+                          {isEdited ? (
+                            <span className="text-amber-600 dark:text-amber-400">Alterada — clique em Reanalisar.</span>
+                          ) : errors.length > 0 ? (
                             <span className="text-destructive">{errors.join(' ')}</span>
                           ) : row.warnings.length > 0 ? (
                             <span className="text-amber-600 dark:text-amber-400">{row.warnings.join(' ')}</span>
@@ -451,8 +548,17 @@ export function AnswerSheetImportDialog({
               </Table>
             </div>
 
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {hasPendingEdits && (
+                <span className="mr-auto text-xs text-amber-600 dark:text-amber-400">
+                  Há linhas alteradas. Reanalise para validar disciplina, habilidade e respostas.
+                </span>
+              )}
               <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>Cancelar</Button>
+              <Button type="button" variant="outline" onClick={handleReanalyze} disabled={!hasPendingEdits || isAnalyzing}>
+                {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Reanalisar
+              </Button>
               <Button type="button" onClick={handleApply} disabled={!canApply}>Aplicar ao cadastro</Button>
             </div>
           </div>
