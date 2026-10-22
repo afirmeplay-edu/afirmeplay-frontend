@@ -25,7 +25,9 @@ export function SubjectiveEvalCard({
   const questionCount =
     typeof item.total_questions === "number" ? item.total_questions : item.questions?.length ?? 0;
   const concluded = item.correction_summary?.concluded_classes ?? 0;
-  const totalClasses = item.correction_summary?.total_classes ?? item.classes?.length ?? 0;
+  const totalClasses =
+    item.correction_summary?.total_classes ??
+    (item.classes?.length ?? 0) + (item.subturmas?.length ?? 0);
 
   return (
     <Card className="flex h-full flex-col overflow-hidden border-border/80 shadow-sm transition-shadow hover:shadow-md">

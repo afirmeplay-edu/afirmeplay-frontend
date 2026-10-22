@@ -106,6 +106,7 @@ const SubjectiveEvaluations = () => {
         item.subject?.name,
         item.grade?.name,
         ...(item.classes || []).map((c) => c.name),
+        ...(item.subturmas || []).map((s) => s.name || s.display_name),
         ...(item.schools || []).map((s) => s.name),
       ]
         .filter(Boolean)

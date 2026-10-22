@@ -1,6 +1,12 @@
 import { api } from "@/lib/api";
 
-const ADAP_STAGE_ID = "247c4af5-2688-41b0-95fa-443f503a9d87";
+export const SPECIAL_EDUCATION_STAGE_ID = "247c4af5-2688-41b0-95fa-443f503a9d87";
+
+const ADAP_STAGE_ID = SPECIAL_EDUCATION_STAGE_ID;
+
+export function isSpecialEducationStage(stageId?: string | null): boolean {
+  return Boolean(stageId && stageId === ADAP_STAGE_ID);
+}
 
 export interface SubturmaAluno {
   id: string;
