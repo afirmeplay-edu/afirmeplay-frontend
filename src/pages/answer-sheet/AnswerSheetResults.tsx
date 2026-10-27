@@ -59,6 +59,7 @@ import { ClassStatistics } from '@/components/evaluations/results/ClassStatistic
 import { StudentCard } from '@/components/evaluations/student/StudentCard';
 import { DisciplineTables } from '@/components/evaluations/results/DisciplineTables';
 import { cn } from '@/lib/utils';
+import { displayAdapGradeName } from '@/lib/subturma';
 import { formatDecimal1PtBr, formatPercent1PtBr } from '@/utils/numberFormat';
 import { generatePendingStudentsPdf } from '@/services/reports/pendingStudentsPdf';
 import { generateRankingPdf } from '@/services/reports/rankingPdf';
@@ -903,10 +904,14 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   const gabaritos = opcoes.gabaritos ?? [];
   const escolas = opcoes.escolas ?? [];
   const series = useMemo(() => {
-    const fromOpcoes = opcoes.series ?? [];
+    const relabel = (s: { id: string; nome?: string; name?: string }) => {
+      const label = displayAdapGradeName(s.nome || s.name);
+      return { ...s, nome: label, name: label };
+    };
+    const fromOpcoes = (opcoes.series ?? []).map(relabel);
     const fromGabarito = apiData?.series_do_gabarito ?? [];
     if (fromOpcoes.length === 0 && fromGabarito.length > 0) {
-      return fromGabarito.map((s) => ({ id: s.id, nome: s.name, name: s.name }));
+      return fromGabarito.map((s) => relabel({ id: s.id, nome: s.name, name: s.name }));
     }
     if (fromGabarito.length === 0) return fromOpcoes;
     const seen = new Set(fromOpcoes.map((s) => s.id));
@@ -914,7 +919,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     for (const s of fromGabarito) {
       if (!seen.has(s.id)) {
         seen.add(s.id);
-        merged.push({ id: s.id, nome: s.name, name: s.name });
+        merged.push(relabel({ id: s.id, nome: s.name, name: s.name }));
       }
     }
     return merged;

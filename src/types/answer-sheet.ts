@@ -128,7 +128,7 @@ export interface AnswerSheetAdapOption {
   /** Ex.: "5º Ano A – ADAP 1" */
   name: string;
   nome?: string;
-  support_level: 1 | 2;
+  support_level: 1 | 2 | 3;
   students_count: number;
   shift?: string;
   serie_id?: string;

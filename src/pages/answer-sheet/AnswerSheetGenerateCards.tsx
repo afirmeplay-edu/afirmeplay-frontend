@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { isAxiosError } from 'axios';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,7 +36,10 @@ import { fetchAuthenticatedDownload } from '@/lib/fetch-authenticated-download';
 import SkillsSelector from '@/components/evaluations/questions/SkillsSelector';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import {
+  formatGabaritoGradesLabel,
   formatGenerationScopeSummary,
+  gabaritoAdapGradeId,
+  gabaritoAdapLevel,
   generationAdapLabel,
   generationCanDownload,
   generationClassLabelsFromSnapshot,
@@ -47,7 +50,6 @@ import {
 } from '@/lib/gabarito-list-helpers';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { AnswerSheetAdapOption, Gabarito, GabaritosResponse } from '@/types/answer-sheet';
-import { isSpecialEducationStage, SPECIAL_EDUCATION_STAGE_ID } from '@/lib/subturma';
 import { useAuth } from '@/context/authContext';
 import { MunicipalityAvailabilityBadge } from '@/components/municipality-availability/MunicipalityAvailabilityBadge';
 import { MunicipalityAvailabilityControls } from '@/components/municipality-availability/MunicipalityAvailabilityControls';
@@ -368,13 +370,17 @@ export default function AnswerSheetGenerateCards() {
   const [gradeOptions, setGradeOptions] = useState<FilterOption[]>([]);
   const [classOptions, setClassOptions] = useState<FilterOption[]>([]);
   const [isLoadingOptions, setIsLoadingOptions] = useState(false);
-  // Tipo de turma: 'regular' ou o id da etapa Educação Especial (ADAP)
-  const [turmaStage, setTurmaStage] = useState<string>('regular');
-  const adapMode = isSpecialEducationStage(turmaStage);
-  const [adapLevel, setAdapLevel] = useState<1 | 2>(1);
   const [adapOptions, setAdapOptions] = useState<AnswerSheetAdapOption[]>([]);
   const [selectedSubturmaIds, setSelectedSubturmaIds] = useState<string[]>([]);
   const [isLoadingAdap, setIsLoadingAdap] = useState(false);
+
+  const selectedGabarito = useMemo(
+    () => gabaritos.find((g) => g.id === selectedGabaritoId),
+    [gabaritos, selectedGabaritoId]
+  );
+  const adapLevel = gabaritoAdapLevel(selectedGabarito);
+  const adapMode = adapLevel != null;
+  const adapGradeId = gabaritoAdapGradeId(selectedGabarito);
 
   // Geração
   const [isGenerating, setIsGenerating] = useState(false);
@@ -1820,12 +1826,24 @@ export default function AnswerSheetGenerateCards() {
 
   const adapSchoolKey = (selectedFilters.school_ids ?? []).join(',');
   const adapGradeKey = (selectedFilters.grade_ids ?? []).join(',');
+  const schoolIdsForAdap =
+    (selectedFilters.school_ids?.length ? selectedFilters.school_ids : schoolOptions.map((o) => o.id)) ?? [];
 
   useEffect(() => {
-    const schoolIds = selectedFilters.school_ids ?? [];
-    const gradeIds = selectedFilters.grade_ids ?? [];
-    if (!adapMode || !selectedFilters.city || schoolIds.length === 0 || gradeIds.length === 0) {
+    if (!adapMode) {
       setAdapOptions([]);
+      setSelectedSubturmaIds([]);
+      return;
+    }
+    setSelectedFilters((p) => (p.class_ids ? { ...p, class_ids: undefined } : p));
+  }, [adapMode, selectedGabaritoId]);
+
+  useEffect(() => {
+    const schoolIds = schoolIdsForAdap;
+    const gradeIds = selectedFilters.grade_ids ?? [];
+    if (!adapMode || !selectedFilters.city || schoolIds.length === 0) {
+      setAdapOptions([]);
+      setSelectedSubturmaIds([]);
       return;
     }
     let active = true;
@@ -1837,7 +1855,10 @@ export default function AnswerSheetGenerateCards() {
         params.append('municipio', selectedFilters.city as string);
         params.append('escola', schoolId);
         params.append('publico', 'adap');
-        gradeIds.forEach((gradeId) => params.append('serie', gradeId));
+        if (adapGradeId) params.append('serie', adapGradeId);
+        gradeIds.forEach((gradeId) => {
+          if (gradeId !== adapGradeId) params.append('serie', gradeId);
+        });
         const res = await api.get(`/answer-sheets/opcoes-filtros?${params}`);
         return (res.data?.turmas ?? []) as AnswerSheetAdapOption[];
       })
@@ -1850,12 +1871,12 @@ export default function AnswerSheetGenerateCards() {
             a.name.localeCompare(b.name, 'pt-BR')
         );
         setAdapOptions(unique);
-        const ids = new Set(unique.map((row) => row.id));
-        setSelectedSubturmaIds((prev) => prev.filter((id) => ids.has(id)));
+        setSelectedSubturmaIds(unique.map((row) => row.id));
       })
       .catch(() => {
         if (!active) return;
         setAdapOptions([]);
+        setSelectedSubturmaIds([]);
         toast({ title: 'Erro', description: 'Não foi possível carregar as subturmas ADAP.', variant: 'destructive' });
       })
       .finally(() => {
@@ -1865,11 +1886,10 @@ export default function AnswerSheetGenerateCards() {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adapMode, selectedFilters.state, selectedFilters.city, adapSchoolKey, adapGradeKey, toast]);
+  }, [adapMode, adapGradeId, selectedFilters.state, selectedFilters.city, adapSchoolKey, adapGradeKey, schoolOptions, toast]);
 
-  const adapVisible = adapOptions.filter((row) => row.support_level === adapLevel);
   const adapBySchool = Array.from(
-    adapVisible.reduce((map, row) => {
+    adapOptions.reduce((map, row) => {
       const key = row.escola_id || 'sem-escola';
       const group = map.get(key) ?? { name: row.escola_nome || 'Escola', rows: [] as AnswerSheetAdapOption[] };
       group.rows.push(row);
@@ -1877,20 +1897,9 @@ export default function AnswerSheetGenerateCards() {
       return map;
     }, new Map<string, { name: string; rows: AnswerSheetAdapOption[] }>())
   );
-  const adapSelectedStudents = adapVisible
+  const adapSelectedStudents = adapOptions
     .filter((row) => selectedSubturmaIds.includes(row.id))
     .reduce((total, row) => total + (row.students_count || 0), 0);
-
-  const handleTurmaStageChange = useCallback((value: string) => {
-    setTurmaStage(value);
-    setSelectedSubturmaIds([]);
-    setSelectedFilters((p) => ({ ...p, class_ids: undefined }));
-  }, []);
-
-  const handleAdapLevelChange = useCallback((value: string) => {
-    setAdapLevel(value === '2' ? 2 : 1);
-    setSelectedSubturmaIds([]);
-  }, []);
 
   const toggleSubturma = useCallback((id: string, checked: boolean) => {
     setSelectedSubturmaIds((prev) => (checked ? (prev.includes(id) ? prev : [...prev, id]) : prev.filter((x) => x !== id)));
@@ -2044,7 +2053,6 @@ export default function AnswerSheetGenerateCards() {
     }
   };
 
-  const selectedGabarito = gabaritos.find((g) => g.id === selectedGabaritoId);
   const canGenerate =
     selectedGabaritoId &&
     selectedFilters.state &&
@@ -2116,7 +2124,10 @@ export default function AnswerSheetGenerateCards() {
                         <div className="flex flex-col items-start gap-0.5">
                           <span className="font-medium">{g.title}</span>
                           <span className="text-xs text-muted-foreground">
-                            {g.num_questions ?? 0} questões · {g.generation_status === 'completed' ? 'Pronto' : 'Pendente'}
+                            {g.num_questions ?? 0} questões
+                            {formatGabaritoGradesLabel(g) ? ` · ${formatGabaritoGradesLabel(g)}` : ''}
+                            {' · '}
+                            {g.generation_status === 'completed' ? 'Pronto' : 'Pendente'}
                             {(g.generations_count ?? g.generations?.length ?? 0) > 0
                               ? ` · ${g.generations_count ?? g.generations?.length} geração(ões)`
                               : ''}
@@ -2272,108 +2283,81 @@ export default function AnswerSheetGenerateCards() {
                   </div>
                 )}
 
-                {(selectedFilters.grade_ids?.length ?? 0) > 0 && (
+                {adapMode && selectedFilters.city && (
                   <div className="space-y-3 border-l-2 border-primary/30 pl-4">
                     <div className="space-y-2">
-                      <Label>Tipo de turma</Label>
-                      <Select value={adapMode ? SPECIAL_EDUCATION_STAGE_ID : 'regular'} onValueChange={handleTurmaStageChange}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="regular">Turmas regulares</SelectItem>
-                          <SelectItem value={SPECIAL_EDUCATION_STAGE_ID}>Educação Especial (ADAP)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {adapMode ? (
-                      <div className="space-y-3">
-                        <div className="space-y-2">
-                          <Label>Nível ADAP</Label>
-                          <RadioGroup value={String(adapLevel)} onValueChange={handleAdapLevelChange} className="flex gap-6">
-                            <div className="flex items-center gap-2">
-                              <RadioGroupItem value="1" id="adap-level-1" />
-                              <Label htmlFor="adap-level-1" className="font-normal cursor-pointer">ADAP 1 (Suporte 1)</Label>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <RadioGroupItem value="2" id="adap-level-2" />
-                              <Label htmlFor="adap-level-2" className="font-normal cursor-pointer">ADAP 2 (Suporte 2)</Label>
-                            </div>
-                          </RadioGroup>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Label>
+                          Subturmas ADAP {adapLevel} ({selectedSubturmaIds.length} selecionadas, {adapSelectedStudents} alunos)
+                        </Label>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedSubturmaIds(adapOptions.map((row) => row.id))}
+                            disabled={adapOptions.length === 0}
+                          >
+                            Selecionar todas ({adapOptions.length})
+                          </Button>
+                          <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedSubturmaIds([])}>
+                            Limpar
+                          </Button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Este gabarito é do ADAP {adapLevel}. O cartão vai só para os alunos das subturmas desse nível,
+                        nas turmas regulares das escolas (e séries, se filtrar).
+                      </p>
+                      <div className="max-h-72 space-y-3 overflow-y-auto rounded-md border p-3">
+                        {isLoadingAdap && <p className="text-xs text-muted-foreground">Carregando subturmas…</p>}
+                        {!isLoadingAdap && adapOptions.length === 0 && (
                           <p className="text-xs text-muted-foreground">
-                            Cada nível é uma prova. O cartão vai só para os alunos da subturma ADAP, nunca para os alunos regulares da turma.
-                            O ADAP 3 não faz prova no sistema e não aparece aqui.
+                            Nenhuma subturma ADAP {adapLevel} com alunos nas escolas e séries selecionadas.
                           </p>
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <Label>
-                              Subturmas ADAP {adapLevel} ({selectedSubturmaIds.length} selecionadas, {adapSelectedStudents} alunos)
-                            </Label>
-                            <div className="flex flex-wrap gap-2">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setSelectedSubturmaIds(adapVisible.map((row) => row.id))}
-                                disabled={adapVisible.length === 0}
-                              >
-                                Selecionar todas ({adapVisible.length})
-                              </Button>
-                              <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedSubturmaIds([])}>
-                                Limpar
-                              </Button>
+                        )}
+                        {adapBySchool.map(([schoolId, group]) => (
+                          <div key={schoolId}>
+                            <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-primary">{group.name}</p>
+                            <div className="space-y-2">
+                              {group.rows.map((row) => {
+                                const on = selectedSubturmaIds.includes(row.id);
+                                return (
+                                  <label
+                                    key={row.id}
+                                    className={`flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-sm ${
+                                      on ? 'border-primary bg-primary/10' : 'bg-card'
+                                    }`}
+                                  >
+                                    <Checkbox checked={on} onCheckedChange={(v) => toggleSubturma(row.id, v === true)} />
+                                    <span className="font-medium">{row.name}</span>
+                                    <span className="text-xs text-muted-foreground">({row.students_count} alunos)</span>
+                                  </label>
+                                );
+                              })}
                             </div>
                           </div>
-                          <div className="max-h-72 space-y-3 overflow-y-auto rounded-md border p-3">
-                            {isLoadingAdap && <p className="text-xs text-muted-foreground">Carregando subturmas…</p>}
-                            {!isLoadingAdap && adapVisible.length === 0 && (
-                              <p className="text-xs text-muted-foreground">
-                                Nenhuma subturma ADAP {adapLevel} com alunos nas escolas e séries selecionadas.
-                              </p>
-                            )}
-                            {adapBySchool.map(([schoolId, group]) => (
-                              <div key={schoolId}>
-                                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-primary">{group.name}</p>
-                                <div className="space-y-2">
-                                  {group.rows.map((row) => {
-                                    const on = selectedSubturmaIds.includes(row.id);
-                                    return (
-                                      <label
-                                        key={row.id}
-                                        className={`flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-sm ${
-                                          on ? 'border-primary bg-primary/10' : 'bg-card'
-                                        }`}
-                                      >
-                                        <Checkbox checked={on} onCheckedChange={(v) => toggleSubturma(row.id, v === true)} />
-                                        <span className="font-medium">{row.name}</span>
-                                        <span className="text-xs text-muted-foreground">({row.students_count} alunos)</span>
-                                      </label>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
+                        ))}
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {!adapMode && (selectedFilters.grade_ids?.length ?? 0) > 0 && (
+                  <div className="space-y-2 border-l-2 border-primary/30 pl-4">
+                    <Label>Turma(s) (opcional)</Label>
+                    {isLoadingOptions && !classOptions.length ? (
+                      <Skeleton className="h-10 w-full" />
                     ) : (
-                      <div className="space-y-2">
-                        <Label>Turma(s) (opcional)</Label>
-                        {isLoadingOptions && !classOptions.length ? (
-                          <Skeleton className="h-10 w-full" />
-                        ) : (
-                          <MultiSelect
-                            options={classOptions.map((o) => ({ id: o.id, name: o.name }))}
-                            selected={selectedFilters.class_ids ?? []}
-                            onChange={handleClassIdsChange}
-                            placeholder="Turmas (vazio = todas)"
-                            allLabel="Todas"
-                            mode="popover"
-                            className="w-full"
-                          />
-                        )}
-                      </div>
+                      <MultiSelect
+                        options={classOptions.map((o) => ({ id: o.id, name: o.name }))}
+                        selected={selectedFilters.class_ids ?? []}
+                        onChange={handleClassIdsChange}
+                        placeholder="Turmas (vazio = todas)"
+                        allLabel="Todas"
+                        mode="popover"
+                        className="w-full"
+                      />
                     )}
                   </div>
                 )}
@@ -2603,6 +2587,9 @@ export default function AnswerSheetGenerateCards() {
                 <>
                   <p><span className="font-medium text-foreground">Gabarito:</span> {selectedGabarito.title}</p>
                   <p><span className="font-medium text-foreground">Questões:</span> {selectedGabarito.num_questions ?? 0}</p>
+                  {formatGabaritoGradesLabel(selectedGabarito) ? (
+                    <p><span className="font-medium text-foreground">Série:</span> {formatGabaritoGradesLabel(selectedGabarito)}</p>
+                  ) : null}
                 </>
               ) : (
                 <p>Selecione um gabarito.</p>

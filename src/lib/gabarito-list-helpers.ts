@@ -1,4 +1,5 @@
 import type { Gabarito, GabaritoGeneration, GabaritoScopeClassEntry } from '@/types/answer-sheet';
+import { adapLevelFromGradeName, displayAdapGradeName } from '@/lib/subturma';
 
 export function scopeTypeLabel(t?: string) {
   switch (t) {
@@ -124,7 +125,28 @@ export function formatGabaritoGradesLabel(
   g: Pick<Gabarito, 'grades' | 'grade_ids' | 'grade_name'>
 ): string {
   if (Array.isArray(g.grades) && g.grades.length > 0) {
-    return g.grades.map((x) => x.name).filter(Boolean).join(', ');
+    return g.grades.map((x) => displayAdapGradeName(x.name)).filter(Boolean).join(', ');
   }
-  return (g.grade_name ?? '').trim();
+  return displayAdapGradeName(g.grade_name);
+}
+
+/** Nível ADAP do gabarito (série Suporte N única). Regular: null. */
+export function gabaritoAdapLevel(
+  g?: Pick<Gabarito, 'grades' | 'grade_name'> | null
+): 1 | 2 | 3 | null {
+  if (!g) return null;
+  const names =
+    Array.isArray(g.grades) && g.grades.length > 0
+      ? g.grades.map((x) => x.name).filter(Boolean)
+      : [(g.grade_name ?? '').trim()].filter(Boolean);
+  if (names.length !== 1) return null;
+  return adapLevelFromGradeName(names[0]);
+}
+
+export function gabaritoAdapGradeId(g?: Pick<Gabarito, 'grades' | 'grade_id'> | null): string | null {
+  if (!g) return null;
+  if (Array.isArray(g.grades) && g.grades.length === 1 && g.grades[0]?.id) {
+    return String(g.grades[0].id);
+  }
+  return g.grade_id ? String(g.grade_id) : null;
 }
