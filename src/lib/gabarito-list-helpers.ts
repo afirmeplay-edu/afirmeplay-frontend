@@ -38,6 +38,20 @@ export function generationClassLabelsFromSnapshot(gen: GabaritoGeneration): stri
   return s.class_ids.map(classEntryLabel).filter(Boolean);
 }
 
+/** "ADAP 1" / "ADAP 2" quando a geração foi para subturmas ADAP. Turmas inteiras: null. */
+export function generationAdapLabel(gen: GabaritoGeneration): string | null {
+  const s = gen.scope_snapshot;
+  if (!s || typeof s !== 'object' || !Array.isArray(s.subturma_ids) || s.subturma_ids.length === 0) {
+    return null;
+  }
+  if (typeof s.support_level === 'number') return `ADAP ${s.support_level}`;
+  const levels = new Set<number>();
+  for (const item of s.class_ids ?? []) {
+    if (typeof item === 'object' && typeof item.support_level === 'number') levels.add(item.support_level);
+  }
+  return levels.size === 1 ? `ADAP ${[...levels][0]}` : 'ADAP';
+}
+
 /** Selo do formato do ZIP. Geração antiga, sem pdf_mode, é um PDF por aluno. */
 export function generationPdfModeLabel(gen: GabaritoGeneration): string {
   const mode = gen.scope_snapshot && typeof gen.scope_snapshot === 'object'
@@ -55,9 +69,11 @@ export function formatGenerationScopeSummary(gen: GabaritoGeneration): string {
   }
 
   const labels = generationClassLabelsFromSnapshot(gen);
+  const adap = generationAdapLabel(gen);
+  const scopeLabel = adap ? `${scopeTypeLabel(gen.scope_type)} · ${adap}` : scopeTypeLabel(gen.scope_type);
   if (labels.length > 0) {
     const shown = labels.length <= 4 ? labels.join(', ') : `${labels.slice(0, 3).join(', ')} +${labels.length - 3}`;
-    return `${scopeTypeLabel(gen.scope_type)} · ${shown}`;
+    return `${scopeLabel} · ${shown}`;
   }
 
   const parts: string[] = [];
