@@ -51,7 +51,7 @@ import {
 import { cityIdQueryParamForAdmin, getUserHierarchyContext, type UserHierarchyContext } from '@/utils/userHierarchy';
 import { buildAnswerSheetStudentDetailHref } from '@/utils/answer-sheet/buildAnswerSheetStudentDetailHref';
 import { isAnswerSheetMultiSeriePendingFilter } from '@/utils/answer-sheet/mapAnswerSheetResultadosAgregadosToNovaResposta';
-import type { GabaritoGradeRef, ResultadoAgregadoPorSerie } from '@/types/answer-sheet';
+import type { GabaritoGradeRef, GabaritoPublico, ResultadoAgregadoPorSerie } from '@/types/answer-sheet';
 import { useToast } from '@/hooks/use-toast';
 import { ResultsCharts } from '@/components/evaluations/results/ResultsCharts';
 import { StudentRanking } from '@/components/evaluations/student/StudentRanking';
@@ -59,6 +59,7 @@ import { ClassStatistics } from '@/components/evaluations/results/ClassStatistic
 import { StudentCard } from '@/components/evaluations/student/StudentCard';
 import { DisciplineTables } from '@/components/evaluations/results/DisciplineTables';
 import { cn } from '@/lib/utils';
+import { displayAdapGradeName } from '@/lib/subturma';
 import { formatDecimal1PtBr, formatPercent1PtBr } from '@/utils/numberFormat';
 import { generatePendingStudentsPdf } from '@/services/reports/pendingStudentsPdf';
 import { generateRankingPdf } from '@/services/reports/rankingPdf';
@@ -412,6 +413,7 @@ interface ResultadosAgregadosResponse {
   nivel_granularidade?: string;
   filtros_aplicados?: Record<string, string>;
   series_do_gabarito?: GabaritoGradeRef[];
+  publico_gabarito?: GabaritoPublico;
   requer_filtro_serie?: boolean;
   por_serie?: ResultadoAgregadoPorSerie[];
   estatisticas_gerais: EstatisticasGerais;
@@ -823,6 +825,24 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     loadResultadosAgregados();
   }, [loadResultadosAgregados]);
 
+  // Gabarito gerado só para subturmas ADAP abre com Alunos = ADAP (no padrão "regular" a lista viria vazia).
+  // Escolha manual do usuário prevalece; ao voltar para um gabarito regular, desfaz a troca automática.
+  const adapAutoFilterRef = useRef<string | null>(null);
+  const publicoGabarito = apiData?.publico_gabarito;
+  const isAdapGabarito = publicoGabarito?.publico === 'adap';
+  useEffect(() => {
+    if (!publicoGabarito || gabarito === 'all' || apiData?.filtros_aplicados?.gabarito !== gabarito) return;
+    if (publicoGabarito.publico === 'adap') {
+      if (adapAutoFilterRef.current !== gabarito && alunos === RESULTADOS_ALUNOS_FILTRO_PADRAO) {
+        adapAutoFilterRef.current = gabarito;
+        setAlunos('adap');
+      }
+    } else if (adapAutoFilterRef.current && adapAutoFilterRef.current !== gabarito) {
+      adapAutoFilterRef.current = null;
+      if (alunos === 'adap') setAlunos(RESULTADOS_ALUNOS_FILTRO_PADRAO);
+    }
+  }, [publicoGabarito, apiData?.filtros_aplicados?.gabarito, gabarito, alunos]);
+
   const handleBack = () => navigate('/app/cartao-resposta');
 
   const multiSeriePendingFilter = useMemo(
@@ -884,10 +904,14 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
   const gabaritos = opcoes.gabaritos ?? [];
   const escolas = opcoes.escolas ?? [];
   const series = useMemo(() => {
-    const fromOpcoes = opcoes.series ?? [];
+    const relabel = (s: { id: string; nome?: string; name?: string }) => {
+      const label = displayAdapGradeName(s.nome || s.name);
+      return { ...s, nome: label, name: label };
+    };
+    const fromOpcoes = (opcoes.series ?? []).map(relabel);
     const fromGabarito = apiData?.series_do_gabarito ?? [];
     if (fromOpcoes.length === 0 && fromGabarito.length > 0) {
-      return fromGabarito.map((s) => ({ id: s.id, nome: s.name, name: s.name }));
+      return fromGabarito.map((s) => relabel({ id: s.id, nome: s.name, name: s.name }));
     }
     if (fromGabarito.length === 0) return fromOpcoes;
     const seen = new Set(fromOpcoes.map((s) => s.id));
@@ -895,7 +919,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     for (const s of fromGabarito) {
       if (!seen.has(s.id)) {
         seen.add(s.id);
-        merged.push({ id: s.id, nome: s.name, name: s.name });
+        merged.push(relabel({ id: s.id, nome: s.name, name: s.name }));
       }
     }
     return merged;
@@ -1670,6 +1694,12 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                   ))}
                 </SelectContent>
               </Select>
+              {isAdapGabarito && (
+                <p className="text-xs text-muted-foreground">
+                  Cartão de {(publicoGabarito?.adap_niveis ?? []).map((n) => `ADAP ${n}`).join(', ') || 'ADAP'}:
+                  o público são só os alunos das subturmas geradas.
+                </p>
+              )}
             </div>
             <InstrumentPickerField
               className="sm:col-span-2 lg:col-span-7"

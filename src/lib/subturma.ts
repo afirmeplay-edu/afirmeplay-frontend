@@ -8,6 +8,20 @@ export function isSpecialEducationStage(stageId?: string | null): boolean {
   return Boolean(stageId && stageId === ADAP_STAGE_ID);
 }
 
+/** Nível quando o nome da série é só "Suporte N" ou "ADAP N". */
+export function adapLevelFromGradeName(name?: string | null): 1 | 2 | 3 | null {
+  const match = (name || "").trim().match(/^(?:suporte|adap)\s*([123])$/i);
+  if (!match) return null;
+  return Number(match[1]) as 1 | 2 | 3;
+}
+
+/** Série real "Suporte N" aparece como "ADAP N". */
+export function displayAdapGradeName(name?: string | null): string {
+  const level = adapLevelFromGradeName(name);
+  const trimmed = (name || "").trim();
+  return level ? `ADAP ${level}` : trimmed;
+}
+
 export interface SubturmaAluno {
   id: string;
   name: string;

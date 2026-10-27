@@ -89,8 +89,11 @@ export interface GabaritoScopeClassEntry {
   class_id: string;
   class_name?: string;
   grade_name?: string;
-  /** Ex.: "9º Ano - A" */
+  /** Ex.: "9º Ano - A" ou, na geração ADAP, "9º Ano A – ADAP 1" */
   label?: string;
+  /** Só na geração ADAP: subturma da turma-mãe */
+  subturma_id?: string;
+  support_level?: number;
 }
 
 /** Snapshot do escopo no momento da geração (schema flexível por tenant) */
@@ -103,7 +106,35 @@ export interface GabaritoScopeSnapshot {
   grade_ids?: string[];
   /** per_student | per_class | both. Ausente = geração antiga (um PDF por aluno). */
   pdf_mode?: string;
+  /** Geração ADAP. Ausente = turmas inteiras. */
+  publico?: 'adap';
+  subturma_ids?: string[];
+  support_level?: number;
   [key: string]: unknown;
+}
+
+/** Público do gabarito pelas gerações (GET /gabarito/:id e /resultados-agregados). */
+export interface GabaritoPublico {
+  publico: 'regular' | 'adap' | 'misto';
+  adap_niveis: number[];
+  subturma_ids: string[];
+}
+
+/** Subturma ADAP em GET /answer-sheets/opcoes-filtros?publico=adap. id = subturma_id. */
+export interface AnswerSheetAdapOption {
+  id: string;
+  subturma_id: string;
+  class_id: string;
+  /** Ex.: "5º Ano A – ADAP 1" */
+  name: string;
+  nome?: string;
+  support_level: 1 | 2 | 3;
+  students_count: number;
+  shift?: string;
+  serie_id?: string;
+  serie_nome?: string;
+  escola_id?: string | null;
+  escola_nome?: string | null;
 }
 
 /** Uma geração / ZIP distinta do mesmo cartão resposta (histórico no tenant) */

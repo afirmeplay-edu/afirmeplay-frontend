@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { isAxiosError } from 'axios';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,7 +36,11 @@ import { fetchAuthenticatedDownload } from '@/lib/fetch-authenticated-download';
 import SkillsSelector from '@/components/evaluations/questions/SkillsSelector';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import {
+  formatGabaritoGradesLabel,
   formatGenerationScopeSummary,
+  gabaritoAdapGradeId,
+  gabaritoAdapLevel,
+  generationAdapLabel,
   generationCanDownload,
   generationClassLabelsFromSnapshot,
   generationPdfModeLabel,
@@ -45,7 +49,7 @@ import {
   resolveGenerationDownloadUrl,
 } from '@/lib/gabarito-list-helpers';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Gabarito, GabaritosResponse } from '@/types/answer-sheet';
+import { AnswerSheetAdapOption, Gabarito, GabaritosResponse } from '@/types/answer-sheet';
 import { useAuth } from '@/context/authContext';
 import { MunicipalityAvailabilityBadge } from '@/components/municipality-availability/MunicipalityAvailabilityBadge';
 import { MunicipalityAvailabilityControls } from '@/components/municipality-availability/MunicipalityAvailabilityControls';
@@ -366,6 +370,17 @@ export default function AnswerSheetGenerateCards() {
   const [gradeOptions, setGradeOptions] = useState<FilterOption[]>([]);
   const [classOptions, setClassOptions] = useState<FilterOption[]>([]);
   const [isLoadingOptions, setIsLoadingOptions] = useState(false);
+  const [adapOptions, setAdapOptions] = useState<AnswerSheetAdapOption[]>([]);
+  const [selectedSubturmaIds, setSelectedSubturmaIds] = useState<string[]>([]);
+  const [isLoadingAdap, setIsLoadingAdap] = useState(false);
+
+  const selectedGabarito = useMemo(
+    () => gabaritos.find((g) => g.id === selectedGabaritoId),
+    [gabaritos, selectedGabaritoId]
+  );
+  const adapLevel = gabaritoAdapLevel(selectedGabarito);
+  const adapMode = adapLevel != null;
+  const adapGradeId = gabaritoAdapGradeId(selectedGabarito);
 
   // Geração
   const [isGenerating, setIsGenerating] = useState(false);
@@ -1670,7 +1685,19 @@ export default function AnswerSheetGenerateCards() {
         setIsLoadingOptions(true);
         const schoolIds = filters.school_ids ?? [];
         const firstSchoolId = schoolIds[0];
-        const firstGradeId = filters.grade_ids?.[0];
+        const gradeIds = filters.grade_ids ?? [];
+        const appendSeries = (params: URLSearchParams) => {
+          gradeIds.forEach((gradeId) => params.append('serie', gradeId));
+        };
+        const turmasFromResponse = (raw: unknown): FilterOption[] => {
+          const rows = Array.isArray(raw) ? (raw as Array<{ id?: string; serie_nome?: string }>) : [];
+          const normalized = normalizeOptions(raw);
+          if (gradeIds.length <= 1) return normalized;
+          return normalized.map((option, idx) => {
+            const serie = rows[idx]?.serie_nome;
+            return serie ? { ...option, name: `${serie} - ${option.name}` } : option;
+          });
+        };
 
         if (!filters.state && !filters.city && schoolIds.length === 0) {
           const res = await api.get('/answer-sheets/opcoes-filtros');
@@ -1716,9 +1743,9 @@ export default function AnswerSheetGenerateCards() {
             if (filters.state) params.append('estado', filters.state);
             if (filters.city) params.append('municipio', filters.city);
             params.append('escola', schoolId);
-            if (firstGradeId) params.append('serie', firstGradeId);
+            appendSeries(params);
             const res = await api.get(`/answer-sheets/opcoes-filtros?${params}`);
-            const normalized = normalizeOptions(res.data?.turmas);
+            const normalized = turmasFromResponse(res.data?.turmas);
             normalized.forEach((o) => { if (!byId.has(o.id)) byId.set(o.id, o); });
           }
           setClassOptions(Array.from(byId.values()));
@@ -1728,13 +1755,13 @@ export default function AnswerSheetGenerateCards() {
         if (filters.state) params.append('estado', filters.state);
         if (filters.city) params.append('municipio', filters.city);
         if (firstSchoolId) params.append('escola', firstSchoolId);
-        if (firstGradeId) params.append('serie', firstGradeId);
+        appendSeries(params);
         if (filters.class_ids?.length) params.append('turma', filters.class_ids[0]);
         const res = await api.get(`/answer-sheets/opcoes-filtros?${params}`);
         if (schoolIds.length > 0 && !(filters.grade_ids?.length) && res.data?.series) {
           setGradeOptions(normalizeOptions(res.data.series));
         } else if (filters.grade_ids?.length && !(filters.class_ids?.length) && res.data?.turmas) {
-          setClassOptions(normalizeOptions(res.data.turmas));
+          setClassOptions(turmasFromResponse(res.data.turmas));
         }
       } catch {
         toast({ title: 'Erro', description: 'Não foi possível carregar as opções.', variant: 'destructive' });
@@ -1797,6 +1824,87 @@ export default function AnswerSheetGenerateCards() {
     setSelectedFilters((p) => ({ ...p, class_ids: ids.length ? ids : undefined }));
   }, []);
 
+  const adapSchoolKey = (selectedFilters.school_ids ?? []).join(',');
+  const adapGradeKey = (selectedFilters.grade_ids ?? []).join(',');
+  const schoolIdsForAdap =
+    (selectedFilters.school_ids?.length ? selectedFilters.school_ids : schoolOptions.map((o) => o.id)) ?? [];
+
+  useEffect(() => {
+    if (!adapMode) {
+      setAdapOptions([]);
+      setSelectedSubturmaIds([]);
+      return;
+    }
+    setSelectedFilters((p) => (p.class_ids ? { ...p, class_ids: undefined } : p));
+  }, [adapMode, selectedGabaritoId]);
+
+  useEffect(() => {
+    const schoolIds = schoolIdsForAdap;
+    const gradeIds = selectedFilters.grade_ids ?? [];
+    if (!adapMode || !selectedFilters.city || schoolIds.length === 0) {
+      setAdapOptions([]);
+      setSelectedSubturmaIds([]);
+      return;
+    }
+    let active = true;
+    setIsLoadingAdap(true);
+    Promise.all(
+      schoolIds.map(async (schoolId) => {
+        const params = new URLSearchParams();
+        if (selectedFilters.state) params.append('estado', selectedFilters.state);
+        params.append('municipio', selectedFilters.city as string);
+        params.append('escola', schoolId);
+        params.append('publico', 'adap');
+        if (adapGradeId) params.append('serie', adapGradeId);
+        gradeIds.forEach((gradeId) => {
+          if (gradeId !== adapGradeId) params.append('serie', gradeId);
+        });
+        const res = await api.get(`/answer-sheets/opcoes-filtros?${params}`);
+        return (res.data?.turmas ?? []) as AnswerSheetAdapOption[];
+      })
+    )
+      .then((lists) => {
+        if (!active) return;
+        const unique = Array.from(new Map(lists.flat().map((row) => [row.id, row])).values()).sort(
+          (a, b) =>
+            (a.escola_nome || '').localeCompare(b.escola_nome || '', 'pt-BR') ||
+            a.name.localeCompare(b.name, 'pt-BR')
+        );
+        setAdapOptions(unique);
+        setSelectedSubturmaIds(unique.map((row) => row.id));
+      })
+      .catch(() => {
+        if (!active) return;
+        setAdapOptions([]);
+        setSelectedSubturmaIds([]);
+        toast({ title: 'Erro', description: 'Não foi possível carregar as subturmas ADAP.', variant: 'destructive' });
+      })
+      .finally(() => {
+        if (active) setIsLoadingAdap(false);
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adapMode, adapGradeId, selectedFilters.state, selectedFilters.city, adapSchoolKey, adapGradeKey, schoolOptions, toast]);
+
+  const adapBySchool = Array.from(
+    adapOptions.reduce((map, row) => {
+      const key = row.escola_id || 'sem-escola';
+      const group = map.get(key) ?? { name: row.escola_nome || 'Escola', rows: [] as AnswerSheetAdapOption[] };
+      group.rows.push(row);
+      map.set(key, group);
+      return map;
+    }, new Map<string, { name: string; rows: AnswerSheetAdapOption[] }>())
+  );
+  const adapSelectedStudents = adapOptions
+    .filter((row) => selectedSubturmaIds.includes(row.id))
+    .reduce((total, row) => total + (row.students_count || 0), 0);
+
+  const toggleSubturma = useCallback((id: string, checked: boolean) => {
+    setSelectedSubturmaIds((prev) => (checked ? (prev.includes(id) ? prev : [...prev, id]) : prev.filter((x) => x !== id)));
+  }, []);
+
   const handleClearFilter = useCallback(
     (level: FilterLevel) => {
       if (level === 'state') {
@@ -1854,6 +1962,10 @@ export default function AnswerSheetGenerateCards() {
       toast({ title: 'Selecione estado e município', variant: 'destructive' });
       return;
     }
+    if (adapMode && selectedSubturmaIds.length === 0) {
+      toast({ title: `Selecione ao menos uma subturma ADAP ${adapLevel}`, variant: 'destructive' });
+      return;
+    }
     try {
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
@@ -1873,13 +1985,18 @@ export default function AnswerSheetGenerateCards() {
         school_ids?: string[];
         grade_ids?: string[];
         class_ids?: string[];
+        subturma_ids?: string[];
       } = {
         gabarito_id: selectedGabaritoId,
         pdf_mode: pdfMode,
       };
       if (selectedFilters.school_ids?.length) payload.school_ids = selectedFilters.school_ids;
       if (selectedFilters.grade_ids?.length) payload.grade_ids = selectedFilters.grade_ids;
-      if (selectedFilters.class_ids?.length) payload.class_ids = selectedFilters.class_ids;
+      if (adapMode) {
+        payload.subturma_ids = selectedSubturmaIds;
+      } else if (selectedFilters.class_ids?.length) {
+        payload.class_ids = selectedFilters.class_ids;
+      }
 
       const res = await api.post('/answer-sheets/generate', payload, { headers: { 'Content-Type': 'application/json' } });
 
@@ -1930,12 +2047,18 @@ export default function AnswerSheetGenerateCards() {
             || (err as { response?: { data?: { message?: string } } }).response?.data?.message
             || 'Não foi possível iniciar a geração.')
           : 'Não foi possível iniciar a geração.';
-      toast({ title: 'Erro', description: msg, variant: 'destructive' });
+      const details = isAxiosError(err) ? (err.response?.data as { details?: unknown } | undefined)?.details : undefined;
+      const detailText = Array.isArray(details) && details.length ? ` (${details.join(', ')})` : '';
+      toast({ title: 'Erro', description: `${msg}${detailText}`, variant: 'destructive' });
     }
   };
 
-  const selectedGabarito = gabaritos.find((g) => g.id === selectedGabaritoId);
-  const canGenerate = selectedGabaritoId && selectedFilters.state && selectedFilters.city && !isGenerating;
+  const canGenerate =
+    selectedGabaritoId &&
+    selectedFilters.state &&
+    selectedFilters.city &&
+    !isGenerating &&
+    (!adapMode || selectedSubturmaIds.length > 0);
 
   const classesForUi =
     lastJobStatus?.classes?.length
@@ -2001,7 +2124,10 @@ export default function AnswerSheetGenerateCards() {
                         <div className="flex flex-col items-start gap-0.5">
                           <span className="font-medium">{g.title}</span>
                           <span className="text-xs text-muted-foreground">
-                            {g.num_questions ?? 0} questões · {g.generation_status === 'completed' ? 'Pronto' : 'Pendente'}
+                            {g.num_questions ?? 0} questões
+                            {formatGabaritoGradesLabel(g) ? ` · ${formatGabaritoGradesLabel(g)}` : ''}
+                            {' · '}
+                            {g.generation_status === 'completed' ? 'Pronto' : 'Pendente'}
                             {(g.generations_count ?? g.generations?.length ?? 0) > 0
                               ? ` · ${g.generations_count ?? g.generations?.length} geração(ões)`
                               : ''}
@@ -2157,21 +2283,81 @@ export default function AnswerSheetGenerateCards() {
                   </div>
                 )}
 
-                {(selectedFilters.grade_ids?.length ?? 0) > 0 && (
+                {adapMode && selectedFilters.city && (
+                  <div className="space-y-3 border-l-2 border-primary/30 pl-4">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Label>
+                          Subturmas ADAP {adapLevel} ({selectedSubturmaIds.length} selecionadas, {adapSelectedStudents} alunos)
+                        </Label>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedSubturmaIds(adapOptions.map((row) => row.id))}
+                            disabled={adapOptions.length === 0}
+                          >
+                            Selecionar todas ({adapOptions.length})
+                          </Button>
+                          <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedSubturmaIds([])}>
+                            Limpar
+                          </Button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Este gabarito é do ADAP {adapLevel}. O cartão vai só para os alunos das subturmas desse nível,
+                        nas turmas regulares das escolas (e séries, se filtrar).
+                      </p>
+                      <div className="max-h-72 space-y-3 overflow-y-auto rounded-md border p-3">
+                        {isLoadingAdap && <p className="text-xs text-muted-foreground">Carregando subturmas…</p>}
+                        {!isLoadingAdap && adapOptions.length === 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            Nenhuma subturma ADAP {adapLevel} com alunos nas escolas e séries selecionadas.
+                          </p>
+                        )}
+                        {adapBySchool.map(([schoolId, group]) => (
+                          <div key={schoolId}>
+                            <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-primary">{group.name}</p>
+                            <div className="space-y-2">
+                              {group.rows.map((row) => {
+                                const on = selectedSubturmaIds.includes(row.id);
+                                return (
+                                  <label
+                                    key={row.id}
+                                    className={`flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-sm ${
+                                      on ? 'border-primary bg-primary/10' : 'bg-card'
+                                    }`}
+                                  >
+                                    <Checkbox checked={on} onCheckedChange={(v) => toggleSubturma(row.id, v === true)} />
+                                    <span className="font-medium">{row.name}</span>
+                                    <span className="text-xs text-muted-foreground">({row.students_count} alunos)</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {!adapMode && (selectedFilters.grade_ids?.length ?? 0) > 0 && (
                   <div className="space-y-2 border-l-2 border-primary/30 pl-4">
                     <Label>Turma(s) (opcional)</Label>
                     {isLoadingOptions && !classOptions.length ? (
                       <Skeleton className="h-10 w-full" />
                     ) : (
-                  <MultiSelect
-                    options={classOptions.map((o) => ({ id: o.id, name: o.name }))}
-                    selected={selectedFilters.class_ids ?? []}
-                    onChange={handleClassIdsChange}
-                    placeholder="Turmas (vazio = todas)"
-                    allLabel="Todas"
-                    mode="popover"
-                    className="w-full"
-                  />
+                      <MultiSelect
+                        options={classOptions.map((o) => ({ id: o.id, name: o.name }))}
+                        selected={selectedFilters.class_ids ?? []}
+                        onChange={handleClassIdsChange}
+                        placeholder="Turmas (vazio = todas)"
+                        allLabel="Todas"
+                        mode="popover"
+                        className="w-full"
+                      />
                     )}
                   </div>
                 )}
@@ -2401,6 +2587,9 @@ export default function AnswerSheetGenerateCards() {
                 <>
                   <p><span className="font-medium text-foreground">Gabarito:</span> {selectedGabarito.title}</p>
                   <p><span className="font-medium text-foreground">Questões:</span> {selectedGabarito.num_questions ?? 0}</p>
+                  {formatGabaritoGradesLabel(selectedGabarito) ? (
+                    <p><span className="font-medium text-foreground">Série:</span> {formatGabaritoGradesLabel(selectedGabarito)}</p>
+                  ) : null}
                 </>
               ) : (
                 <p>Selecione um gabarito.</p>
@@ -2413,8 +2602,14 @@ export default function AnswerSheetGenerateCards() {
               {(selectedFilters.grade_ids?.length ?? 0) > 0 && (
                 <p><span className="font-medium text-foreground">Séries:</span> {selectedFilters.grade_ids!.length}</p>
               )}
-              {(selectedFilters.class_ids?.length ?? 0) > 0 && (
+              {!adapMode && (selectedFilters.class_ids?.length ?? 0) > 0 && (
                 <p><span className="font-medium text-foreground">Turmas:</span> {selectedFilters.class_ids!.length}</p>
+              )}
+              {adapMode && (
+                <p>
+                  <span className="font-medium text-foreground">Subturmas ADAP {adapLevel}:</span>{' '}
+                  {selectedSubturmaIds.length} ({adapSelectedStudents} alunos)
+                </p>
               )}
             </CardContent>
           </Card>
@@ -2625,6 +2820,11 @@ export default function AnswerSheetGenerateCards() {
                                           </p>
                                         </div>
                                         <div className="flex flex-wrap items-center gap-2 shrink-0">
+                                          {generationAdapLabel(gen) && (
+                                            <Badge variant="secondary" className="text-xs">
+                                              {generationAdapLabel(gen)}
+                                            </Badge>
+                                          )}
                                           <Badge variant="outline" className="text-xs">
                                             {generationPdfModeLabel(gen)}
                                           </Badge>
