@@ -39,6 +39,12 @@ import {
   municipalityAvailabilityErrorMessage,
   municipalityAvailabilitySummary,
 } from '@/lib/municipalityAvailability';
+import {
+  SPECIAL_EDUCATION_STAGE_ID,
+  adapLevelFromGradeName,
+  displayAdapGradeName,
+  isSpecialEducationStage,
+} from '@/lib/subturma';
 
 const STEPS = ['Informações', 'Questões', 'Blocos', 'Habilidades', 'Revisar'];
 
@@ -61,7 +67,12 @@ export default function AnswerSheetCreateGabarito() {
   const [title, setTitle] = useState('');
   const [institution, setInstitution] = useState('');
   /** Séries do gabarito (coluna JSON `grades`) — nunca inferidas do título. */
+  const [courseId, setCourseId] = useState('');
+  const [educationStages, setEducationStages] = useState<{ id: string; name: string }[]>([]);
+  const [courseGrades, setCourseGrades] = useState<{ id: string; name: string }[]>([]);
+  const [isLoadingCourseGrades, setIsLoadingCourseGrades] = useState(false);
   const [gradeIds, setGradeIds] = useState<string[]>([]);
+  const specialEducation = isSpecialEducationStage(courseId);
   const [availableToMunicipality, setAvailableToMunicipality] = useState(true);
   const [availableFromLocal, setAvailableFromLocal] = useState('');
 
@@ -111,6 +122,8 @@ export default function AnswerSheetCreateGabarito() {
     setStep(0);
     setTitle('');
     setInstitution('');
+    setCourseId('');
+    setCourseGrades([]);
     setGradeIds([]);
     setAvailableToMunicipality(true);
     setAvailableFromLocal('');
@@ -133,8 +146,16 @@ export default function AnswerSheetCreateGabarito() {
     if (draft.title) setTitle(draft.title);
     if (draft.institution) setInstitution(draft.institution);
     if (draft.gradeIds.length > 0) {
-      setGradeIds(draft.gradeIds);
-      setSkillGradeId(draft.gradeIds[0]);
+      const imported = gradesForSkills.filter((g) => draft.gradeIds.includes(g.id));
+      const adap = imported.find((g) => adapLevelFromGradeName(g.name) != null);
+      if (adap) {
+        setCourseId(SPECIAL_EDUCATION_STAGE_ID);
+        setGradeIds([adap.id]);
+        setSkillGradeId(adap.id);
+      } else {
+        setGradeIds(draft.gradeIds);
+        setSkillGradeId(draft.gradeIds[0]);
+      }
     }
     setNumQuestions(draft.numQuestions);
     setCorrectAnswers(draft.correctAnswers);
@@ -205,6 +226,52 @@ export default function AnswerSheetCreateGabarito() {
     };
     fetchGrades();
   }, []);
+
+  useEffect(() => {
+    api
+      .get<{ id: string; name: string }[]>('/education_stages')
+      .then((res) => setEducationStages(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setEducationStages([]));
+  }, []);
+
+  useEffect(() => {
+    if (!courseId) {
+      setCourseGrades([]);
+      return;
+    }
+    let active = true;
+    setIsLoadingCourseGrades(true);
+    api
+      .get<{ id: string; name: string }[]>(`/grades/education-stage/${courseId}`)
+      .then((res) => {
+        if (!active) return;
+        const rows = Array.isArray(res.data) ? res.data : [];
+        setCourseGrades(
+          isSpecialEducationStage(courseId)
+            ? rows.filter((g) => adapLevelFromGradeName(g.name) != null)
+            : rows
+        );
+      })
+      .catch(() => {
+        if (active) setCourseGrades([]);
+      })
+      .finally(() => {
+        if (active) setIsLoadingCourseGrades(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [courseId]);
+
+  const gradeLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    [...gradesForSkills, ...courseGrades].forEach((g) => {
+      if (g.id && g.name) map.set(g.id, displayAdapGradeName(g.name));
+    });
+    return map;
+  }, [gradesForSkills, courseGrades]);
+
+  const selectedGradeLabels = gradeIds.map((id) => gradeLabelById.get(id) || id).filter(Boolean);
 
   useEffect(() => {
     if (!skillSubjectId || !skillGradeId) {
@@ -605,7 +672,7 @@ export default function AnswerSheetCreateGabarito() {
                   </div>
                   <div>
                     <CardTitle>Informações básicas</CardTitle>
-                    <CardDescription>Título, secretaria e séries do cartão resposta.</CardDescription>
+                    <CardDescription>Título, secretaria, curso e etapa do cartão resposta.</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -634,24 +701,70 @@ export default function AnswerSheetCreateGabarito() {
                   </div>
                 </div>
                 <div className="space-y-2 max-w-md">
-                  <Label>Série(s) / Ano(s)</Label>
-                  <MultiSelect
-                    options={gradesForSkills.map((g) => ({ id: g.id, name: g.name }))}
-                    selected={gradeIds}
-                    onChange={(ids) => {
-                      setGradeIds(ids);
-                      if (ids.length > 0 && !ids.includes(skillGradeId)) {
-                        setSkillGradeId(ids[0]);
-                      } else if (ids.length === 0) {
-                        setSkillGradeId('');
-                      }
+                  <Label>Curso</Label>
+                  <Select
+                    value={courseId || undefined}
+                    onValueChange={(value) => {
+                      setCourseId(value);
+                      setGradeIds([]);
+                      setSkillGradeId('');
                     }}
-                    placeholder="Selecione uma ou mais séries"
-                    mode="popover"
-                    className="w-full"
-                  />
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o curso" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {educationStages.map((stage) => (
+                        <SelectItem key={stage.id} value={stage.id}>
+                          {isSpecialEducationStage(stage.id) ? 'Educação Especial (ADAP)' : stage.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 max-w-md">
+                  <Label>{specialEducation ? 'Etapa ADAP' : 'Série(s) / Ano(s)'}</Label>
+                  {specialEducation ? (
+                    <Select
+                      value={gradeIds[0] || undefined}
+                      onValueChange={(value) => {
+                        setGradeIds([value]);
+                        setSkillGradeId(value);
+                      }}
+                      disabled={!courseId || isLoadingCourseGrades}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={isLoadingCourseGrades ? 'Carregando…' : 'ADAP 1, 2 ou 3'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {courseGrades.map((g) => (
+                          <SelectItem key={g.id} value={g.id}>
+                            {displayAdapGradeName(g.name)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <MultiSelect
+                      options={courseGrades.map((g) => ({ id: g.id, name: g.name }))}
+                      selected={gradeIds}
+                      onChange={(ids) => {
+                        setGradeIds(ids);
+                        if (ids.length > 0 && !ids.includes(skillGradeId)) {
+                          setSkillGradeId(ids[0]);
+                        } else if (ids.length === 0) {
+                          setSkillGradeId('');
+                        }
+                      }}
+                      placeholder={courseId ? 'Selecione uma ou mais séries' : 'Selecione o curso primeiro'}
+                      mode="popover"
+                      className="w-full"
+                    />
+                  )}
                   <p className="text-xs text-muted-foreground">
-                    Obrigatório. Define as séries do gabarito (não é inferido pelo título).
+                    {specialEducation
+                      ? 'Um gabarito por nível. ADAP 1, 2 e 3 são provas diferentes; o cartão vai só para a subturma desse nível.'
+                      : 'Obrigatório. Define as séries do gabarito (não é inferido pelo título).'}
                   </p>
                 </div>
                 {canControlAvailability ? (
@@ -1136,9 +1249,7 @@ export default function AnswerSheetCreateGabarito() {
                   <div>
                     <dt className="text-muted-foreground">Séries</dt>
                     <dd className="font-medium">
-                      {gradeIds.length > 0
-                        ? gradesForSkills.filter((g) => gradeIds.includes(g.id)).map((g) => g.name).join(', ') || `${gradeIds.length} série(s)`
-                        : '—'}
+                      {selectedGradeLabels.length > 0 ? selectedGradeLabels.join(', ') : '—'}
                     </dd>
                   </div>
                   <div><dt className="text-muted-foreground">Questões</dt><dd className="font-medium">{numQuestions}</dd></div>
@@ -1213,7 +1324,7 @@ export default function AnswerSheetCreateGabarito() {
               {gradeIds.length > 0 && (
                 <p>
                   <span className="text-foreground font-medium">Séries:</span>{' '}
-                  {gradesForSkills.filter((g) => gradeIds.includes(g.id)).map((g) => g.name).join(', ') || gradeIds.length}
+                  {selectedGradeLabels.join(', ') || gradeIds.length}
                 </p>
               )}
               {numQuestions > 0 && <p><span className="text-foreground font-medium">Questões:</span> {numQuestions}</p>}

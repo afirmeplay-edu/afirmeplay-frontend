@@ -1,4 +1,5 @@
 import type { Gabarito, GabaritoGeneration, GabaritoScopeClassEntry } from '@/types/answer-sheet';
+import { adapLevelFromGradeName, displayAdapGradeName } from '@/lib/subturma';
 
 export function scopeTypeLabel(t?: string) {
   switch (t) {
@@ -38,6 +39,20 @@ export function generationClassLabelsFromSnapshot(gen: GabaritoGeneration): stri
   return s.class_ids.map(classEntryLabel).filter(Boolean);
 }
 
+/** "ADAP 1" / "ADAP 2" quando a geração foi para subturmas ADAP. Turmas inteiras: null. */
+export function generationAdapLabel(gen: GabaritoGeneration): string | null {
+  const s = gen.scope_snapshot;
+  if (!s || typeof s !== 'object' || !Array.isArray(s.subturma_ids) || s.subturma_ids.length === 0) {
+    return null;
+  }
+  if (typeof s.support_level === 'number') return `ADAP ${s.support_level}`;
+  const levels = new Set<number>();
+  for (const item of s.class_ids ?? []) {
+    if (typeof item === 'object' && typeof item.support_level === 'number') levels.add(item.support_level);
+  }
+  return levels.size === 1 ? `ADAP ${[...levels][0]}` : 'ADAP';
+}
+
 /** Selo do formato do ZIP. Geração antiga, sem pdf_mode, é um PDF por aluno. */
 export function generationPdfModeLabel(gen: GabaritoGeneration): string {
   const mode = gen.scope_snapshot && typeof gen.scope_snapshot === 'object'
@@ -55,9 +70,11 @@ export function formatGenerationScopeSummary(gen: GabaritoGeneration): string {
   }
 
   const labels = generationClassLabelsFromSnapshot(gen);
+  const adap = generationAdapLabel(gen);
+  const scopeLabel = adap ? `${scopeTypeLabel(gen.scope_type)} · ${adap}` : scopeTypeLabel(gen.scope_type);
   if (labels.length > 0) {
     const shown = labels.length <= 4 ? labels.join(', ') : `${labels.slice(0, 3).join(', ')} +${labels.length - 3}`;
-    return `${scopeTypeLabel(gen.scope_type)} · ${shown}`;
+    return `${scopeLabel} · ${shown}`;
   }
 
   const parts: string[] = [];
@@ -108,7 +125,28 @@ export function formatGabaritoGradesLabel(
   g: Pick<Gabarito, 'grades' | 'grade_ids' | 'grade_name'>
 ): string {
   if (Array.isArray(g.grades) && g.grades.length > 0) {
-    return g.grades.map((x) => x.name).filter(Boolean).join(', ');
+    return g.grades.map((x) => displayAdapGradeName(x.name)).filter(Boolean).join(', ');
   }
-  return (g.grade_name ?? '').trim();
+  return displayAdapGradeName(g.grade_name);
+}
+
+/** Nível ADAP do gabarito (série Suporte N única). Regular: null. */
+export function gabaritoAdapLevel(
+  g?: Pick<Gabarito, 'grades' | 'grade_name'> | null
+): 1 | 2 | 3 | null {
+  if (!g) return null;
+  const names =
+    Array.isArray(g.grades) && g.grades.length > 0
+      ? g.grades.map((x) => x.name).filter(Boolean)
+      : [(g.grade_name ?? '').trim()].filter(Boolean);
+  if (names.length !== 1) return null;
+  return adapLevelFromGradeName(names[0]);
+}
+
+export function gabaritoAdapGradeId(g?: Pick<Gabarito, 'grades' | 'grade_id'> | null): string | null {
+  if (!g) return null;
+  if (Array.isArray(g.grades) && g.grades.length === 1 && g.grades[0]?.id) {
+    return String(g.grades[0].id);
+  }
+  return g.grade_id ? String(g.grade_id) : null;
 }
