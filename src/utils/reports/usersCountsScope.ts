@@ -43,6 +43,11 @@ export function normalizeUsersCountsReport(
       teachers: number;
       directors: number;
       coordinators: number;
+      regulares: number;
+      educacao_especial: number;
+      adap_1: number;
+      adap_2: number;
+      adap_3: number;
     }
   >();
 
@@ -54,6 +59,11 @@ export function normalizeUsersCountsReport(
       prev.directors = n(row.directors);
       prev.coordinators = n(row.coordinators);
       prev.teachers = Math.max(prev.teachers, n(row.teachers));
+      prev.regulares = n(row.regulares);
+      prev.educacao_especial = n(row.educacao_especial);
+      prev.adap_1 = n(row.adap_1);
+      prev.adap_2 = n(row.adap_2);
+      prev.adap_3 = n(row.adap_3);
       if (!prev.school_name && row.school_name) prev.school_name = row.school_name;
       if (!prev.school_id && row.school_id) prev.school_id = row.school_id;
       continue;
@@ -65,6 +75,11 @@ export function normalizeUsersCountsReport(
       teachers: n(row.teachers),
       directors: n(row.directors),
       coordinators: n(row.coordinators),
+      regulares: n(row.regulares),
+      educacao_especial: n(row.educacao_especial),
+      adap_1: n(row.adap_1),
+      adap_2: n(row.adap_2),
+      adap_3: n(row.adap_3),
     });
   }
 
@@ -80,6 +95,11 @@ export function normalizeUsersCountsReport(
       teachers: 0,
       directors: 0,
       coordinators: 0,
+      regulares: 0,
+      educacao_especial: 0,
+      adap_1: 0,
+      adap_2: 0,
+      adap_3: 0,
     };
     if (!prev.school_name && row.school_name) prev.school_name = row.school_name;
     if (!prev.school_id && row.school_id) prev.school_id = row.school_id;
@@ -103,6 +123,11 @@ export function normalizeUsersCountsReport(
       grade_name?: string;
       students: number;
       teachers: number;
+      regulares: number;
+      educacao_especial: number;
+      adap_1: number;
+      adap_2: number;
+      adap_3: number;
       schoolKeys: Set<string>;
     }
   >();
@@ -115,10 +140,20 @@ export function normalizeUsersCountsReport(
       grade_name: row.grade_name,
       students: 0,
       teachers: 0,
+      regulares: 0,
+      educacao_especial: 0,
+      adap_1: 0,
+      adap_2: 0,
+      adap_3: 0,
       schoolKeys: new Set<string>(),
     };
     prev.students += n(row.students);
     prev.teachers += n(row.teachers);
+    prev.regulares += n(row.regulares);
+    prev.educacao_especial += n(row.educacao_especial);
+    prev.adap_1 += n(row.adap_1);
+    prev.adap_2 += n(row.adap_2);
+    prev.adap_3 += n(row.adap_3);
     const sKey = schoolKey(row);
     if (sKey !== "none") prev.schoolKeys.add(sKey);
     if (!prev.grade_name && row.grade_name) prev.grade_name = row.grade_name;
@@ -151,6 +186,11 @@ export function normalizeUsersCountsReport(
       teachers: agg ? agg.teachers : n(original?.teachers),
       directors: directors || n(original?.directors),
       coordinators: coordinators || n(original?.coordinators),
+      regulares: agg ? agg.regulares : n(original?.regulares),
+      educacao_especial: agg ? agg.educacao_especial : n(original?.educacao_especial),
+      adap_1: agg ? agg.adap_1 : n(original?.adap_1),
+      adap_2: agg ? agg.adap_2 : n(original?.adap_2),
+      adap_3: agg ? agg.adap_3 : n(original?.adap_3),
     };
   });
 
@@ -161,6 +201,11 @@ export function normalizeUsersCountsReport(
     teachers: row.teachers,
     directors: row.directors,
     coordinators: row.coordinators,
+    regulares: row.regulares,
+    educacao_especial: row.educacao_especial,
+    adap_1: row.adap_1,
+    adap_2: row.adap_2,
+    adap_3: row.adap_3,
   }));
 
   return {
@@ -168,6 +213,9 @@ export function normalizeUsersCountsReport(
     by_school: normalizedBySchool,
     by_grade: normalizedByGrade,
     by_class: normalizedByClass,
+    alunos: raw?.alunos,
+    alunos_filtro: raw?.alunos_filtro,
+    sem_escola: raw?.sem_escola,
   };
 }
 
@@ -201,6 +249,11 @@ export function buildSchoolScopedUsersCountsReport(
       grade_name?: string;
       students: number;
       teachers: number;
+      regulares: number;
+      educacao_especial: number;
+      adap_1: number;
+      adap_2: number;
+      adap_3: number;
     }
   >();
 
@@ -212,9 +265,19 @@ export function buildSchoolScopedUsersCountsReport(
       grade_name: row.grade_name,
       students: 0,
       teachers: 0,
+      regulares: 0,
+      educacao_especial: 0,
+      adap_1: 0,
+      adap_2: 0,
+      adap_3: 0,
     };
     prev.students += n(row.students);
     prev.teachers += n(row.teachers);
+    prev.regulares += n(row.regulares);
+    prev.educacao_especial += n(row.educacao_especial);
+    prev.adap_1 += n(row.adap_1);
+    prev.adap_2 += n(row.adap_2);
+    prev.adap_3 += n(row.adap_3);
     if (!prev.grade_name && row.grade_name) prev.grade_name = row.grade_name;
     if (!prev.grade_id && row.grade_id) prev.grade_id = row.grade_id;
     gradeMap.set(key, prev);
@@ -232,6 +295,8 @@ export function buildSchoolScopedUsersCountsReport(
     coordinators: schoolCoordinators,
   }));
 
+  const alunosDaEscola = (normalized.alunos ?? []).filter((aluno) => text(aluno.school_id) === schoolId);
+
   return {
     general: {
       students: schoolStudents,
@@ -239,6 +304,11 @@ export function buildSchoolScopedUsersCountsReport(
       directors: schoolDirectors,
       coordinators: schoolCoordinators,
       tecadm: 0,
+      regulares: n(schoolRow?.regulares),
+      educacao_especial: n(schoolRow?.educacao_especial),
+      adap_1: n(schoolRow?.adap_1),
+      adap_2: n(schoolRow?.adap_2),
+      adap_3: n(schoolRow?.adap_3),
     },
     by_school: [
       {
@@ -249,10 +319,17 @@ export function buildSchoolScopedUsersCountsReport(
         directors: schoolDirectors,
         coordinators: schoolCoordinators,
         tecadm: 0,
+        regulares: n(schoolRow?.regulares),
+        educacao_especial: n(schoolRow?.educacao_especial),
+        adap_1: n(schoolRow?.adap_1),
+        adap_2: n(schoolRow?.adap_2),
+        adap_3: n(schoolRow?.adap_3),
       },
     ],
     by_grade: scopedByGrade,
     by_class: classRows,
+    alunos: alunosDaEscola,
+    alunos_filtro: normalized.alunos_filtro,
   };
 }
 

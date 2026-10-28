@@ -7,45 +7,79 @@ import { getClassShiftLabel } from "@/lib/classShift";
 type Rgb = [number, number, number];
 type UserRoleGroup = "diretor" | "coordenador" | "professor" | "aluno";
 
+export type UsersAlunosFiltro = "todos" | "regular" | "regular_adap" | "adap";
+
+export interface UsersReportGrupos {
+  regulares?: number;
+  educacao_especial?: number;
+  adap_1?: number;
+  adap_2?: number;
+  adap_3?: number;
+}
+
+export interface UsersReportAluno {
+  id?: string;
+  name?: string;
+  email?: string;
+  school_id?: string | null;
+  school_name?: string;
+  grade_id?: string | null;
+  grade_name?: string;
+  class_id?: string | null;
+  class_name?: string;
+  nivel_adap?: number | null;
+}
+
 export interface UsersCountsReportResponse {
-  general?: Partial<{
-    students: number;
-    teachers: number;
-    directors: number;
-    coordinators: number;
-    tecadm: number;
-  }>;
-  by_school?: Array<{
-    school_id?: string;
-    school_name?: string;
-    students?: number;
-    teachers?: number;
-    directors?: number;
-    coordinators?: number;
-    tecadm?: number;
-  }>;
-  by_grade?: Array<{
-    grade_id?: string;
-    grade_name?: string;
-    students?: number;
-    teachers?: number;
-    directors?: number;
-    coordinators?: number;
-    tecadm?: number;
-  }>;
-  by_class?: Array<{
-    class_id?: string;
-    class_name?: string;
-    school_id?: string;
-    school_name?: string;
-    grade_id?: string;
-    grade_name?: string;
-    students?: number;
-    teachers?: number;
-    directors?: number;
-    coordinators?: number;
-    tecadm?: number;
-  }>;
+  alunos_filtro?: UsersAlunosFiltro;
+  alunos?: UsersReportAluno[];
+  sem_escola?: UsersReportGrupos & { students?: number };
+  general?: Partial<
+    {
+      students: number;
+      teachers: number;
+      directors: number;
+      coordinators: number;
+      tecadm: number;
+    } & UsersReportGrupos
+  >;
+  by_school?: Array<
+    {
+      school_id?: string;
+      school_name?: string;
+      students?: number;
+      teachers?: number;
+      directors?: number;
+      coordinators?: number;
+      tecadm?: number;
+    } & UsersReportGrupos
+  >;
+  by_grade?: Array<
+    {
+      grade_id?: string;
+      grade_name?: string;
+      students?: number;
+      teachers?: number;
+      directors?: number;
+      coordinators?: number;
+      tecadm?: number;
+    } & UsersReportGrupos
+  >;
+  by_class?: Array<
+    {
+      class_id?: string;
+      class_name?: string;
+      school_id?: string;
+      school_name?: string;
+      grade_id?: string;
+      grade_name?: string;
+      students?: number;
+      teachers?: number;
+      directors?: number;
+      coordinators?: number;
+      tecadm?: number;
+    } & UsersReportGrupos
+  >;
 }
 
 export interface UsersReportScope {
@@ -58,6 +92,8 @@ export interface ReportContact {
   email: string;
   gradeName?: string;
   className?: string;
+  schoolName?: string;
+  nivel?: string;
 }
 
 export type ContactsByRole = Partial<Record<UserRoleGroup, ReportContact[]>>;
@@ -70,6 +106,9 @@ export interface ReportSchoolClass {
   shift?: string | null;
   students?: number;
   teachers?: number;
+  adap1?: number;
+  adap2?: number;
+  adap3?: number;
 }
 
 function n(value: unknown): number {
@@ -138,11 +177,36 @@ export async function generateUsersMunicipioCountsPdf(args: {
   scope?: UsersReportScope;
   contactsByRole?: ContactsByRole;
   schoolClasses?: ReportSchoolClass[];
+  alunosFiltro?: UsersAlunosFiltro;
+  outputPath?: string;
 }): Promise<void> {
-  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+  const [jspdfMod, autoTableMod] = await Promise.all([
     import("jspdf"),
     import("jspdf-autotable"),
   ]);
+  const jsPDF = ((jspdfMod as { default?: { default?: unknown } }).default?.default
+    ?? (jspdfMod as { default?: unknown }).default
+    ?? jspdfMod) as new (options: object) => {
+    addPage: () => void;
+    setFont: (...args: unknown[]) => void;
+    setFontSize: (size: number) => void;
+    setTextColor: (...args: number[]) => void;
+    setFillColor: (...args: number[]) => void;
+    setDrawColor: (...args: number[]) => void;
+    setLineWidth: (width: number) => void;
+    text: (...args: unknown[]) => void;
+    splitTextToSize: (text: string, width: number) => string[];
+    line: (...args: number[]) => void;
+    rect: (...args: unknown[]) => void;
+    roundedRect: (...args: unknown[]) => void;
+    internal: { pageSize: { getWidth: () => number; getHeight: () => number } };
+    addImage: (src: string, fmt: string, x: number, y: number, w: number, h: number) => void;
+    output: (type: "arraybuffer") => ArrayBuffer;
+    save: (name: string) => void;
+  };
+  const autoTable = ((autoTableMod as { default?: { default?: unknown } }).default?.default
+    ?? (autoTableMod as { default?: unknown }).default
+    ?? autoTableMod) as (doc: unknown, options: object) => void;
 
   const COLORS: Record<string, Rgb> = {
     primary: [124, 62, 237],
@@ -159,6 +223,17 @@ export async function generateUsersMunicipioCountsPdf(args: {
   const centerX = pageW / 2;
   const margin = 15;
   const scope = args.scope ?? { type: "city" as const };
+  const alunosFiltro =
+    args.alunosFiltro && args.alunosFiltro !== "todos" ? args.alunosFiltro : "todos";
+  const modoAdap = alunosFiltro === "adap";
+  const filtroLabel =
+    alunosFiltro === "adap"
+      ? "Educação Especial (ADAP)"
+      : alunosFiltro === "regular"
+        ? "Regular"
+        : alunosFiltro === "regular_adap"
+          ? "Regular + ADAP"
+          : "";
   const contextualSchoolName = schoolNameWithoutRepeatedPrefix(scope.schoolName);
   const reportLabel =
     scope.type === "school"
@@ -185,10 +260,19 @@ export async function generateUsersMunicipioCountsPdf(args: {
 
     const titleY = Math.max(logoBottom + 5, 39);
     doc.setFont("helvetica", "bold");
+    const tituloRelatorio = modoAdap
+      ? "RELATÓRIO DE USUÁRIOS — EDUCAÇÃO ESPECIAL (ADAP)"
+      : "RELATÓRIO DE USUÁRIOS";
+    doc.setFontSize(modoAdap ? 13 : 18);
+    const titleLines = doc.splitTextToSize(tituloRelatorio, pageW - 24) as string[];
     doc.setFontSize(12);
     const reportLabelLines = doc.splitTextToSize(reportLabel, pageW - 34) as string[];
     const reportLabelLineH = 5;
-    const BAND_H = Math.max(58, titleY + 8 + reportLabelLines.length * reportLabelLineH + 5);
+    const filtroExtra = filtroLabel ? 6 : 0;
+    const BAND_H = Math.max(
+      58,
+      titleY + titleLines.length * 7 + 8 + reportLabelLines.length * reportLabelLineH + filtroExtra + 5
+    );
 
     if (coverLetterhead) {
       paintLetterheadBackground(doc, coverLetterhead, pageW, pageH);
@@ -210,13 +294,20 @@ export async function generateUsersMunicipioCountsPdf(args: {
 
     doc.setTextColor(...COLORS.white);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.text("RELATÓRIO DE USUÁRIOS", centerX, titleY, { align: "center" });
+    doc.setFontSize(modoAdap ? 13 : 18);
+    doc.text(titleLines, centerX, titleY, { align: "center", lineHeightFactor: 1.15 });
+    const depoisDoTitulo = titleY + titleLines.length * (modoAdap ? 6 : 8);
     doc.setFontSize(12);
-    doc.text(reportLabelLines, centerX, titleY + 8, {
+    doc.text(reportLabelLines, centerX, depoisDoTitulo, {
       align: "center",
       lineHeightFactor: 1.15,
     });
+    if (filtroLabel) {
+      doc.setFontSize(10);
+      doc.text(`Alunos: ${filtroLabel}`, centerX, depoisDoTitulo + reportLabelLines.length * reportLabelLineH + 2, {
+        align: "center",
+      });
+    }
 
     const y = BAND_H + 10;
 
@@ -248,13 +339,20 @@ export async function generateUsersMunicipioCountsPdf(args: {
     doc.line(cardX + ACCENT_W + 4, y + 14, cardX + cardW - 4, y + 14);
 
     const g = args.report.general ?? {};
-    const rows: Array<[string, string]> = [
-      ["ALUNOS:", String(n(g.students))],
-      ["PROFESSORES:", String(n(g.teachers))],
-      ["DIRETORES:", String(n(g.directors))],
-      ["COORDENADORES:", String(n(g.coordinators))],
-    ];
-    if (scope.type === "city") rows.push(["TEC. ADM:", String(n(g.tecadm))]);
+    const rows: Array<[string, string]> = modoAdap
+      ? [
+          ["EDUCAÇÃO ESPECIAL:", String(n(g.educacao_especial ?? g.students))],
+          ["ADAP 1:", String(n(g.adap_1))],
+          ["ADAP 2:", String(n(g.adap_2))],
+          ["ADAP 3:", String(n(g.adap_3))],
+        ]
+      : [
+          ["ALUNOS:", String(n(g.students))],
+          ["PROFESSORES:", String(n(g.teachers))],
+          ["DIRETORES:", String(n(g.directors))],
+          ["COORDENADORES:", String(n(g.coordinators))],
+        ];
+    if (!modoAdap && scope.type === "city") rows.push(["TEC. ADM:", String(n(g.tecadm))]);
 
     doc.setFontSize(11);
     for (const [label, value] of rows) {
@@ -267,16 +365,17 @@ export async function generateUsersMunicipioCountsPdf(args: {
       cy += rowH;
     }
 
-    // Observação sob o card (contexto importante para leitura dos totais)
-    const note =
-      "Observação: podem existir diretores e coordenadores com contas criadas, mas ainda não vinculadas a nenhuma escola.";
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(...COLORS.textGray);
-    const noteY = y + cardH + 10;
-    const noteW = cardW - 18;
-    const noteLines = doc.splitTextToSize(note, noteW);
-    doc.text(noteLines, cardX + 9, noteY);
+    if (!modoAdap) {
+      const note =
+        "Observação: podem existir diretores e coordenadores com contas criadas, mas ainda não vinculadas a nenhuma escola.";
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(...COLORS.textGray);
+      const noteY = y + cardH + 10;
+      const noteW = cardW - 18;
+      const noteLines = doc.splitTextToSize(note, noteW);
+      doc.text(noteLines, cardX + 9, noteY);
+    }
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
@@ -310,13 +409,21 @@ export async function generateUsersMunicipioCountsPdf(args: {
     headStyles: { fillColor: COLORS.primary, textColor: COLORS.white },
     bodyStyles: { fillColor: COLORS.white },
     head: [["Perfil", "Quantidade"]],
-    body: [
-      ["Alunos", n(g.students)],
-      ["Professores", n(g.teachers)],
-      ["Diretores", n(g.directors)],
-      ["Coordenadores", n(g.coordinators)],
-      ...(scope.type === "city" ? [["Técnico administrativo", n(g.tecadm)] as [string, number]] : []),
-    ].map(([a, b]) => [String(a), String(b)]),
+    body: (modoAdap
+      ? [
+          ["Alunos de Educação Especial", n(g.educacao_especial ?? g.students)],
+          ["ADAP 1", n(g.adap_1)],
+          ["ADAP 2", n(g.adap_2)],
+          ["ADAP 3", n(g.adap_3)],
+        ]
+      : [
+          ["Alunos", n(g.students)],
+          ["Professores", n(g.teachers)],
+          ["Diretores", n(g.directors)],
+          ["Coordenadores", n(g.coordinators)],
+          ...(scope.type === "city" ? [["Técnico administrativo", n(g.tecadm)] as [string, number]] : []),
+        ]
+    ).map(([a, b]) => [String(a), String(b)]),
     theme: "striped",
     margin: { left: margin, right: margin },
   });
@@ -348,14 +455,14 @@ export async function generateUsersMunicipioCountsPdf(args: {
   const bySchool = Array.isArray(args.report.by_school) ? args.report.by_school : [];
   addCountsTable(
     "Por escola",
-    ["Escola", "Alunos", "Professores", "Diretores", "Coordenadores"],
-    bySchool.map((r) => [
-      r.school_name ?? "—",
-      n(r.students),
-      n(r.teachers),
-      n(r.directors),
-      n(r.coordinators),
-    ])
+    modoAdap
+      ? ["Escola", "Educação Especial", "ADAP 1", "ADAP 2", "ADAP 3"]
+      : ["Escola", "Alunos", "Professores", "Diretores", "Coordenadores"],
+    bySchool.map((r) =>
+      modoAdap
+        ? [r.school_name ?? "—", n(r.educacao_especial ?? r.students), n(r.adap_1), n(r.adap_2), n(r.adap_3)]
+        : [r.school_name ?? "—", n(r.students), n(r.teachers), n(r.directors), n(r.coordinators)]
+    )
   );
 
   const byGrade = Array.isArray(args.report.by_grade)
@@ -363,14 +470,14 @@ export async function generateUsersMunicipioCountsPdf(args: {
     : [];
   addCountsTable(
     "Por série",
-    ["Série", "Alunos", "Professores", "Diretores", "Coordenadores"],
-    byGrade.map((r) => [
-      r.grade_name ?? "—",
-      n(r.students),
-      n(r.teachers),
-      n(r.directors),
-      n(r.coordinators),
-    ])
+    modoAdap
+      ? ["Série", "Educação Especial", "ADAP 1", "ADAP 2", "ADAP 3"]
+      : ["Série", "Alunos", "Professores", "Diretores", "Coordenadores"],
+    byGrade.map((r) =>
+      modoAdap
+        ? [r.grade_name ?? "—", n(r.educacao_especial ?? r.students), n(r.adap_1), n(r.adap_2), n(r.adap_3)]
+        : [r.grade_name ?? "—", n(r.students), n(r.teachers), n(r.directors), n(r.coordinators)]
+    )
   );
 
   const byClass = Array.isArray(args.report.by_class) ? args.report.by_class : [];
@@ -422,15 +529,30 @@ export async function generateUsersMunicipioCountsPdf(args: {
       styles: { font: "helvetica", fontSize: 9, textColor: COLORS.textDark },
       headStyles: { fillColor: COLORS.primary, textColor: COLORS.white },
       bodyStyles: { fillColor: COLORS.white },
-      head: [["Série", "Turma", "Alunos", "Professores", "Diretores", "Coordenadores"]],
-      body: sortedRows.map((r) => [
-        str(r.grade_name) || "—",
-        str(r.class_name) || "—",
-        String(n(r.students)),
-        String(n(r.teachers)),
-        String(n(r.directors)),
-        String(n(r.coordinators)),
-      ]),
+      head: [
+        modoAdap
+          ? ["Série", "Turma", "Educação Especial", "ADAP 1", "ADAP 2", "ADAP 3"]
+          : ["Série", "Turma", "Alunos", "Professores", "Diretores", "Coordenadores"],
+      ],
+      body: sortedRows.map((r) =>
+        modoAdap
+          ? [
+              str(r.grade_name) || "—",
+              str(r.class_name) || "—",
+              String(n(r.educacao_especial ?? r.students)),
+              String(n(r.adap_1)),
+              String(n(r.adap_2)),
+              String(n(r.adap_3)),
+            ]
+          : [
+              str(r.grade_name) || "—",
+              str(r.class_name) || "—",
+              String(n(r.students)),
+              String(n(r.teachers)),
+              String(n(r.directors)),
+              String(n(r.coordinators)),
+            ]
+      ),
       theme: "striped",
       margin: { left: margin, right: margin },
     });
@@ -498,7 +620,9 @@ export async function generateUsersMunicipioCountsPdf(args: {
         doc.text(`Turno: ${getClassShiftLabel(item.shift)}`, x + 8, lineY);
         lineY += 5;
         doc.text(
-          `Professores: ${n(item.teachers)}   |   Alunos: ${n(item.students)}`,
+          modoAdap
+            ? `Alunos ADAP: ${n(item.students)}   |   1: ${n(item.adap1)}  2: ${n(item.adap2)}  3: ${n(item.adap3)}`
+            : `Professores: ${n(item.teachers)}   |   Alunos: ${n(item.students)}`,
           x + 8,
           lineY
         );
@@ -506,6 +630,21 @@ export async function generateUsersMunicipioCountsPdf(args: {
       y += cardH + cardGap;
     }
     y += 6;
+  }
+
+  const semEscola = args.report.sem_escola;
+  if (scope.type === "city" && alunosFiltro !== "todos" && n(semEscola?.students) > 0) {
+    addCountsTable(
+      "Sem escola",
+      modoAdap
+        ? ["Educação Especial", "ADAP 1", "ADAP 2", "ADAP 3"]
+        : ["Alunos"],
+      [
+        modoAdap
+          ? [n(semEscola?.educacao_especial), n(semEscola?.adap_1), n(semEscola?.adap_2), n(semEscola?.adap_3)]
+          : [n(semEscola?.students)],
+      ]
+    );
   }
 
   const contactRoleLabels: Array<{ key: UserRoleGroup; label: string }> = [
@@ -529,52 +668,84 @@ export async function generateUsersMunicipioCountsPdf(args: {
         return str(a.name).localeCompare(str(b.name), "pt-BR", { sensitivity: "base" });
       });
       if (sortedList.length === 0) continue;
+      if (modoAdap && roleItem.key !== "aluno") continue;
 
       if (roleItem.key === "aluno") {
-        const groupedStudents = new Map<string, ReportContact[]>();
-        for (const student of sortedList) {
-          const gradeName = str(student.gradeName);
-          const className = str(student.className);
-          const key = `${gradeName}\u0000${className}`;
-          const group = groupedStudents.get(key) ?? [];
-          group.push(student);
-          groupedStudents.set(key, group);
-        }
+        const escolas =
+          scope.type === "city"
+            ? Array.from(
+                sortedList.reduce((map, student) => {
+                  const schoolName = str(student.schoolName) || "Sem escola";
+                  const list = map.get(schoolName) ?? [];
+                  list.push(student);
+                  map.set(schoolName, list);
+                  return map;
+                }, new Map<string, ReportContact[]>())
+              ).sort(([a], [b]) => {
+                if (a === "Sem escola") return 1;
+                if (b === "Sem escola") return -1;
+                return a.localeCompare(b, "pt-BR", { sensitivity: "base" });
+              })
+            : [[str(scope.schoolName) || "Escola", sortedList] as [string, ReportContact[]]];
 
-        for (const [key, students] of groupedStudents) {
-          const [gradeName, className] = key.split("\u0000");
-          const normalizedGrade = gradeName.toLocaleLowerCase("pt-BR");
-          const normalizedClass = className.toLocaleLowerCase("pt-BR");
-          const groupLabel =
-            gradeName && className
-              ? normalizedClass.startsWith(normalizedGrade)
-                ? className
-                : `${gradeName} ${className}`
-              : gradeName || className || "Série e turma não informadas";
-
-          if (y > pageH - 60) {
-            doc.addPage();
-            y = margin;
+        for (const [schoolName, schoolStudents] of escolas) {
+          if (scope.type === "city" && alunosFiltro !== "todos") {
+            if (y > pageH - 40) {
+              doc.addPage();
+              y = margin;
+            }
+            y = addSectionTitle(schoolName === "Sem escola" ? "Sem escola" : schoolName, y);
           }
-          y = addSectionTitle(`Contatos - Alunos - ${groupLabel}`, y);
-          autoTable(doc, {
-            startY: y,
-            styles: { font: "helvetica", fontSize: 9, textColor: COLORS.textDark },
-            headStyles: { fillColor: COLORS.primary, textColor: COLORS.white },
-            bodyStyles: { fillColor: COLORS.white },
-            head: [["#", "Nome", "E-mail"]],
-            body: students.map((item, idx) => [
-              String(idx + 1),
-              str(item.name) || "—",
-              str(item.email) || "—",
-            ]),
-            theme: "striped",
-            margin: { left: margin, right: margin },
-            columnStyles: { 0: { cellWidth: 10, halign: "right" } },
-          });
-          y = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY
-            ? (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12
-            : y + 40;
+          const groupedStudents = new Map<string, ReportContact[]>();
+          for (const student of schoolStudents) {
+            const gradeName = str(student.gradeName);
+            const className = str(student.className);
+            const key = `${gradeName}\u0000${className}`;
+            const group = groupedStudents.get(key) ?? [];
+            group.push(student);
+            groupedStudents.set(key, group);
+          }
+
+          for (const [key, students] of groupedStudents) {
+            const [gradeName, className] = key.split("\u0000");
+            const normalizedGrade = gradeName.toLocaleLowerCase("pt-BR");
+            const normalizedClass = className.toLocaleLowerCase("pt-BR");
+            const groupLabel =
+              gradeName && className
+                ? normalizedClass.startsWith(normalizedGrade)
+                  ? className
+                  : `${gradeName} ${className}`
+                : gradeName || className || "Série e turma não informadas";
+
+            if (y > pageH - 60) {
+              doc.addPage();
+              y = margin;
+            }
+            y = addSectionTitle(`Contatos - Alunos - ${groupLabel}`, y);
+            autoTable(doc, {
+              startY: y,
+              styles: { font: "helvetica", fontSize: 9, textColor: COLORS.textDark },
+              headStyles: { fillColor: COLORS.primary, textColor: COLORS.white },
+              bodyStyles: { fillColor: COLORS.white },
+              head: [modoAdap ? ["#", "Nome", "E-mail", "Nível"] : ["#", "Nome", "E-mail"]],
+              body: students.map((item, idx) =>
+                modoAdap
+                  ? [
+                      String(idx + 1),
+                      str(item.name) || "—",
+                      str(item.email) || "—",
+                      str(item.nivel) || "—",
+                    ]
+                  : [String(idx + 1), str(item.name) || "—", str(item.email) || "—"]
+              ),
+              theme: "striped",
+              margin: { left: margin, right: margin },
+              columnStyles: { 0: { cellWidth: 10, halign: "right" } },
+            });
+            y = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY
+              ? (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12
+              : y + 40;
+          }
         }
         continue;
       }
@@ -613,6 +784,12 @@ export async function generateUsersMunicipioCountsPdf(args: {
       : str(args.cityName || "municipio").replace(/\s+/g, "_");
   const dateStr = new Date().toISOString().slice(0, 10);
   const prefix = scope.type === "school" ? "relatorio_usuarios_escola" : "relatorio_usuarios";
-  doc.save(`${prefix}_${safeBase}_${dateStr}.pdf`);
+  const fileName = `${prefix}_${safeBase}_${dateStr}.pdf`;
+  if (args.outputPath) {
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(args.outputPath, Buffer.from(doc.output("arraybuffer")));
+    return;
+  }
+  doc.save(fileName);
 }
 
