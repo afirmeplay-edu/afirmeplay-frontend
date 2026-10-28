@@ -49,8 +49,22 @@ export type ParticipationResumoParams = {
   series?: string[];
   turmas?: string[];
   report_entity_type?: 'answer_sheet';
-  /** Só a aba online. Cartão ignora o parâmetro. */
+  /** Todos, regular, regular_adap ou adap. Vale na online e no cartão-resposta. */
   alunos?: string;
+};
+
+export type ParticipationGrupo = {
+  matriculados: number;
+  avaliados: number;
+  percentual_participacao: number;
+};
+
+export type ParticipationGrupos = {
+  regular: ParticipationGrupo;
+  educacao_especial: ParticipationGrupo;
+  adap_1: ParticipationGrupo;
+  adap_2: ParticipationGrupo;
+  adap_3: ParticipationGrupo;
 };
 
 export type ParticipationRecorte = {
@@ -67,6 +81,7 @@ export type ParticipationMetricas = {
   /** Só no recorte de rede. */
   participacao_completa?: ParticipationRecorte;
   participacao_pelo_menos_uma?: ParticipationRecorte;
+  grupos?: ParticipationGrupos;
 };
 
 export type ParticipationPorEscola = {
@@ -76,6 +91,16 @@ export type ParticipationPorEscola = {
   avaliados: number;
   total_turmas: number;
   percentual_participacao: number;
+  grupos?: ParticipationGrupos;
+};
+
+export type ParticipationPorSerie = {
+  serie_id: string;
+  serie_nome: string;
+  matriculados: number;
+  avaliados: number;
+  percentual_participacao: number;
+  grupos?: ParticipationGrupos;
 };
 
 export type ParticipationPorTurma = {
@@ -86,6 +111,7 @@ export type ParticipationPorTurma = {
   matriculados: number;
   avaliados: number;
   percentual_participacao: number;
+  grupos?: ParticipationGrupos;
 };
 
 export type ParticipationResumo = {
@@ -100,5 +126,6 @@ export type ParticipationResumo = {
   };
   metricas: ParticipationMetricas;
   por_escola: ParticipationPorEscola[];
+  por_serie?: ParticipationPorSerie[];
   por_turma: ParticipationPorTurma[];
 };
