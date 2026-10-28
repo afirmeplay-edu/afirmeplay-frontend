@@ -956,7 +956,9 @@ export default function AnswerSheetCreateGabarito() {
                 {numQuestions > 0 ? (
                   <div className="space-y-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
                     <p className="text-sm text-muted-foreground">
-                      Adicione disciplinas abaixo. Cada bloco terá entre {MIN_QUESTIONS_PER_BLOCK} e {MAX_QUESTIONS_PER_BLOCK} questões.
+                      Adicione disciplinas abaixo. Cada bloco tem no máximo {MAX_QUESTIONS_PER_BLOCK} questões.
+                      Se uma disciplina passar de {MAX_QUESTIONS_PER_BLOCK}, adicione outro bloco da mesma disciplina.
+                      O cartão cabe {MAX_BLOCKS} blocos ({MAX_QUESTIONS_TOTAL} questões).
                     </p>
                     {blocksByDiscipline.length > 0 ? (
                       <>
