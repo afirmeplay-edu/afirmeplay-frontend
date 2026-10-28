@@ -230,8 +230,16 @@ export default function AnswerSheetCreateGabarito() {
   useEffect(() => {
     api
       .get<{ id: string; name: string }[]>('/education_stages')
-      .then((res) => setEducationStages(Array.isArray(res.data) ? res.data : []))
-      .catch(() => setEducationStages([]));
+      .then((res) => {
+        const rows = Array.isArray(res.data) ? res.data : [];
+        const hasAdap = rows.some((stage) => isSpecialEducationStage(stage.id));
+        setEducationStages(
+          hasAdap
+            ? rows
+            : [...rows, { id: SPECIAL_EDUCATION_STAGE_ID, name: 'Educação Especial' }]
+        );
+      })
+      .catch(() => setEducationStages([{ id: SPECIAL_EDUCATION_STAGE_ID, name: 'Educação Especial' }]));
   }, []);
 
   useEffect(() => {
@@ -241,16 +249,25 @@ export default function AnswerSheetCreateGabarito() {
     }
     let active = true;
     setIsLoadingCourseGrades(true);
+    const specialEducationCourse = isSpecialEducationStage(courseId);
+    const gradesUrl = specialEducationCourse
+      ? `/grades/by-education-stage/${courseId}`
+      : `/grades/education-stage/${courseId}`;
     api
-      .get<{ id: string; name: string }[]>(`/grades/education-stage/${courseId}`)
+      .get<{ id: string; name: string }[]>(gradesUrl)
       .then((res) => {
         if (!active) return;
-        const rows = Array.isArray(res.data) ? res.data : [];
-        setCourseGrades(
-          isSpecialEducationStage(courseId)
-            ? rows.filter((g) => adapLevelFromGradeName(g.name) != null)
-            : rows
-        );
+        const rows = (Array.isArray(res.data) ? res.data : []).map((grade) => ({
+          id: String(grade.id),
+          name: String(grade.name ?? ''),
+        }));
+        const adapGrades = rows
+          .filter((grade) => adapLevelFromGradeName(grade.name) != null)
+          .sort(
+            (a, b) =>
+              (adapLevelFromGradeName(a.name) ?? 0) - (adapLevelFromGradeName(b.name) ?? 0)
+          );
+        setCourseGrades(specialEducationCourse ? adapGrades : rows);
       })
       .catch(() => {
         if (active) setCourseGrades([]);
@@ -1095,7 +1112,7 @@ export default function AnswerSheetCreateGabarito() {
                       <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                       <SelectContent>
                         {gradesForSkills.map((g) => (
-                          <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                          <SelectItem key={g.id} value={g.id}>{displayAdapGradeName(g.name)}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
