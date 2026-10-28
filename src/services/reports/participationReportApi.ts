@@ -38,11 +38,7 @@ function buildQuery(params: ParticipationOpcoesFiltrosParams | ParticipationResu
   setCsvParam(q, 'escolas', params.escolas);
   setCsvParam(q, 'series', params.series);
   setCsvParam(q, 'turmas', params.turmas);
-  if (
-    !params.report_entity_type &&
-    'alunos' in params &&
-    isResultadosAlunosFiltro(params.alunos)
-  ) {
+  if ('alunos' in params && isResultadosAlunosFiltro(params.alunos)) {
     q.set('alunos', params.alunos);
   }
   const s = q.toString();
