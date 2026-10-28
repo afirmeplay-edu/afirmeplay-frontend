@@ -48,7 +48,7 @@ import {
   resolveGabaritoDownloadUrl,
   resolveGenerationDownloadUrl,
 } from '@/lib/gabarito-list-helpers';
-import { isSpecialEducationStage } from '@/lib/subturma';
+import { displayAdapGradeName, isSpecialEducationStage } from '@/lib/subturma';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { AnswerSheetAdapOption, Gabarito, GabaritosResponse } from '@/types/answer-sheet';
 import { useAuth } from '@/context/authContext';
@@ -331,6 +331,8 @@ export default function AnswerSheetGenerateCards() {
   const [structEditAvailableFromLocal, setStructEditAvailableFromLocal] = useState('');
   const [structEditInitialAvailableToMunicipality, setStructEditInitialAvailableToMunicipality] = useState(true);
   const [structEditInitialAvailableFromLocal, setStructEditInitialAvailableFromLocal] = useState('');
+  const [structEditCourseLabel, setStructEditCourseLabel] = useState('');
+  const [structEditSeriesLabel, setStructEditSeriesLabel] = useState('');
   const [availabilitySavingId, setAvailabilitySavingId] = useState<string | null>(null);
   
   // Habilidades
@@ -522,6 +524,8 @@ export default function AnswerSheetGenerateCards() {
     setStructEditAvailableFromLocal('');
     setStructEditInitialAvailableToMunicipality(true);
     setStructEditInitialAvailableFromLocal('');
+    setStructEditCourseLabel('');
+    setStructEditSeriesLabel('');
     setSkillSubjectId('');
     setSkillGradeId('');
     setAvailableSkills([]);
@@ -556,6 +560,11 @@ export default function AnswerSheetGenerateCards() {
     setStructEditInitialCorrectAnswers({});
     setStructEditInitialUseGlobalAlternatives(true);
     setStructEditInitialGlobalAlternatives(['A', 'B', 'C', 'D']);
+    const adapLevelOnOpen = gabaritoAdapLevel(g);
+    setStructEditSeriesLabel(formatGabaritoGradesLabel(g));
+    setStructEditCourseLabel(adapLevelOnOpen != null ? 'Educação Especial (ADAP)' : '');
+    const savedAdapGradeId = gabaritoAdapGradeId(g);
+    setSkillGradeId(adapLevelOnOpen != null && savedAdapGradeId ? savedAdapGradeId : '');
     const listAvailable = g.available_to_municipality !== false;
     const listFrom = parseISOToDatetimeLocal(g.available_from);
     setStructEditAvailableToMunicipality(listAvailable);
@@ -3269,6 +3278,23 @@ export default function AnswerSheetGenerateCards() {
                       </div>
                     )}
 
+                    {structEditCourseLabel ? (
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label>Curso</Label>
+                          <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm">
+                            {structEditCourseLabel}
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Série</Label>
+                          <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm">
+                            {structEditSeriesLabel || '—'}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+
                     {/* Título */}
                     <div className="space-y-2">
                       <Label htmlFor="struct-edit-title" className="text-base font-semibold">
@@ -3515,7 +3541,7 @@ export default function AnswerSheetGenerateCards() {
                                 </SelectTrigger>
                                 <SelectContent>
                                   {gradesForSkills.map((g) => (
-                                    <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                                    <SelectItem key={g.id} value={g.id}>{displayAdapGradeName(g.name)}</SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
