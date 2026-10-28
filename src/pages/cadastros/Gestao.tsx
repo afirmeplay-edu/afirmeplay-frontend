@@ -48,7 +48,9 @@ import { getUserHierarchyContext } from "@/utils/userHierarchy";
 import {
   generateUsersMunicipioCountsPdf,
   type ContactsByRole,
+  type ReportContact,
   type ReportSchoolClass,
+  type UsersAlunosFiltro,
   type UsersCountsReportResponse,
 } from "@/utils/reports/usersMunicipioCountsPdf";
 import {
@@ -190,6 +192,26 @@ function cleanText(value: unknown): string {
 
 function normalizeRole(value: unknown): string {
   return cleanText(value).toLowerCase();
+}
+
+const USERS_ALUNOS_OPCOES: Array<{ value: UsersAlunosFiltro; label: string }> = [
+  { value: "todos", label: "Todos" },
+  { value: "regular", label: "Regular" },
+  { value: "regular_adap", label: "Regular + ADAP" },
+  { value: "adap", label: "Educação Especial (ADAP)" },
+];
+
+function contatosAlunosDoRelatorio(report: UsersCountsReportResponse): ReportContact[] {
+  return (report.alunos ?? [])
+    .filter((aluno) => cleanText(aluno.name) || cleanText(aluno.email))
+    .map((aluno) => ({
+      name: cleanText(aluno.name),
+      email: cleanText(aluno.email),
+      gradeName: cleanText(aluno.grade_name) || undefined,
+      className: cleanText(aluno.class_name) || undefined,
+      schoolName: cleanText(aluno.school_name) || "Sem escola",
+      nivel: aluno.nivel_adap ? `ADAP ${aluno.nivel_adap}` : undefined,
+    }));
 }
 
 function safeCount(value: unknown): number {
@@ -335,6 +357,7 @@ export default function Gestao() {
   /** Mantido sincronizado com o município do subdomínio / tenant (evita ReferenceError em HMR antigo). */
   const [, setDomainCityId] = useState<string>("");
   const [isExportingUsersReport, setIsExportingUsersReport] = useState(false);
+  const [usersAlunosFiltro, setUsersAlunosFiltro] = useState<UsersAlunosFiltro>("todos");
   const [exportingSchoolId, setExportingSchoolId] = useState<string | null>(null);
   const [currentUserSchoolScope, setCurrentUserSchoolScope] = useState<SchoolScopeInfo | null>(null);
   const [selectedUserIdsForBatchDelete, setSelectedUserIdsForBatchDelete] = useState<Set<string>>(
@@ -1042,7 +1065,8 @@ export default function Gestao() {
   const fetchSchoolClassesForReport = useCallback(
     async (
       schoolId: string,
-      report: UsersCountsReportResponse
+      report: UsersCountsReportResponse,
+      alunosFiltro: UsersAlunosFiltro = "todos"
     ): Promise<ReportSchoolClass[]> => {
       const response = await api.get<ReportClassApiRow[] | ReportClassesApiResponse>(
         `/classes/school/${schoolId}`
@@ -1086,6 +1110,9 @@ export default function Gestao() {
           shift: item.shift,
           students: safeCount(countRow?.students),
           teachers: safeCount(countRow?.teachers),
+          adap1: safeCount(countRow?.adap_1),
+          adap2: safeCount(countRow?.adap_2),
+          adap3: safeCount(countRow?.adap_3),
         };
       });
 
@@ -1097,10 +1124,14 @@ export default function Gestao() {
           gradeName: cleanText(row.grade_name) || undefined,
           students: safeCount(row.students),
           teachers: safeCount(row.teachers),
+          adap1: safeCount(row.adap_1),
+          adap2: safeCount(row.adap_2),
+          adap3: safeCount(row.adap_3),
         });
       });
 
-      return result;
+      if (alunosFiltro === "todos") return result;
+      return result.filter((item) => safeCount(item.students) > 0);
     },
     []
   );
@@ -1124,6 +1155,7 @@ export default function Gestao() {
     try {
       const [res, leadershipBySchool] = await Promise.all([
         api.get<UsersCountsReportResponse>("/reports/users/counts", {
+          params: { alunos: usersAlunosFiltro },
           meta: { cityId: effectiveUsersCityId },
         }),
         fetchLeadershipCountsBySchool(effectiveUsersCityId),
@@ -1145,14 +1177,28 @@ export default function Gestao() {
       const finalReport = schoolScope
         ? buildSchoolScopedUsersCountsReport(normalizedReport, schoolScope.id, schoolScope.name)
         : normalizedReport;
-      const [contactsByRole, schoolClasses] = schoolScope
-        ? await Promise.all([
-            fetchContactsByRoleForSchool(effectiveUsersCityId, schoolScope.id),
-            fetchSchoolClassesForReport(schoolScope.id, finalReport),
-          ])
-        : [undefined, undefined];
+      const filtroRestringe = usersAlunosFiltro !== "todos";
+      let contactsByRole: ContactsByRole | undefined;
+      let schoolClasses: ReportSchoolClass[] | undefined;
+      if (schoolScope) {
+        const [staffContacts, classes] = await Promise.all([
+          usersAlunosFiltro === "adap"
+            ? Promise.resolve(undefined)
+            : fetchContactsByRoleForSchool(effectiveUsersCityId, schoolScope.id),
+          fetchSchoolClassesForReport(schoolScope.id, finalReport, usersAlunosFiltro),
+        ]);
+        schoolClasses = classes;
+        contactsByRole = filtroRestringe
+          ? {
+              ...(usersAlunosFiltro === "adap" ? {} : staffContacts),
+              aluno: contatosAlunosDoRelatorio(finalReport),
+            }
+          : staffContacts;
+      } else if (filtroRestringe) {
+        contactsByRole = { aluno: contatosAlunosDoRelatorio(finalReport) };
+      }
       const reportForPdf =
-        schoolScope && contactsByRole
+        schoolScope && contactsByRole && usersAlunosFiltro !== "adap"
           ? applyUniqueTeacherContactCount(finalReport, contactsByRole)
           : finalReport;
       await generateUsersMunicipioCountsPdf({
@@ -1164,6 +1210,7 @@ export default function Gestao() {
           : { type: "city" },
         contactsByRole,
         schoolClasses,
+        alunosFiltro: usersAlunosFiltro,
       });
       toast({ title: "Relatório exportado", description: "PDF gerado com sucesso." });
     } catch (error) {
@@ -1187,6 +1234,7 @@ export default function Gestao() {
     resolveCurrentUserSchoolScope,
     toast,
     user.role,
+    usersAlunosFiltro,
   ]);
 
   const canExportSchoolSummary = user.role === "admin" || user.role === "tecadm" || isSchoolScopedExportRole(user.role);
@@ -1221,16 +1269,31 @@ export default function Gestao() {
       }
       setExportingSchoolId(schoolId);
       try {
-        const [countsRes, contactsByRole, leadershipBySchool] = await Promise.all([
-          api.get<UsersCountsReportResponse>("/reports/users/counts", { meta: { cityId } }),
-          fetchContactsByRoleForSchool(cityId, schoolId),
+        const filtroRestringe = usersAlunosFiltro !== "todos";
+        const [countsRes, staffContacts, leadershipBySchool] = await Promise.all([
+          api.get<UsersCountsReportResponse>("/reports/users/counts", {
+            params: { alunos: usersAlunosFiltro },
+            meta: { cityId },
+          }),
+          usersAlunosFiltro === "adap"
+            ? Promise.resolve(undefined)
+            : fetchContactsByRoleForSchool(cityId, schoolId),
           fetchLeadershipCountsBySchool(cityId),
         ]);
         const reportWithLeadership = mergeLeadershipCountsIntoReport(countsRes.data ?? {}, leadershipBySchool);
         const normalized = normalizeUsersCountsReport(reportWithLeadership);
         const scoped = buildSchoolScopedUsersCountsReport(normalized, schoolId, school.name);
-        const schoolClasses = await fetchSchoolClassesForReport(schoolId, scoped);
-        const reportForPdf = applyUniqueTeacherContactCount(scoped, contactsByRole);
+        const schoolClasses = await fetchSchoolClassesForReport(schoolId, scoped, usersAlunosFiltro);
+        const contactsByRole: ContactsByRole | undefined = filtroRestringe
+          ? {
+              ...(usersAlunosFiltro === "adap" ? {} : staffContacts),
+              aluno: contatosAlunosDoRelatorio(scoped),
+            }
+          : staffContacts;
+        const reportForPdf =
+          contactsByRole && usersAlunosFiltro !== "adap"
+            ? applyUniqueTeacherContactCount(scoped, contactsByRole)
+            : scoped;
         await generateUsersMunicipioCountsPdf({
           cityId,
           cityName: school.city?.name ?? "Município",
@@ -1238,6 +1301,7 @@ export default function Gestao() {
           scope: { type: "school", schoolName: school.name },
           contactsByRole,
           schoolClasses,
+          alunosFiltro: usersAlunosFiltro,
         });
         toast({ title: "Resumo exportado", description: `PDF da escola ${school.name} gerado com sucesso.` });
       } catch (error) {
@@ -1258,6 +1322,7 @@ export default function Gestao() {
       fetchLeadershipCountsBySchool,
       fetchSchoolClassesForReport,
       toast,
+      usersAlunosFiltro,
     ]
   );
 
@@ -1466,6 +1531,25 @@ export default function Gestao() {
                 ))}
               </SelectContent>
             </Select>
+
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground whitespace-nowrap">Alunos</span>
+            <Select
+              value={usersAlunosFiltro}
+              onValueChange={(value) => setUsersAlunosFiltro(value as UsersAlunosFiltro)}
+            >
+              <SelectTrigger className="h-10 w-full sm:w-auto sm:min-w-[220px]" aria-label="Alunos">
+                <SelectValue placeholder="Alunos" />
+              </SelectTrigger>
+              <SelectContent>
+                {USERS_ALUNOS_OPCOES.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            </div>
           </div>
 
           {/* Sort and View Options */}
@@ -1739,6 +1823,25 @@ export default function Gestao() {
                 ? "Exporte um PDF com os quantitativos de usuários da sua escola."
                 : "Exporte um PDF com os quantitativos de usuários do município selecionado."}
             </p>
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground whitespace-nowrap">Alunos</span>
+            <Select
+              value={usersAlunosFiltro}
+              onValueChange={(value) => setUsersAlunosFiltro(value as UsersAlunosFiltro)}
+            >
+              <SelectTrigger className="h-10 w-full sm:w-[240px]" aria-label="Alunos">
+                <SelectValue placeholder="Alunos" />
+              </SelectTrigger>
+              <SelectContent>
+                {USERS_ALUNOS_OPCOES.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            </div>
             <Button
               type="button"
               variant="outline"
@@ -1758,6 +1861,7 @@ export default function Gestao() {
                 </>
               )}
             </Button>
+            </div>
           </div>
           <InstituicaoUsersTab
             cityId={

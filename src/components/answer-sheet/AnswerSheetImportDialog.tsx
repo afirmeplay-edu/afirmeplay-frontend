@@ -91,7 +91,6 @@ export function AnswerSheetImportDialog({
   open,
   onOpenChange,
   gradeIds,
-  minBlocks,
   maxBlocks,
   maxQuestionsPerBlock,
   onApply,
@@ -241,19 +240,19 @@ export function AnswerSheetImportDialog({
     if (!preview) return [];
     const errors = [...preview.errors];
     const total = preview.rows.length;
-    if (total > maxBlocks * maxQuestionsPerBlock) {
-      errors.push(`Máximo de ${maxBlocks * maxQuestionsPerBlock} questões por cartão-resposta.`);
+    const alreadyBlocked = errors.some((error) => error.includes('Não cabe neste cartão'));
+    if (!alreadyBlocked && total > maxBlocks * maxQuestionsPerBlock) {
+      errors.push(
+        `Não cabe neste cartão: ${total} questões e o máximo é ${maxBlocks * maxQuestionsPerBlock} (4 blocos de ${maxQuestionsPerBlock}). Reduza as questões ou separe em outro cartão.`
+      );
     }
-    if (preview.blocks.length > 0 && preview.blocks.length < minBlocks && total > maxQuestionsPerBlock) {
-      errors.push(`Com uma única disciplina, o máximo é ${maxQuestionsPerBlock} questões. Divida em ${minBlocks} ou mais disciplinas.`);
-    }
-    if (preview.blocks.length >= minBlocks) {
+    if (!alreadyBlocked) {
       preview.blocks
         .filter((b) => b.questions_count > maxQuestionsPerBlock)
-        .forEach((b) => errors.push(`${b.subject_name}: ${b.questions_count} questões (máximo ${maxQuestionsPerBlock} por bloco).`));
+        .forEach((b) => errors.push(`${b.subject_name}: ${b.questions_count} questões não cabem em um bloco (máximo ${maxQuestionsPerBlock}).`));
     }
     return errors;
-  }, [preview, minBlocks, maxBlocks, maxQuestionsPerBlock]);
+  }, [preview, maxBlocks, maxQuestionsPerBlock]);
 
   const rowsWithErrors = preview ? preview.rows.filter((r) => rowErrors(r).length > 0).length : 0;
   const canApply =

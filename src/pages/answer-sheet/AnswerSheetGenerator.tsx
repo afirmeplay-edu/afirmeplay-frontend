@@ -585,7 +585,7 @@ export default function AnswerSheetGenerator() {
     
     const startQuestion = currentTotalQuestions + 1;
     const remainingQuestions = totalQuestoes - currentTotalQuestions;
-    const defaultQuestionsCount = Math.min(26, remainingQuestions);
+    const defaultQuestionsCount = Math.min(22, remainingQuestions);
     
     const newBlock = {
       block_id: blocksByDiscipline.length + 1,
@@ -618,7 +618,7 @@ export default function AnswerSheetGenerator() {
   };
 
   const handleUpdateBlockQuestions = (blockId: number, newCount: number) => {
-    const maxPerBlock = 26;
+    const maxPerBlock = 22;
     const validCount = Math.min(Math.max(1, newCount), maxPerBlock);
     
     const blockIndex = blocksByDiscipline.findIndex(b => b.block_id === blockId);
@@ -689,9 +689,9 @@ export default function AnswerSheetGenerator() {
       return { isValid: false, warnings };
     }
     
-    const hasInvalidBlock = blocksByDiscipline.some(b => b.questions_count > 26);
+    const hasInvalidBlock = blocksByDiscipline.some(b => b.questions_count > 22);
     if (hasInvalidBlock) {
-      warnings.push('❌ Máximo de 26 questões por bloco.');
+      warnings.push('❌ Máximo de 22 questões por bloco.');
       return { isValid: false, warnings };
     }
     
@@ -765,8 +765,8 @@ export default function AnswerSheetGenerator() {
       return;
     }
 
-    if (numValue > 200) {
-      setTotalQuestoes(200);
+    if (numValue > 88) {
+      setTotalQuestoes(88);
       return;
     }
 
@@ -1346,6 +1346,23 @@ export default function AnswerSheetGenerator() {
       toast({
         title: 'Erro',
         description: 'Selecione estado e município antes de gerar os cartões.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (totalQuestoes > 88) {
+      toast({
+        title: 'Limite',
+        description: 'O cartão cabe no máximo 88 questões (4 blocos de 22).',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!hasDisciplineBlocks && totalQuestoes > 22) {
+      toast({
+        title: 'Limite',
+        description: 'Acima de 22 questões, configure blocos de até 22 (máximo 4 blocos).',
         variant: 'destructive',
       });
       return;
@@ -1960,13 +1977,13 @@ export default function AnswerSheetGenerator() {
                     id="total-questoes"
                     type="number"
                     min={1}
-                    max={200}
+                    max={88}
                     value={totalQuestoes || ''}
                     onChange={(event) => handleChangeTotalQuestoes(event.target.value)}
                     placeholder="Ex: 10"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Máximo de 200 questões por prova.
+                    Máximo de 88 questões (4 blocos de 22). Acima de 22, configure os blocos.
                   </p>
                 </div>
 
@@ -2311,7 +2328,7 @@ export default function AnswerSheetGenerator() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Opcional: divida as questões em blocos por disciplina (2 a 4 blocos). Deixe vazio para um único bloco.
+                Opcional: divida as questões em blocos por disciplina (2 a 4 blocos). Cada bloco tem no máximo 22 questões. Deixe vazio para um único bloco de até 22.
               </p>
 
               {totalQuestoes === 0 ? (
@@ -2339,7 +2356,7 @@ export default function AnswerSheetGenerator() {
                                 <Input
                                   type="number"
                                   min="1"
-                                  max="26"
+                                  max="22"
                                   value={block.questions_count}
                                   onChange={(e) => handleUpdateBlockQuestions(block.block_id, parseInt(e.target.value) || 1)}
                                   className="h-9 w-20"
