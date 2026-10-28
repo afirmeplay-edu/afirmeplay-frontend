@@ -1,7 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlunosFiltroSelect } from '@/components/filters/AlunosFiltroSelect';
-import { RESULTADOS_ALUNOS_FILTRO_PADRAO } from '@/constants/resultadosAlunosFiltro';
+import { api } from '@/lib/api';
+import { gabaritoAdapLevel } from '@/lib/gabarito-list-helpers';
+import {
+  RESULTADOS_ALUNOS_FILTRO_PADRAO,
+  labelResultadosAlunosFiltro,
+} from '@/constants/resultadosAlunosFiltro';
 import type { ParticipationRecorte } from '@/types/participation-report';
 import {
   AlertCircle,
@@ -64,9 +69,14 @@ import {
   reportEntityTypeForFlow,
 } from '@/services/reports/participationReportApi';
 import { generateParticipationReportPdf } from '@/services/reports/participationReportPdf';
+import {
+  decidirFiltroAlunosParticipacao,
+  situacaoPorNiveis,
+} from '@/pages/reports/participationAlunosFiltro';
 import type {
   ParticipationFilterEntity,
   ParticipationFilterTurma,
+  ParticipationGrupos,
   ParticipationReportFlow,
   ParticipationResumo,
 } from '@/types/participation-report';
@@ -117,6 +127,45 @@ function formatNumber(value: number): string {
   return value.toLocaleString('pt-BR');
 }
 
+const COLUNAS_GRUPO: { key: keyof ParticipationGrupos; titulo: string }[] = [
+  { key: 'regular', titulo: 'Regulares' },
+  { key: 'educacao_especial', titulo: 'Educação Especial' },
+  { key: 'adap_1', titulo: 'ADAP 1' },
+  { key: 'adap_2', titulo: 'ADAP 2' },
+  { key: 'adap_3', titulo: 'ADAP 3' },
+];
+
+function CabecalhosGrupo() {
+  return (
+    <>
+      {COLUNAS_GRUPO.map((coluna) => (
+        <TableHead key={coluna.key} className="text-right whitespace-nowrap">
+          {coluna.titulo}
+          <span className="block text-[10px] font-normal text-muted-foreground">mat. / aval. / %</span>
+        </TableHead>
+      ))}
+    </>
+  );
+}
+
+function CelulasGrupo({ grupos }: { grupos?: ParticipationGrupos }) {
+  return (
+    <>
+      {COLUNAS_GRUPO.map((coluna) => {
+        const item = grupos?.[coluna.key];
+        return (
+          <TableCell key={coluna.key} className="text-right tabular-nums whitespace-nowrap">
+            {formatNumber(item?.matriculados ?? 0)} / {formatNumber(item?.avaliados ?? 0)}
+            <span className="block text-xs text-muted-foreground">
+              {formatPercent(item?.percentual_participacao ?? 0)}
+            </span>
+          </TableCell>
+        );
+      })}
+    </>
+  );
+}
+
 type RelatorioParticipacaoProps = {
   flow?: ParticipationReportFlow;
   hidePageHeading?: boolean;
@@ -156,6 +205,14 @@ export default function RelatorioParticipacao({
   const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
   const [selectedTurmas, setSelectedTurmas] = useState<string[]>([]);
   const [selectedAlunos, setSelectedAlunos] = useState(RESULTADOS_ALUNOS_FILTRO_PADRAO);
+  const [gabaritosMeta, setGabaritosMeta] = useState<
+    Array<{
+      id: string;
+      grades?: { id?: string | null; name?: string | null }[] | null;
+      grade_name?: string | null;
+    }>
+  >([]);
+  const autoFiltroRef = useRef<string | null>(null);
 
   const [loadingEstados, setLoadingEstados] = useState(false);
   const [loadingMunicipios, setLoadingMunicipios] = useState(false);
@@ -289,6 +346,7 @@ export default function RelatorioParticipacao({
       escolas: escolasLabel,
       series: seriesLabel,
       turmas: turmasLabel,
+      alunos: labelResultadosAlunosFiltro(selectedAlunos),
     };
   }, [
     estados,
@@ -303,6 +361,7 @@ export default function RelatorioParticipacao({
     selectedEscolas,
     selectedSeries,
     selectedTurmas,
+    selectedAlunos,
   ]);
 
   useEffect(() => {
@@ -436,6 +495,64 @@ export default function RelatorioParticipacao({
       cancelled = true;
     };
   }, [selectedEstado, selectedMunicipio, reportEntityType]);
+
+  useEffect(() => {
+    if (!isCartao || selectedMunicipio === 'all') {
+      setGabaritosMeta([]);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get<{
+        gabaritos?: Array<{
+          id: string;
+          grades?: { id?: string | null; name?: string | null }[] | null;
+          grade_name?: string | null;
+        }>;
+      }>('/answer-sheets/gabaritos', { meta: { cityId: selectedMunicipio } })
+      .then((res) => {
+        if (!cancelled) setGabaritosMeta(res.data?.gabaritos ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setGabaritosMeta([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isCartao, selectedMunicipio]);
+
+  const selecaoGabaritos = useMemo(() => [...selectedAvaliacoes].sort().join(','), [selectedAvaliacoes]);
+  const situacaoGabaritos = useMemo(() => {
+    if (!isCartao) return 'regular' as const;
+    const porId = new Map(gabaritosMeta.map((gabarito) => [String(gabarito.id), gabarito]));
+    return situacaoPorNiveis(
+      selectedAvaliacoes.map((id) => {
+        const gabarito = porId.get(id);
+        if (!gabarito) return undefined;
+        const series = Array.isArray(gabarito.grades) ? gabarito.grades : [];
+        return gabaritoAdapLevel({
+          grades: series
+            .filter((serie) => serie?.name)
+            .map((serie) => ({ id: String(serie.id ?? serie.name), name: String(serie.name) })),
+          grade_name: gabarito.grade_name ?? undefined,
+        });
+      })
+    );
+  }, [isCartao, gabaritosMeta, selectedAvaliacoes]);
+
+  useEffect(() => {
+    const decisao = decidirFiltroAlunosParticipacao({
+      fonte: isCartao ? 'cartao' : 'digital',
+      situacao: situacaoGabaritos,
+      selecao: selecaoGabaritos,
+      filtroAtual: selectedAlunos,
+      autoEm: autoFiltroRef.current,
+    });
+    autoFiltroRef.current = decisao.autoEm;
+    if (decisao.filtro !== selectedAlunos) {
+      setSelectedAlunos(decisao.filtro);
+    }
+  }, [isCartao, situacaoGabaritos, selecaoGabaritos, selectedAlunos]);
 
   useEffect(() => {
     if (
@@ -652,7 +769,7 @@ export default function RelatorioParticipacao({
         series: selectedSeries.length > 0 ? selectedSeries : undefined,
         turmas: selectedTurmas.length > 0 ? selectedTurmas : undefined,
         report_entity_type: reportEntityType,
-        ...(isCartao ? {} : { alunos: selectedAlunos }),
+        alunos: selectedAlunos,
       });
       setReport(data);
       if (!data.por_escola?.length && !data.por_turma?.length && data.metricas.matriculados === 0) {
@@ -901,9 +1018,14 @@ export default function RelatorioParticipacao({
               />
             </div>
 
-            {!isCartao ? (
+            <div className="space-y-2">
               <AlunosFiltroSelect value={selectedAlunos} onChange={setSelectedAlunos} />
-            ) : null}
+              {isCartao && situacaoGabaritos === 'adap' && selectedAlunos === 'regular' ? (
+                <p className="text-sm text-amber-700 dark:text-amber-400">
+                  Este gabarito é de Educação Especial (ADAP). No filtro Regular não há alunos.
+                </p>
+              ) : null}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 pt-2">
@@ -1141,6 +1263,45 @@ export default function RelatorioParticipacao({
 
           <Card>
             <CardHeader>
+              <CardTitle className="text-base">Total por grupo</CardTitle>
+              <CardDescription>
+                Matriculados, avaliados e participação de regulares e de Educação Especial no escopo.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Total</TableHead>
+                      <TableHead className="text-right">Matriculados</TableHead>
+                      <TableHead className="text-right">Avaliados</TableHead>
+                      <TableHead className="text-right">Participação</TableHead>
+                      <CabecalhosGrupo />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    <TableRow>
+                      <TableCell className="font-medium">Escopo</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatNumber(report.metricas.matriculados)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatNumber(report.metricas.avaliados)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatPercent(report.metricas.percentual_participacao)}
+                      </TableCell>
+                      <CelulasGrupo grupos={report.metricas.grupos} />
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle className="text-base">Por escola</CardTitle>
               <CardDescription>Participação consolidada por unidade escolar.</CardDescription>
             </CardHeader>
@@ -1148,36 +1309,83 @@ export default function RelatorioParticipacao({
               {report.por_escola.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Nenhuma escola no escopo.</p>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Escola</TableHead>
-                      <TableHead className="text-right">Matriculados</TableHead>
-                      <TableHead className="text-right">Avaliados</TableHead>
-                      <TableHead className="text-right">Turmas</TableHead>
-                      <TableHead className="text-right">Participação</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {report.por_escola.map((row) => (
-                      <TableRow key={row.escola_id}>
-                        <TableCell className="font-medium">{row.escola_nome}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatNumber(row.matriculados)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatNumber(row.avaliados)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatNumber(row.total_turmas)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatPercent(row.percentual_participacao)}
-                        </TableCell>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Escola</TableHead>
+                        <TableHead className="text-right">Matriculados</TableHead>
+                        <TableHead className="text-right">Avaliados</TableHead>
+                        <TableHead className="text-right">Turmas</TableHead>
+                        <TableHead className="text-right">Participação</TableHead>
+                        <CabecalhosGrupo />
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {report.por_escola.map((row) => (
+                        <TableRow key={row.escola_id}>
+                          <TableCell className="font-medium">{row.escola_nome}</TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatNumber(row.matriculados)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatNumber(row.avaliados)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatNumber(row.total_turmas)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatPercent(row.percentual_participacao)}
+                          </TableCell>
+                          <CelulasGrupo grupos={row.grupos} />
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Por série</CardTitle>
+              <CardDescription>Participação consolidada por série.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {(report.por_serie ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhuma série no escopo.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Série</TableHead>
+                        <TableHead className="text-right">Matriculados</TableHead>
+                        <TableHead className="text-right">Avaliados</TableHead>
+                        <TableHead className="text-right">Participação</TableHead>
+                        <CabecalhosGrupo />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(report.por_serie ?? []).map((row) => (
+                        <TableRow key={row.serie_id}>
+                          <TableCell className="font-medium">{row.serie_nome}</TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatNumber(row.matriculados)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatNumber(row.avaliados)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatPercent(row.percentual_participacao)}
+                          </TableCell>
+                          <CelulasGrupo grupos={row.grupos} />
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -1191,43 +1399,47 @@ export default function RelatorioParticipacao({
               {report.por_turma.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Nenhuma turma no escopo.</p>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Escola</TableHead>
-                      <TableHead>Turma</TableHead>
-                      <TableHead className="text-right">Matriculados</TableHead>
-                      <TableHead className="text-right">Avaliados</TableHead>
-                      <TableHead className="text-right">Participação</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {turmasAgrupadasPorEscola.flatMap((grupo) =>
-                      grupo.turmas.map((row, idx) => (
-                        <TableRow key={row.turma_id}>
-                          {idx === 0 ? (
-                            <TableCell
-                              className="font-medium align-middle"
-                              rowSpan={grupo.turmas.length}
-                            >
-                              {grupo.escola_nome}
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Escola</TableHead>
+                        <TableHead>Turma</TableHead>
+                        <TableHead className="text-right">Matriculados</TableHead>
+                        <TableHead className="text-right">Avaliados</TableHead>
+                        <TableHead className="text-right">Participação</TableHead>
+                        <CabecalhosGrupo />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {turmasAgrupadasPorEscola.flatMap((grupo) =>
+                        grupo.turmas.map((row, idx) => (
+                          <TableRow key={row.turma_id}>
+                            {idx === 0 ? (
+                              <TableCell
+                                className="font-medium align-middle"
+                                rowSpan={grupo.turmas.length}
+                              >
+                                {grupo.escola_nome}
+                              </TableCell>
+                            ) : null}
+                            <TableCell>{row.turma_nome}</TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {formatNumber(row.matriculados)}
                             </TableCell>
-                          ) : null}
-                          <TableCell>{row.turma_nome}</TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {formatNumber(row.matriculados)}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {formatNumber(row.avaliados)}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {formatPercent(row.percentual_participacao)}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
+                            <TableCell className="text-right tabular-nums">
+                              {formatNumber(row.avaliados)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {formatPercent(row.percentual_participacao)}
+                            </TableCell>
+                            <CelulasGrupo grupos={row.grupos} />
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
               )}
             </CardContent>
           </Card>

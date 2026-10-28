@@ -4,7 +4,11 @@
  */
 import { jsPDF } from 'jspdf';
 import { loadCityBrandingForReportPdf } from '@/utils/pdfCityBranding';
-import type { ParticipationReportFlow, ParticipationResumo } from '@/types/participation-report';
+import type {
+  ParticipationGrupos,
+  ParticipationReportFlow,
+  ParticipationResumo,
+} from '@/types/participation-report';
 
 const C = {
   primary: [124, 62, 237] as [number, number, number],
@@ -28,6 +32,7 @@ export type ParticipationPdfFilterLabels = {
   escolas?: string;
   series?: string;
   turmas?: string;
+  alunos?: string;
 };
 
 function fmtNow(): string {
@@ -42,6 +47,12 @@ function fmtNow(): string {
 
 function formatNumber(value: number): string {
   return Number(value || 0).toLocaleString('pt-BR');
+}
+
+function textoGrupo(grupos: ParticipationGrupos | undefined, chave: keyof ParticipationGrupos): string {
+  const item = grupos?.[chave];
+  if (!item) return '0 / 0 (0,0%)';
+  return `${formatNumber(item.matriculados)} / ${formatNumber(item.avaliados)} (${formatPercent(item.percentual_participacao)})`;
 }
 
 function formatPercent(value: number): string {
@@ -87,9 +98,9 @@ function drawTopBand(doc: jsPDF, pageW: number, title: string): void {
   doc.setFillColor(...C.primary);
   doc.rect(0, 0, pageW, TOP_BAND_H, 'F');
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(...C.white);
   const t = String(title || '').trim();
+  doc.setFontSize(t.length > 55 ? 8 : 11);
+  doc.setTextColor(...C.white);
   if (t) doc.text(t.toUpperCase(), pageW / 2, 11.5, { align: 'center' });
 }
 
@@ -180,6 +191,7 @@ async function drawCoverPage(
     { label: 'ESCOLAS', value: labels.escolas || 'Todas' },
     { label: 'SÉRIES', value: labels.series || 'Todas' },
     { label: 'TURMAS', value: labels.turmas || 'Todas' },
+    { label: 'ALUNOS', value: labels.alunos || 'Regular' },
     { label: 'MATRICULADOS', value: formatNumber(metricas.matriculados) },
     { label: 'AVALIADOS', value: formatNumber(metricas.avaliados) },
     { label: 'TURMAS (TOTAL)', value: formatNumber(metricas.total_turmas) },
@@ -473,10 +485,11 @@ export async function generateParticipationReportPdf(opts: {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const dataGeracao = fmtNow();
+  const alunosNoCabecalho = labels.alunos || 'Regular';
   const bandTitle =
     flow === 'cartao'
-      ? 'Relatório de Participação — Cartão-resposta'
-      : 'Relatório de Participação — Avaliação online';
+      ? `Relatório de Participação — Cartão-resposta — Alunos: ${alunosNoCabecalho}`
+      : `Relatório de Participação — Avaliação online — Alunos: ${alunosNoCabecalho}`;
 
   await drawCoverPage(doc, labels, report.metricas, cityId, flow);
 
@@ -635,6 +648,138 @@ export async function generateParticipationReportPdf(opts: {
     },
     alternateRowStyles: { fillColor: C.bgLight },
   });
+
+  const cabecalhoGrupo = [
+    'Regulares (mat/aval)',
+    'Ed. Especial (mat/aval)',
+    'ADAP 1 (mat/aval)',
+    'ADAP 2 (mat/aval)',
+    'ADAP 3 (mat/aval)',
+  ];
+  const estiloGrupo = {
+    font: 'helvetica' as const,
+    fontSize: 7,
+    cellPadding: 1.6,
+    textColor: C.textDark,
+    lineColor: C.borderLight,
+    lineWidth: 0.2,
+    overflow: 'linebreak' as const,
+  };
+  const adicionarPagina = doc.addPage.bind(doc);
+  doc.addPage = ((format?: string, orientation?: string) => {
+    if (format === undefined) return adicionarPagina('a4', 'l');
+    return adicionarPagina(format, orientation);
+  }) as typeof doc.addPage;
+  doc.addPage('a4', 'l');
+  const larguraPaisagem = doc.internal.pageSize.getWidth();
+  drawTopBand(doc, larguraPaisagem, bandTitle);
+  let yGrupo = TOP_BAND_H + 12;
+
+  const desenharGrupos = (titulo: string, head: string[], body: string[][]) => {
+    const pageH = doc.internal.pageSize.getHeight();
+    if (yGrupo + 24 > pageH - 18) {
+      doc.addPage();
+      drawTopBand(doc, doc.internal.pageSize.getWidth(), bandTitle);
+      yGrupo = TOP_BAND_H + 12;
+    }
+    yGrupo = drawSectionTitle(doc, yGrupo, doc.internal.pageSize.getWidth(), titulo, bandTitle);
+    autoTable(doc, {
+      startY: yGrupo,
+      head: [head],
+      body,
+      theme: 'grid',
+      margin: { left: MARGIN, right: MARGIN, top: TOP_BAND_H + 6 },
+      styles: estiloGrupo,
+      headStyles: {
+        fillColor: C.primary,
+        textColor: C.white,
+        fontStyle: 'bold',
+        fontSize: 6.5,
+        halign: 'center',
+      },
+      alternateRowStyles: { fillColor: C.bgLight },
+      didDrawPage: () => {
+        if (doc.internal.pageSize.getWidth() > doc.internal.pageSize.getHeight()) {
+          drawTopBand(doc, doc.internal.pageSize.getWidth(), bandTitle);
+        }
+      },
+    });
+    yGrupo = tableFinalY(doc, yGrupo) + 8;
+  };
+
+  desenharGrupos(
+    'Total por grupo',
+    ['Total', 'Matriculados', 'Avaliados', 'Participação', ...cabecalhoGrupo],
+    [[
+      'Escopo',
+      formatNumber(metricas.matriculados),
+      formatNumber(metricas.avaliados),
+      formatPercent(metricas.percentual_participacao),
+      textoGrupo(metricas.grupos, 'regular'),
+      textoGrupo(metricas.grupos, 'educacao_especial'),
+      textoGrupo(metricas.grupos, 'adap_1'),
+      textoGrupo(metricas.grupos, 'adap_2'),
+      textoGrupo(metricas.grupos, 'adap_3'),
+    ]]
+  );
+  desenharGrupos(
+    'Por escola — grupos',
+    ['Escola', 'Matriculados', 'Avaliados', 'Participação', ...cabecalhoGrupo],
+    report.por_escola.length > 0
+      ? report.por_escola.map((row) => [
+          row.escola_nome || '—',
+          formatNumber(row.matriculados),
+          formatNumber(row.avaliados),
+          formatPercent(row.percentual_participacao),
+          textoGrupo(row.grupos, 'regular'),
+          textoGrupo(row.grupos, 'educacao_especial'),
+          textoGrupo(row.grupos, 'adap_1'),
+          textoGrupo(row.grupos, 'adap_2'),
+          textoGrupo(row.grupos, 'adap_3'),
+        ])
+      : [['Nenhuma escola no escopo', '—', '—', '—', '—', '—', '—', '—', '—']]
+  );
+  const series = report.por_serie ?? [];
+  desenharGrupos(
+    'Por série — grupos',
+    ['Série', 'Matriculados', 'Avaliados', 'Participação', ...cabecalhoGrupo],
+    series.length > 0
+      ? series.map((row) => [
+          row.serie_nome || '—',
+          formatNumber(row.matriculados),
+          formatNumber(row.avaliados),
+          formatPercent(row.percentual_participacao),
+          textoGrupo(row.grupos, 'regular'),
+          textoGrupo(row.grupos, 'educacao_especial'),
+          textoGrupo(row.grupos, 'adap_1'),
+          textoGrupo(row.grupos, 'adap_2'),
+          textoGrupo(row.grupos, 'adap_3'),
+        ])
+      : [['Nenhuma série no escopo', '—', '—', '—', '—', '—', '—', '—', '—']]
+  );
+  desenharGrupos(
+    'Por turma — grupos',
+    ['Escola', 'Turma', 'Matriculados', 'Avaliados', 'Participação', ...cabecalhoGrupo],
+    report.por_turma.length > 0
+      ? report.por_turma.map((row) => {
+          const escola =
+            report.por_escola.find((item) => item.escola_id === row.escola_id)?.escola_nome || '—';
+          return [
+            escola,
+            row.turma_nome || '—',
+            formatNumber(row.matriculados),
+            formatNumber(row.avaliados),
+            formatPercent(row.percentual_participacao),
+            textoGrupo(row.grupos, 'regular'),
+            textoGrupo(row.grupos, 'educacao_especial'),
+            textoGrupo(row.grupos, 'adap_1'),
+            textoGrupo(row.grupos, 'adap_2'),
+            textoGrupo(row.grupos, 'adap_3'),
+          ];
+        })
+      : [['Nenhuma turma no escopo', '—', '—', '—', '—', '—', '—', '—', '—', '—']]
+  );
+  doc.addPage = adicionarPagina;
 
   addFooters(doc, dataGeracao);
   doc.save(`relatorio-participacao-${new Date().toISOString().slice(0, 10)}.pdf`);
