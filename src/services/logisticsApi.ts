@@ -1,6 +1,10 @@
 import { api } from '@/lib/api';
 import type {
+  LogisticsApplicatorOption,
   LogisticsFilterParams,
+  LogisticsGradeOptions,
+  LogisticsGradePage,
+  LogisticsGradeQuery,
   LogisticsOpcoesFiltros,
   LogisticsPreview,
   LogisticsSchedule,
@@ -54,6 +58,67 @@ export class LogisticsApiService {
       escolas: data?.escolas,
       series: data?.series,
       turmas: data?.turmas,
+    };
+  }
+
+  static async getOpcoesGrade(cityId?: string): Promise<LogisticsGradeOptions> {
+    const { data } = await api.get<LogisticsGradeOptions>('/logistics/opcoes-grade', withCityMeta(cityId));
+    return {
+      anos: data?.anos ?? [],
+      etapas: data?.etapas ?? [],
+      avaliacoes: data?.avaliacoes ?? [],
+      escolas: data?.escolas ?? [],
+      series: data?.series ?? [],
+      turnos: data?.turnos ?? [],
+      formatos: data?.formatos ?? [],
+      aplicadores: data?.aplicadores ?? [],
+      status: data?.status ?? [],
+      can_manage: Boolean(data?.can_manage),
+    };
+  }
+
+  static async listAplicadores(cityId?: string): Promise<LogisticsApplicatorOption[]> {
+    const { data } = await api.get<{ aplicadores?: LogisticsApplicatorOption[] }>(
+      '/logistics/aplicadores',
+      withCityMeta(cityId)
+    );
+    return data?.aplicadores ?? [];
+  }
+
+  static async listItens(params: LogisticsGradeQuery, cityId?: string): Promise<LogisticsGradePage> {
+    const q = new URLSearchParams();
+    if (params.ano) q.set('ano', String(params.ano));
+    if (params.etapa) q.set('etapa', params.etapa);
+    if (params.avaliacao) q.set('avaliacao', params.avaliacao);
+    if (params.escola) q.set('escola', params.escola);
+    if (params.serie) q.set('serie', params.serie);
+    if (params.turno) q.set('turno', params.turno);
+    if (params.formato) q.set('formato', params.formato);
+    if (params.data_inicio) q.set('data_inicio', params.data_inicio);
+    if (params.data_fim) q.set('data_fim', params.data_fim);
+    if (params.status) q.set('status', params.status);
+    if (params.aplicador) q.set('aplicador', params.aplicador);
+    if (params.q) q.set('q', params.q);
+    if (params.page) q.set('page', String(params.page));
+    if (params.per_page) q.set('per_page', String(params.per_page));
+    const qs = q.toString();
+    const { data } = await api.get<LogisticsGradePage>(
+      `/logistics/itens${qs ? `?${qs}` : ''}`,
+      withCityMeta(cityId)
+    );
+    const emptyCards = {
+      total_agendamentos: 0,
+      total_alunos_previstos: 0,
+      escolas_atendidas: 0,
+      turmas_agendadas: 0,
+    };
+    return {
+      items: data?.items ?? [],
+      total: data?.total ?? 0,
+      page: data?.page ?? params.page ?? 1,
+      per_page: data?.per_page ?? params.per_page ?? 20,
+      cards: data?.cards ?? emptyCards,
+      can_manage: Boolean(data?.can_manage),
     };
   }
 

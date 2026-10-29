@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   CalendarIcon,
+  ChevronsUpDown,
   Download,
   Eye,
   Filter,
@@ -26,6 +27,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
@@ -56,7 +58,9 @@ import { getUserHierarchyContext, type UserHierarchyContext } from '@/utils/user
 import { ParticipationReportApiService } from '@/services/reports/participationReportApi';
 import { LogisticsApiService, getLogisticsApiErrorMessage } from '@/services/logisticsApi';
 import { generateLogisticsPdf, type LogisticsPdfOrientation } from '@/services/reports/logisticsPdf';
+import LogisticaGrade from '@/pages/logistics/LogisticaGrade';
 import type {
+  LogisticsApplicatorOption,
   LogisticsFilterAvaliacao,
   LogisticsFilterEntity,
   LogisticsFilterTurma,
@@ -81,6 +85,8 @@ interface EditableRow {
   tablets_qty: number;
   booklets_qty: number;
   notes: string;
+  applicator_user_id: string | null;
+  applicator_name: string | null;
 }
 
 interface PublishedChangeSummary {
@@ -149,6 +155,8 @@ function itemToRow(item: LogisticsScheduleItem): EditableRow {
     tablets_qty: item.tablets_qty ?? 0,
     booklets_qty: item.booklets_qty ?? 0,
     notes: item.notes ?? '',
+    applicator_user_id: item.applicator_user_id ?? null,
+    applicator_name: item.applicator_name ?? null,
   };
 }
 
@@ -160,12 +168,77 @@ function rowsToPayload(rows: EditableRow[]): LogisticsItemPayload[] {
     tablets_qty: r.tablets_qty,
     booklets_qty: r.booklets_qty,
     notes: r.notes.trim() || null,
+    applicator_user_id: r.applicator_user_id,
   }));
 }
 
 function parseQty(value: string): number {
   const n = parseInt(value, 10);
   return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function ApplicatorPicker({
+  value,
+  valueName,
+  options,
+  onChange,
+  triggerLabel,
+}: {
+  value: string | null;
+  valueName?: string | null;
+  options: LogisticsApplicatorOption[];
+  onChange: (userId: string | null) => void;
+  triggerLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.id === value);
+  const label = triggerLabel || (value ? selected?.nome || valueName || 'Aplicador' : 'Sem aplicador');
+  const choices =
+    value && !options.some((option) => option.id === value)
+      ? [{ id: value, nome: valueName || 'Aplicador atual', perfil: '' }, ...options]
+      : options;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="w-[220px] justify-between font-normal">
+          <span className="truncate">{label}</span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[280px] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Buscar aplicador..." />
+          <CommandEmpty>Nenhum usuário encontrado.</CommandEmpty>
+          <CommandGroup className="max-h-56 overflow-auto">
+            <CommandItem
+              value="sem aplicador"
+              onSelect={() => {
+                onChange(null);
+                setOpen(false);
+              }}
+            >
+              Sem aplicador
+            </CommandItem>
+            {choices.map((option) => (
+              <CommandItem
+                key={option.id}
+                value={`${option.nome} ${option.perfil} ${option.id}`}
+                onSelect={() => {
+                  onChange(option.id);
+                  setOpen(false);
+                }}
+              >
+                <span className="truncate">{option.nome}</span>
+                {option.perfil ? (
+                  <span className="ml-2 text-xs text-muted-foreground">{option.perfil}</span>
+                ) : null}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function pruneSelection(prev: string[], options: Array<{ id: string }> | undefined): string[] {
@@ -270,6 +343,7 @@ export default function LogisticaAvaliacao() {
   });
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [bulkDateOpen, setBulkDateOpen] = useState(false);
+  const [applicators, setApplicators] = useState<LogisticsApplicatorOption[]>([]);
 
   // Filtros do editor
   const [etapas, setEtapas] = useState<LogisticsFilterEntity[]>([]);
@@ -420,8 +494,9 @@ export default function LogisticaAvaliacao() {
   }, [cityId, statusFilter, toast]);
 
   useEffect(() => {
+    if (searchParams.get('visao') !== 'cronogramas' && !paramId) return;
     void loadList();
-  }, [loadList]);
+  }, [loadList, searchParams, paramId]);
 
   // ---------------------------------------------------------------------------
   // Abrir cronograma
@@ -481,7 +556,8 @@ export default function LogisticaAvaliacao() {
             variant: 'destructive',
           });
         }
-        setSearchParams({}, { replace: true });
+        const backToManager = searchParams.get('visao') === 'cronogramas';
+        setSearchParams(backToManager ? { visao: 'cronogramas' } : {}, { replace: true });
         void loadList();
       })
       .finally(() => {
@@ -490,7 +566,7 @@ export default function LogisticaAvaliacao() {
     return () => {
       cancelled = true;
     };
-  }, [paramId, cityId, current?.id, applySchedule, setSearchParams, toast, loadList]);
+  }, [paramId, cityId, current?.id, applySchedule, setSearchParams, toast, loadList, searchParams]);
 
   const isDirty = useMemo(() => {
     if (title !== snapshot.title || notes !== snapshot.notes) return true;
@@ -499,19 +575,26 @@ export default function LogisticaAvaliacao() {
 
   const goToList = () => {
     if (editable && isDirty && !window.confirm('Há alterações não salvas. Deseja sair mesmo assim?')) return;
+    const backToManager = searchParams.get('visao') === 'cronogramas';
     setCreatingNew(false);
     resetEditor();
-    setSearchParams({});
+    setSearchParams(backToManager ? { visao: 'cronogramas' } : {});
     void loadList();
   };
 
   const startNew = () => {
     resetEditor();
-    setSearchParams({});
+    setSearchParams({ visao: 'cronogramas' });
     setCreatingNew(true);
   };
 
   const openFromList = (id: string) => {
+    resetEditor();
+    setCreatingNew(false);
+    setSearchParams({ id, visao: 'cronogramas' });
+  };
+
+  const openFromGrade = (id: string) => {
     resetEditor();
     setCreatingNew(false);
     setSearchParams({ id });
@@ -559,6 +642,30 @@ export default function LogisticaAvaliacao() {
       cancelled = true;
     };
   }, [inEditor, editable, cityId, selectedEtapa, selectedAvaliacao, selectedEscolas, selectedSeries, toast]);
+
+  useEffect(() => {
+    if (!inEditor || !editable || !cityId) {
+      setApplicators([]);
+      return;
+    }
+    let cancelled = false;
+    LogisticsApiService.listAplicadores(cityId)
+      .then((data) => {
+        if (!cancelled) setApplicators(data);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setApplicators([]);
+        toast({
+          title: 'Erro ao carregar aplicadores',
+          description: getLogisticsApiErrorMessage(error, 'Tente novamente.'),
+          variant: 'destructive',
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [inEditor, editable, cityId, toast]);
 
   const handleEtapaChange = (value: string) => {
     setSelectedEtapa(value === 'all' ? '' : value);
@@ -618,6 +725,8 @@ export default function LogisticaAvaliacao() {
           tablets_qty: item.suggested_tablets_qty,
           booklets_qty: item.suggested_booklets_qty,
           notes: '',
+          applicator_user_id: null,
+          applicator_name: null,
         }));
       setRows((prev) => sortRows([...prev, ...added]));
       const skipped = preview.items.length - added.length;
@@ -681,6 +790,22 @@ export default function LogisticaAvaliacao() {
     toast({ title: `Data ${formatDateBR(iso)} aplicada a ${selectedKeys.size} turma(s)` });
   };
 
+  const applyBulkApplicator = (userId: string | null) => {
+    const name = applicators.find((option) => option.id === userId)?.nome ?? null;
+    setRows((prev) =>
+      prev.map((row) =>
+        selectedKeys.has(row.key)
+          ? { ...row, applicator_user_id: userId, applicator_name: userId ? name : null }
+          : row
+      )
+    );
+    toast({
+      title: userId
+        ? `Aplicador aplicado a ${selectedKeys.size} turma(s)`
+        : `Aplicador removido de ${selectedKeys.size} turma(s)`,
+    });
+  };
+
   const rowsWithoutDate = rows.filter((r) => !r.scheduled_date).length;
   const totals = useMemo(
     () => ({
@@ -730,7 +855,11 @@ export default function LogisticaAvaliacao() {
         : await LogisticsApiService.createSchedule({ ...payload, test_id: selectedAvaliacao }, cityId);
       applySchedule(saved);
       setCreatingNew(false);
-      if (paramId !== saved.id) setSearchParams({ id: saved.id }, { replace: true });
+      if (paramId !== saved.id) {
+        const next: Record<string, string> = { id: saved.id };
+        if (searchParams.get('visao') === 'cronogramas') next.visao = 'cronogramas';
+        setSearchParams(next, { replace: true });
+      }
       return saved;
     } catch (error) {
       toast({
@@ -816,9 +945,10 @@ export default function LogisticaAvaliacao() {
     try {
       await LogisticsApiService.deleteSchedule(current.id, cityId);
       toast({ title: 'Rascunho excluído' });
+      const backToManager = searchParams.get('visao') === 'cronogramas';
       setCreatingNew(false);
       resetEditor();
-      setSearchParams({});
+      setSearchParams(backToManager ? { visao: 'cronogramas' } : {});
       void loadList();
     } catch (error) {
       toast({
@@ -939,6 +1069,24 @@ export default function LogisticaAvaliacao() {
     );
   }
 
+  // ----------------------------- GRADE -----------------------------
+  if (!inEditor && searchParams.get('visao') !== 'cronogramas') {
+    return (
+      <LogisticaGrade
+        key={cityId || 'sem-municipio'}
+        cityId={cityId}
+        cityName={cityName}
+        municipioSelector={canSelectCity ? municipioSelector : null}
+        onOpenSchedule={openFromGrade}
+        onManage={() => {
+          setCreatingNew(false);
+          resetEditor();
+          setSearchParams({ visao: 'cronogramas' });
+        }}
+      />
+    );
+  }
+
   // ----------------------------- LISTA -----------------------------
   if (!inEditor) {
     return (
@@ -967,7 +1115,17 @@ export default function LogisticaAvaliacao() {
                     : 'Cronogramas publicados para a sua escola.'}
                 </CardDescription>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setCreatingNew(false);
+                    resetEditor();
+                    setSearchParams({});
+                  }}
+                >
+                  Voltar à grade
+                </Button>
                 {listCanManage && (
                   <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
                     <SelectTrigger className="w-[160px]">
@@ -1319,6 +1477,12 @@ export default function LogisticaAvaliacao() {
                   <Calendar mode="single" locale={ptBR} onSelect={applyBulkDate} initialFocus />
                 </PopoverContent>
               </Popover>
+              <ApplicatorPicker
+                value={null}
+                options={applicators}
+                onChange={applyBulkApplicator}
+                triggerLabel="Aplicar aplicador às selecionadas"
+              />
               <Button variant="outline" size="sm" onClick={() => removeRows(new Set(selectedKeys))}>
                 <Trash2 className="h-4 w-4 mr-2" />
                 Remover selecionadas
@@ -1353,6 +1517,7 @@ export default function LogisticaAvaliacao() {
                     <TableHead>Data</TableHead>
                     <TableHead className="text-right">Tablets</TableHead>
                     <TableHead className="text-right">Cadernos</TableHead>
+                    <TableHead>Aplicador</TableHead>
                     <TableHead>Observação</TableHead>
                     {editable && <TableHead className="w-10" />}
                   </TableRow>
@@ -1414,6 +1579,24 @@ export default function LogisticaAvaliacao() {
                             />
                           ) : (
                             r.booklets_qty
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {editable ? (
+                            <ApplicatorPicker
+                              value={r.applicator_user_id}
+                              valueName={r.applicator_name}
+                              options={applicators}
+                              onChange={(userId) =>
+                                updateRow(r.key, {
+                                  applicator_user_id: userId,
+                                  applicator_name:
+                                    applicators.find((option) => option.id === userId)?.nome ?? null,
+                                })
+                              }
+                            />
+                          ) : (
+                            r.applicator_name || '-'
                           )}
                         </TableCell>
                         <TableCell className="min-w-[180px]">
