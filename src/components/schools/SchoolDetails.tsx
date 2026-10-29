@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/authContext";
-import { UserPlus, Eye, Pencil, Trash2, Edit, Loader2, ArrowLeft, Building, Users, GraduationCap, MapPin, Globe, BookOpen, MoveRight, Link2, KeyRound, Clock, MoreHorizontal } from "lucide-react";
+import { UserPlus, Eye, Pencil, Trash2, Edit, Loader2, ArrowLeft, Building, Users, GraduationCap, MapPin, Globe, BookOpen, MoveRight, KeyRound, Clock, MoreHorizontal } from "lucide-react";
 import { CreateClassForm } from "./CreateClassForm";
 import { LinkTeacherModal } from "./LinkTeacherModal";
 import { ManageClassModal } from "./ManageClassModal";
@@ -18,6 +18,7 @@ import { BulkManageTeachersModal, type BulkTeachersModalInitialEntry } from "./B
 import { BulkCreateCoordinatorsModal } from "./BulkCreateCoordinatorsModal";
 import { badgesFromSubturmas, levelsFromSubturmas } from "@/lib/subturma";
 import { PasswordReportModal } from "./PasswordReportModal";
+import { TeacherAssignmentsList } from "./TeacherAssignmentsList";
 import { SchoolCoursesTab } from "./SchoolCoursesTab";
 import { InstituicaoDisciplinasTab } from "./InstituicaoDisciplinasTab";
 import {
@@ -99,6 +100,7 @@ interface Teacher {
   role?: string;
   class_id?: string;
   user_id?: string;
+  vinculo_id?: string;
 }
 
 interface Student {
@@ -1116,15 +1118,6 @@ export default function SchoolDetails() {
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
                             onClick={() => {
-                              setBulkTeachersModalEntry("link-classes");
-                              setShowBulkTeachersModal(true);
-                            }}
-                          >
-                            <Link2 className="h-4 w-4 mr-2" />
-                            Atrelar turmas
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => {
                               setBulkTeachersModalEntry("import");
                               setShowBulkTeachersModal(true);
                             }}
@@ -1158,33 +1151,35 @@ export default function SchoolDetails() {
                   )}
                 </div>
               ) : (
-                <div className="divide-y divide-border rounded-lg border border-border bg-background">
-                  {teachers.slice(0, 5).map((teacher) => (
-                    <div key={teacher.id} className="flex items-center gap-3 px-3 py-2.5">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{teacher.name}</div>
-                        {user.role !== "professor" && (
-                          <div className="text-xs text-muted-foreground truncate">{teacher.email}</div>
-                        )}
-                      </div>
-                      <Badge variant="secondary" className="text-[10px] font-normal shrink-0">
-                        Professor
-                      </Badge>
-                    </div>
-                  ))}
-                  {teachers.length > 5 && (
-                    <button
-                      type="button"
-                      className="w-full px-3 py-2 text-left text-xs text-primary hover:bg-muted"
-                      onClick={() => {
-                        setBulkTeachersModalEntry("link-classes");
-                        setShowBulkTeachersModal(true);
-                      }}
-                    >
-                      Ver todos (+{teachers.length - 5})
-                    </button>
-                  )}
-                </div>
+                <TeacherAssignmentsList
+                  teachers={teachers.map((teacher) => ({
+                    id: teacher.id,
+                    name: teacher.name,
+                    email: teacher.email,
+                  }))}
+                  classes={classes.map((classItem) => {
+                    const grade = classItem.grade;
+                    const gradeId =
+                      typeof grade === "object" && grade !== null ? String(grade.id ?? "") : "";
+                    const gradeName =
+                      typeof grade === "object" && grade !== null
+                        ? String(grade.name ?? "")
+                        : String(grade ?? "");
+                    return {
+                      id: classItem.id,
+                      name: classItem.name,
+                      gradeId,
+                      gradeName,
+                    };
+                  })}
+                  classTeachers={classTeachers}
+                  canEdit={canManageSchool}
+                  showEmail={user.role !== "professor"}
+                  onChanged={async () => {
+                    await loadSchoolTeachers();
+                    if (classes.length > 0) await fetchClassDetails(classes);
+                  }}
+                />
               )}
             </div>
           </section>

@@ -6,6 +6,7 @@ import {
   RELATORIO_SECAO_FREQUENCIA,
   RELATORIO_SECAO_MEDIA_NOTA,
   RELATORIO_SECAO_MEDIA_PROFICIENCIA,
+  RELATORIO_SECAO_PROFESSORES,
 } from '@/utils/reports/relatorioConsolidadoSectionTitles';
 
 export type SumarioSection = {
@@ -61,6 +62,11 @@ export function buildSumarioSections(report: RelatorioConsolidado): SumarioSecti
       number: 7,
       title: RELATORIO_SECAO_DISTRIBUICAO,
       subsections: porDisciplina,
+    },
+    {
+      number: 8,
+      title: RELATORIO_SECAO_PROFESSORES,
+      subsections: ['Séries e turmas'],
     },
   ];
 }
