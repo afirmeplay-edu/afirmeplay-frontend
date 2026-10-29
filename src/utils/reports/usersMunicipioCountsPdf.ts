@@ -92,6 +92,10 @@ export interface ReportContact {
   email: string;
   gradeName?: string;
   className?: string;
+  /** Anos/séries sob responsabilidade do professor. */
+  gradeNames?: string[];
+  /** Turmas sob responsabilidade do professor. */
+  classNames?: string[];
   schoolName?: string;
   nivel?: string;
 }
@@ -755,22 +759,47 @@ export async function generateUsersMunicipioCountsPdf(args: {
         y = margin;
       }
       y = addSectionTitle(`Contatos - ${roleItem.label}`, y);
-      const body: string[][] = sortedList.map((item, idx) => [
-        String(idx + 1),
-        str(item.name) || "—",
-        str(item.email) || "—",
-      ]);
+      const isProfessor = roleItem.key === "professor";
+      const joinLabels = (values: string[] | undefined, fallback?: string) => {
+        const joined = (values ?? []).map((value) => str(value)).filter(Boolean).join(", ");
+        return joined || str(fallback) || "—";
+      };
+      const body: string[][] = sortedList.map((item, idx) =>
+        isProfessor
+          ? [
+              String(idx + 1),
+              str(item.name) || "—",
+              str(item.email) || "—",
+              joinLabels(item.gradeNames, item.gradeName),
+              joinLabels(item.classNames, item.className),
+            ]
+          : [String(idx + 1), str(item.name) || "—", str(item.email) || "—"]
+      );
 
       autoTable(doc, {
         startY: y,
-        styles: { font: "helvetica", fontSize: 9, textColor: COLORS.textDark },
-        headStyles: { fillColor: COLORS.primary, textColor: COLORS.white },
+        styles: {
+          font: "helvetica",
+          fontSize: isProfessor ? 8 : 9,
+          textColor: COLORS.textDark,
+          overflow: "linebreak",
+          valign: "top",
+        },
+        headStyles: { fillColor: COLORS.primary, textColor: COLORS.white, valign: "middle" },
         bodyStyles: { fillColor: COLORS.white },
-        head: [["#", "Nome", "E-mail"]],
+        head: [isProfessor ? ["#", "Nome", "E-mail", "Anos", "Turmas"] : ["#", "Nome", "E-mail"]],
         body,
         theme: "striped",
         margin: { left: margin, right: margin },
-        columnStyles: { 0: { cellWidth: 10, halign: "right" } },
+        columnStyles: isProfessor
+          ? {
+              0: { cellWidth: 8, halign: "right" },
+              1: { cellWidth: 38 },
+              2: { cellWidth: 46 },
+              3: { cellWidth: 36 },
+              4: { cellWidth: 52 },
+            }
+          : { 0: { cellWidth: 10, halign: "right" } },
       });
       y = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY
         ? (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12

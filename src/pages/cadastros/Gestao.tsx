@@ -57,6 +57,11 @@ import {
   buildSchoolScopedUsersCountsReport,
   normalizeUsersCountsReport,
 } from "@/utils/reports/usersCountsScope";
+import {
+  listarProfessoresComTurmas,
+  rotuloTurma,
+  rotulosSeries,
+} from "@/utils/reports/professoresResponsaveis";
 
 interface City {
   id: string;
@@ -1055,6 +1060,32 @@ export default function Gestao() {
             item.name = item.name || alreadyById.name;
           }
         }
+      }
+
+      try {
+        const atribuicoes = await listarProfessoresComTurmas(schoolId, cityId);
+        const porEmail = new Map<string, (typeof atribuicoes)[number]>();
+        const porNome = new Map<string, (typeof atribuicoes)[number]>();
+        for (const professor of atribuicoes) {
+          const email = sanitizeEmail(professor.email).toLocaleLowerCase("pt-BR");
+          const nome = sanitizePersonName(professor.nome).toLocaleLowerCase("pt-BR");
+          if (email) porEmail.set(email, professor);
+          if (nome) porNome.set(nome, professor);
+        }
+        for (const professor of contacts.professor ?? []) {
+          const email = sanitizeEmail(professor.email).toLocaleLowerCase("pt-BR");
+          const nome = sanitizePersonName(professor.name).toLocaleLowerCase("pt-BR");
+          const atribuicao = (email && porEmail.get(email)) || (nome && porNome.get(nome)) || undefined;
+          if (!atribuicao) continue;
+          const anos = rotulosSeries(atribuicao);
+          const turmas = atribuicao.turmas.map(rotuloTurma);
+          professor.gradeNames = anos;
+          professor.classNames = turmas;
+          professor.gradeName = anos.join(", ") || undefined;
+          professor.className = turmas.join(", ") || undefined;
+        }
+      } catch (error) {
+        console.warn("Não foi possível carregar anos e turmas dos professores para o relatório:", error);
       }
 
       return contacts;

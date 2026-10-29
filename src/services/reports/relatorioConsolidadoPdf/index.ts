@@ -65,6 +65,10 @@ export {
   type DistribuicaoProficienciaPagesParams,
 } from './drawDistribuicaoProficienciaPages';
 export {
+  drawRelatorioConsolidadoProfessoresPages,
+  type ProfessoresResponsaveisPagesParams,
+} from './drawProfessoresResponsaveisPages';
+export {
   drawRelatorioConsolidadoFooters,
   drawRelatorioConsolidadoInternalHeader,
   drawRelatorioConsolidadoSectionTitle,
