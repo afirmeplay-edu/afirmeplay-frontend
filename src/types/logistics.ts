@@ -73,6 +73,10 @@ export interface LogisticsScheduleItem {
   tablets_qty: number;
   booklets_qty: number;
   notes: string | null;
+  applicator_user_id?: string | null;
+  applicator_name?: string | null;
+  origem?: 'manual' | 'auto' | string;
+  editado_manualmente?: boolean;
 }
 
 export interface LogisticsScheduleTotals {
@@ -126,6 +130,7 @@ export interface LogisticsItemPayload {
   tablets_qty: number;
   booklets_qty: number;
   notes?: string | null;
+  applicator_user_id?: string | null;
 }
 
 export interface LogisticsSchedulePayload {
@@ -134,4 +139,89 @@ export interface LogisticsSchedulePayload {
   title?: string;
   notes?: string | null;
   items?: LogisticsItemPayload[];
+}
+
+export interface LogisticsGradeCards {
+  total_agendamentos: number;
+  total_alunos_previstos: number;
+  escolas_atendidas: number;
+  turmas_agendadas: number;
+}
+
+export interface LogisticsGradeItem {
+  id: string;
+  schedule_id: string;
+  status: LogisticsScheduleStatus;
+  test_id: string;
+  test_title: string | null;
+  evaluation_mode: LogisticsEvaluationMode;
+  scheduled_date: string | null;
+  school_id: string | null;
+  school_name: string | null;
+  grade_id: string | null;
+  grade_name: string | null;
+  class_id: string | null;
+  class_name: string | null;
+  turno: string | null;
+  students_count: number;
+  tablets_qty: number;
+  booklets_qty: number;
+  applicator_user_id: string | null;
+  applicator_name: string | null;
+  origem: 'manual' | 'auto' | string;
+  editado_manualmente: boolean;
+}
+
+export interface LogisticsGradePage {
+  items: LogisticsGradeItem[];
+  total: number;
+  page: number;
+  per_page: number;
+  cards: LogisticsGradeCards;
+  can_manage: boolean;
+}
+
+export interface LogisticsGradeAvaliacao extends LogisticsFilterAvaliacao {
+  etapa_ids: string[];
+}
+
+export interface LogisticsGradeSerie extends LogisticsFilterEntity {
+  etapa_id: string | null;
+  escola_ids: string[];
+}
+
+export interface LogisticsGradeOptions {
+  anos: number[];
+  etapas: LogisticsFilterEntity[];
+  avaliacoes: LogisticsGradeAvaliacao[];
+  escolas: LogisticsFilterEntity[];
+  series: LogisticsGradeSerie[];
+  turnos: string[];
+  formatos: string[];
+  aplicadores: LogisticsFilterEntity[];
+  status: LogisticsScheduleStatus[];
+  can_manage: boolean;
+}
+
+export interface LogisticsApplicatorOption {
+  id: string;
+  nome: string;
+  perfil: string;
+}
+
+export interface LogisticsGradeQuery {
+  ano?: number;
+  etapa?: string;
+  avaliacao?: string;
+  escola?: string;
+  serie?: string;
+  turno?: string;
+  formato?: string;
+  data_inicio?: string;
+  data_fim?: string;
+  status?: LogisticsScheduleStatus;
+  aplicador?: string;
+  q?: string;
+  page?: number;
+  per_page?: number;
 }

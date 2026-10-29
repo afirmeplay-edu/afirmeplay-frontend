@@ -40,6 +40,12 @@ import {
 import { generateRelatorioConsolidadoPdf } from '@/services/reports/relatorioConsolidadoPdf';
 import type { RelatorioConsolidado } from '@/types/relatorio-consolidado';
 import { matrizHasLinhas } from '@/utils/reports/relatorioConsolidadoDisciplinas';
+import {
+  escolasDoRelatorio,
+  fetchProfessoresResponsaveis,
+  type ProfessorResponsavel,
+  type RestricaoTurmasProfessor,
+} from '@/utils/reports/professoresResponsaveis';
 
 type FilterOption = { id: string; nome: string };
 
@@ -86,6 +92,11 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
   const [generatingPdf, setGeneratingPdf] = useState(false);
 
   const [report, setReport] = useState<RelatorioConsolidado | null>(null);
+  const [professores, setProfessores] = useState<ProfessorResponsavel[]>([]);
+  const [professoresLoading, setProfessoresLoading] = useState(false);
+  const [professoresErro, setProfessoresErro] = useState<string | null>(null);
+  const [professoresAviso, setProfessoresAviso] = useState<string | null>(null);
+  const [professoresRetry, setProfessoresRetry] = useState(0);
 
   const canGenerate =
     selectedEstado !== 'all' &&
@@ -369,6 +380,65 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
     [selectedEscola, escolaLabel]
   );
 
+  const restricaoProfessor = useMemo<RestricaoTurmasProfessor | null>(() => {
+    if (normalizedRole !== 'professor') return null;
+    const classes = userHierarchyContext?.classes ?? [];
+    return {
+      classIds: classes.map((turma) => turma.class_id).filter(Boolean),
+      classNameKeys: classes
+        .map((turma) => `${turma.grade_name}|${turma.class_name}`.toLocaleLowerCase('pt-BR'))
+        .filter((key) => key !== '|'),
+    };
+  }, [normalizedRole, userHierarchyContext]);
+
+  useEffect(() => {
+    if (!report) {
+      setProfessores([]);
+      setProfessoresErro(null);
+      setProfessoresAviso(null);
+      setProfessoresLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setProfessoresLoading(true);
+    setProfessoresErro(null);
+    setProfessoresAviso(null);
+
+    const escolas = escolasDoRelatorio(report, selectedEscola, escolaLabel);
+    fetchProfessoresResponsaveis({
+      escolas,
+      municipioId: selectedMunicipio,
+      series: report.series_colunas ?? [],
+      restricaoProfessor,
+    })
+      .then((resultado) => {
+        if (cancelled) return;
+        setProfessores(resultado.professores);
+        setProfessoresAviso(resultado.aviso);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setProfessores([]);
+        setProfessoresAviso(null);
+        setProfessoresErro('Não foi possível carregar as séries e turmas dos professores.');
+      })
+      .finally(() => {
+        if (!cancelled) setProfessoresLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    report,
+    selectedEscola,
+    escolaLabel,
+    selectedMunicipio,
+    restricaoProfessor,
+    professoresRetry,
+  ]);
+
   const handleDownloadPdf = async () => {
     if (!report) return;
     try {
@@ -378,6 +448,8 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
         cityId: selectedMunicipio,
         scopeLabel: pdfScopeLabel,
         tituloAvaliacao,
+        professores,
+        professoresAviso: professoresAviso,
       });
       toast({
         title: 'PDF gerado',
@@ -636,6 +708,11 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
               tituloAvaliacao={tituloAvaliacao}
               onDownloadPdf={handleDownloadPdf}
               generatingPdf={generatingPdf}
+              professores={professores}
+              professoresLoading={professoresLoading}
+              professoresErro={professoresErro}
+              professoresAviso={professoresAviso}
+              onRetryProfessores={() => setProfessoresRetry((atual) => atual + 1)}
             />
           </CardContent>
         </Card>

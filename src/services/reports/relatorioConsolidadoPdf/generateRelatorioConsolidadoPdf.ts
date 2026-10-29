@@ -1,5 +1,6 @@
 import { api } from '@/lib/api';
 import { loadCityBrandingForReportPdf } from '@/utils/pdfCityBranding';
+import type { ProfessorResponsavel } from '@/utils/reports/professoresResponsaveis';
 import type { RelatorioConsolidado } from '@/types/relatorio-consolidado';
 import {
   drawRelatorioConsolidadoCoverPage,
@@ -16,6 +17,7 @@ import {
 } from './drawMediasConsolidadoPages';
 import { drawRelatorioConsolidadoAcertosHabilidadePages } from './drawAcertosHabilidadePages';
 import { drawRelatorioConsolidadoDistribuicaoPages } from './drawDistribuicaoProficienciaPages';
+import { drawRelatorioConsolidadoProfessoresPages } from './drawProfessoresResponsaveisPages';
 import { drawRelatorioConsolidadoFooters } from './pdfShared';
 
 export type GenerateRelatorioConsolidadoPdfOptions = {
@@ -25,6 +27,9 @@ export type GenerateRelatorioConsolidadoPdfOptions = {
   scopeLabel: string;
   /** Título customizado da avaliação fornecido pelo usuário. */
   tituloAvaliacao: string;
+  /** Séries e turmas de cada professor no recorte do relatório. */
+  professores?: ProfessorResponsavel[];
+  professoresAviso?: string | null;
   /** Nome da prefeitura/instituição; se omitido, tenta buscar no `/city/:id`. */
   institutionName?: string;
   year?: number;
@@ -140,6 +145,14 @@ export async function generateRelatorioConsolidadoPdf(
     logo,
     institutionName,
     year: opts.year,
+  });
+
+  await drawRelatorioConsolidadoProfessoresPages(pdf, {
+    logo,
+    institutionName,
+    year: opts.year,
+    professores: opts.professores ?? [],
+    aviso: opts.professoresAviso,
   });
 
   drawRelatorioConsolidadoFooters(pdf, true);

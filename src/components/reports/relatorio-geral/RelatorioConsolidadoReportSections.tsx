@@ -38,6 +38,8 @@ import {
   RELATORIO_SECAO_MEDIA_PROFICIENCIA,
 } from '@/utils/reports/relatorioConsolidadoSectionTitles';
 import { pdfRgbToCellStyle } from '@/utils/reports/relatorioConsolidadoWebStyles';
+import { ProfessoresResponsaveisSection } from '@/components/reports/relatorio-geral/ProfessoresResponsaveisSection';
+import type { ProfessorResponsavel } from '@/utils/reports/professoresResponsaveis';
 import {
   buildApresentacaoDynamicData,
   buildApresentacaoParagraph1Runs,
@@ -207,6 +209,11 @@ type RelatorioConsolidadoReportSectionsProps = {
   tituloAvaliacao: string;
   onDownloadPdf: () => void;
   generatingPdf: boolean;
+  professores?: ProfessorResponsavel[];
+  professoresLoading?: boolean;
+  professoresErro?: string | null;
+  professoresAviso?: string | null;
+  onRetryProfessores?: () => void;
 };
 
 export function RelatorioConsolidadoReportSections({
@@ -215,6 +222,11 @@ export function RelatorioConsolidadoReportSections({
   tituloAvaliacao,
   onDownloadPdf,
   generatingPdf,
+  professores = [],
+  professoresLoading = false,
+  professoresErro = null,
+  professoresAviso = null,
+  onRetryProfessores,
 }: RelatorioConsolidadoReportSectionsProps) {
   const seriesColunas = report.series_colunas ?? [];
   const disciplinas = getMediasPdfDisciplinas(report);
@@ -241,8 +253,18 @@ export function RelatorioConsolidadoReportSections({
 
   return (
     <div className="space-y-10">
-      <div className="flex justify-end">
-        <Button variant="outline" size="sm" onClick={onDownloadPdf} disabled={generatingPdf}>
+      <div className="flex flex-col items-end gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onDownloadPdf}
+          disabled={generatingPdf || professoresLoading}
+          title={
+            professoresLoading
+              ? 'Aguarde o carregamento das turmas dos professores para incluir a seção no PDF'
+              : undefined
+          }
+        >
           {generatingPdf ? (
             <>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -255,6 +277,11 @@ export function RelatorioConsolidadoReportSections({
             </>
           )}
         </Button>
+        {professoresLoading ? (
+          <p className="text-xs text-muted-foreground text-right max-w-sm">
+            O PDF inclui as séries e turmas dos professores. Aguarde o carregamento para baixar.
+          </p>
+        ) : null}
       </div>
 
       {comparativoHint && (
@@ -464,6 +491,14 @@ export function RelatorioConsolidadoReportSections({
           );
         })}
       </section>
+
+      <ProfessoresResponsaveisSection
+        professores={professores}
+        loading={professoresLoading}
+        erro={professoresErro}
+        aviso={professoresAviso}
+        onRetry={onRetryProfessores}
+      />
     </div>
   );
 }

@@ -4,6 +4,7 @@ export const RELATORIO_SECAO_MEDIA_NOTA = 'Resultados de Média Nota';
 export const RELATORIO_SECAO_MEDIA_PROFICIENCIA = 'Resultados de Média Proficiência';
 export const RELATORIO_SECAO_ACERTOS_HABILIDADE = 'Acertos por Habilidade';
 export const RELATORIO_SECAO_DISTRIBUICAO = 'Distribuição dos Níveis de Proficiência';
+export const RELATORIO_SECAO_PROFESSORES = 'Professores responsáveis';
 
 export function relatorioSecaoTitle(sectionNumber: number, title: string): string {
   return `${sectionNumber}. ${title}`;
