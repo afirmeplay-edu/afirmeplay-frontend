@@ -248,6 +248,25 @@ function pruneSelection(prev: string[], options: Array<{ id: string }> | undefin
   return next.length === prev.length ? prev : next;
 }
 
+/**
+ * Admin chega com `municipality: false` (filtro livre). O fallback da página
+ * usa `canSelectMunicipality`. Os dois formatos precisam liberar o seletor.
+ */
+function resolveCanSelectMunicipality(
+  restrictions: UserHierarchyContext['restrictions'] | undefined
+): boolean {
+  if (!restrictions) return false;
+  const raw = restrictions as {
+    canSelectMunicipality?: boolean;
+    municipality?: boolean;
+  };
+  if (typeof raw.canSelectMunicipality === 'boolean') {
+    return raw.canSelectMunicipality;
+  }
+  if (typeof raw.municipality === 'boolean') return !raw.municipality;
+  return false;
+}
+
 function DatePickerButton({
   value,
   onChange,
@@ -369,7 +388,7 @@ export default function LogisticaAvaliacao() {
   const [pdfOrientation, setPdfOrientation] = useState<LogisticsPdfOrientation>('portrait');
   const [exportingPdf, setExportingPdf] = useState(false);
 
-  const canSelectCity = hierarchy?.restrictions?.canSelectMunicipality ?? false;
+  const canSelectCity = resolveCanSelectMunicipality(hierarchy?.restrictions);
   const cityId = canSelectCity
     ? selectedMunicipio !== 'all'
       ? selectedMunicipio
@@ -397,7 +416,7 @@ export default function LogisticaAvaliacao() {
       .then((ctx) => {
         if (cancelled) return;
         setHierarchy(ctx);
-        if (ctx.restrictions?.canSelectMunicipality && ctx.municipality?.id) {
+        if (resolveCanSelectMunicipality(ctx.restrictions) && ctx.municipality?.id) {
           setSelectedMunicipio(ctx.municipality.id);
           if (ctx.municipality.state) setSelectedEstado(ctx.municipality.state);
         }

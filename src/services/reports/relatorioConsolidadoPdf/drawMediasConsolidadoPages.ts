@@ -2,7 +2,7 @@ import type { jsPDF } from 'jspdf';
 import type { CellHookData, UserOptions } from 'jspdf-autotable';
 import type { PdfImageAsset } from '@/utils/pdfCityBranding';
 import type { MatrizEscolaSerie, RelatorioConsolidado, SecaoMatrizNumerica, SerieColuna } from '@/types/relatorio-consolidado';
-import { getMatrizNumerica } from '@/utils/reports/relatorioConsolidadoDisciplinas';
+import { getMatrizMediasNumerica } from '@/utils/reports/relatorioConsolidadoDisciplinas';
 import { getMediasRedeFooterLabel } from '@/utils/reports/relatorioConsolidadoComparativo';
 import { RELATORIO_CONSOLIDADO_PDF_COLORS } from './drawCoverPage';
 import {
@@ -357,7 +357,8 @@ async function drawMediasDisciplinaPage(
   isFirstDisciplinaPage: boolean
 ): Promise<void> {
   const secao = config.getSecao(params.report);
-  const matriz = getMatrizNumerica(secao, disciplina);
+  // GERAL: média de por_disciplina (alinha com Resultados); disciplinas inalteradas.
+  const matriz = getMatrizMediasNumerica(secao, disciplina);
   const seriesColunas = params.report.series_colunas ?? [];
 
   doc.addPage();
