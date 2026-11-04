@@ -22,6 +22,7 @@ import type { RelatorioConsolidado } from '@/types/relatorio-consolidado';
 import {
   getAcertosHabilidadeBloco,
   getMatrizDistribuicao,
+  getMatrizMediasNumerica,
   getMatrizNumerica,
 } from '@/utils/reports/relatorioConsolidadoDisciplinas';
 import {
@@ -339,7 +340,10 @@ export function RelatorioConsolidadoReportSections({
 
       <section className="space-y-6">
         {disciplinas.map((disc, idx) => {
-          const matriz = getMatrizNumerica(report.consideracoes_gerais.consolidado_medias_nota, disc);
+          const matriz = getMatrizMediasNumerica(
+            report.consideracoes_gerais.consolidado_medias_nota,
+            disc
+          );
           return (
             <div key={`nota-${disc}`} className="space-y-3">
               {idx === 0 && (
@@ -369,7 +373,7 @@ export function RelatorioConsolidadoReportSections({
 
       <section className="space-y-6">
         {disciplinas.map((disc, idx) => {
-          const matriz = getMatrizNumerica(
+          const matriz = getMatrizMediasNumerica(
             report.consideracoes_gerais.consolidado_medias_proficiencia,
             disc
           );
