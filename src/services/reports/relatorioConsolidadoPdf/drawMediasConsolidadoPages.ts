@@ -357,7 +357,6 @@ async function drawMediasDisciplinaPage(
   isFirstDisciplinaPage: boolean
 ): Promise<void> {
   const secao = config.getSecao(params.report);
-  // GERAL: média de por_disciplina (alinha com Resultados); disciplinas inalteradas.
   const matriz = getMatrizMediasNumerica(secao, disciplina);
   const seriesColunas = params.report.series_colunas ?? [];
 
