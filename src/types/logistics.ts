@@ -24,7 +24,7 @@ export interface LogisticsFilterTurma {
 }
 
 export interface LogisticsOpcoesFiltros {
-  etapas: LogisticsFilterEntity[];
+  etapas?: LogisticsFilterEntity[];
   avaliacoes: LogisticsFilterAvaliacao[];
   escolas?: LogisticsFilterEntity[];
   series?: LogisticsFilterEntity[];
@@ -70,6 +70,8 @@ export interface LogisticsScheduleItem {
   shift: string;
   scheduled_date: string | null;
   students_count: number;
+  /** Contagem viva de alunos da turma (cadastro). */
+  class_students_count?: number;
   tablets_qty: number;
   booklets_qty: number;
   notes: string | null;
@@ -127,6 +129,7 @@ export interface LogisticsItemPayload {
   id?: string;
   class_id: string;
   scheduled_date: string | null;
+  students_count?: number;
   tablets_qty: number;
   booklets_qty: number;
   notes?: string | null;
@@ -166,6 +169,7 @@ export interface LogisticsGradeItem {
   students_count: number;
   tablets_qty: number;
   booklets_qty: number;
+  notes?: string | null;
   applicator_user_id: string | null;
   applicator_name: string | null;
   origem: 'manual' | 'auto' | string;
@@ -179,25 +183,39 @@ export interface LogisticsGradePage {
   per_page: number;
   cards: LogisticsGradeCards;
   can_manage: boolean;
+  truncated?: boolean;
+  export_limit?: number | null;
 }
 
 export interface LogisticsGradeAvaliacao extends LogisticsFilterAvaliacao {
-  etapa_ids: string[];
+  etapa_ids?: string[];
+}
+
+export interface LogisticsGradeEscola extends LogisticsFilterEntity {
+  avaliacao_ids: string[];
 }
 
 export interface LogisticsGradeSerie extends LogisticsFilterEntity {
-  etapa_id: string | null;
+  etapa_id?: string | null;
+  avaliacao_ids: string[];
   escola_ids: string[];
 }
 
+export interface LogisticsGradeTurma extends LogisticsFilterEntity {
+  avaliacao_ids: string[];
+  escola_ids: string[];
+  serie_ids: string[];
+}
+
 export interface LogisticsGradeOptions {
-  anos: number[];
-  etapas: LogisticsFilterEntity[];
+  anos?: number[];
+  etapas?: LogisticsFilterEntity[];
   avaliacoes: LogisticsGradeAvaliacao[];
-  escolas: LogisticsFilterEntity[];
+  escolas: LogisticsGradeEscola[];
   series: LogisticsGradeSerie[];
-  turnos: string[];
-  formatos: string[];
+  turmas: LogisticsGradeTurma[];
+  turnos?: string[];
+  formatos?: string[];
   aplicadores: LogisticsFilterEntity[];
   status: LogisticsScheduleStatus[];
   can_manage: boolean;
@@ -215,6 +233,7 @@ export interface LogisticsGradeQuery {
   avaliacao?: string;
   escola?: string;
   serie?: string;
+  turma?: string;
   turno?: string;
   formato?: string;
   data_inicio?: string;
@@ -224,4 +243,5 @@ export interface LogisticsGradeQuery {
   q?: string;
   page?: number;
   per_page?: number;
+  export?: boolean;
 }
