@@ -1,0 +1,108 @@
+/* =============================================================
+   TEMA AFIRMEPLAY — PAINEL ADMINISTRATIVO
+   Personalização apenas de cores. Não altera dimensões, HTML,
+   conteúdo, certificado, assinatura, QR Code ou exportação de PDF.
+   ============================================================= */
+:root {
+  --afirme-roxo: #9252f0;
+  --afirme-roxo-escuro: #743cce;
+  --afirme-lilas: #cfb2ee;
+  --afirme-lilas-claro: #f3edff;
+  --afirme-azul: #3466eb;
+  --afirme-verde: #1a985c;
+  --afirme-verde-claro: #e9f9ef;
+  --afirme-erro: #bf3d55;
+  --afirme-texto: #14203b;
+  --afirme-suave: #64748f;
+  --afirme-borda: #e1d9ef;
+  --afirme-fundo: #faf9fd;
+}
+body {
+  background: var(--afirme-fundo);
+  color: var(--afirme-texto);
+}
+header {
+  background: linear-gradient(110deg, #caa9e9 0%, #e9dcf8 55%, #f7f1ff 100%);
+  color: #23123c;
+  border-bottom-color: var(--afirme-roxo);
+}
+.panel {
+  background: #ffffff;
+  box-shadow: 0 2px 12px rgba(77, 37, 127, .10);
+}
+h2, h3 {
+  color: #15203a;
+}
+label {
+  color: #293754;
+}
+input, textarea {
+  color: #17233e;
+  background: #ffffff;
+  border-color: var(--afirme-borda);
+}
+input::placeholder, textarea::placeholder {
+  color: #8791a8;
+}
+input:focus, textarea:focus {
+  border-color: var(--afirme-roxo);
+  outline-color: #c4a0ff;
+}
+input[type="checkbox"] {
+  accent-color: var(--afirme-roxo);
+}
+input[type="file"]::file-selector-button {
+  color: var(--afirme-roxo-escuro);
+  background: var(--afirme-lilas-claro);
+  border-color: #ddcafb;
+}
+button {
+  background: var(--afirme-roxo);
+  color: #ffffff;
+}
+button.secondary {
+  background: #eee5ff;
+  color: var(--afirme-roxo-escuro);
+}
+button.danger {
+  background: var(--afirme-erro);
+  color: #ffffff;
+}
+/* Ações específicas recebem acentos de cor do AfirmePlay. */
+button[onclick="downloadAll()"] {
+  background: var(--afirme-azul);
+  color: #ffffff;
+}
+button[onclick*="getElementById('csv')"] {
+  background: var(--afirme-verde-claro);
+  color: var(--afirme-verde);
+}
+button[onclick="downloadTemplate()"] {
+  background: #eee5ff;
+  color: var(--afirme-roxo-escuro);
+}
+button:disabled {
+  background: #d7d5e0;
+  color: #74738b;
+}
+.hint {
+  color: var(--afirme-suave);
+}
+.preview {
+  border-color: #e5def2;
+  background: #ffffff;
+}
+td, th {
+  border-bottom-color: #e7e2f1;
+}
+th {
+  background: #f1eafb;
+  color: #432675;
+}
+#signaturePreview {
+  background: #fcfaff !important;
+  border-color: #e3daf4 !important;
+}
+#systemStatus {
+  color: #6440af;
+}
