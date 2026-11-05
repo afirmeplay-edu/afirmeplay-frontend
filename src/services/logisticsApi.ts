@@ -19,7 +19,6 @@ function withCityMeta(cityId?: string) {
 
 function buildQuery(params: LogisticsFilterParams): string {
   const q = new URLSearchParams();
-  if (params.etapa) q.set('etapa', params.etapa);
   if (params.avaliacao) q.set('avaliacao', params.avaliacao);
   if (params.escolas?.length) q.set('escolas', params.escolas.join(','));
   if (params.series?.length) q.set('series', params.series.join(','));
@@ -67,8 +66,25 @@ export class LogisticsApiService {
       anos: data?.anos ?? [],
       etapas: data?.etapas ?? [],
       avaliacoes: data?.avaliacoes ?? [],
-      escolas: data?.escolas ?? [],
-      series: data?.series ?? [],
+      escolas: (data?.escolas ?? []).map((escola) => ({
+        id: escola.id,
+        nome: escola.nome,
+        avaliacao_ids: escola.avaliacao_ids ?? [],
+      })),
+      series: (data?.series ?? []).map((serie) => ({
+        id: serie.id,
+        nome: serie.nome,
+        etapa_id: serie.etapa_id ?? null,
+        avaliacao_ids: serie.avaliacao_ids ?? [],
+        escola_ids: serie.escola_ids ?? [],
+      })),
+      turmas: (data?.turmas ?? []).map((turma) => ({
+        id: turma.id,
+        nome: turma.nome,
+        avaliacao_ids: turma.avaliacao_ids ?? [],
+        escola_ids: turma.escola_ids ?? [],
+        serie_ids: turma.serie_ids ?? [],
+      })),
       turnos: data?.turnos ?? [],
       formatos: data?.formatos ?? [],
       aplicadores: data?.aplicadores ?? [],
@@ -92,6 +108,7 @@ export class LogisticsApiService {
     if (params.avaliacao) q.set('avaliacao', params.avaliacao);
     if (params.escola) q.set('escola', params.escola);
     if (params.serie) q.set('serie', params.serie);
+    if (params.turma) q.set('turma', params.turma);
     if (params.turno) q.set('turno', params.turno);
     if (params.formato) q.set('formato', params.formato);
     if (params.data_inicio) q.set('data_inicio', params.data_inicio);
@@ -99,6 +116,7 @@ export class LogisticsApiService {
     if (params.status) q.set('status', params.status);
     if (params.aplicador) q.set('aplicador', params.aplicador);
     if (params.q) q.set('q', params.q);
+    if (params.export) q.set('export', '1');
     if (params.page) q.set('page', String(params.page));
     if (params.per_page) q.set('per_page', String(params.per_page));
     const qs = q.toString();
@@ -119,6 +137,8 @@ export class LogisticsApiService {
       per_page: data?.per_page ?? params.per_page ?? 20,
       cards: data?.cards ?? emptyCards,
       can_manage: Boolean(data?.can_manage),
+      truncated: Boolean(data?.truncated),
+      export_limit: data?.export_limit ?? null,
     };
   }
 
