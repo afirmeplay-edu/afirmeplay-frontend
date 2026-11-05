@@ -6,16 +6,15 @@ import {
   CalendarDays,
   CalendarRange,
   ClipboardList,
+  Download,
   Eye,
+  FileText,
   GraduationCap,
-  Layers,
   Loader2,
   RotateCcw,
   School,
   Search,
   Settings2,
-  SunMedium,
-  Tablet,
   Truck,
   UserRound,
   Users,
@@ -34,9 +33,23 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { LogisticsApiService, getLogisticsApiErrorMessage } from '@/services/logisticsApi';
+import {
+  generateLogisticsGradePdf,
+  type LogisticsPdfOrientation,
+} from '@/services/reports/logisticsPdf';
 import type {
   LogisticsGradeCards,
   LogisticsGradeItem,
@@ -68,32 +81,22 @@ const EMPTY_CARDS: LogisticsGradeCards = {
 };
 
 interface GradeFilters {
-  ano: number | null;
-  etapa: string;
   avaliacao: string;
   escola: string;
   serie: string;
-  turno: string;
-  formato: string;
+  turma: string;
   dataInicio: string;
   dataFim: string;
   status: '' | LogisticsScheduleStatus;
   aplicador: string;
 }
 
-function currentYear(): number {
-  return new Date().getFullYear();
-}
-
 function defaultFilters(): GradeFilters {
   return {
-    ano: currentYear(),
-    etapa: '',
     avaliacao: '',
     escola: '',
     serie: '',
-    turno: '',
-    formato: '',
+    turma: '',
     dataInicio: '',
     dataFim: '',
     status: '',
@@ -182,6 +185,9 @@ export default function LogisticaGrade({
   const [canManage, setCanManage] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
+  const [pdfOrientation, setPdfOrientation] = useState<LogisticsPdfOrientation>('landscape');
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   useEffect(() => {
     if (!cityId) {
@@ -227,13 +233,10 @@ export default function LogisticaGrade({
     setError(null);
     LogisticsApiService.listItens(
       {
-        ano: filters.ano ?? undefined,
-        etapa: filters.etapa || undefined,
         avaliacao: filters.avaliacao || undefined,
         escola: filters.escola || undefined,
         serie: filters.serie || undefined,
-        turno: filters.turno || undefined,
-        formato: filters.formato || undefined,
+        turma: filters.turma || undefined,
         data_inicio: filters.dataInicio || undefined,
         data_fim: filters.dataFim || undefined,
         status: filters.status || undefined,
@@ -268,32 +271,30 @@ export default function LogisticaGrade({
     };
   }, [cityId, filters, query, page, toast]);
 
-  const anos = useMemo(() => {
-    const years = new Set<number>(options?.anos ?? []);
-    years.add(currentYear());
-    if (filters.ano) years.add(filters.ano);
-    return Array.from(years).sort((a, b) => b - a);
-  }, [options, filters.ano]);
+  const avaliacoes = options?.avaliacoes ?? [];
 
-  const avaliacoes = useMemo(() => {
-    const all = options?.avaliacoes ?? [];
-    if (!filters.etapa) return all;
-    return all.filter((item) => item.etapa_ids.includes(filters.etapa));
-  }, [options, filters.etapa]);
+  const escolas = useMemo(() => {
+    const all = options?.escolas ?? [];
+    if (!filters.avaliacao) return all;
+    return all.filter((item) => item.avaliacao_ids.includes(filters.avaliacao));
+  }, [options, filters.avaliacao]);
 
   const series = useMemo(() => {
     return (options?.series ?? []).filter((item) => {
-      if (filters.etapa && item.etapa_id !== filters.etapa) return false;
+      if (filters.avaliacao && !item.avaliacao_ids.includes(filters.avaliacao)) return false;
       if (filters.escola && !item.escola_ids.includes(filters.escola)) return false;
       return true;
     });
-  }, [options, filters.etapa, filters.escola]);
+  }, [options, filters.avaliacao, filters.escola]);
 
-  const formatos = useMemo(() => {
-    const known = ['virtual', 'physical', 'subjective'];
-    const extra = (options?.formatos ?? []).filter((mode) => !known.includes(mode));
-    return [...known, ...extra];
-  }, [options]);
+  const turmas = useMemo(() => {
+    return (options?.turmas ?? []).filter((item) => {
+      if (filters.avaliacao && !item.avaliacao_ids.includes(filters.avaliacao)) return false;
+      if (filters.escola && !item.escola_ids.includes(filters.escola)) return false;
+      if (filters.serie && !item.serie_ids.includes(filters.serie)) return false;
+      return true;
+    });
+  }, [options, filters.avaliacao, filters.escola, filters.serie]);
 
   const statusOptions = options?.status?.length
     ? options.status
@@ -306,12 +307,28 @@ export default function LogisticaGrade({
     setPage(1);
   };
 
-  const handleEtapa = (value: string) => {
-    applyFilters({ etapa: value === ALL ? '' : value, avaliacao: '', serie: '' });
+  const handleAvaliacao = (value: string) => {
+    applyFilters({
+      avaliacao: value === ALL ? '' : value,
+      escola: '',
+      serie: '',
+      turma: '',
+    });
   };
 
   const handleEscola = (value: string) => {
-    applyFilters({ escola: value === ALL ? '' : value, serie: '' });
+    applyFilters({
+      escola: value === ALL ? '' : value,
+      serie: '',
+      turma: '',
+    });
+  };
+
+  const handleSerie = (value: string) => {
+    applyFilters({
+      serie: value === ALL ? '' : value,
+      turma: '',
+    });
   };
 
   const clearFilters = () => {
@@ -324,6 +341,82 @@ export default function LogisticaGrade({
   const submitSearch = () => {
     setQuery(draftQuery.trim());
     setPage(1);
+  };
+
+  const filterLabels = useMemo(() => {
+    const avaliacaoNome =
+      filters.avaliacao
+        ? avaliacoes.find((a) => a.id === filters.avaliacao)?.titulo || filters.avaliacao
+        : 'Todas';
+    const escolaNome =
+      filters.escola ? escolas.find((e) => e.id === filters.escola)?.nome || filters.escola : 'Todas';
+    const serieNome =
+      filters.serie ? series.find((s) => s.id === filters.serie)?.nome || filters.serie : 'Todas';
+    const turmaNome =
+      filters.turma ? turmas.find((t) => t.id === filters.turma)?.nome || filters.turma : 'Todas';
+    const statusNome = filters.status ? STATUS_LABEL[filters.status] : 'Todos';
+    const aplicadorNome =
+      filters.aplicador === SEM_APLICADOR
+        ? 'Sem aplicador'
+        : filters.aplicador
+          ? options?.aplicadores.find((a) => a.id === filters.aplicador)?.nome || filters.aplicador
+          : 'Todos';
+    return {
+      avaliacao: avaliacaoNome,
+      escola: escolaNome,
+      serie: serieNome,
+      turma: turmaNome,
+      status: statusNome,
+      aplicador: aplicadorNome,
+      dataInicio: filters.dataInicio || null,
+      dataFim: filters.dataFim || null,
+      busca: query || null,
+    };
+  }, [filters, avaliacoes, escolas, series, turmas, options, query]);
+
+  const handleExportPdf = async () => {
+    if (!cityId) return;
+    setExportingPdf(true);
+    try {
+      const data = await LogisticsApiService.listItens(
+        {
+          avaliacao: filters.avaliacao || undefined,
+          escola: filters.escola || undefined,
+          serie: filters.serie || undefined,
+          turma: filters.turma || undefined,
+          data_inicio: filters.dataInicio || undefined,
+          data_fim: filters.dataFim || undefined,
+          status: filters.status || undefined,
+          aplicador: filters.aplicador || undefined,
+          q: query || undefined,
+          export: true,
+        },
+        cityId
+      );
+      if (data.truncated) {
+        toast({
+          title: 'PDF parcialmente gerado',
+          description: `O filtro retornou ${data.total.toLocaleString('pt-BR')} linhas; o PDF inclui as primeiras ${(data.export_limit ?? data.items.length).toLocaleString('pt-BR')}.`,
+        });
+      }
+      await generateLogisticsGradePdf({
+        items: data.items,
+        cards: data.cards,
+        orientation: pdfOrientation,
+        cityName,
+        cityId,
+        filterLabels,
+      });
+      setPdfDialogOpen(false);
+    } catch (err) {
+      toast({
+        title: 'Erro ao gerar PDF',
+        description: getLogisticsApiErrorMessage(err, 'Tente novamente.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setExportingPdf(false);
+    }
   };
 
   const pageCount = Math.max(1, Math.ceil(total / PER_PAGE));
@@ -365,12 +458,20 @@ export default function LogisticaGrade({
             </p>
             {cityName && <p className="text-sm text-blue-600 dark:text-blue-400">Município: {cityName}</p>}
           </div>
-          {canManage && (
-            <Button variant="outline" onClick={onManage}>
-              <Settings2 className="mr-2 h-4 w-4" />
-              Gerenciar cronogramas
-            </Button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {cityId && (
+              <Button variant="outline" onClick={() => setPdfDialogOpen(true)} disabled={loading || total === 0}>
+                <FileText className="mr-2 h-4 w-4" />
+                Gerar PDF
+              </Button>
+            )}
+            {canManage && (
+              <Button variant="outline" onClick={onManage}>
+                <Settings2 className="mr-2 h-4 w-4" />
+                Gerenciar cronogramas
+              </Button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -411,50 +512,16 @@ export default function LogisticaGrade({
                 Filtros de Pesquisa
               </CardTitle>
               <CardDescription>
-                Os totais e a tabela usam os mesmos filtros. Itens sem data ficam de fora quando há ano ou intervalo de datas.
+                Avaliação → Escola → Série → Turma. Valor vazio significa Todas. Status, período e aplicador são
+                opcionais; período vazio não esconde item sem data.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                <FilterField icon={CalendarDays} label="Ano Letivo">
-                  <Select
-                    value={filters.ano === null ? ALL : String(filters.ano)}
-                    onValueChange={(value) => applyFilters({ ano: value === ALL ? null : Number(value) })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Ano letivo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={ALL}>Todos os anos</SelectItem>
-                      {anos.map((year) => (
-                        <SelectItem key={year} value={String(year)}>
-                          {year}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </FilterField>
-
-                <FilterField icon={Layers} label="Etapa">
-                  <Select value={filters.etapa || ALL} onValueChange={handleEtapa} disabled={loadingOptions && !options}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Todas as etapas" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={ALL}>Todas as etapas</SelectItem>
-                      {(options?.etapas ?? []).map((etapa) => (
-                        <SelectItem key={etapa.id} value={etapa.id}>
-                          {etapa.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </FilterField>
-
                 <FilterField icon={ClipboardList} label="Avaliação">
                   <Select
                     value={filters.avaliacao || ALL}
-                    onValueChange={(value) => applyFilters({ avaliacao: value === ALL ? '' : value })}
+                    onValueChange={handleAvaliacao}
                     disabled={loadingOptions && !options}
                   >
                     <SelectTrigger>
@@ -482,7 +549,7 @@ export default function LogisticaGrade({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={ALL}>Todas as escolas</SelectItem>
-                      {(options?.escolas ?? []).map((escola) => (
+                      {escolas.map((escola) => (
                         <SelectItem key={escola.id} value={escola.id}>
                           {escola.nome}
                         </SelectItem>
@@ -491,10 +558,10 @@ export default function LogisticaGrade({
                   </Select>
                 </FilterField>
 
-                <FilterField icon={GraduationCap} label="Série/Ano">
+                <FilterField icon={GraduationCap} label="Série">
                   <Select
                     value={filters.serie || ALL}
-                    onValueChange={(value) => applyFilters({ serie: value === ALL ? '' : value })}
+                    onValueChange={handleSerie}
                     disabled={loadingOptions && !options}
                   >
                     <SelectTrigger>
@@ -511,38 +578,20 @@ export default function LogisticaGrade({
                   </Select>
                 </FilterField>
 
-                <FilterField icon={SunMedium} label="Turno">
+                <FilterField icon={Users} label="Turma">
                   <Select
-                    value={filters.turno || ALL}
-                    onValueChange={(value) => applyFilters({ turno: value === ALL ? '' : value })}
+                    value={filters.turma || ALL}
+                    onValueChange={(value) => applyFilters({ turma: value === ALL ? '' : value })}
+                    disabled={loadingOptions && !options}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Todos os turnos" />
+                      <SelectValue placeholder="Todas as turmas" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={ALL}>Todos os turnos</SelectItem>
-                      {(options?.turnos ?? []).map((turno) => (
-                        <SelectItem key={turno} value={turno}>
-                          {turno}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </FilterField>
-
-                <FilterField icon={Tablet} label="Formato">
-                  <Select
-                    value={filters.formato || ALL}
-                    onValueChange={(value) => applyFilters({ formato: value === ALL ? '' : value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Todos os formatos" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={ALL}>Todos os formatos</SelectItem>
-                      {formatos.map((mode) => (
-                        <SelectItem key={mode} value={mode}>
-                          {formatoLabel(mode)}
+                      <SelectItem value={ALL}>Todas as turmas</SelectItem>
+                      {turmas.map((turma) => (
+                        <SelectItem key={turma.id} value={turma.id}>
+                          {turma.nome}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -743,6 +792,44 @@ export default function LogisticaGrade({
           </Card>
         </>
       )}
+
+      <Dialog open={pdfDialogOpen} onOpenChange={setPdfDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Gerar PDF da logística</DialogTitle>
+            <DialogDescription>
+              O PDF usa todas as linhas do filtro atual (não só a página), agrupadas por avaliação e escola.
+            </DialogDescription>
+          </DialogHeader>
+          <RadioGroup
+            value={pdfOrientation}
+            onValueChange={(value) => setPdfOrientation(value as LogisticsPdfOrientation)}
+            className="space-y-3"
+          >
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="landscape" id="pdf-landscape" />
+              <Label htmlFor="pdf-landscape">Paisagem</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="portrait" id="pdf-portrait" />
+              <Label htmlFor="pdf-portrait">Retrato</Label>
+            </div>
+          </RadioGroup>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPdfDialogOpen(false)} disabled={exportingPdf}>
+              Cancelar
+            </Button>
+            <Button onClick={() => void handleExportPdf()} disabled={exportingPdf}>
+              {exportingPdf ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Gerar PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

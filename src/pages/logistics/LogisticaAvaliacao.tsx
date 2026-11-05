@@ -81,6 +81,8 @@ interface EditableRow {
   grade_id: string | null;
   grade_name: string;
   students_count: number;
+  /** Contagem viva do cadastro da turma (dica quando difere do valor digitado). */
+  class_students_count: number;
   scheduled_date: string | null;
   tablets_qty: number;
   booklets_qty: number;
@@ -140,6 +142,7 @@ function sortRows(rows: EditableRow[]): EditableRow[] {
 }
 
 function itemToRow(item: LogisticsScheduleItem): EditableRow {
+  const students = item.students_count ?? 0;
   return {
     key: item.id,
     id: item.id,
@@ -150,7 +153,8 @@ function itemToRow(item: LogisticsScheduleItem): EditableRow {
     school_name: item.school_name ?? '',
     grade_id: item.grade_id,
     grade_name: item.grade_name ?? '',
-    students_count: item.students_count ?? 0,
+    students_count: students,
+    class_students_count: item.class_students_count ?? students,
     scheduled_date: item.scheduled_date,
     tablets_qty: item.tablets_qty ?? 0,
     booklets_qty: item.booklets_qty ?? 0,
@@ -165,6 +169,7 @@ function rowsToPayload(rows: EditableRow[]): LogisticsItemPayload[] {
     ...(r.id ? { id: r.id } : {}),
     class_id: r.class_id,
     scheduled_date: r.scheduled_date,
+    students_count: r.students_count,
     tablets_qty: r.tablets_qty,
     booklets_qty: r.booklets_qty,
     notes: r.notes.trim() || null,
@@ -365,12 +370,10 @@ export default function LogisticaAvaliacao() {
   const [applicators, setApplicators] = useState<LogisticsApplicatorOption[]>([]);
 
   // Filtros do editor
-  const [etapas, setEtapas] = useState<LogisticsFilterEntity[]>([]);
   const [avaliacoes, setAvaliacoes] = useState<LogisticsFilterAvaliacao[]>([]);
   const [escolasOpts, setEscolasOpts] = useState<LogisticsFilterEntity[]>([]);
   const [seriesOpts, setSeriesOpts] = useState<LogisticsFilterEntity[]>([]);
   const [turmasOpts, setTurmasOpts] = useState<LogisticsFilterTurma[]>([]);
-  const [selectedEtapa, setSelectedEtapa] = useState('');
   const [selectedAvaliacao, setSelectedAvaliacao] = useState('');
   const [selectedEscolas, setSelectedEscolas] = useState<string[]>([]);
   const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
@@ -527,7 +530,6 @@ export default function LogisticaAvaliacao() {
     setRows([]);
     setSnapshot({ title: '', notes: '', rows: [] });
     setSelectedKeys(new Set());
-    setSelectedEtapa('');
     setSelectedAvaliacao('');
     setSelectedEscolas([]);
     setSelectedSeries([]);
@@ -542,7 +544,6 @@ export default function LogisticaAvaliacao() {
     setRows(loadedRows);
     setSnapshot({ title: s.title ?? '', notes: s.notes ?? '', rows: loadedRows });
     setSelectedKeys(new Set());
-    setSelectedEtapa(s.education_stage_id ?? '');
     setSelectedAvaliacao(s.test_id);
   }, []);
 
@@ -620,7 +621,7 @@ export default function LogisticaAvaliacao() {
   };
 
   // ---------------------------------------------------------------------------
-  // Filtros em cascata (Etapa → Avaliação → Escolas → Séries → Turmas)
+  // Filtros em cascata (Avaliação → Escolas → Séries → Turmas)
   // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!inEditor || !editable || !cityId) return;
@@ -628,7 +629,6 @@ export default function LogisticaAvaliacao() {
     setLoadingFilters(true);
     LogisticsApiService.getOpcoesFiltros(
       {
-        etapa: selectedEtapa || undefined,
         avaliacao: selectedAvaliacao || undefined,
         escolas: selectedEscolas,
         series: selectedSeries,
@@ -637,7 +637,6 @@ export default function LogisticaAvaliacao() {
     )
       .then((data) => {
         if (cancelled) return;
-        setEtapas(data.etapas);
         setAvaliacoes(data.avaliacoes);
         setEscolasOpts(data.escolas ?? []);
         setSeriesOpts(data.series ?? []);
@@ -660,7 +659,7 @@ export default function LogisticaAvaliacao() {
     return () => {
       cancelled = true;
     };
-  }, [inEditor, editable, cityId, selectedEtapa, selectedAvaliacao, selectedEscolas, selectedSeries, toast]);
+  }, [inEditor, editable, cityId, selectedAvaliacao, selectedEscolas, selectedSeries, toast]);
 
   useEffect(() => {
     if (!inEditor || !editable || !cityId) {
@@ -685,13 +684,6 @@ export default function LogisticaAvaliacao() {
       cancelled = true;
     };
   }, [inEditor, editable, cityId, toast]);
-
-  const handleEtapaChange = (value: string) => {
-    setSelectedEtapa(value === 'all' ? '' : value);
-    setSelectedEscolas([]);
-    setSelectedSeries([]);
-    setSelectedTurmas([]);
-  };
 
   const handleAvaliacaoChange = (value: string) => {
     if (value === selectedAvaliacao) return;
@@ -719,7 +711,6 @@ export default function LogisticaAvaliacao() {
     try {
       const preview = await LogisticsApiService.getPrevia(
         {
-          etapa: selectedEtapa || undefined,
           avaliacao: selectedAvaliacao,
           escolas: selectedEscolas,
           series: selectedSeries,
@@ -740,6 +731,7 @@ export default function LogisticaAvaliacao() {
           grade_id: item.grade_id,
           grade_name: item.grade_name ?? '',
           students_count: item.students_count,
+          class_students_count: item.students_count,
           scheduled_date: item.suggested_date,
           tablets_qty: item.suggested_tablets_qty,
           booklets_qty: item.suggested_booklets_qty,
@@ -864,7 +856,6 @@ export default function LogisticaAvaliacao() {
     setSaving(true);
     try {
       const payload = {
-        education_stage_id: selectedEtapa || null,
         title: title.trim(),
         notes: notes.trim() || null,
         items: rowsToPayload(rows),
@@ -1342,28 +1333,12 @@ export default function LogisticaAvaliacao() {
               Filtros
             </CardTitle>
             <CardDescription>
-              Escolha a etapa (opcional) e a avaliação. Escolas e séries aparecem após escolher a avaliação; turmas,
-              após escolher escolas ou séries. Depois clique em “Carregar turmas” para incluí-las no cronograma.
+              Escolha a avaliação. Escolas e séries aparecem em seguida; turmas, após escolher escolas ou séries.
+              Lista vazia = todas. Depois clique em “Carregar turmas” para incluí-las no cronograma.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Etapa</label>
-                <Select value={selectedEtapa || 'all'} onValueChange={handleEtapaChange} disabled={loadingFilters && etapas.length === 0}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Todas as etapas" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todas as etapas</SelectItem>
-                    {etapas.map((e) => (
-                      <SelectItem key={e.id} value={e.id}>
-                        {e.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Avaliação</label>
                 <Select value={selectedAvaliacao || undefined} onValueChange={handleAvaliacaoChange} disabled={testLocked}>
@@ -1562,7 +1537,26 @@ export default function LogisticaAvaliacao() {
                         <TableCell>{r.grade_name || '—'}</TableCell>
                         <TableCell>{r.class_name || '—'}</TableCell>
                         <TableCell>{r.shift || '—'}</TableCell>
-                        <TableCell className="text-right">{r.students_count}</TableCell>
+                        <TableCell className="text-right">
+                          {editable ? (
+                            <div className="flex flex-col items-end gap-0.5">
+                              <Input
+                                type="number"
+                                min={0}
+                                className="w-20 ml-auto text-right"
+                                value={r.students_count}
+                                onChange={(e) => updateRow(r.key, { students_count: parseQty(e.target.value) })}
+                              />
+                              {r.students_count !== r.class_students_count && (
+                                <span className="text-[10px] text-muted-foreground">
+                                  Cadastro: {r.class_students_count}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            r.students_count
+                          )}
+                        </TableCell>
                         <TableCell>
                           {editable ? (
                             <DatePickerButton

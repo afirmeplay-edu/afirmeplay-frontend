@@ -6,7 +6,13 @@ import { jsPDF } from 'jspdf';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { loadCityBrandingForReportPdf } from '@/utils/pdfCityBranding';
-import type { LogisticsSchedule, LogisticsScheduleItem } from '@/types/logistics';
+import type {
+  LogisticsGradeCards,
+  LogisticsGradeItem,
+  LogisticsSchedule,
+  LogisticsScheduleItem,
+  LogisticsScheduleStatus,
+} from '@/types/logistics';
 
 export type LogisticsPdfOrientation = 'portrait' | 'landscape';
 
@@ -401,3 +407,337 @@ export async function generateLogisticsPdf(opts: {
   const suffix = schedule.status === 'publicado' ? '' : `-${schedule.status}`;
   doc.save(`logistica-${slug(schedule.title || schedule.test_title || '')}${suffix}-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
+
+export type LogisticsGradePdfFilterLabels = {
+  avaliacao: string;
+  escola: string;
+  serie: string;
+  turma: string;
+  status: string;
+  aplicador: string;
+  dataInicio?: string | null;
+  dataFim?: string | null;
+  busca?: string | null;
+};
+
+const GRADE_STATUS_LABEL: Record<LogisticsScheduleStatus, string> = {
+  rascunho: 'Rascunho',
+  publicado: 'Publicado',
+  cancelado: 'Cancelado',
+};
+
+const GRADE_COLUMN_RATIOS = {
+  portrait: [0.09, 0.09, 0.07, 0.08, 0.08, 0.07, 0.07, 0.07, 0.1, 0.08, 0.2],
+  landscape: [0.08, 0.09, 0.07, 0.08, 0.09, 0.06, 0.06, 0.06, 0.11, 0.08, 0.22],
+} as const;
+
+function weekdayOnly(iso?: string | null): string {
+  if (!iso) return '—';
+  try {
+    const label = format(parseISO(iso), 'EEEE', { locale: ptBR });
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  } catch {
+    return '—';
+  }
+}
+
+function sumGradeItems(items: LogisticsGradeItem[]) {
+  return items.reduce(
+    (acc, i) => ({
+      students: acc.students + (i.students_count || 0),
+      tablets: acc.tablets + (i.tablets_qty || 0),
+      booklets: acc.booklets + (i.booklets_qty || 0),
+    }),
+    { students: 0, tablets: 0, booklets: 0 }
+  );
+}
+
+function groupGradeByEvaluation(items: LogisticsGradeItem[]) {
+  const groups = new Map<
+    string,
+    { testId: string; title: string; schools: Map<string, { name: string; items: LogisticsGradeItem[] }> }
+  >();
+  for (const item of items) {
+    const testKey = item.test_id || 'sem-avaliacao';
+    const evalGroup = groups.get(testKey) ?? {
+      testId: testKey,
+      title: item.test_title || 'Avaliação',
+      schools: new Map(),
+    };
+    const schoolKey = item.school_id || item.school_name || 'sem-escola';
+    const schoolGroup = evalGroup.schools.get(schoolKey) ?? {
+      name: item.school_name || '—',
+      items: [],
+    };
+    schoolGroup.items.push(item);
+    evalGroup.schools.set(schoolKey, schoolGroup);
+    groups.set(testKey, evalGroup);
+  }
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      schools: Array.from(group.schools.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title, 'pt-BR'));
+}
+
+async function drawGradeHeader(
+  doc: jsPDF,
+  cityName: string,
+  cityId: string | null,
+  dataGeracao: string,
+  filterLabels: LogisticsGradePdfFilterLabels,
+  cards: LogisticsGradeCards
+): Promise<number> {
+  const pageW = doc.internal.pageSize.getWidth();
+  let y = CONTENT_TOP;
+
+  let logoW = 0;
+  try {
+    const { logo } = await loadCityBrandingForReportPdf(cityId);
+    if (logo?.dataUrl && logo.iw > 0 && logo.ih > 0) {
+      const h = 16;
+      const w = Math.min(40, (logo.iw * h) / logo.ih);
+      doc.addImage(logo.dataUrl, 'PNG', pageW - MARGIN - w, y - 2, w, (logo.ih * w) / logo.iw);
+      logoW = w + 4;
+    }
+  } catch {
+    // sem logo
+  }
+
+  const textMaxW = pageW - MARGIN * 2 - logoW;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(...C.textDark);
+  doc.text('Logística de Avaliação', MARGIN, y + 4);
+  y += 10;
+
+  const period =
+    filterLabels.dataInicio || filterLabels.dataFim
+      ? `${filterLabels.dataInicio || '…'} a ${filterLabels.dataFim || '…'}`
+      : 'Todas as datas';
+
+  const lines: Array<[string, string]> = [
+    ['Município', cityName || '—'],
+    ['Avaliação', filterLabels.avaliacao],
+    ['Escola', filterLabels.escola],
+    ['Série', filterLabels.serie],
+    ['Turma', filterLabels.turma],
+    ['Status', filterLabels.status],
+    ['Aplicador', filterLabels.aplicador],
+    ['Período', period],
+    ['Gerado em', dataGeracao],
+  ];
+  if (filterLabels.busca) lines.splice(8, 0, ['Busca', filterLabels.busca]);
+
+  doc.setFontSize(9);
+  for (const [label, value] of lines) {
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...C.textGray);
+    doc.text(`${label}:`, MARGIN, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...C.textDark);
+    const valueLines = doc.splitTextToSize(value, textMaxW - 28);
+    doc.text(valueLines, MARGIN + 28, y);
+    y += Math.max(1, valueLines.length) * 4.6;
+  }
+  y += 3;
+
+  const summaryCards: Array<[string, string]> = [
+    ['Agendamentos', fmtNumber(cards.total_agendamentos)],
+    ['Alunos', fmtNumber(cards.total_alunos_previstos)],
+    ['Escolas', fmtNumber(cards.escolas_atendidas)],
+    ['Turmas', fmtNumber(cards.turmas_agendadas)],
+  ];
+  const gap = 3;
+  const cardW = (pageW - MARGIN * 2 - gap * (summaryCards.length - 1)) / summaryCards.length;
+  summaryCards.forEach(([label, value], idx) => {
+    const x = MARGIN + idx * (cardW + gap);
+    doc.setFillColor(...C.bgLight);
+    doc.setDrawColor(...C.borderLight);
+    doc.roundedRect(x, y, cardW, 14, 1.2, 1.2, 'FD');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...C.textGray);
+    doc.text(label.toUpperCase(), x + cardW / 2, y + 4.8, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(...C.textDark);
+    doc.text(value, x + cardW / 2, y + 10.8, { align: 'center' });
+  });
+  return y + 19;
+}
+
+/** PDF da grade filtrada: agrupado por avaliação → escola. Não altera o PDF do editor. */
+export async function generateLogisticsGradePdf(opts: {
+  items: LogisticsGradeItem[];
+  cards: LogisticsGradeCards;
+  orientation: LogisticsPdfOrientation;
+  cityName: string;
+  cityId: string | null;
+  filterLabels: LogisticsGradePdfFilterLabels;
+}): Promise<void> {
+  const { items, cards, orientation, cityName, cityId, filterLabels } = opts;
+  const { default: autoTable } = await import('jspdf-autotable');
+  const doc = new jsPDF({ orientation, unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const usableW = pageW - MARGIN * 2;
+  const dataGeracao = fmtNow();
+  const bandTitle = 'Logística de Avaliação';
+
+  const widths = GRADE_COLUMN_RATIOS[orientation].map((r) => r * usableW);
+  const columnStyles = Object.fromEntries(
+    widths.map((w, idx) => [
+      idx,
+      {
+        cellWidth: w,
+        halign: ([5, 6, 7].includes(idx) ? 'right' : idx === 0 || idx === 1 || idx === 9 ? 'center' : 'left') as
+          | 'left'
+          | 'right'
+          | 'center',
+      },
+    ])
+  );
+  const tableBase = {
+    theme: 'grid' as const,
+    margin: { top: CONTENT_TOP, left: MARGIN, right: MARGIN, bottom: BOTTOM_LIMIT },
+    styles: {
+      font: 'helvetica',
+      fontSize: orientation === 'landscape' ? 7.5 : 7,
+      cellPadding: 1.4,
+      textColor: C.textDark,
+      lineColor: C.borderLight,
+      lineWidth: 0.2,
+      overflow: 'linebreak' as const,
+    },
+    headStyles: { fillColor: C.primary, textColor: C.white, fontStyle: 'bold' as const, halign: 'center' as const },
+    footStyles: { fillColor: C.bgTotal, textColor: C.textDark, fontStyle: 'bold' as const },
+    alternateRowStyles: { fillColor: C.bgLight },
+    rowPageBreak: 'avoid' as const,
+    didDrawPage: () => drawTopBand(doc, bandTitle),
+  };
+
+  drawTopBand(doc, bandTitle);
+  let y = await drawGradeHeader(doc, cityName, cityId, dataGeracao, filterLabels, cards);
+
+  const head = [
+    [
+      'Data',
+      'Dia',
+      'Turno',
+      'Série',
+      'Turma',
+      'Alunos',
+      'Tablets',
+      'Cadernos',
+      'Aplicador',
+      'Status',
+      'Observação',
+    ],
+  ];
+  const evaluations = groupGradeByEvaluation(items);
+
+  if (evaluations.length === 0) {
+    y = drawSectionTitle(doc, y, 'Agendamentos', bandTitle);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...C.textGray);
+    doc.text('Nenhum agendamento no filtro atual.', MARGIN, y + 4);
+  }
+
+  for (const evaluation of evaluations) {
+    const evalItems = evaluation.schools.flatMap((s) => s.items);
+    const evalTotals = sumGradeItems(evalItems);
+    y = drawSectionTitle(
+      doc,
+      y,
+      `${evaluation.title} — ${evaluation.schools.length} escola(s), ${fmtNumber(evalItems.length)} turma(s), ${fmtNumber(evalTotals.students)} aluno(s)`,
+      bandTitle
+    );
+
+    for (const school of evaluation.schools) {
+      const t = sumGradeItems(school.items);
+      y = drawSectionTitle(
+        doc,
+        y,
+        `${school.name} — ${school.items.length} turma(s), ${fmtNumber(t.students)} aluno(s)`,
+        bandTitle
+      );
+      autoTable(doc, {
+        ...tableBase,
+        startY: y,
+        head,
+        body: school.items.map((i) => [
+          fmtDate(i.scheduled_date),
+          weekdayOnly(i.scheduled_date),
+          i.turno || '—',
+          i.grade_name || '—',
+          i.class_name || '—',
+          fmtNumber(i.students_count),
+          fmtNumber(i.tablets_qty),
+          fmtNumber(i.booklets_qty),
+          i.applicator_name || '—',
+          GRADE_STATUS_LABEL[i.status] ?? i.status,
+          i.notes || '',
+        ]),
+        foot: [
+          [
+            { content: 'Total da escola', colSpan: 5, styles: { halign: 'left' } },
+            { content: fmtNumber(t.students), styles: { halign: 'right' } },
+            { content: fmtNumber(t.tablets), styles: { halign: 'right' } },
+            { content: fmtNumber(t.booklets), styles: { halign: 'right' } },
+            { content: '', colSpan: 3 },
+          ],
+        ],
+        showFoot: 'lastPage',
+        columnStyles,
+      });
+      y = tableFinalY(doc, y) + 6;
+    }
+
+    y = drawSectionTitle(doc, y, `Total da avaliação — ${evaluation.title}`, bandTitle);
+    autoTable(doc, {
+      ...tableBase,
+      startY: y,
+      head: [['Escolas', 'Turmas', 'Alunos', 'Tablets', 'Cadernos']],
+      body: [
+        [
+          fmtNumber(evaluation.schools.length),
+          fmtNumber(evalItems.length),
+          fmtNumber(evalTotals.students),
+          fmtNumber(evalTotals.tablets),
+          fmtNumber(evalTotals.booklets),
+        ],
+      ],
+      bodyStyles: { halign: 'center', fontStyle: 'bold' },
+      columnStyles: {},
+    });
+    y = tableFinalY(doc, y) + 8;
+  }
+
+  if (evaluations.length > 0) {
+    const g = sumGradeItems(items);
+    y = drawSectionTitle(doc, y, 'Total geral', bandTitle);
+    autoTable(doc, {
+      ...tableBase,
+      startY: y,
+      head: [['Avaliações', 'Escolas', 'Turmas', 'Alunos', 'Tablets', 'Cadernos']],
+      body: [
+        [
+          fmtNumber(evaluations.length),
+          fmtNumber(new Set(items.map((i) => i.school_id)).size),
+          fmtNumber(items.length),
+          fmtNumber(g.students),
+          fmtNumber(g.tablets),
+          fmtNumber(g.booklets),
+        ],
+      ],
+      bodyStyles: { halign: 'center', fontStyle: 'bold' },
+      columnStyles: {},
+    });
+  }
+
+  addFooters(doc, dataGeracao);
+  doc.save(`logistica-grade-${slug(cityName || 'municipio')}-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
