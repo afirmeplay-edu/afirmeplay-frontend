@@ -145,6 +145,7 @@ const PhysicalTestPage = React.lazy(() => import("@/pages/physical-test/Physical
 const Profile = React.lazy(() => import("@/pages/profile/Profile"));
 const ConquistasPage = React.lazy(() => import("@/pages/profile/ConquistasPage"));
 const Certificates = React.lazy(() => import("@/pages/profile/Certificates"));
+const CertificateGeneratePage = React.lazy(() => import("@/pages/profile/CertificateGeneratePage"));
 const StudentCertificates = React.lazy(() => import("@/pages/profile/StudentCertificates"));
 
 // raiz (misc / sem domínio próprio)
@@ -351,6 +352,7 @@ const App = () => {
               <Route path="/app/documentos/termo-compromisso" element={<PrivateRoute><TermoCompromissoPage /></PrivateRoute>} />
               <Route path="/app/documentos/etiquetas" element={<PrivateRoute><EtiquetasPage /></PrivateRoute>} />
               <Route path="/app/certificados" element={<PrivateRoute><Certificates /></PrivateRoute>} />
+              <Route path="/app/certificados/gerar" element={<PrivateRoute><CertificateGeneratePage /></PrivateRoute>} />
               <Route path="/app/torneio/:torneioId" element={<PrivateRoute><TorneioExecucao /></PrivateRoute>} />
               <Route path="/app/olimpiadas" element={<PrivateRoute><Olimpiadas /></PrivateRoute>} />
               <Route

@@ -13,7 +13,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { ArrowLeft, Award, CheckCircle2, Download, Info, Upload, Loader2 } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, Award, CheckCircle2, Download, Info, Plus, Upload, Loader2 } from 'lucide-react';
 import { CertificateList } from '@/components/certificates/CertificateList';
 import { StudentList } from '@/components/certificates/StudentList';
 import { CertificateStatsBadges } from '@/components/certificates/CertificateStatsBadges';
@@ -35,7 +36,10 @@ import {
 export default function Certificates() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [selectedEvaluation, setSelectedEvaluation] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedEvaluation, setSelectedEvaluation] = useState<string | null>(
+    searchParams.get('evaluationId')
+  );
   const [selectedEvaluationData, setSelectedEvaluationData] = useState<EvaluationWithCertificates | null>(null);
   const [schoolId, setSchoolId] = useState<string | null>(null);
   const [municipalityId, setMunicipalityId] = useState<string | null>(null);
@@ -51,6 +55,15 @@ export default function Certificates() {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [previewStudentId, setPreviewStudentId] = useState('');
   const [previewStudentName, setPreviewStudentName] = useState('');
+
+  useEffect(() => {
+    const evaluationId = searchParams.get('evaluationId');
+    if (evaluationId && evaluationId !== selectedEvaluation) {
+      setSelectedEvaluation(evaluationId);
+      setSelectedEvaluationData(null);
+      setIsCustomizing(false);
+    }
+  }, [searchParams, selectedEvaluation]);
 
   // Verificar se o usuário é o criador da avaliação
   const isEvaluationCreator = selectedEvaluationData?.created_by?.id === user.id;
@@ -255,6 +268,7 @@ export default function Certificates() {
     setSelectedEvaluation(evaluationId);
     setSelectedEvaluationData(evaluationData || null);
     setIsCustomizing(false);
+    setSearchParams({ evaluationId });
   };
 
   const handleBack = () => {
@@ -263,6 +277,7 @@ export default function Certificates() {
     setIsCustomizing(false);
     setTemplate(null);
     setStudents([]);
+    setSearchParams({});
   };
 
   const handleSaveTemplate = async (newTemplate: CertificateTemplate) => {
@@ -376,16 +391,24 @@ export default function Certificates() {
   if (!selectedEvaluation) {
     return (
       <div className="container mx-auto p-6 space-y-6">
-        <div className="space-y-1.5">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex flex-wrap items-center gap-2 sm:gap-3">
-            <Award className="w-7 h-7 sm:w-8 sm:h-8 text-blue-600 shrink-0" />
-            Certificados
-          </h1>
-          <p className="text-muted-foreground text-sm sm:text-base">
-            {user.role === 'admin'
-              ? 'Visualize todas as avaliações do sistema para gerenciar certificados'
-              : 'Selecione uma avaliação para gerenciar certificados dos alunos participantes'}
-          </p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1.5">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex flex-wrap items-center gap-2 sm:gap-3">
+              <Award className="w-7 h-7 sm:w-8 sm:h-8 text-blue-600 shrink-0" />
+              Certificados
+            </h1>
+            <p className="text-muted-foreground text-sm sm:text-base">
+              {user.role === 'admin'
+                ? 'Visualize todas as avaliações do sistema para gerenciar certificados'
+                : 'Selecione uma avaliação para gerenciar certificados dos alunos participantes'}
+            </p>
+          </div>
+          <Button asChild className="self-start">
+            <Link to="/app/certificados/gerar">
+              <Plus className="mr-2 h-4 w-4" />
+              Gerar Certificado
+            </Link>
+          </Button>
         </div>
         <CertificateList
           schoolId={schoolId || undefined}
@@ -400,11 +423,7 @@ export default function Certificates() {
   if (isCustomizing) {
     return (
       <div className="container mx-auto p-6 space-y-6">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" onClick={() => setIsCustomizing(false)}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Voltar
-          </Button>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1.5">
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex flex-wrap items-center gap-2 sm:gap-3">
               <Award className="w-7 h-7 sm:w-8 sm:h-8 text-blue-600 shrink-0" />
@@ -414,6 +433,10 @@ export default function Certificates() {
               Personalize o certificado que será enviado aos alunos
             </p>
           </div>
+          <Button variant="ghost" onClick={() => setIsCustomizing(false)} className="self-end sm:self-start">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Voltar
+          </Button>
         </div>
         <CertificateCustomizer
           evaluationId={selectedEvaluation}
@@ -428,33 +451,31 @@ export default function Certificates() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-          <Button variant="ghost" onClick={handleBack} className="self-start sm:self-auto">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1.5">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex flex-wrap items-center gap-2 sm:gap-3">
+            <Award className="w-7 h-7 sm:w-8 sm:h-8 text-blue-600 shrink-0" />
+            Gerenciar Certificados
+          </h1>
+          <p className="text-muted-foreground text-sm sm:text-base">
+            Personalize e aprove certificados para os alunos participantes
+          </p>
+          {students.length > 0 && (
+            <div className="space-y-2 pt-1">
+              <p className="text-sm font-medium">
+                {certificateStats.approved} de {certificateStats.total} certificado
+                {certificateStats.total !== 1 ? 's' : ''} aprovado
+                {certificateStats.approved !== 1 ? 's' : ''}
+              </p>
+              <CertificateStatsBadges stats={certificateStats} compact />
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap justify-end gap-2 w-full sm:w-auto">
+          <Button variant="ghost" onClick={handleBack}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Voltar
           </Button>
-          <div className="space-y-1.5">
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex flex-wrap items-center gap-2 sm:gap-3">
-              <Award className="w-7 h-7 sm:w-8 sm:h-8 text-blue-600 shrink-0" />
-              Gerenciar Certificados
-            </h1>
-            <p className="text-muted-foreground text-sm sm:text-base">
-              Personalize e aprove certificados para os alunos participantes
-            </p>
-            {students.length > 0 && (
-              <div className="space-y-2 pt-1">
-                <p className="text-sm font-medium">
-                  {certificateStats.approved} de {certificateStats.total} certificado
-                  {certificateStats.total !== 1 ? 's' : ''} aprovado
-                  {certificateStats.approved !== 1 ? 's' : ''}
-                </p>
-                <CertificateStatsBadges stats={certificateStats} compact />
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="flex flex-wrap justify-center gap-2 w-full sm:w-auto sm:justify-end">
           {template && (
             <Button
               variant="outline"
