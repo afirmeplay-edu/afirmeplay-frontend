@@ -5,7 +5,6 @@ import type {
   SecaoMatrizDistribuicao,
   SecaoMatrizNumerica,
 } from '@/types/relatorio-consolidado';
-import { deriveGeralMatrizFromPorDisciplina } from '@/utils/reports/deriveGeralMatrizFromPorDisciplina';
 
 /** Disciplinas reais primeiro (A–Z); GERAL sempre por último. */
 export function sortDisciplinasDisponiveis(disciplinas: string[]): string[] {
@@ -26,18 +25,14 @@ export function getMatrizNumerica(secao: SecaoMatrizNumerica | undefined, disc: 
 }
 
 /**
- * Médias de nota/proficiência: GERAL vem da média de por_disciplina (igual Resultados),
- * não do campo GERAL do relatorio-consolidado.
+ * Médias de nota/proficiência: a matriz vem da API, inclusive o GERAL.
+ * A tela e o PDF só arredondam a exibição para uma casa decimal.
  */
 export function getMatrizMediasNumerica(
   secao: SecaoMatrizNumerica | undefined,
   disc: string
 ): MatrizEscolaSerie | null {
-  if (!secao) return null;
-  if (disc === 'GERAL') {
-    return deriveGeralMatrizFromPorDisciplina(secao.por_disciplina) ?? secao.GERAL ?? null;
-  }
-  return secao.por_disciplina[disc] ?? null;
+  return getMatrizNumerica(secao, disc);
 }
 
 export function getMatrizDistribuicao(
