@@ -198,8 +198,17 @@ async function drawHeaderBlock(
   doc.text(titleLines, MARGIN, y + 4);
   y += 4 + titleLines.length * 5.5;
 
+  const instrumentLabel = schedule.display_title || schedule.test_title || schedule.title || '—';
+  const originLabel =
+    schedule.source_badge ||
+    (schedule.source === 'cartao_resposta'
+      ? 'Cartão-resposta'
+      : schedule.source === 'personalizada'
+        ? 'Personalizada'
+        : 'Avaliação do sistema');
   const lines: Array<[string, string]> = [
-    ['Avaliação', schedule.test_title || '—'],
+    ['Origem', originLabel],
+    ['Instrumento', instrumentLabel],
     ['Município', cityName || '—'],
     ['Modalidade', evaluationModeLabel(schedule.evaluation_mode)],
     ['Status', schedule.status === 'publicado' ? `Publicado em ${fmtDate(schedule.published_at)}` : schedule.status === 'cancelado' ? 'Cancelado' : 'Rascunho'],
@@ -458,10 +467,12 @@ function groupGradeByEvaluation(items: LogisticsGradeItem[]) {
     { testId: string; title: string; schools: Map<string, { name: string; items: LogisticsGradeItem[] }> }
   >();
   for (const item of items) {
-    const testKey = item.test_id || 'sem-avaliacao';
+    const testKey = item.instrument_key || item.test_id || item.schedule_id || 'sem-avaliacao';
+    const title = item.display_title || item.test_title || 'Avaliação';
+    const titled = item.source_badge ? `${title} (${item.source_badge})` : title;
     const evalGroup = groups.get(testKey) ?? {
       testId: testKey,
-      title: item.test_title || 'Avaliação',
+      title: titled,
       schools: new Map(),
     };
     const schoolKey = item.school_id || item.school_name || 'sem-escola';

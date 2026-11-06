@@ -531,7 +531,7 @@ export default function LogisticaGrade({
                       <SelectItem value={ALL}>Todas as avaliações</SelectItem>
                       {avaliacoes.map((item) => (
                         <SelectItem key={item.id} value={item.id}>
-                          {item.titulo}
+                          {item.source_badge ? `${item.titulo} · ${item.source_badge}` : item.titulo}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -711,6 +711,7 @@ export default function LogisticaGrade({
                       <TableHead>Data</TableHead>
                       <TableHead>Dia da semana</TableHead>
                       <TableHead>Turno</TableHead>
+                      <TableHead>Instrumento</TableHead>
                       <TableHead>Escola</TableHead>
                       <TableHead>Série/Ano</TableHead>
                       <TableHead>Turma</TableHead>
@@ -730,6 +731,16 @@ export default function LogisticaGrade({
                         <TableCell className="whitespace-nowrap">{weekdayLabel(item.scheduled_date)}</TableCell>
                         <TableCell>
                           {item.turno ? <Badge variant="outline">{item.turno}</Badge> : '—'}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col items-start gap-1">
+                            <span>{item.display_title || item.test_title || '—'}</span>
+                            {item.source_badge && (
+                              <Badge variant="outline" className="text-[10px] font-normal">
+                                {item.source_badge}
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>{item.school_name || '—'}</TableCell>
                         <TableCell>{item.grade_name || '—'}</TableCell>
