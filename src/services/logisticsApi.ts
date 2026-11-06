@@ -2,6 +2,7 @@ import { api } from '@/lib/api';
 import type {
   LogisticsApplicatorOption,
   LogisticsFilterParams,
+  LogisticsGabaritoOption,
   LogisticsGradeOptions,
   LogisticsGradePage,
   LogisticsGradeQuery,
@@ -19,6 +20,7 @@ function withCityMeta(cityId?: string) {
 
 function buildQuery(params: LogisticsFilterParams): string {
   const q = new URLSearchParams();
+  if (params.source) q.set('source', params.source);
   if (params.avaliacao) q.set('avaliacao', params.avaliacao);
   if (params.escolas?.length) q.set('escolas', params.escolas.join(','));
   if (params.series?.length) q.set('series', params.series.join(','));
@@ -65,7 +67,14 @@ export class LogisticsApiService {
     return {
       anos: data?.anos ?? [],
       etapas: data?.etapas ?? [],
-      avaliacoes: data?.avaliacoes ?? [],
+      avaliacoes: (data?.avaliacoes ?? []).map((item) => ({
+        id: item.id,
+        titulo: item.titulo,
+        evaluation_mode: item.evaluation_mode,
+        etapa_ids: item.etapa_ids,
+        source: item.source,
+        source_badge: item.source_badge ?? null,
+      })),
       escolas: (data?.escolas ?? []).map((escola) => ({
         id: escola.id,
         nome: escola.nome,
@@ -145,6 +154,51 @@ export class LogisticsApiService {
   static async getPrevia(params: LogisticsFilterParams, cityId?: string): Promise<LogisticsPreview> {
     const { data } = await api.get<LogisticsPreview>(
       `/logistics/previa${buildQuery(params)}`,
+      withCityMeta(cityId)
+    );
+    return data;
+  }
+
+  static async listGabaritos(cityId?: string): Promise<LogisticsGabaritoOption[]> {
+    const { data } = await api.get<{ gabaritos?: LogisticsGabaritoOption[] }>(
+      '/logistics/gabaritos',
+      withCityMeta(cityId)
+    );
+    return data?.gabaritos ?? [];
+  }
+
+  static async getPreviaCartao(
+    params: { gabarito: string; escolas?: string[]; series?: string[]; turmas?: string[] },
+    cityId?: string
+  ): Promise<LogisticsPreview> {
+    const q = new URLSearchParams();
+    q.set('gabarito', params.gabarito);
+    if (params.escolas?.length) q.set('escolas', params.escolas.join(','));
+    if (params.series?.length) q.set('series', params.series.join(','));
+    if (params.turmas?.length) q.set('turmas', params.turmas.join(','));
+    const { data } = await api.get<LogisticsPreview>(
+      `/logistics/previa-cartao?${q.toString()}`,
+      withCityMeta(cityId)
+    );
+    return data;
+  }
+
+  static async getPreviaPersonalizada(
+    params: {
+      evaluation_mode: 'virtual' | 'physical';
+      escolas?: string[];
+      series?: string[];
+      turmas?: string[];
+    },
+    cityId?: string
+  ): Promise<LogisticsPreview> {
+    const q = new URLSearchParams();
+    q.set('evaluation_mode', params.evaluation_mode);
+    if (params.escolas?.length) q.set('escolas', params.escolas.join(','));
+    if (params.series?.length) q.set('series', params.series.join(','));
+    if (params.turmas?.length) q.set('turmas', params.turmas.join(','));
+    const { data } = await api.get<LogisticsPreview>(
+      `/logistics/previa-personalizada?${q.toString()}`,
       withCityMeta(cityId)
     );
     return data;
