@@ -1,5 +1,7 @@
 export type LogisticsScheduleStatus = 'rascunho' | 'publicado' | 'cancelado';
 
+export type LogisticsScheduleSource = 'avaliacao' | 'cartao_resposta' | 'personalizada';
+
 export type LogisticsEvaluationMode = 'virtual' | 'physical' | 'subjective' | string;
 
 export interface LogisticsFilterEntity {
@@ -11,6 +13,8 @@ export interface LogisticsFilterAvaliacao {
   id: string;
   titulo: string;
   evaluation_mode: LogisticsEvaluationMode;
+  source?: LogisticsScheduleSource;
+  source_badge?: string | null;
 }
 
 export interface LogisticsFilterTurma {
@@ -33,10 +37,18 @@ export interface LogisticsOpcoesFiltros {
 
 export interface LogisticsFilterParams {
   etapa?: string;
+  /** avaliacao | cartao_resposta | personalizada — cascata municipal quando ≠ avaliacao */
+  source?: LogisticsScheduleSource | 'municipal';
   avaliacao?: string;
   escolas?: string[];
   series?: string[];
   turmas?: string[];
+}
+
+export interface LogisticsGabaritoOption {
+  id: string;
+  titulo: string;
+  last_generation_at?: string | null;
 }
 
 export interface LogisticsPreviewItem {
@@ -54,7 +66,15 @@ export interface LogisticsPreviewItem {
 }
 
 export interface LogisticsPreview {
-  test: { id: string; title: string; evaluation_mode: LogisticsEvaluationMode };
+  test?: { id: string; title: string; evaluation_mode: LogisticsEvaluationMode };
+  gabarito?: {
+    id: string;
+    title: string;
+    evaluation_mode: LogisticsEvaluationMode;
+    last_generation_at?: string | null;
+    has_adap?: boolean;
+  };
+  evaluation_mode?: LogisticsEvaluationMode;
   items: LogisticsPreviewItem[];
   totals: { classes: number; schools: number; students: number };
 }
@@ -99,8 +119,15 @@ export interface LogisticsDateChange extends Partial<LogisticsScheduleItem> {
 
 export interface LogisticsSchedule {
   id: string;
-  test_id: string;
+  source?: LogisticsScheduleSource;
+  source_label?: string;
+  source_badge?: string | null;
+  instrument_key?: string;
+  test_id: string | null;
   test_title: string | null;
+  gabarito_id?: string | null;
+  gabarito_title?: string | null;
+  display_title?: string | null;
   evaluation_mode: LogisticsEvaluationMode;
   education_stage_id: string | null;
   title: string;
@@ -137,7 +164,10 @@ export interface LogisticsItemPayload {
 }
 
 export interface LogisticsSchedulePayload {
+  source?: LogisticsScheduleSource;
   test_id?: string;
+  gabarito_id?: string;
+  evaluation_mode?: 'virtual' | 'physical';
   education_stage_id?: string | null;
   title?: string;
   notes?: string | null;
@@ -155,8 +185,13 @@ export interface LogisticsGradeItem {
   id: string;
   schedule_id: string;
   status: LogisticsScheduleStatus;
-  test_id: string;
+  source?: LogisticsScheduleSource;
+  source_badge?: string | null;
+  instrument_key?: string;
+  test_id: string | null;
+  gabarito_id?: string | null;
   test_title: string | null;
+  display_title?: string | null;
   evaluation_mode: LogisticsEvaluationMode;
   scheduled_date: string | null;
   school_id: string | null;
@@ -189,6 +224,8 @@ export interface LogisticsGradePage {
 
 export interface LogisticsGradeAvaliacao extends LogisticsFilterAvaliacao {
   etapa_ids?: string[];
+  source?: LogisticsScheduleSource;
+  source_badge?: string | null;
 }
 
 export interface LogisticsGradeEscola extends LogisticsFilterEntity {

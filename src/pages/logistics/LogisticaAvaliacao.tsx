@@ -64,11 +64,19 @@ import type {
   LogisticsFilterAvaliacao,
   LogisticsFilterEntity,
   LogisticsFilterTurma,
+  LogisticsGabaritoOption,
   LogisticsItemPayload,
   LogisticsSchedule,
   LogisticsScheduleItem,
+  LogisticsScheduleSource,
   LogisticsScheduleStatus,
 } from '@/types/logistics';
+
+const SOURCE_OPTIONS: { id: LogisticsScheduleSource; label: string }[] = [
+  { id: 'avaliacao', label: 'Avaliação do sistema' },
+  { id: 'cartao_resposta', label: 'Cartão-resposta' },
+  { id: 'personalizada', label: 'Personalizada' },
+];
 
 interface EditableRow {
   key: string;
@@ -370,11 +378,15 @@ export default function LogisticaAvaliacao() {
   const [applicators, setApplicators] = useState<LogisticsApplicatorOption[]>([]);
 
   // Filtros do editor
+  const [selectedSource, setSelectedSource] = useState<LogisticsScheduleSource>('avaliacao');
   const [avaliacoes, setAvaliacoes] = useState<LogisticsFilterAvaliacao[]>([]);
+  const [gabaritos, setGabaritos] = useState<LogisticsGabaritoOption[]>([]);
   const [escolasOpts, setEscolasOpts] = useState<LogisticsFilterEntity[]>([]);
   const [seriesOpts, setSeriesOpts] = useState<LogisticsFilterEntity[]>([]);
   const [turmasOpts, setTurmasOpts] = useState<LogisticsFilterTurma[]>([]);
   const [selectedAvaliacao, setSelectedAvaliacao] = useState('');
+  const [selectedGabarito, setSelectedGabarito] = useState('');
+  const [customEvaluationMode, setCustomEvaluationMode] = useState<'virtual' | 'physical'>('physical');
   const [selectedEscolas, setSelectedEscolas] = useState<string[]>([]);
   const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
   const [selectedTurmas, setSelectedTurmas] = useState<string[]>([]);
@@ -530,7 +542,10 @@ export default function LogisticaAvaliacao() {
     setRows([]);
     setSnapshot({ title: '', notes: '', rows: [] });
     setSelectedKeys(new Set());
+    setSelectedSource('avaliacao');
     setSelectedAvaliacao('');
+    setSelectedGabarito('');
+    setCustomEvaluationMode('physical');
     setSelectedEscolas([]);
     setSelectedSeries([]);
     setSelectedTurmas([]);
@@ -544,7 +559,14 @@ export default function LogisticaAvaliacao() {
     setRows(loadedRows);
     setSnapshot({ title: s.title ?? '', notes: s.notes ?? '', rows: loadedRows });
     setSelectedKeys(new Set());
-    setSelectedAvaliacao(s.test_id);
+    setSelectedSource(s.source || 'avaliacao');
+    setSelectedAvaliacao(s.test_id || '');
+    setSelectedGabarito(s.gabarito_id || '');
+    setCustomEvaluationMode(
+      s.evaluation_mode === 'virtual' || s.evaluation_mode === 'physical'
+        ? s.evaluation_mode
+        : 'physical'
+    );
   }, []);
 
   useEffect(() => {
@@ -621,15 +643,17 @@ export default function LogisticaAvaliacao() {
   };
 
   // ---------------------------------------------------------------------------
-  // Filtros em cascata (Avaliação → Escolas → Séries → Turmas)
+  // Filtros em cascata (Origem → instrumento → Escolas → Séries → Turmas)
   // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!inEditor || !editable || !cityId) return;
     let cancelled = false;
     setLoadingFilters(true);
+    const municipal = selectedSource !== 'avaliacao';
     LogisticsApiService.getOpcoesFiltros(
       {
-        avaliacao: selectedAvaliacao || undefined,
+        source: municipal ? selectedSource : undefined,
+        avaliacao: !municipal ? selectedAvaliacao || undefined : undefined,
         escolas: selectedEscolas,
         series: selectedSeries,
       },
@@ -637,7 +661,7 @@ export default function LogisticaAvaliacao() {
     )
       .then((data) => {
         if (cancelled) return;
-        setAvaliacoes(data.avaliacoes);
+        if (!municipal) setAvaliacoes(data.avaliacoes);
         setEscolasOpts(data.escolas ?? []);
         setSeriesOpts(data.series ?? []);
         setTurmasOpts(data.turmas ?? []);
@@ -659,7 +683,39 @@ export default function LogisticaAvaliacao() {
     return () => {
       cancelled = true;
     };
-  }, [inEditor, editable, cityId, selectedAvaliacao, selectedEscolas, selectedSeries, toast]);
+  }, [
+    inEditor,
+    editable,
+    cityId,
+    selectedSource,
+    selectedAvaliacao,
+    selectedEscolas,
+    selectedSeries,
+    toast,
+  ]);
+
+  useEffect(() => {
+    if (!inEditor || !editable || !cityId || selectedSource !== 'cartao_resposta') {
+      return;
+    }
+    let cancelled = false;
+    LogisticsApiService.listGabaritos(cityId)
+      .then((data) => {
+        if (!cancelled) setGabaritos(data);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setGabaritos([]);
+        toast({
+          title: 'Erro ao carregar gabaritos',
+          description: getLogisticsApiErrorMessage(error, 'Tente novamente.'),
+          variant: 'destructive',
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [inEditor, editable, cityId, selectedSource, toast]);
 
   useEffect(() => {
     if (!inEditor || !editable || !cityId) {
@@ -685,16 +741,33 @@ export default function LogisticaAvaliacao() {
     };
   }, [inEditor, editable, cityId, toast]);
 
+  const clearRowsOnInstrumentChange = (reason: string) => {
+    if (rows.length === 0) return;
+    setRows([]);
+    setSelectedKeys(new Set());
+    toast({
+      title: 'Turmas removidas',
+      description: `A lista de turmas foi limpa porque ${reason}.`,
+    });
+  };
+
+  const handleSourceChange = (value: LogisticsScheduleSource) => {
+    if (value === selectedSource || testLocked) return;
+    clearRowsOnInstrumentChange('a origem mudou');
+    setSelectedSource(value);
+    setSelectedAvaliacao('');
+    setSelectedGabarito('');
+    setSelectedEscolas([]);
+    setSelectedSeries([]);
+    setSelectedTurmas([]);
+    if (value === 'personalizada' && !title.trim()) {
+      setTitle('');
+    }
+  };
+
   const handleAvaliacaoChange = (value: string) => {
     if (value === selectedAvaliacao) return;
-    if (rows.length > 0) {
-      setRows([]);
-      setSelectedKeys(new Set());
-      toast({
-        title: 'Turmas removidas',
-        description: 'A lista de turmas foi limpa porque a avaliação mudou.',
-      });
-    }
+    clearRowsOnInstrumentChange('a avaliação mudou');
     setSelectedAvaliacao(value);
     setSelectedEscolas([]);
     setSelectedSeries([]);
@@ -705,19 +778,38 @@ export default function LogisticaAvaliacao() {
     }
   };
 
+  const handleGabaritoChange = (value: string) => {
+    if (value === selectedGabarito) return;
+    clearRowsOnInstrumentChange('o cartão-resposta mudou');
+    setSelectedGabarito(value);
+    setSelectedEscolas([]);
+    setSelectedSeries([]);
+    setSelectedTurmas([]);
+    const gab = gabaritos.find((g) => g.id === value);
+    if (gab) setTitle((gab.titulo || '').slice(0, 200));
+  };
+
   const handleLoadPreview = async () => {
-    if (!selectedAvaliacao || !cityId) return;
+    if (!cityId) return;
+    if (selectedSource === 'avaliacao' && !selectedAvaliacao) return;
+    if (selectedSource === 'cartao_resposta' && !selectedGabarito) return;
+    if (selectedSource === 'personalizada' && !customEvaluationMode) return;
     setLoadingPreview(true);
     try {
-      const preview = await LogisticsApiService.getPrevia(
-        {
-          avaliacao: selectedAvaliacao,
-          escolas: selectedEscolas,
-          series: selectedSeries,
-          turmas: selectedTurmas,
-        },
-        cityId
-      );
+      const filters = {
+        escolas: selectedEscolas,
+        series: selectedSeries,
+        turmas: selectedTurmas,
+      };
+      const preview =
+        selectedSource === 'cartao_resposta'
+          ? await LogisticsApiService.getPreviaCartao({ gabarito: selectedGabarito, ...filters }, cityId)
+          : selectedSource === 'personalizada'
+            ? await LogisticsApiService.getPreviaPersonalizada(
+                { evaluation_mode: customEvaluationMode, ...filters },
+                cityId
+              )
+            : await LogisticsApiService.getPrevia({ avaliacao: selectedAvaliacao, ...filters }, cityId);
       const existing = new Set(rows.map((r) => r.class_id));
       const added: EditableRow[] = preview.items
         .filter((item) => !existing.has(item.class_id))
@@ -849,9 +941,19 @@ export default function LogisticaAvaliacao() {
 
   const persist = async (): Promise<LogisticsSchedule | null> => {
     if (!cityId) return null;
-    if (!current && !selectedAvaliacao) {
-      toast({ title: 'Selecione a avaliação', variant: 'destructive' });
-      return null;
+    if (!current) {
+      if (selectedSource === 'avaliacao' && !selectedAvaliacao) {
+        toast({ title: 'Selecione a avaliação', variant: 'destructive' });
+        return null;
+      }
+      if (selectedSource === 'cartao_resposta' && !selectedGabarito) {
+        toast({ title: 'Selecione o cartão-resposta', variant: 'destructive' });
+        return null;
+      }
+      if (selectedSource === 'personalizada' && !title.trim()) {
+        toast({ title: 'Informe o nome do cronograma', variant: 'destructive' });
+        return null;
+      }
     }
     setSaving(true);
     try {
@@ -859,10 +961,22 @@ export default function LogisticaAvaliacao() {
         title: title.trim(),
         notes: notes.trim() || null,
         items: rowsToPayload(rows),
+        ...(selectedSource === 'personalizada' ? { evaluation_mode: customEvaluationMode } : {}),
       };
       const saved = current
         ? await LogisticsApiService.updateSchedule(current.id, payload, cityId)
-        : await LogisticsApiService.createSchedule({ ...payload, test_id: selectedAvaliacao }, cityId);
+        : await LogisticsApiService.createSchedule(
+            {
+              ...payload,
+              source: selectedSource,
+              ...(selectedSource === 'avaliacao' ? { test_id: selectedAvaliacao } : {}),
+              ...(selectedSource === 'cartao_resposta' ? { gabarito_id: selectedGabarito } : {}),
+              ...(selectedSource === 'personalizada'
+                ? { evaluation_mode: customEvaluationMode }
+                : {}),
+            },
+            cityId
+          );
       applySchedule(saved);
       setCreatingNew(false);
       if (paramId !== saved.id) {
@@ -996,7 +1110,22 @@ export default function LogisticaAvaliacao() {
   const status: LogisticsScheduleStatus = current?.status ?? 'rascunho';
   const canPublish = editable && status === 'rascunho' && rows.length > 0 && rowsWithoutDate === 0;
   const selectedAvaliacaoInfo = avaliacoes.find((a) => a.id === selectedAvaliacao);
-  const evaluationMode = current?.evaluation_mode ?? selectedAvaliacaoInfo?.evaluation_mode;
+  const selectedGabaritoInfo = gabaritos.find((g) => g.id === selectedGabarito);
+  const evaluationMode =
+    current?.evaluation_mode ??
+    (selectedSource === 'cartao_resposta'
+      ? 'physical'
+      : selectedSource === 'personalizada'
+        ? customEvaluationMode
+        : selectedAvaliacaoInfo?.evaluation_mode);
+  const displayInstrument =
+    current?.display_title ||
+    current?.test_title ||
+    (selectedSource === 'cartao_resposta'
+      ? selectedGabaritoInfo?.titulo
+      : selectedSource === 'personalizada'
+        ? title || 'Personalizada'
+        : selectedAvaliacaoInfo?.titulo);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -1174,7 +1303,8 @@ export default function LogisticaAvaliacao() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Título</TableHead>
-                        <TableHead>Avaliação</TableHead>
+                        <TableHead>Origem</TableHead>
+                        <TableHead>Instrumento</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Datas</TableHead>
                         <TableHead className="text-right">Escolas</TableHead>
@@ -1189,7 +1319,14 @@ export default function LogisticaAvaliacao() {
                       {schedules.map((s) => (
                         <TableRow key={s.id} className="cursor-pointer" onClick={() => openFromList(s.id)}>
                           <TableCell className="font-medium">{s.title}</TableCell>
-                          <TableCell>{s.test_title ?? '—'}</TableCell>
+                          <TableCell>
+                            {s.source_badge ? (
+                              <Badge variant="outline">{s.source_badge}</Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-sm">Avaliação</span>
+                            )}
+                          </TableCell>
+                          <TableCell>{s.display_title || s.test_title || s.title || '—'}</TableCell>
                           <TableCell>
                             <StatusBadge status={s.status} />
                           </TableCell>
@@ -1243,7 +1380,22 @@ export default function LogisticaAvaliacao() {
     id: t.id,
     name: `${t.school_name} — ${t.grade_name ?? ''} ${t.name}${t.shift ? ` (${t.shift})` : ''}`.trim(),
   }));
-  const noAvaliacao = !selectedAvaliacao;
+  const instrumentReady = current
+    ? selectedSource === 'personalizada'
+      ? Boolean(title.trim())
+      : true
+    : selectedSource === 'avaliacao'
+      ? Boolean(selectedAvaliacao)
+      : selectedSource === 'cartao_resposta'
+        ? Boolean(selectedGabarito)
+        : Boolean(title.trim());
+  const canLoadTurmas = current
+    ? true
+    : selectedSource === 'avaliacao'
+      ? Boolean(selectedAvaliacao)
+      : selectedSource === 'cartao_resposta'
+        ? Boolean(selectedGabarito)
+        : Boolean(customEvaluationMode);
 
   return (
     <div className="space-y-6">
@@ -1264,11 +1416,22 @@ export default function LogisticaAvaliacao() {
             <div className="flex items-center gap-2">
               <span className="font-semibold">{current ? current.title : 'Novo cronograma'}</span>
               <StatusBadge status={status} />
+              {(current?.source_badge ||
+                (selectedSource === 'cartao_resposta'
+                  ? 'Cartão-resposta'
+                  : selectedSource === 'personalizada'
+                    ? 'Personalizada'
+                    : null)) && (
+                <Badge variant="outline">
+                  {current?.source_badge ||
+                    (selectedSource === 'cartao_resposta' ? 'Cartão-resposta' : 'Personalizada')}
+                </Badge>
+              )}
               {editable && isDirty && <Badge variant="outline">Alterações não salvas</Badge>}
             </div>
-            {(current?.test_title || selectedAvaliacaoInfo) && (
+            {displayInstrument && (
               <p className="text-sm text-muted-foreground">
-                {current?.test_title ?? selectedAvaliacaoInfo?.titulo} · {evaluationModeLabel(evaluationMode)}
+                {displayInstrument} · {evaluationModeLabel(evaluationMode)}
               </p>
             )}
           </div>
@@ -1295,7 +1458,7 @@ export default function LogisticaAvaliacao() {
                 Cancelar cronograma
               </Button>
             )}
-            <Button variant="secondary" onClick={() => void handleSave()} disabled={saving || noAvaliacao}>
+            <Button variant="secondary" onClick={() => void handleSave()} disabled={saving || !instrumentReady}>
               {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
               {status === 'publicado' ? 'Salvar alterações' : 'Salvar rascunho'}
             </Button>
@@ -1333,33 +1496,112 @@ export default function LogisticaAvaliacao() {
               Filtros
             </CardTitle>
             <CardDescription>
-              Escolha a avaliação. Escolas e séries aparecem em seguida; turmas, após escolher escolas ou séries.
-              Lista vazia = todas. Depois clique em “Carregar turmas” para incluí-las no cronograma.
+              Escolha a origem. Em seguida selecione a avaliação, o cartão-resposta ou o nome/formato.
+              Escola → Série → Turma (lista vazia = todas). Depois clique em “Carregar turmas”.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Avaliação</label>
-                <Select value={selectedAvaliacao || undefined} onValueChange={handleAvaliacaoChange} disabled={testLocked}>
+                <label className="text-sm font-medium">Origem</label>
+                <Select
+                  value={selectedSource}
+                  onValueChange={(v) => handleSourceChange(v as LogisticsScheduleSource)}
+                  disabled={testLocked}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder={loadingFilters ? 'Carregando…' : 'Selecione a avaliação'} />
+                    <SelectValue placeholder="Selecione a origem" />
                   </SelectTrigger>
                   <SelectContent>
-                    {testLocked && current && !avaliacoes.some((a) => a.id === current.test_id) && (
-                      <SelectItem value={current.test_id}>{current.test_title ?? current.test_id}</SelectItem>
-                    )}
-                    {avaliacoes.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.titulo} · {evaluationModeLabel(a.evaluation_mode)}
+                    {SOURCE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.id} value={opt.id}>
+                        {opt.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
+
+              {selectedSource === 'avaliacao' && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Avaliação</label>
+                  <Select
+                    value={selectedAvaliacao || undefined}
+                    onValueChange={handleAvaliacaoChange}
+                    disabled={testLocked}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={loadingFilters ? 'Carregando…' : 'Selecione a avaliação'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {testLocked &&
+                        current?.test_id &&
+                        !avaliacoes.some((a) => a.id === current.test_id) && (
+                          <SelectItem value={current.test_id}>
+                            {current.display_title || current.test_title || current.test_id}
+                          </SelectItem>
+                        )}
+                      {avaliacoes.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.titulo} · {evaluationModeLabel(a.evaluation_mode)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {selectedSource === 'cartao_resposta' && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Cartão-resposta</label>
+                  <Select
+                    value={selectedGabarito || undefined}
+                    onValueChange={handleGabaritoChange}
+                    disabled={testLocked}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o gabarito" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {testLocked &&
+                        current?.gabarito_id &&
+                        !gabaritos.some((g) => g.id === current.gabarito_id) && (
+                          <SelectItem value={current.gabarito_id}>
+                            {current.display_title || current.gabarito_title || current.gabarito_id}
+                          </SelectItem>
+                        )}
+                      {gabaritos.map((g) => (
+                        <SelectItem key={g.id} value={g.id}>
+                          {g.titulo}
+                          {g.last_generation_at ? ` · gerado ${formatDateBR(g.last_generation_at)}` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {selectedSource === 'personalizada' && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Formato</label>
+                  <Select
+                    value={customEvaluationMode}
+                    onValueChange={(v) => setCustomEvaluationMode(v as 'virtual' | 'physical')}
+                    disabled={testLocked && Boolean(current)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="virtual">Online (tablet)</SelectItem>
+                      <SelectItem value="physical">Impressa (caderno)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
 
-            {!noAvaliacao && (
+            {canLoadTurmas && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Escola(s)</label>
@@ -1409,7 +1651,7 @@ export default function LogisticaAvaliacao() {
             )}
 
             <div className="flex flex-wrap items-center gap-3">
-              <Button onClick={() => void handleLoadPreview()} disabled={noAvaliacao || loadingPreview || !cityId}>
+              <Button onClick={() => void handleLoadPreview()} disabled={!canLoadTurmas || loadingPreview || !cityId}>
                 {loadingPreview ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
                 Carregar turmas
               </Button>
