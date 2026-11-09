@@ -82,7 +82,7 @@ export async function downloadCertificatesBatch(
     : batch.certificates;
 
   if (!certificates.length) {
-    throw new Error('Nenhum certificado aprovado encontrado para o escopo selecionado.');
+    throw new Error('Nenhum certificado aprovado encontrado para os filtros selecionados.');
   }
 
   const resolvedImages = await preloadTemplateImages(batch.template, brandingCityId);

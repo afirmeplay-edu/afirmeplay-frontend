@@ -26,6 +26,7 @@ import { computeAvisoUnread } from '@/utils/avisosRead';
 import { useUnreadAvisos, AVISOS_UPDATE_EVENT } from '@/hooks/useUnreadAvisos';
 import { NotificationsApiService, hasNotificationsCityContext } from '@/services/notificationsApi';
 import type { ServerNotification } from '@/types/notifications';
+import { toUserFacingErrorMessage } from '@/utils/userFacingError';
 
 export interface Notification {
   id: string;
@@ -52,11 +53,16 @@ function toUtcIso(value: string): string {
 }
 
 function mapServerNotification(n: ServerNotification): Notification {
+  const friendlyFallback = 'Nova notificação';
+  const titleRaw = (n.title ?? '').trim();
+  const messageRaw = (n.message ?? '').trim();
   return {
     id: `server-${n.id}`,
     type: n.type === 'logistics_schedule' ? 'logistics' : 'system',
-    title: n.title,
-    message: n.message ?? '',
+    title: titleRaw
+      ? toUserFacingErrorMessage(titleRaw, friendlyFallback)
+      : friendlyFallback,
+    message: messageRaw ? toUserFacingErrorMessage(messageRaw, friendlyFallback) : '',
     created_at: toUtcIso(n.created_at),
     is_read: n.is_read,
     action_url: n.action_url ?? undefined,

@@ -337,7 +337,7 @@ function drawAdapStudentCard(doc: jsPDF, x: number, y: number, w: number, studen
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.2);
   doc.setTextColor(...C.textGray);
-  doc.text('Prova de origem', innerX, cy);
+  doc.text('Prova regular correspondente', innerX, cy);
   cy += 3.2;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7);

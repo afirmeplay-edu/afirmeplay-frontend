@@ -478,26 +478,7 @@ const StudentDashboard = () => {
       ]
     },
     ranking: {
-      posicaoAtual: 5,
-      pontos: 847,
-      mudancaPosicao: 2,
-      lista: [
-        { id: 1, nome: 'Lucas Silva', acertos: 58, total: 60, posicao: 1, pontos: 1200 },
-        { id: 2, nome: 'Maria Souza', acertos: 56, total: 60, posicao: 2, pontos: 1150 },
-        { id: 3, nome: 'Pedro Oliveira', acertos: 54, total: 60, posicao: 3, pontos: 1100 },
-        { id: 4, nome: 'Ana Costa', acertos: 52, total: 60, posicao: 4, pontos: 1050 },
-        { id: 5, nome: 'João Lima', acertos: 50, total: 60, posicao: 5, pontos: 1000 },
-        { id: 6, nome: 'Beatriz Ramos', acertos: 48, total: 60, posicao: 6, pontos: 950 },
-        { id: 7, nome: 'Rafael Martins', acertos: 47, total: 60, posicao: 7, pontos: 900 },
-        { id: 8, nome: 'Gabriela Dias', acertos: 45, total: 60, posicao: 8, pontos: 850 },
-        { id: 9, nome: 'Carlos Mendes', acertos: 44, total: 60, posicao: 9, pontos: 800 },
-        { id: 10, nome: 'Fernanda Rocha', acertos: 42, total: 60, posicao: 10, pontos: 750 },
-      ],
-      proximoObjetivo: {
-        posicao: 4,
-        pontosNecessarios: 50,
-        progresso: 80
-      }
+      ...emptyRankingCardData,
     },
     estatisticas: {
       semana: [
@@ -535,49 +516,6 @@ const StudentDashboard = () => {
     }
   }), []);
 
-  // Dados mockados para ranking (mantidos como fallback)
-  const mockRankingData = {
-    turma: {
-      posicaoAtual: 3,
-      pontos: 285.5,
-      mudancaPosicao: 1,
-      lista: [
-        { id: 1, nome: 'Ana Oliveira', acertos: 18, total: 20, posicao: 1, pontos: 320.0 },
-        { id: 2, nome: 'Carlos Lima', acertos: 17, total: 20, posicao: 2, pontos: 310.5 },
-        { id: 3, nome: 'Pedro Costa', acertos: 15, total: 20, posicao: 3, pontos: 285.5 },
-        { id: 4, nome: 'Maria Silva', acertos: 14, total: 20, posicao: 4, pontos: 280.0 },
-        { id: 5, nome: 'João Santos', acertos: 13, total: 20, posicao: 5, pontos: 275.0 },
-      ],
-      proximoObjetivo: {
-        posicao: 2,
-        pontosNecessarios: 25,
-        progresso: 60
-      }
-    },
-    escola: {
-      posicaoAtual: 15,
-      pontos: 285.5,
-      mudancaPosicao: 2,
-      lista: [
-        { id: 1, nome: 'Lucas Ferreira', acertos: 20, total: 20, posicao: 1, pontos: 380.0 },
-        { id: 2, nome: 'Maria Silva', acertos: 19, total: 20, posicao: 2, pontos: 350.0 },
-        { id: 3, nome: 'João Santos', acertos: 18, total: 20, posicao: 3, pontos: 345.5 },
-        { id: 4, nome: 'Ana Costa', acertos: 17, total: 20, posicao: 4, pontos: 340.0 },
-        { id: 5, nome: 'Carlos Lima', acertos: 16, total: 20, posicao: 5, pontos: 335.0 },
-        { id: 6, nome: 'Beatriz Ramos', acertos: 15, total: 20, posicao: 6, pontos: 330.0 },
-        { id: 7, nome: 'Rafael Martins', acertos: 15, total: 20, posicao: 7, pontos: 325.0 },
-        { id: 8, nome: 'Gabriela Dias', acertos: 15, total: 20, posicao: 8, pontos: 320.0 },
-        { id: 9, nome: 'Fernanda Rocha', acertos: 15, total: 20, posicao: 9, pontos: 315.0 },
-        { id: 10, nome: 'Pedro Costa', acertos: 15, total: 20, posicao: 15, pontos: 285.5 },
-      ],
-      proximoObjetivo: {
-        posicao: 14,
-        pontosNecessarios: 10,
-        progresso: 80
-      }
-    }
-  };
-
   // Função para obter dados do ranking baseado no filtro
   const getCurrentRankingData = () => {
     const rankings = evaluationResults?.rankings;
@@ -595,11 +533,11 @@ const StudentDashboard = () => {
       }
     }
 
-    if (stats?.ranking) {
+    if (stats?.ranking && stats.ranking.lista.length > 0) {
       return stats.ranking;
     }
 
-    return mockRankingData[rankingFilter] ?? emptyRankingCardData;
+    return emptyRankingCardData;
   };
 
   // Função para alterar filtro do ranking
@@ -692,7 +630,7 @@ const StudentDashboard = () => {
         .map((group) => transformRankingGroupToCardData(group))
         .find((data) => data.lista.length > 0 || data.posicaoAtual > 0) ?? emptyRankingCardData;
 
-    const rankingData = rankingFromApi.lista.length > 0 ? rankingFromApi : mockStats.ranking;
+    const rankingData = rankingFromApi.lista.length > 0 ? rankingFromApi : emptyRankingCardData;
     
     return {
       proficiencia: { 

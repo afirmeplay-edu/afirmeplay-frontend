@@ -18,6 +18,8 @@ import type { ProcessedEvolutionData } from '@/components/evolution/EvolutionCha
 import { processComparisonData } from '@/utils/evolution/evolutionDataProcessor';
 import { generateEvolutionPDFFromHTML } from '@/utils/evolution/evolutionPdfService';
 import { EvolutionScopeMetaLines } from '@/components/evolution/EvolutionEvaluationsScopeList';
+import { UI_MSG } from '@/constants/uiMessages';
+import { toUserFacingErrorMessage } from '@/utils/userFacingError';
 
 interface State {
   id: string;
@@ -158,7 +160,7 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
           console.error('Erro no login automático:', error);
           toast({
             title: 'Erro de Autenticação',
-            description: 'Não foi possível fazer login automático. Verifique suas credenciais.',
+            description: UI_MSG.LOAD_FAILED,
             variant: 'destructive',
           });
           setIsLoading(false);
@@ -498,16 +500,16 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
   const handleComparisonError = useCallback(
     (errorMessage: string) => {
       if (errorMessage.includes('não possui resultados calculados')) {
-        setComparisonError('Gabarito sem resultados calculados');
+        setComparisonError(UI_MSG.RESULTS_NOT_READY_SHEET_SHORT);
         toast({
           title: 'Gabarito sem resultados',
-          description:
-            'Um ou mais gabaritos selecionados ainda não possuem resultados calculados. Selecione apenas gabaritos corrigidos.',
+          description: UI_MSG.RESULTS_NOT_READY_SHEET,
           variant: 'destructive',
         });
       } else if (errorMessage.includes('Gabarito') || errorMessage.includes('gabarito')) {
-        setComparisonError(errorMessage);
-        toast({ title: 'Erro no gabarito', description: errorMessage, variant: 'destructive' });
+        const safeMessage = toUserFacingErrorMessage(errorMessage, UI_MSG.COMPARISON_LOAD_FAILED);
+        setComparisonError(safeMessage);
+        toast({ title: 'Erro no gabarito', description: safeMessage, variant: 'destructive' });
       } else {
         setComparisonError('Erro ao carregar dados de comparação');
         toast({
@@ -588,7 +590,7 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
 
         toast({
           title: 'Comparação atualizada',
-          description: `Comparando ${comparison.total_evaluations} gabaritos com ${comparison.total_comparisons} comparações.`,
+          description: UI_MSG.COMPARISON_READY,
         });
       } catch (error: unknown) {
         console.error('Erro na comparação automática:', error);
@@ -737,7 +739,7 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
       }
       toast({
         title: 'Erro ao exportar Excel',
-        description: errorMessage,
+        description: toUserFacingErrorMessage(errorMessage, 'Não foi possível exportar os gabaritos.'),
         variant: 'destructive',
       });
     } finally {
@@ -1148,9 +1150,9 @@ export default function EvolutionCartaoResposta({ hidePageHeading = false }: Evo
         <Card className="shadow-lg border-0 bg-card/90 backdrop-blur-sm">
           <CardContent className="flex flex-col items-center justify-center py-16 space-y-6">
             <RefreshCw className="h-10 w-10 animate-spin text-blue-600" />
-            <h3 className="text-xl font-semibold text-foreground">Processando Análise</h3>
+            <h3 className="text-xl font-semibold text-foreground">Carregando comparação…</h3>
             <p className="text-muted-foreground text-center max-w-md">
-              Estamos comparando seus gabaritos e gerando insights detalhados...
+              Isso pode levar alguns momentos…
             </p>
             <div className="w-full max-w-sm">
               <Progress value={comparisonProgress} className="h-2" aria-label="Carregando comparação" />

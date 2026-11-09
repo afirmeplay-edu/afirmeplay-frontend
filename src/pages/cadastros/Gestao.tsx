@@ -45,6 +45,7 @@ import {
 import Turmas from "@/pages/cadastros/Turmas";
 import { InstituicaoUsersTab } from "@/components/schools/InstituicaoUsersTab";
 import { getUserHierarchyContext } from "@/utils/userHierarchy";
+import { toUserFacingErrorMessage } from "@/utils/userFacingError";
 import {
   generateUsersMunicipioCountsPdf,
   type ContactsByRole,
@@ -104,16 +105,7 @@ function normalizeSchoolWritePayload(
 }
 
 function getApiErrorMessage(error: unknown, fallback: string): string {
-  if (error && typeof error === "object" && "response" in error) {
-    const data = (error as { response?: { data?: Record<string, unknown> } }).response
-      ?.data;
-    if (data && typeof data === "object") {
-      const cand = data.error ?? data.message ?? data.erro ?? data.detalhes ?? data.details;
-      if (typeof cand === "string" && cand.trim()) return cand.trim();
-    }
-  }
-  if (error instanceof Error && error.message) return error.message;
-  return fallback;
+  return toUserFacingErrorMessage(error, fallback);
 }
 
 /** Respostas da API de alunos podem vir como array direto ou embrulhadas em `data` / `alunos`. */

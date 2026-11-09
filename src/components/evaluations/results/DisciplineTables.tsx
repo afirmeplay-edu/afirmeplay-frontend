@@ -96,8 +96,7 @@ function CollapseTableButton({
         <div className="space-y-1">
           <p className="text-sm font-semibold">Recolha as tabelas</p>
           <p className="text-sm text-muted-foreground">
-            Com muitos dados, a tabela fica longa. Use este botão para recolher e ir direto para a
-            próxima, sem rolar a página inteira.
+            Recolha a tabela para ir direto à próxima sem rolar a página.
           </p>
         </div>
         <Button type="button" size="sm" className="w-full" onClick={() => onDismissHint?.()}>
@@ -893,7 +892,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                   <th className="px-4 py-3 font-semibold">Aluno</th>
                   <th className="px-3 py-3 font-semibold">Nível</th>
                   <th className="px-3 py-3 font-semibold">Turma</th>
-                  <th className="px-3 py-3 font-semibold">Prova de origem</th>
+                  <th className="px-3 py-3 font-semibold">Prova regular correspondente</th>
                   <th className="px-3 py-3 font-semibold text-center">Acertos</th>
                   <th className="px-3 py-3 font-semibold text-center">Nota</th>
                   <th className="px-3 py-3 font-semibold text-center">Proficiência</th>
@@ -943,7 +942,15 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                       )}
                     </td>
                     <td className="px-3 py-3">
-                      <Badge variant="outline" className={classeBadgeSituacaoAdap(aluno.situacao)}>
+                      <Badge
+                        variant="outline"
+                        className={classeBadgeSituacaoAdap(aluno.situacao)}
+                        title={
+                          aluno.situacao === "inconsistente"
+                            ? "Verifique o vínculo deste aluno com a prova regular."
+                            : undefined
+                        }
+                      >
                         {labelSituacaoAdap(aluno.situacao)}
                       </Badge>
                     </td>

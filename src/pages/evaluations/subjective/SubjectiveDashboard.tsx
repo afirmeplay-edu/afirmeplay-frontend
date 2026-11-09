@@ -1102,7 +1102,7 @@ const SubjectiveDashboard = () => {
             </CardHeader>
             <CardContent>
               {studentsTable.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Sem alunos no escopo selecionado.</p>
+                <p className="text-sm text-muted-foreground">Sem alunos nos filtros selecionados.</p>
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-border">
                   <table className="w-full min-w-[520px] border-collapse text-sm">

@@ -562,7 +562,7 @@ export default function AnswerSheetStudentDetailedResults({ onBack }: AnswerShee
       {!showGeralRespostas && visiblePerDisciplina.length === 0 && (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
-            Não há detalhamento por questão neste recorte. Os totais acima refletem o que a API enviou.
+            Não há detalhamento por questão neste recorte. Os totais acima refletem os dados disponíveis neste recorte.
           </CardContent>
         </Card>
       )}

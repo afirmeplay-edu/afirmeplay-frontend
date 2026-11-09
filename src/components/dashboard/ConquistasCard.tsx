@@ -327,13 +327,10 @@ const ConquistasCard: React.FC<ConquistasCardProps> = ({ onRedeem }) => {
           </DialogHeader>
           <div className="space-y-4 text-sm text-muted-foreground">
             <p>
-              <strong className="text-foreground">Conquistas</strong> são medalhas e badges que você ganha ao cumprir certas metas no sistema — por exemplo, tirar sua primeira nota 10, fazer várias avaliações seguidas ou ficar entre os melhores no ranking.
+              Conquistas são medalhas que você ganha ao cumprir metas — como boas notas, avaliações e ranking.
             </p>
             <p>
-              <strong className="text-foreground">Para que servem?</strong> Elas mostram seu progresso e dedicação. Além disso, muitas conquistas podem ser <strong className="text-foreground">resgatadas por moedas</strong>, que você usa na loja para personalizar seu perfil (avatar, temas, etc.).
-            </p>
-            <p>
-              <strong className="text-foreground">Como conseguir?</strong> Basta participar das atividades: fazer avaliações, manter sequências de dias estudando e se esforçar para subir no ranking. Cada conquista tem um requisito; quando você atinge, ela é desbloqueada e pode ser resgatada por moedas aqui mesmo.
+              Muitas podem ser resgatadas por moedas para personalizar seu perfil na loja.
             </p>
           </div>
         </DialogContent>

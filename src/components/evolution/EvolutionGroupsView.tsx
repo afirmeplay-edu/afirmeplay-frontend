@@ -190,7 +190,7 @@ export function EvolutionGroupsView({ testIds, grupos, scopeFilters, refreshKey 
       {!isLoading && !error && data && data.groups.length === 0 && (
         <Card className="border border-border">
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            Nenhum grupo encontrado no escopo selecionado.
+            Nenhum grupo encontrado nos filtros selecionados.
           </CardContent>
         </Card>
       )}

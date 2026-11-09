@@ -1002,7 +1002,7 @@ export function QuestionBank({
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Visualizar Questão</DialogTitle>
-            <DialogDescription>Visualização em modo somente leitura.</DialogDescription>
+            <DialogDescription>Pré-visualização</DialogDescription>
           </DialogHeader>
           {viewQuestion && (
             <QuestionPreview question={viewQuestion} />

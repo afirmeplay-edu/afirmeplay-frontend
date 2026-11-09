@@ -23,7 +23,7 @@ export function labelSituacaoAdap(situacao: string | null | undefined): string {
     case "pendente":
       return "Pendente";
     case "inconsistente":
-      return "Inconsistente";
+      return "Revisar";
     default:
       return situacao?.trim() || "—";
   }
@@ -60,7 +60,7 @@ export function resumoTabelaAdap(rows: Array<{ situacao?: string | null }>): str
   }
   const parts = [`${total} ${noun}`];
   if (pareada > 0) {
-    parts.push(pareada === 1 ? "1 com prova pareada" : `${pareada} com prova pareada`);
+    parts.push(pareada === 1 ? "1 com resultado" : `${pareada} com resultado`);
   }
   if (pendente > 0) {
     parts.push(pendente === 1 ? "1 pendente" : `${pendente} pendentes`);

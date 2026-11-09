@@ -4,6 +4,7 @@ import type {
   FolhaRascunhoDadosParams,
   FolhaRascunhoDadosResponse,
 } from "@/types/folha-rascunho";
+import { toUserFacingErrorMessage } from "@/utils/userFacingError";
 
 export type FolhaRascunhoClassStudent = FolhaRascunhoClassStudentOption;
 
@@ -67,6 +68,5 @@ export async function fetchClassStudentsForFolhaRascunho(
 }
 
 export function getFolhaRascunhoApiError(err: unknown, fallback = "Erro na operação."): string {
-  const axiosErr = err as { response?: { data?: { error?: string; details?: string } } };
-  return axiosErr.response?.data?.error || axiosErr.response?.data?.details || fallback;
+  return toUserFacingErrorMessage(err, fallback);
 }

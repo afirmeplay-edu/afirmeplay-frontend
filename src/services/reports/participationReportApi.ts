@@ -11,6 +11,7 @@ import type {
   ParticipationResumo,
   ParticipationResumoParams,
 } from '@/types/participation-report';
+import { toUserFacingErrorMessage } from '@/utils/userFacingError';
 
 function withCityMeta(municipio?: string) {
   return municipio
@@ -100,17 +101,7 @@ function normalizeTurmas(
 }
 
 export function getParticipationApiErrorMessage(error: unknown, fallback: string): string {
-  const maybe = error as {
-    message?: string;
-    response?: { data?: { error?: string; details?: string; message?: string }; status?: number };
-  };
-  return (
-    maybe?.response?.data?.error ||
-    maybe?.response?.data?.details ||
-    maybe?.response?.data?.message ||
-    maybe?.message ||
-    fallback
-  );
+  return toUserFacingErrorMessage(error, fallback);
 }
 
 export class ParticipationReportApiService {

@@ -206,7 +206,7 @@ function OfflinePackEditForm({
 
       <Card className="border-border/80 shadow-sm">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Código (somente leitura)</CardTitle>
+          <CardTitle className="text-lg">Código (não editável)</CardTitle>
           <CardDescription>
             O aplicador continua usando este mesmo código no app. Após alterar o escopo, é necessário
             baixar os dados novamente no aplicativo.

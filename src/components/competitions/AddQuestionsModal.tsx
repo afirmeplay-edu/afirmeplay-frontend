@@ -46,7 +46,7 @@ export function AddQuestionsModal({
   const handleSubmit = async () => {
     if (!competitionId || questionIds.length === 0) {
       toast({
-        title: 'Informe ao menos um ID de questão.',
+        title: 'Informe ao menos um identificador de questão.',
         variant: 'destructive',
       });
       return;
@@ -81,7 +81,7 @@ export function AddQuestionsModal({
         <DialogHeader className="shrink-0 px-4 pt-4 sm:px-6 pb-2">
           <DialogTitle>Adicionar questões</DialogTitle>
           <DialogDescription>
-            {competitionName}. Selecione no banco ou cole os IDs das questões.
+            {competitionName}. Escolha no banco ou cole os identificadores das questões.
           </DialogDescription>
         </DialogHeader>
 
@@ -93,7 +93,7 @@ export function AddQuestionsModal({
             </TabsTrigger>
             <TabsTrigger value="ids" className="flex items-center gap-2">
               <ListOrdered className="h-4 w-4" />
-              Colar IDs
+              Colar identificadores
             </TabsTrigger>
           </TabsList>
 
@@ -109,19 +109,19 @@ export function AddQuestionsModal({
 
           <TabsContent value="ids" className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden">
             <div className="space-y-2">
-              <Label htmlFor="question_ids">IDs das questões (um por linha ou separados por vírgula)</Label>
+              <Label htmlFor="question_ids">IDs das questões</Label>
               <Textarea
                 id="question_ids"
                 value={rawIds}
                 onChange={(e) => setRawIds(e.target.value)}
-                placeholder="id1&#10;id2&#10;id3"
+                placeholder="Cole os identificadores separados por espaço"
                 rows={12}
                 className="font-mono text-sm resize-none"
               />
               <p className="text-xs text-muted-foreground">
                 {questionIds.length === 1
-                  ? '1 questão detectada.'
-                  : `${questionIds.length} questões detectadas.`}
+                  ? '1 questão encontrada.'
+                  : `${questionIds.length} questões encontradas.`}
               </p>
             </div>
           </TabsContent>

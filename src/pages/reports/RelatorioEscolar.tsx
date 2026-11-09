@@ -74,6 +74,7 @@ import {
 } from "@/utils/answer-sheet/mapAnswerSheetResultadosAgregadosToNovaResposta";
 import type { GabaritoGradeRef, ResultadoAgregadoPorSerie } from "@/types/answer-sheet";
 import { getReportProficiencyTagClass, normalizeProficiencyLevelLabel } from "@/utils/report/reportTagStyles";
+import { UI_MSG } from "@/constants/uiMessages";
 import {
   filtrarGabaritosOpcoesSomenteComHabilidadesVinculadas,
   type GabaritoOpcaoFiltrosResults,
@@ -1699,7 +1700,7 @@ export default function RelatorioEscolar({
           } catch (error) {
             toast({
               title: "Erro de Autenticação",
-              description: "Não foi possível fazer login automático. Verifique suas credenciais.",
+              description: UI_MSG.LOAD_FAILED,
               variant: "destructive",
             });
             return;
@@ -4584,7 +4585,7 @@ export default function RelatorioEscolar({
       const details = readTrimmedString(ia.details);
       const title = readTrimmedString(ia.error);
       setAiErrorMessage(
-        details || title || "Nao foi possivel gerar o relatorio detalhado. Tente novamente."
+        details || title || UI_MSG.ANALYSIS_FAILED
       );
     };
 
@@ -4596,7 +4597,7 @@ export default function RelatorioEscolar({
       if (!ia) {
         setAnaliseEscolarIa({
           analise_ia_status: "error",
-          analise_ia: { error: "Falha ao consultar analise IA", details: "" },
+          analise_ia: { error: UI_MSG.ANALYSIS_FAILED, details: "" },
         });
         applyIaErrorMessage({ details: "", error: "" });
         stopAiVisualLoading();
@@ -4791,7 +4792,7 @@ export default function RelatorioEscolar({
       const details = readTrimmedString(ia.details);
       const title = readTrimmedString(ia.error);
       setAiErrorMessage(
-        details || title || "Nao foi possivel gerar o relatorio detalhado. Tente novamente."
+        details || title || UI_MSG.ANALYSIS_FAILED
       );
     };
 
@@ -4817,7 +4818,7 @@ export default function RelatorioEscolar({
       if (!ia) {
         setAnaliseEscolarIa({
           analise_ia_status: "error",
-          analise_ia: { error: "Falha ao consultar analise IA", details: "" },
+          analise_ia: { error: UI_MSG.ANALYSIS_FAILED, details: "" },
         });
         applyAgregadosIaErrorMessage({ details: "", error: "" });
         stopAiVisualLoading();
@@ -5357,7 +5358,7 @@ export default function RelatorioEscolar({
                 <div className="space-y-3">
                   <SectionHeader
                     title="Faltosos"
-                    subtitle="Alunos pendentes no recorte (mesma base de Resultados da avaliação)"
+                    subtitle="Alunos pendentes nos filtros (mesma base de Resultados da avaliação)"
                     right={
                       <Badge variant="destructive" className="font-semibold">
                         {pendingStudentsCount}
@@ -5666,7 +5667,7 @@ export default function RelatorioEscolar({
               {isAnswerSheetAgregados ? (
                 <>
                   Selecione <strong>Estado</strong>, <strong>Município</strong> e <strong>Cartão resposta</strong>.{" "}
-                  <strong>Escola</strong>, <strong>Série</strong> e <strong>Turma</strong> são opcionais para refinar o recorte.
+                  <strong>Escola</strong>, <strong>Série</strong> e <strong>Turma</strong> são opcionais para refinar os filtros.
                 </>
               ) : (
                 <>
@@ -5820,7 +5821,7 @@ export default function RelatorioEscolar({
                     Análise com IA
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Gere uma análise textual para os filtros e o recorte exibidos na página. A consulta pode levar alguns
+                    Gere uma análise textual para os filtros exibidos na página. A consulta pode levar alguns
                     segundos.
                   </p>
                 </div>
@@ -6238,7 +6239,7 @@ export default function RelatorioEscolar({
                               <AlertCircle className="h-4 w-4 mt-0.5" />
                               <div className="space-y-1">
                                 <span>
-                                  {aiErrorMessage || aiAnaliseErrorTitle || "Nao foi possivel gerar o relatorio detalhado para esta disciplina."}
+                                  {aiErrorMessage || aiAnaliseErrorTitle || UI_MSG.ANALYSIS_FAILED}
                                 </span>
                                 {aiAnaliseErrorDetails && aiAnaliseErrorDetails !== aiErrorMessage && (
                                   <p className="text-xs text-destructive/80">{aiAnaliseErrorDetails}</p>
@@ -6294,35 +6295,8 @@ export default function RelatorioEscolar({
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <FileText className="h-8 w-8 text-muted-foreground mb-4" />
                 <p className="text-muted-foreground text-center mb-2 font-semibold">
-                  Não foi possível calcular a distribuição de níveis de proficiência.
+                  {UI_MSG.NO_DATA_FOR_FILTER}
                 </p>
-                <p className="text-sm text-muted-foreground text-center mb-4">
-                  {(isAnswerSheetAgregados ? asEscola : selectedSchool) !== 'all' 
-                    ? "Quando uma escola específica é selecionada, o servidor não está retornando dados individuais de alunos por disciplina. Tente selecionar 'Todas' as escolas para visualizar os dados do município."
-                    : apiData.tabela_detalhada.disciplinas?.some(d => d.alunos && d.alunos.length > 0)
-                      ? "Os dados de proficiência dos alunos não estão disponíveis para os filtros selecionados."
-                      : reportAnswerSheet
-                        ? "O servidor não retornou dados de alunos na tabela detalhada. Verifique se há alunos cadastrados para este cartão resposta e filtros."
-                        : "O servidor não retornou dados de alunos na tabela detalhada. Verifique se há alunos cadastrados para esta avaliação e filtros."}
-                </p>
-                {apiData.tabela_detalhada?.disciplinas && (
-                  <div className="mt-4 p-4 bg-muted rounded-lg border border-border">
-                    <p className="text-xs font-semibold text-foreground mb-2">Informações de Debug:</p>
-                    <div className="text-xs text-muted-foreground space-y-1">
-                      <p>• Disciplinas encontradas: {apiData.tabela_detalhada.disciplinas.length}</p>
-                      <p>• Disciplinas com alunos: {apiData.tabela_detalhada.disciplinas.filter(d => d.alunos && d.alunos.length > 0).length}</p>
-                      {apiData.tabela_detalhada.geral?.alunos && (
-                        <p>• Alunos em geral: {apiData.tabela_detalhada.geral.alunos.length}</p>
-                      )}
-                      {apiData.estatisticas_gerais && (
-                        <>
-                          <p>• Total de alunos (estatísticas): {apiData.estatisticas_gerais.total_alunos}</p>
-                          <p>• Alunos participantes: {apiData.estatisticas_gerais.alunos_participantes}</p>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
               </CardContent>
             </Card>
           ) : null}

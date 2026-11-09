@@ -1,5 +1,6 @@
 import { api } from "@/lib/api";
 import type { EtiquetasDadosParams, EtiquetasDadosResponse } from "@/types/etiquetas";
+import { toUserFacingErrorMessage } from "@/utils/userFacingError";
 
 function requestConfig(cityId?: string) {
   return cityId && cityId !== "all" ? { meta: { cityId } } : {};
@@ -25,6 +26,5 @@ export async function getEtiquetasDados(params: EtiquetasDadosParams): Promise<E
 }
 
 export function getEtiquetasApiError(err: unknown, fallback = "Erro na operação."): string {
-  const axiosErr = err as { response?: { data?: { error?: string; details?: string } } };
-  return axiosErr.response?.data?.error || axiosErr.response?.data?.details || fallback;
+  return toUserFacingErrorMessage(err, fallback);
 }

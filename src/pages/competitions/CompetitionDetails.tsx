@@ -363,7 +363,7 @@ export default function CompetitionDetails() {
     setActionLoading(true);
     try {
       await finalizeCompetition(id);
-      toast({ title: 'Competição finalizada. Ranking gerado e recompensas pagas.' });
+      toast({ title: 'Competição finalizada. Ranking e recompensas atualizados.' });
       fetchCompetition();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Erro ao finalizar.';
@@ -559,7 +559,7 @@ export default function CompetitionDetails() {
               )}
               {isCompleted && (
                 <Button variant="outline" size="sm" onClick={() => navigate(`/app/competitions/${id}/analytics`)}>
-                  <BarChart3 className="mr-2 h-4 w-4" /> Analytics
+                  <BarChart3 className="mr-2 h-4 w-4" /> Desempenho
                 </Button>
               )}
               {canRandomize && !isCompleted && (

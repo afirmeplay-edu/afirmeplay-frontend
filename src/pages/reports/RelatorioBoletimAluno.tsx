@@ -814,7 +814,7 @@ export default function RelatorioBoletimAluno({
         if (!data.boletins.length) {
           toast({
             title: 'Relatório gerado',
-            description: 'Não há boletins no escopo selecionado.',
+            description: 'Não há boletins nos filtros selecionados.',
           });
         }
       } catch (error) {

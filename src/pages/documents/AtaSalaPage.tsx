@@ -1376,7 +1376,7 @@ export default function AtaSalaPage() {
     if (editingId && savedMeta && !savedMeta.is_owner && !asNew) {
       toast({
         title: "Somente leitura",
-        description: "Apenas o autor pode alterar esta ata.",
+        description: "Só o autor pode editar esta ata.",
         variant: "destructive",
       });
       return;
@@ -1442,7 +1442,7 @@ export default function AtaSalaPage() {
           <AlertDescription>
             {canEditSaved
               ? `Editando ata criada por ${savedMeta.created_by_name}.`
-              : `Visualizando ata de ${savedMeta.created_by_name} (somente leitura para salvar alterações).`}
+              : `Visualizando ata de ${savedMeta.created_by_name}. Só o autor pode editar esta ata.`}
           </AlertDescription>
         </Alert>
       ) : null}

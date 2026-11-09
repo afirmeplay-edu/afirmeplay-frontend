@@ -37,6 +37,7 @@ import { normalizeRelatorioCompletoForAnaliseUI } from "@/utils/report/relatorio
 import { generateRelatorioOrganizadoPdf } from "@/services/reports/analiseAvaliacoesPdf";
 import { formatDecimal1PtBr, formatPercent1PtBr } from "@/utils/numberFormat";
 import { isDisciplinaGeralAggregateKey } from "@/utils/reports/presentation19/presentation19MunicipalMedia";
+import { UI_MSG } from "@/constants/uiMessages";
 
 // Interfaces para os dados da API
 interface EvaluationResult {
@@ -320,7 +321,7 @@ export default function AnaliseAvaliacoes({
           console.error("Erro no login automático:", error);
           toast({
             title: "Erro de Autenticação",
-            description: "Não foi possível fazer login automático. Verifique suas credenciais.",
+            description: UI_MSG.LOAD_FAILED,
             variant: "destructive",
           });
           return;
@@ -497,7 +498,7 @@ export default function AnaliseAvaliacoes({
           const isTimeout = errorMessage.includes('Timeout') || errorMessage.includes('timeout');
           
           toast({
-            title: isTimeout ? "Timeout ao gerar relatório" : "Erro ao carregar dados",
+            title: isTimeout ? "O relatório está demorando mais que o esperado." : "Erro ao carregar dados",
             description: isTimeout 
               ? "O relatório está demorando mais que o esperado. Tente novamente em alguns instantes."
               : "Não foi possível carregar os dados da análise. Tente novamente.",
@@ -619,7 +620,7 @@ export default function AnaliseAvaliacoes({
               <>
                 <p className="text-lg font-medium text-foreground mb-2">Gerando relatório...</p>
                 <p className="text-muted-foreground text-center max-w-md mb-2">
-                  O relatório está sendo processado em background. Isso pode levar alguns minutos.
+                  O relatório está sendo processado em segundo plano. Isso pode levar alguns minutos.
                 </p>
                 {processingTime > 0 && (
                   <p className="text-sm text-muted-foreground mb-4">
