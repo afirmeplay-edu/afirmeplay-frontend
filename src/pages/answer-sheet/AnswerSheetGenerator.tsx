@@ -15,6 +15,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
+import { UI_MSG } from '@/constants/uiMessages';
+import { toUserFacingErrorMessage } from '@/utils/userFacingError';
 import { 
   ChevronRight, 
   ChevronLeft, 
@@ -1134,7 +1136,7 @@ export default function AnswerSheetGenerator() {
       if (error instanceof Error && !isAxiosError(error)) {
         toast({
           title: 'Erro',
-          description: error.message,
+          description: toUserFacingErrorMessage(error.message),
           variant: 'destructive',
         });
         return;
@@ -1159,7 +1161,7 @@ export default function AnswerSheetGenerator() {
       
       toast({
         title: 'Erro',
-        description: errorMessage,
+        description: toUserFacingErrorMessage(errorMessage),
         variant: 'destructive',
       });
     } finally {
@@ -1283,7 +1285,7 @@ export default function AnswerSheetGenerator() {
 
           toast({
             title: "✅ Geração concluída!",
-            description: `${completedTasks} tarefas finalizadas com sucesso.`,
+            description: `${completedTasks} etapas finalizadas com sucesso.`,
           });
         }
 
@@ -1299,7 +1301,10 @@ export default function AnswerSheetGenerator() {
 
           toast({
             title: "❌ Erro ao gerar cartões",
-            description: data.error || "Erro desconhecido ao gerar cartões de resposta",
+            description: toUserFacingErrorMessage(
+              data.error || "Erro desconhecido ao gerar cartões de resposta",
+              UI_MSG.GENERATION_FAILED
+            ),
             variant: "destructive",
           });
         }
@@ -1332,7 +1337,7 @@ export default function AnswerSheetGenerator() {
         setIsGenerating(false);
         
         toast({
-          title: "⚠️ Timeout",
+          title: "⚠️ Tempo esgotado",
           description: "A geração está demorando muito. Verifique a lista ou tente novamente.",
           variant: "destructive",
         });
@@ -1437,7 +1442,7 @@ export default function AnswerSheetGenerator() {
 
         toast({
           title: "⏳ Geração iniciada",
-          description: `Gerando cartões para ${data.total_students || 0} alunos em ${data.total_tasks || 1} tarefa(s).`,
+          description: `Gerando cartões para ${data.total_students || 0} alunos em ${data.total_tasks || 1} etapa(s).`,
         });
 
         // Iniciar polling
@@ -1447,7 +1452,7 @@ export default function AnswerSheetGenerator() {
 
         toast({
           title: 'Aviso',
-          description: 'A geração foi iniciada, mas o formato de resposta não é o esperado.',
+          description: 'A geração foi iniciada, mas não foi possível confirmar o status. Verifique a lista de cartões.',
         });
       }
 
@@ -1464,7 +1469,7 @@ export default function AnswerSheetGenerator() {
       
       toast({
         title: 'Erro',
-        description: errorMessage,
+        description: toUserFacingErrorMessage(errorMessage, UI_MSG.GENERATION_FAILED),
         variant: 'destructive',
       });
     }
@@ -2493,7 +2498,7 @@ export default function AnswerSheetGenerator() {
                 Gerar Cartões Resposta Hierarquicamente
               </CardTitle>
               <CardDescription>
-                Gere cartões em lote para o escopo selecionado (cidade, escola, série ou turma)
+                Gere cartões em lote para o filtro selecionado (cidade, escola, série ou turma)
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -2595,7 +2600,7 @@ export default function AnswerSheetGenerator() {
                       </div>
                       <Progress value={jobProgress.percentage} className="h-2.5" />
                       <p className="text-xs text-muted-foreground text-center">
-                        {jobProgress.completed_tasks} de {jobProgress.total_tasks} tarefas concluídas
+                        {jobProgress.completed_tasks} de {jobProgress.total_tasks} etapas concluídas
                       </p>
                     </div>
 

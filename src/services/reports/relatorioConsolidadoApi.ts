@@ -5,6 +5,7 @@ import type {
   OpcoesFiltrosDigital,
   RelatorioConsolidado,
 } from '@/types/relatorio-consolidado';
+import { toUserFacingErrorMessage } from '@/utils/userFacingError';
 
 export type RelatorioConsolidadoFlow = 'digital' | 'cartao';
 
@@ -119,14 +120,5 @@ export class RelatorioConsolidadoApiService {
 }
 
 export function getApiErrorMessage(error: unknown, fallback: string): string {
-  const maybe = error as {
-    message?: string;
-    response?: { data?: { error?: string; details?: string } };
-  };
-  return (
-    maybe?.response?.data?.error ||
-    maybe?.response?.data?.details ||
-    maybe?.message ||
-    fallback
-  );
+  return toUserFacingErrorMessage(error, fallback);
 }

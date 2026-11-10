@@ -54,6 +54,7 @@ import {
   downloadSkillsHeatMapSkillPdf,
   type SkillsHeatMapPdfMeta,
 } from '@/utils/report/skillsHeatMapPdf';
+import { UI_MSG } from '@/constants/uiMessages';
 
 const FAIXA_ORDER = [
   'abaixo_do_basico',
@@ -175,7 +176,7 @@ function HeatMapLegendInside() {
     <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
       <p className="text-xs font-medium text-foreground">Guia de percentual de acertos</p>
       <p className="text-[11px] text-muted-foreground leading-snug">
-        Valor em cada cartão: fração de alunos com cartão corrigido que acertaram itens da habilidade (faltosos e folhas sem leitura não entram no cálculo).
+        Valor em cada cartão: fração de alunos com cartão corrigido que acertaram itens da habilidade (Alunos ausentes e cartões sem resposta não entram no cálculo).
       </p>
       <div>
         <div className="flex justify-between text-[10px] font-medium tabular-nums text-muted-foreground mb-1 px-0.5">
@@ -1436,7 +1437,7 @@ export default function SkillsHeatMapPage() {
         clearMapIaOnlineTimer();
         setIaOnlineSlice({
           analise_ia_status: 'error',
-          analise_ia: { error: 'Falha ao consultar analise IA', details: '' },
+          analise_ia: { error: UI_MSG.ANALYSIS_FAILED, details: '' },
         });
         return;
       }
@@ -1531,7 +1532,7 @@ export default function SkillsHeatMapPage() {
         clearMapIaCartaoTimer();
         setIaCartaoSlice({
           analise_ia_status: 'error',
-          analise_ia: { error: 'Falha ao consultar analise IA', details: '' },
+          analise_ia: { error: UI_MSG.ANALYSIS_FAILED, details: '' },
         });
         return;
       }

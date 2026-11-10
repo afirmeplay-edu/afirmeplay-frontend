@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { PlayTvVideo, PlayTvFilters } from '@/types/playtv';
 import { getUserHierarchyContext } from '@/utils/userHierarchy';
+import { toUserFacingErrorMessage } from '@/utils/userFacingError';
 
 export default function PlayTvManagement() {
   const { user } = useAuth();
@@ -169,7 +170,7 @@ export default function PlayTvManagement() {
       console.error('Erro ao carregar vídeos:', error);
       toast({
         title: 'Erro',
-        description: error.response?.data?.message || error.message || 'Não foi possível carregar os vídeos.',
+        description: toUserFacingErrorMessage(error, 'Não foi possível carregar os vídeos.'),
         variant: 'destructive',
       });
       setVideos([]);
@@ -262,7 +263,7 @@ export default function PlayTvManagement() {
       console.error('Erro ao excluir vídeo:', error);
       toast({
         title: 'Erro',
-        description: error.response?.data?.message || 'Não foi possível excluir o vídeo.',
+        description: toUserFacingErrorMessage(error, 'Não foi possível excluir o vídeo.'),
         variant: 'destructive',
       });
     } finally {

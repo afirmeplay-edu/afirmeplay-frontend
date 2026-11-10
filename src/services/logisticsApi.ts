@@ -13,6 +13,7 @@ import type {
   LogisticsSchedulePayload,
   LogisticsScheduleStatus,
 } from '@/types/logistics';
+import { toUserFacingErrorMessage } from '@/utils/userFacingError';
 
 function withCityMeta(cityId?: string) {
   return cityId ? { meta: { cityId } as { cityId: string } } : {};
@@ -30,18 +31,7 @@ function buildQuery(params: LogisticsFilterParams): string {
 }
 
 export function getLogisticsApiErrorMessage(error: unknown, fallback: string): string {
-  const maybe = error as {
-    message?: string;
-    response?: { data?: { error?: string; erro?: string; mensagem?: string; message?: string } };
-  };
-  return (
-    maybe?.response?.data?.error ||
-    maybe?.response?.data?.erro ||
-    maybe?.response?.data?.mensagem ||
-    maybe?.response?.data?.message ||
-    maybe?.message ||
-    fallback
-  );
+  return toUserFacingErrorMessage(error, fallback);
 }
 
 export class LogisticsApiService {

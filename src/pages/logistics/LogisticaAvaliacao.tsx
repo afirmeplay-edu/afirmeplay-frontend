@@ -22,6 +22,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { labelLogisticsSourceBadge } from '@/utils/logisticsSourceBadge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -1320,8 +1321,8 @@ export default function LogisticaAvaliacao() {
                         <TableRow key={s.id} className="cursor-pointer" onClick={() => openFromList(s.id)}>
                           <TableCell className="font-medium">{s.title}</TableCell>
                           <TableCell>
-                            {s.source_badge ? (
-                              <Badge variant="outline">{s.source_badge}</Badge>
+                            {labelLogisticsSourceBadge(s.source_badge) ? (
+                              <Badge variant="outline">{labelLogisticsSourceBadge(s.source_badge)}</Badge>
                             ) : (
                               <span className="text-muted-foreground text-sm">Avaliação</span>
                             )}
@@ -1416,14 +1417,14 @@ export default function LogisticaAvaliacao() {
             <div className="flex items-center gap-2">
               <span className="font-semibold">{current ? current.title : 'Novo cronograma'}</span>
               <StatusBadge status={status} />
-              {(current?.source_badge ||
+              {(labelLogisticsSourceBadge(current?.source_badge) ||
                 (selectedSource === 'cartao_resposta'
                   ? 'Cartão-resposta'
                   : selectedSource === 'personalizada'
                     ? 'Personalizada'
                     : null)) && (
                 <Badge variant="outline">
-                  {current?.source_badge ||
+                  {labelLogisticsSourceBadge(current?.source_badge) ||
                     (selectedSource === 'cartao_resposta' ? 'Cartão-resposta' : 'Personalizada')}
                 </Badge>
               )}
@@ -1496,8 +1497,7 @@ export default function LogisticaAvaliacao() {
               Filtros
             </CardTitle>
             <CardDescription>
-              Escolha a origem. Em seguida selecione a avaliação, o cartão-resposta ou o nome/formato.
-              Escola → Série → Turma (lista vazia = todas). Depois clique em “Carregar turmas”.
+              Escolha a origem e os filtros; depois clique em “Carregar turmas”.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -1717,7 +1717,7 @@ export default function LogisticaAvaliacao() {
                 value={null}
                 options={applicators}
                 onChange={applyBulkApplicator}
-                triggerLabel="Aplicar aplicador às selecionadas"
+                triggerLabel="Definir aplicador nas selecionadas"
               />
               <Button variant="outline" size="sm" onClick={() => removeRows(new Set(selectedKeys))}>
                 <Trash2 className="h-4 w-4 mr-2" />
@@ -1976,7 +1976,7 @@ export default function LogisticaAvaliacao() {
           <DialogHeader>
             <DialogTitle>Exportar PDF</DialogTitle>
             <DialogDescription>
-              O PDF traz o cronograma salvo, agrupado por escola, com totais por escola e total geral.
+              Gera o PDF do cronograma salvo, agrupado por escola.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -2013,14 +2013,13 @@ export default function LogisticaAvaliacao() {
               <div className="flex items-start gap-2 rounded-md border border-amber-400 bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
                 <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                 <span>
-                  Há alterações não salvas na tela. O PDF será gerado com a versão salva do cronograma; salve antes se
-                  quiser incluí-las.
+                  Há alterações não salvas. O PDF usará a versão já salva.
                 </span>
               </div>
             )}
             {current && current.status !== 'publicado' && (
               <p className="text-sm text-muted-foreground">
-                O cabeçalho do PDF indicará que o cronograma está {current.status === 'rascunho' ? 'em rascunho' : 'cancelado'}.
+                O PDF indicará que o cronograma está {current.status === 'rascunho' ? 'não publicado' : 'cancelado'}.
               </p>
             )}
           </div>
@@ -2030,7 +2029,7 @@ export default function LogisticaAvaliacao() {
             </Button>
             <Button onClick={() => void handleExportPdf()} disabled={exportingPdf}>
               {exportingPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-              {editable && isDirty ? 'Exportar versão salva' : 'Gerar PDF'}
+              Gerar PDF
             </Button>
           </DialogFooter>
         </DialogContent>

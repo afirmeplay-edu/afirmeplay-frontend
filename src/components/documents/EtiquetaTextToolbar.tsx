@@ -145,8 +145,9 @@ export function EtiquetaTextToolbar({
       <EtiquetaAlignToolbar id={`${id}-align`} value={align} onChange={onAlignChange} />
 
       <p className="text-xs text-muted-foreground">
-        Use a barra para negrito, itálico, sublinhado e tamanho ({ETIQUETA_TEXTO_TAMANHO_MIN}–{ETIQUETA_TEXTO_TAMANHO_MAX} pt). Marcadores: **negrito**, *itálico*,
-        __sublinhado__{showQuantidadeMarker ? ", {quantidade} (quantidade de alunos da turma)" : ""}.
+        {showQuantidadeMarker
+          ? 'Use o botão Inserir quantidade para mostrar o número de provas da turma.'
+          : `Use a barra para negrito, itálico, sublinhado e tamanho (${ETIQUETA_TEXTO_TAMANHO_MIN}–${ETIQUETA_TEXTO_TAMANHO_MAX} pt).`}
       </p>
     </div>
   );

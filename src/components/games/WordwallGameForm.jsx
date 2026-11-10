@@ -20,6 +20,7 @@ import { useAuth } from '@/context/authContext';
 import { EvaluationResultsApiService } from '@/services/evaluation/evaluationResultsApi';
 import { getUserHierarchyContext } from '@/utils/userHierarchy';
 import { toast } from 'react-toastify';
+import { toUserFacingErrorMessage } from '@/utils/userFacingError';
 
 const WordwallGameForm = () => {
     const navigate = useNavigate();
@@ -125,7 +126,7 @@ const WordwallGameForm = () => {
                 const data = await fetchGamePreview(newUrl);
                 setGameData(data);
             } catch (error) {
-                setError(error.message);
+                setError(toUserFacingErrorMessage(error, 'Não foi possível carregar o preview do Wordwall.'));
             } finally {
                 setIsLoading(false);
             }

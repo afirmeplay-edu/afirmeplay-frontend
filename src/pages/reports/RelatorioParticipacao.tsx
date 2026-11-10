@@ -7,6 +7,7 @@ import {
   RESULTADOS_ALUNOS_FILTRO_PADRAO,
   labelResultadosAlunosFiltro,
 } from '@/constants/resultadosAlunosFiltro';
+import { UI_MSG } from '@/constants/uiMessages';
 import type { ParticipationRecorte } from '@/types/participation-report';
 import {
   AlertCircle,
@@ -775,7 +776,7 @@ export default function RelatorioParticipacao({
       if (!data.por_escola?.length && !data.por_turma?.length && data.metricas.matriculados === 0) {
         toast({
           title: 'Relatório gerado',
-          description: 'Não há dados de participação no escopo selecionado.',
+          description: UI_MSG.NO_DATA_FOR_FILTER,
         });
       }
     } catch (error) {
@@ -873,9 +874,7 @@ export default function RelatorioParticipacao({
             Filtros
           </CardTitle>
           <CardDescription>
-            Estado e município são obrigatórios. {instrumentLabel}, escolas, séries e turmas são
-            opcionais (vazio = todas). Escolas e séries só carregam após selecionar ao menos um{' '}
-            {instrumentSingular}.
+            Estado e município são obrigatórios; demais filtros são opcionais.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1074,7 +1073,7 @@ export default function RelatorioParticipacao({
             <div>
               <h2 className="text-lg font-semibold tracking-tight">Resultado</h2>
               <p className="text-sm text-muted-foreground">
-                Indicadores, gráficos e tabelas do escopo selecionado.
+                Indicadores, gráficos e tabelas dos filtros selecionados.
               </p>
             </div>
             <Button
@@ -1169,7 +1168,7 @@ export default function RelatorioParticipacao({
                   <BarChart3 className="h-4 w-4" />
                   Matriculados × Avaliados
                 </CardTitle>
-                <CardDescription>Comparativo quantitativo do escopo selecionado.</CardDescription>
+                <CardDescription>Comparativo quantitativo dos filtros selecionados.</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="h-72">
@@ -1265,7 +1264,7 @@ export default function RelatorioParticipacao({
             <CardHeader>
               <CardTitle className="text-base">Total por grupo</CardTitle>
               <CardDescription>
-                Matriculados, avaliados e participação de regulares e de Educação Especial no escopo.
+                Matriculados, avaliados e participação por grupo no filtro.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1282,7 +1281,7 @@ export default function RelatorioParticipacao({
                   </TableHeader>
                   <TableBody>
                     <TableRow>
-                      <TableCell className="font-medium">Escopo</TableCell>
+                      <TableCell className="font-medium">Total</TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatNumber(report.metricas.matriculados)}
                       </TableCell>
@@ -1307,7 +1306,7 @@ export default function RelatorioParticipacao({
             </CardHeader>
             <CardContent>
               {report.por_escola.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nenhuma escola no escopo.</p>
+                <p className="text-sm text-muted-foreground">Nenhuma escola no filtro.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <Table>
@@ -1354,7 +1353,7 @@ export default function RelatorioParticipacao({
             </CardHeader>
             <CardContent>
               {(report.por_serie ?? []).length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nenhuma série no escopo.</p>
+                <p className="text-sm text-muted-foreground">Nenhuma série no filtro.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <Table>
@@ -1397,7 +1396,7 @@ export default function RelatorioParticipacao({
             </CardHeader>
             <CardContent>
               {report.por_turma.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nenhuma turma no escopo.</p>
+                <p className="text-sm text-muted-foreground">Nenhuma turma no filtro.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <Table>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Bar,
@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Activity, ClipboardCheck, Download, Filter, RefreshCw, TrendingUp, UserX, Users } from "lucide-react";
 import { InstrumentPickerField } from "@/components/filters";
 import {
@@ -42,7 +43,11 @@ import {
   type SubjectiveFilterEvaluation,
   type SubjectiveSaebLevel,
 } from "@/services/evaluation/subjectiveTestApi";
-import { generateSubjectiveDashboardPdf } from "@/services/reports/subjectiveDashboardPdf";
+import {
+  buildSubjectiveDashboardTableItems,
+  generateSubjectiveDashboardPdf,
+  type SubjectiveStudentSortMode,
+} from "@/services/reports/subjectiveDashboardPdf";
 import { generateSubjectiveCorrectionResponsesPdf } from "@/services/reports/subjectiveCorrectionResponsesPdf";
 import { RUBRIC_COLORS, SAEB_LEVELS, saebFromLevel } from "@/lib/subjectiveSaeb";
 import { DEFAULT_RUBRIC_MARKS } from "@/lib/subjectiveRubric";
@@ -50,6 +55,84 @@ import { DisciplineTag } from "@/components/ui/discipline-tag";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip as UiTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
+const SKILL_AXIS_FULL_LABEL_LIMIT = 8;
+const SKILL_AXIS_MIN_PX_PER_TICK = 72;
+
+/** Quebra rótulo do eixo X em até 3 linhas por palavra; excedente vira "…". */
+function wrapSkillAxisLabel(text: string, maxCharsPerLine = 14, maxLines = 3): string[] {
+  const normalized = String(text || "").trim().replace(/\s+/g, " ");
+  if (!normalized) return ["—"];
+  const words = normalized.split(" ");
+  const lines: string[] = [];
+  let current = "";
+  let overflow = false;
+
+  for (let i = 0; i < words.length; i += 1) {
+    const word = words[i];
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= maxCharsPerLine) {
+      current = candidate;
+      continue;
+    }
+    if (current) {
+      if (lines.length + 1 >= maxLines) {
+        overflow = true;
+        break;
+      }
+      lines.push(current);
+      current = "";
+      i -= 1;
+      continue;
+    }
+    lines.push(word.slice(0, maxCharsPerLine));
+    overflow = word.length > maxCharsPerLine || i < words.length - 1;
+    if (lines.length >= maxLines) {
+      overflow = overflow || i < words.length - 1 || word.length > maxCharsPerLine;
+      current = "";
+      break;
+    }
+    current = "";
+  }
+  if (current) {
+    if (lines.length < maxLines) lines.push(current);
+    else overflow = true;
+  }
+  if (overflow && lines.length > 0) {
+    const last = lines[lines.length - 1].replace(/\s+$/g, "");
+    lines[lines.length - 1] = `${last.slice(0, Math.max(1, maxCharsPerLine - 1))}…`;
+  }
+  return lines.slice(0, maxLines);
+}
+
+function SkillAxisTick(props: {
+  x?: number;
+  y?: number;
+  payload?: { value?: string };
+  useShortLabels?: boolean;
+}) {
+  const { x = 0, y = 0, payload, useShortLabels } = props;
+  const raw = String(payload?.value || "");
+  const lines = useShortLabels ? [raw] : wrapSkillAxisLabel(raw);
+  return (
+    <g transform={`translate(${x},${y})`}>
+      {lines.map((line, idx) => (
+        <text
+          key={`${line}-${idx}`}
+          x={0}
+          y={0}
+          dy={12 + idx * 11}
+          textAnchor="middle"
+          fill="currentColor"
+          className="fill-muted-foreground"
+          fontSize={10}
+        >
+          {line}
+        </text>
+      ))}
+    </g>
+  );
+}
 
 function evaluationSubjectName(e?: SubjectiveFilterEvaluation | null): string | undefined {
   if (!e) return undefined;
@@ -98,6 +181,9 @@ const SubjectiveDashboard = () => {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isExportingResponses, setIsExportingResponses] = useState(false);
   const [dash, setDash] = useState<SubjectiveDashboardResponse | null>(null);
+  const [studentSortMode, setStudentSortMode] = useState<SubjectiveStudentSortMode>("name");
+  const skillChartRef = useRef<HTMLDivElement | null>(null);
+  const [skillChartWidth, setSkillChartWidth] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const filtersRequestIdRef = useRef(0);
@@ -228,12 +314,14 @@ const SubjectiveDashboard = () => {
     setLoadingDash(true);
     setError(null);
     const turmaFiltro = selectedClass === "all" ? null : parseSubjectiveTurmaFilterValue(selectedClass);
+    const schoolId = selectedSchool !== "all" ? selectedSchool : null;
     subjectiveTestApi
       .getDashboard(
         selectedEvaluation,
         turmaFiltro?.classId ?? null,
         selectedMunicipality,
-        turmaFiltro?.subturmaId
+        turmaFiltro?.subturmaId,
+        schoolId
       )
       .then((data) => {
         if (active) setDash(data);
@@ -251,7 +339,7 @@ const SubjectiveDashboard = () => {
     return () => {
       active = false;
     };
-  }, [selectedEvaluation, selectedClass, selectedMunicipality]);
+  }, [selectedEvaluation, selectedClass, selectedMunicipality, selectedSchool]);
 
   const pickerItems = useMemo(() => toPickerItems(evaluations), [evaluations]);
 
@@ -328,23 +416,44 @@ const SubjectiveDashboard = () => {
     if (!dash) return;
     try {
       setIsGeneratingPdf(true);
+      const scopeSchools = (dash.scope?.schools || [])
+        .map((s) => s.name?.trim())
+        .filter((n): n is string => Boolean(n));
+      const scopeGrades = (dash.scope?.grades || [])
+        .map((g) => g.name?.trim())
+        .filter((n): n is string => Boolean(n));
+      const scopeClasses = (dash.scope?.classes || [])
+        .map((c) => (c.name || c.class_name || "").trim())
+        .filter(Boolean);
       await generateSubjectiveDashboardPdf(dash, {
         estado: states.find((s) => s.id === selectedState)?.nome,
-        municipio: municipalities.find((m) => m.id === selectedMunicipality)?.nome,
+        municipio:
+          municipalities.find((m) => m.id === selectedMunicipality)?.nome ||
+          dash.scope?.municipality?.name ||
+          undefined,
         municipioId: selectedMunicipality !== "all" ? selectedMunicipality : null,
         escola:
           selectedSchool !== "all"
             ? schools.find((s) => s.id === selectedSchool)?.nome
-            : "Todas",
+            : undefined,
+        escolas: selectedSchool === "all" ? scopeSchools : undefined,
         serie:
-          selectedGrade !== "all" ? grades.find((g) => g.id === selectedGrade)?.nome : "Todas",
+          selectedGrade !== "all"
+            ? grades.find((g) => g.id === selectedGrade)?.nome
+            : scopeGrades.length
+              ? scopeGrades.join(", ")
+              : "Todas",
         turma:
           selectedClass !== "all"
             ? classes.find((c) => subjectiveTurmaFilterValue(c) === selectedClass)?.nome
-            : "Todas as turmas",
+            : scopeClasses.length
+              ? scopeClasses.join(", ")
+              : "Todas as turmas",
         avaliacaoTitulo:
           evaluations.find((e) => e.id === selectedEvaluation)?.titulo ||
+          dash.scope?.evaluation_title ||
           dash.subjective_test?.title,
+        sortMode: studentSortMode,
       });
       toast({
         title: "Relatório baixado",
@@ -377,6 +486,15 @@ const SubjectiveDashboard = () => {
         selectedClass !== "all"
           ? classes.find((c) => subjectiveTurmaFilterValue(c) === selectedClass)?.nome || "Turma"
           : "Todas as turmas";
+      const scopeSchools = (dash.scope?.schools || [])
+        .map((s) => s.name?.trim())
+        .filter((n): n is string => Boolean(n));
+      const scopeGrades = (dash.scope?.grades || [])
+        .map((g) => g.name?.trim())
+        .filter((n): n is string => Boolean(n));
+      const scopeClasses = (dash.scope?.classes || [])
+        .map((c) => (c.name || c.class_name || "").trim())
+        .filter(Boolean);
       await generateSubjectiveCorrectionResponsesPdf({
         subjective_test: dash.subjective_test,
         class: { id: dash.filters.class_id || "all", name: turmaLabel },
@@ -392,6 +510,11 @@ const SubjectiveDashboard = () => {
           registration: s.registration || "",
           present: s.present,
           results: s.results || {},
+          school_id: s.school_id,
+          school_name: s.school_name,
+          class_id: s.class_id,
+          class_name: s.class_name,
+          subclass_name: s.subclass_name,
           evaluation:
             s.score_percentage != null
               ? {
@@ -407,9 +530,25 @@ const SubjectiveDashboard = () => {
         })),
         rubric_marks: dash.rubric_marks,
       }, {
-        municipio: municipalities.find((m) => m.id === selectedMunicipality)?.nome,
+        municipio:
+          municipalities.find((m) => m.id === selectedMunicipality)?.nome ||
+          dash.scope?.municipality?.name ||
+          undefined,
         municipioId: selectedMunicipality !== "all" ? selectedMunicipality : null,
         escola: selectedSchool !== "all" ? schools.find((s) => s.id === selectedSchool)?.nome : undefined,
+        escolas: selectedSchool === "all" ? scopeSchools : undefined,
+        serie:
+          selectedGrade !== "all"
+            ? grades.find((g) => g.id === selectedGrade)?.nome
+            : scopeGrades.length
+              ? scopeGrades.join(", ")
+              : undefined,
+        turma: turmaLabel,
+        turmas: selectedClass === "all" ? scopeClasses : undefined,
+        avaliacaoTitulo:
+          evaluations.find((e) => e.id === selectedEvaluation)?.titulo ||
+          dash.scope?.evaluation_title ||
+          dash.subjective_test?.title,
       });
       toast({
         title: "Respostas exportadas",
@@ -454,7 +593,14 @@ const SubjectiveDashboard = () => {
   const chartByQuestion = useMemo(
     () =>
       (dash?.per_question || []).map((q) => {
-        const row: Record<string, string | number> = { codigo: q.code || `Q${q.number}` };
+        const skillName = String(q.code || "").trim() || `Q${q.number}`;
+        const shortLabel = `Q${q.number}`;
+        const row: Record<string, string | number> = {
+          codigo: skillName,
+          shortLabel,
+          skillName,
+          number: q.number,
+        };
         for (const m of activeMarks) {
           row[m.code] = q.counts?.[m.code] ?? (q as Record<string, number>)[m.code] ?? 0;
         }
@@ -462,6 +608,33 @@ const SubjectiveDashboard = () => {
       }),
     [dash, activeMarks]
   );
+
+  const useShortSkillAxis = useMemo(() => {
+    const n = chartByQuestion.length;
+    if (n === 0) return false;
+    if (n > SKILL_AXIS_FULL_LABEL_LIMIT) return true;
+    if (skillChartWidth > 0 && skillChartWidth / n < SKILL_AXIS_MIN_PX_PER_TICK) return true;
+    return false;
+  }, [chartByQuestion.length, skillChartWidth]);
+
+  const skillChartData = useMemo(
+    () =>
+      chartByQuestion.map((row) => ({
+        ...row,
+        axisLabel: useShortSkillAxis ? String(row.shortLabel) : String(row.skillName),
+      })),
+    [chartByQuestion, useShortSkillAxis]
+  );
+
+  useLayoutEffect(() => {
+    const el = skillChartRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const update = () => setSkillChartWidth(el.clientWidth || 0);
+    update();
+    const observer = new ResizeObserver(() => update());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [dash?.per_question?.length]);
 
   const radarData = useMemo(
     () =>
@@ -492,7 +665,29 @@ const SubjectiveDashboard = () => {
       (studentSaebCounts?.adequado || 0) +
       (studentSaebCounts?.avancado || 0) || 1;
 
-  const studentsTable = dash?.students || [];
+  const multiSchoolScope = useMemo(() => {
+    if (selectedSchool !== "all") return false;
+    const scopeCount = (dash?.scope?.schools || []).filter((s) => s.id || s.name).length;
+    if (scopeCount > 1) return true;
+    const fromStudents = new Set(
+      (dash?.students || [])
+        .map((s) => String(s.school_id || s.school_name || "").trim())
+        .filter(Boolean)
+    );
+    return fromStudents.size > 1;
+  }, [dash?.scope?.schools, dash?.students, selectedSchool]);
+
+  useEffect(() => {
+    if (!multiSchoolScope && studentSortMode === "ranking_by_school") {
+      setStudentSortMode("ranking");
+    }
+  }, [multiSchoolScope, studentSortMode]);
+
+  const studentsTableItems = useMemo(
+    () => buildSubjectiveDashboardTableItems(dash?.students, studentSortMode),
+    [dash?.students, studentSortMode]
+  );
+  const showPositionColumn = studentSortMode === "ranking" || studentSortMode === "ranking_by_school";
   const getStudentsForLevel = (level: SubjectiveSaebLevel) => studentsByLevel?.[level] || [];
 
   return (
@@ -909,7 +1104,11 @@ const SubjectiveDashboard = () => {
                         <XAxis dataKey="name" fontSize={11} tickLine={false} axisLine={false} />
                         <YAxis fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
                         <Tooltip
-                          formatter={(v: number, _n, p: any) => [`${v} (${p.payload.pct}%)`, p.payload.name]}
+                          formatter={(v: number, _n, item) => {
+                            const pct = (item?.payload as { pct?: number } | undefined)?.pct ?? 0;
+                            const name = (item?.payload as { name?: string } | undefined)?.name || "";
+                            return [`${v} (${pct}%)`, name];
+                          }}
                           contentStyle={{ borderRadius: 8 }}
                         />
                         <Bar dataKey="value" radius={[6, 6, 0, 0]}>
@@ -930,17 +1129,38 @@ const SubjectiveDashboard = () => {
             <Card className="lg:col-span-2">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm text-muted-foreground">Desempenho por habilidade</CardTitle>
-                <p className="text-xs text-muted-foreground/80">Colunas por marcação com quantidades</p>
+                <p className="text-xs text-muted-foreground/80">
+                  {useShortSkillAxis
+                    ? "Eixo em Qn por falta de espaço — nome completo no tooltip"
+                    : "Colunas por marcação com quantidades"}
+                </p>
               </CardHeader>
               <CardContent>
-                <div className="h-72">
-                  {chartByQuestion.length > 0 ? (
+                <div ref={skillChartRef} className={cn(useShortSkillAxis ? "h-80" : "h-96")}>
+                  {skillChartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartByQuestion} margin={{ top: 24, right: 8, left: -18, bottom: 0 }}>
+                      <BarChart
+                        data={skillChartData}
+                        margin={{ top: 24, right: 8, left: -18, bottom: useShortSkillAxis ? 28 : 64 }}
+                      >
                         <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
-                        <XAxis dataKey="codigo" fontSize={11} tickLine={false} axisLine={false} />
+                        <XAxis
+                          dataKey="axisLabel"
+                          interval={0}
+                          tickLine={false}
+                          axisLine={false}
+                          height={useShortSkillAxis ? 28 : 64}
+                          tick={<SkillAxisTick useShortLabels={useShortSkillAxis} />}
+                        />
                         <YAxis fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
-                        <Tooltip contentStyle={{ borderRadius: 8 }} />
+                        <Tooltip
+                          contentStyle={{ borderRadius: 8 }}
+                          labelFormatter={(_label, payload) => {
+                            const row = payload?.[0]?.payload as { skillName?: string; shortLabel?: string } | undefined;
+                            return row?.skillName || row?.shortLabel || String(_label || "");
+                          }}
+                          formatter={(value: number, name: string) => [value, name]}
+                        />
                         <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
                         {activeMarks.map((m) => (
                           <Bar key={m.code} dataKey={m.code} name={m.label} fill={m.color} radius={[4, 4, 0, 0]} />
@@ -1094,67 +1314,125 @@ const SubjectiveDashboard = () => {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="text-sm text-muted-foreground">Alunos por nível</CardTitle>
-              <p className="text-xs text-muted-foreground/80">
-                Tabelinha individual com índice SAEB simplificado da avaliação subjetiva
-              </p>
+            <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="text-sm text-muted-foreground">Alunos por nível</CardTitle>
+                <p className="text-xs text-muted-foreground/80">
+                  Tabelinha individual com índice SAEB simplificado da avaliação subjetiva
+                </p>
+              </div>
+              <ToggleGroup
+                type="single"
+                size="sm"
+                variant="outline"
+                value={studentSortMode}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  setStudentSortMode(value as SubjectiveStudentSortMode);
+                }}
+                className="justify-start"
+                aria-label="Ordenação da tabela de alunos"
+              >
+                <ToggleGroupItem value="name" className="px-3 text-xs">
+                  Por nome
+                </ToggleGroupItem>
+                <ToggleGroupItem value="ranking" className="px-3 text-xs">
+                  Ranking
+                </ToggleGroupItem>
+                {multiSchoolScope ? (
+                  <ToggleGroupItem value="ranking_by_school" className="px-3 text-xs">
+                    Ranking por escola
+                  </ToggleGroupItem>
+                ) : null}
+              </ToggleGroup>
             </CardHeader>
             <CardContent>
-              {studentsTable.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Sem alunos no escopo selecionado.</p>
+              {studentsTableItems.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Sem alunos nos filtros selecionados.</p>
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-border">
-                  <table className="w-full min-w-[520px] border-collapse text-sm">
+                  <table className="w-full min-w-[720px] border-collapse text-sm">
                     <thead>
                       <tr className="bg-muted/60">
+                        {showPositionColumn ? (
+                          <th className="border-b border-border p-3 text-center font-semibold">Posição</th>
+                        ) : null}
                         <th className="border-b border-border p-3 text-left font-semibold">Aluno</th>
+                        <th className="border-b border-border p-3 text-left font-semibold">Escola</th>
+                        <th className="border-b border-border p-3 text-left font-semibold">Turma</th>
                         <th className="border-b border-border p-3 text-center font-semibold">Presença</th>
                         <th className="border-b border-border p-3 text-center font-semibold">Acerto</th>
                         <th className="border-b border-border p-3 text-center font-semibold">Nível</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {studentsTable.map((student, idx) => {
-                        const info = student.saeb_level
-                          ? saebFromLevel(student.saeb_level, student.saeb_label)
-                          : null;
-                        return (
-                          <tr
-                            key={student.id}
-                            className={cn(idx % 2 === 1 && "bg-muted/20", !student.present && "opacity-60")}
-                          >
-                            <td className="border-b border-border p-3">
-                              <div className="font-medium">{student.name}</div>
-                              {student.registration ? (
-                                <div className="text-xs text-muted-foreground">{student.registration}</div>
-                              ) : null}
-                            </td>
-                            <td className="border-b border-border p-3 text-center text-xs">
-                              {student.present ? "Presente" : "Ausente"}
-                            </td>
-                            <td className="border-b border-border p-3 text-center font-semibold">
-                              {student.score_percentage != null ? `${student.score_percentage}%` : "—"}
-                            </td>
-                            <td className="border-b border-border p-3 text-center">
-                              {info ? (
-                                <span
-                                  className={cn(
-                                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                                    info.bg,
-                                    info.text
-                                  )}
+                      {(() => {
+                        let studentIdx = 0;
+                        return studentsTableItems.map((item) => {
+                          if (item.kind === "group") {
+                            return (
+                              <tr key={`group-${item.key}`} className="bg-muted/40">
+                                <td
+                                  colSpan={showPositionColumn ? 7 : 6}
+                                  className="border-b border-border px-3 py-2 text-xs font-semibold text-foreground"
                                 >
-                                  <span>{info.emoji}</span>
-                                  {info.label}
-                                </span>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">—</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                                  Escola: {item.label}
+                                </td>
+                              </tr>
+                            );
+                          }
+                          const { student, position } = item;
+                          const info = student.saeb_level
+                            ? saebFromLevel(student.saeb_level, student.saeb_label)
+                            : null;
+                          const turmaLabel = student.subclass_name || student.class_name || "—";
+                          const idx = studentIdx;
+                          studentIdx += 1;
+                          return (
+                            <tr
+                              key={student.id}
+                              className={cn(idx % 2 === 1 && "bg-muted/20", !student.present && "opacity-60")}
+                            >
+                              {showPositionColumn ? (
+                                <td className="border-b border-border p-3 text-center font-semibold tabular-nums">
+                                  {position != null ? position : "—"}
+                                </td>
+                              ) : null}
+                              <td className="border-b border-border p-3">
+                                <div className="font-medium">{student.name}</div>
+                              </td>
+                              <td className="border-b border-border p-3 text-xs text-muted-foreground">
+                                {student.school_name || "—"}
+                              </td>
+                              <td className="border-b border-border p-3 text-xs text-muted-foreground">
+                                {turmaLabel}
+                              </td>
+                              <td className="border-b border-border p-3 text-center text-xs">
+                                {student.present ? "Presente" : "Ausente"}
+                              </td>
+                              <td className="border-b border-border p-3 text-center font-semibold">
+                                {student.score_percentage != null ? `${student.score_percentage}%` : "—"}
+                              </td>
+                              <td className="border-b border-border p-3 text-center">
+                                {info ? (
+                                  <span
+                                    className={cn(
+                                      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                                      info.bg,
+                                      info.text
+                                    )}
+                                  >
+                                    <span>{info.emoji}</span>
+                                    {info.label}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })()}
                     </tbody>
                   </table>
                 </div>

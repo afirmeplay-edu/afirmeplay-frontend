@@ -1,4 +1,5 @@
 import { api } from '@/lib/api';
+import { toUserFacingErrorMessage } from '@/utils/userFacingError';
 
 export interface BalanceResponse {
   balance: number;
@@ -99,12 +100,5 @@ export async function debit(
  * Retorna a mensagem de erro da API para exibir ao usuário (ex.: saldo insuficiente).
  */
 export function getApiErrorMessage(error: unknown): string {
-  if (error && typeof error === 'object' && 'response' in error) {
-    const res = (error as { response?: { data?: { error?: string; message?: string } } })
-      .response;
-    const msg = res?.data?.error ?? res?.data?.message;
-    if (typeof msg === 'string') return msg;
-  }
-  if (error instanceof Error) return error.message;
-  return 'Erro ao processar a operação.';
+  return toUserFacingErrorMessage(error, 'Erro ao processar a operação.');
 }

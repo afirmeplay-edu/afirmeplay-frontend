@@ -8,6 +8,7 @@ import { AvatarPreview } from "@/components/profile/AvatarPreview";
 import type { AvatarConfig } from "@/context/authContext";
 import { MedalIcon } from "@/components/conquistas/medalConfig";
 import type { MedalhaTipo } from "@/services/conquistasApi";
+import { UI_MSG } from "@/constants/uiMessages";
 
 export type MedalhaRanking = "platina" | "ouro" | "prata" | "bronze";
 
@@ -160,10 +161,8 @@ const RankingCard: React.FC<RankingCardProps> = ({
             <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
               <Info className="w-8 h-8 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-semibold text-foreground mb-2">Nenhum dado disponível</h3>
-            <p className="text-sm text-muted-foreground max-w-sm">
-              Você ainda não possui dados de ranking. Complete avaliações para aparecer no ranking!
-            </p>
+            <h3 className="text-lg font-semibold text-foreground mb-2">{UI_MSG.RANKING_EMPTY}</h3>
+            <p className="text-sm text-muted-foreground max-w-sm">{UI_MSG.RANKING_EMPTY_HINT}</p>
           </div>
         ) : (
           <>

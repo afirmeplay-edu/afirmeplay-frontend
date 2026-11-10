@@ -484,7 +484,7 @@ export default function RelatorioTempoProva() {
       if (!data.metricas.sessoes) {
         toast({
           title: 'Sem sessões',
-          description: 'Não há sessões de prova (web ou mobile) no escopo selecionado.',
+          description: 'Não há sessões de prova (web ou mobile) nos filtros selecionados.',
         });
       }
     } catch (error) {
@@ -770,7 +770,7 @@ export default function RelatorioTempoProva() {
           <div>
             <h2 className="text-lg font-semibold tracking-tight">Resultado</h2>
             <p className="text-sm text-muted-foreground">
-              Indicadores, gráficos e detalhe por aluno do escopo selecionado.
+              Indicadores, gráficos e detalhe por aluno dos filtros selecionados.
             </p>
           </div>
 
@@ -897,7 +897,7 @@ export default function RelatorioTempoProva() {
                       </PieChart>
                     </ResponsiveContainer>
                   ) : (
-                    <p className="text-sm text-muted-foreground py-16 text-center">Sem sessões no escopo.</p>
+                    <p className="text-sm text-muted-foreground py-16 text-center">Sem sessões no filtro.</p>
                   )}
                 </div>
               </CardContent>

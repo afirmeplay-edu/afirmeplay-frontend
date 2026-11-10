@@ -1159,7 +1159,7 @@ export function InstituicaoUsersTab({
               {ROLES_WITH_SCHOOL.includes(editingUser.role) && getSchoolDisplay(editingUser) && (
                 <div className="rounded-lg border border-[#E5D5EA] dark:border-white/10 bg-muted/30 px-4 py-3">
                   <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5 mb-1">
-                    <School className="h-3.5 w-3.5" /> Escola vinculada (somente leitura)
+                    <School className="h-3.5 w-3.5" /> Escola vinculada (não editável)
                   </p>
                   <p className="text-sm font-medium text-foreground">{getSchoolDisplay(editingUser)}</p>
                 </div>

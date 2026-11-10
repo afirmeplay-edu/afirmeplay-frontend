@@ -11,7 +11,7 @@ export const ETIQUETA_FONTE = 9;
 export const ETIQUETA_APLICADORES_GRADE_MIN = 3;
 
 export const MARCADOR_QUANTIDADE = "{quantidade}";
-export const TEXTO_LIVRE_PADRAO_PROVAS = `Neste envelope contém **${MARCADOR_QUANTIDADE}** provas`;
+export const TEXTO_LIVRE_PADRAO_PROVAS = `Este envelope contém **${MARCADOR_QUANTIDADE}** provas`;
 
 const MARCADOR_QUANTIDADE_RE = /\{quantidade\}/gi;
 /** Marcador seguido de "provas", com marcadores de formatação e espaços entre eles. */

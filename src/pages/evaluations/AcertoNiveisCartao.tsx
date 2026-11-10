@@ -2341,7 +2341,7 @@ export default function AcertoNiveis({
       if (!pdfHasData) {
         toast({
           title: "Atenção",
-          description: "Nenhum dado encontrado para o escopo selecionado.",
+          description: "Nenhum dado encontrado para os filtros selecionados.",
           variant: "destructive",
         });
         return;

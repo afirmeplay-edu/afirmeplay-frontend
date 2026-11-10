@@ -22,6 +22,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { labelLogisticsSourceBadge } from '@/utils/logisticsSourceBadge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -512,8 +513,7 @@ export default function LogisticaGrade({
                 Filtros de Pesquisa
               </CardTitle>
               <CardDescription>
-                Avaliação → Escola → Série → Turma. Valor vazio significa Todas. Status, período e aplicador são
-                opcionais; período vazio não esconde item sem data.
+                Filtre por avaliação, escola, série, turma, status, período e aplicador.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -531,7 +531,9 @@ export default function LogisticaGrade({
                       <SelectItem value={ALL}>Todas as avaliações</SelectItem>
                       {avaliacoes.map((item) => (
                         <SelectItem key={item.id} value={item.id}>
-                          {item.source_badge ? `${item.titulo} · ${item.source_badge}` : item.titulo}
+                          {labelLogisticsSourceBadge(item.source_badge)
+                            ? `${item.titulo} · ${labelLogisticsSourceBadge(item.source_badge)}`
+                            : item.titulo}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -735,9 +737,9 @@ export default function LogisticaGrade({
                         <TableCell>
                           <div className="flex flex-col items-start gap-1">
                             <span>{item.display_title || item.test_title || '—'}</span>
-                            {item.source_badge && (
+                            {labelLogisticsSourceBadge(item.source_badge) && (
                               <Badge variant="outline" className="text-[10px] font-normal">
-                                {item.source_badge}
+                                {labelLogisticsSourceBadge(item.source_badge)}
                               </Badge>
                             )}
                           </div>
@@ -754,7 +756,7 @@ export default function LogisticaGrade({
                             <span>{item.applicator_name || '-'}</span>
                             {item.origem === 'auto' && (
                               <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
-                                Automático
+                                Preenchido pelo sistema
                               </Badge>
                             )}
                           </div>

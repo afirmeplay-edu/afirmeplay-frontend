@@ -11,6 +11,8 @@ import {
   readOmrCorrectionFailure,
   summarizeOmrBatchResults,
 } from '@/utils/omrCorrectionResult';
+import { UI_MSG } from '@/constants/uiMessages';
+import { toUserFacingErrorMessage } from '@/utils/userFacingError';
 
 export interface AnswerSheetCorrectionItem {
   status: 'pending' | 'processing' | 'done' | 'error';
@@ -241,18 +243,21 @@ export function useAnswerSheetCorrection() {
         ...prev,
         isProcessing: false,
         isFailed: true,
-        error: 'Resposta inválida: job_id não retornado.',
+        error: UI_MSG.CORRECTION_FAILED,
       }));
       toast({
         title: "Erro ao iniciar correção",
-        description: "O servidor não retornou job_id.",
+        description: UI_MSG.CORRECTION_FAILED,
         variant: "destructive",
       });
       return null;
     } catch (error: unknown) {
       console.error("Erro ao iniciar correção em lote:", error);
       const err = error as { response?: { data?: { error?: string } }; message?: string };
-      const errorMessage = err.response?.data?.error || err.message || "Não foi possível iniciar a correção em lote.";
+      const errorMessage = toUserFacingErrorMessage(
+        err.response?.data?.error || err.message,
+        UI_MSG.CORRECTION_FAILED
+      );
       
       setState(prev => ({
         ...prev,

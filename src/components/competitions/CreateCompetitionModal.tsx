@@ -713,7 +713,7 @@ export function CreateCompetitionModal({
                         </SelectContent>
                       </Select>
                     <p className="text-xs text-muted-foreground">
-                      Define quais etapas de ensino podem receber a competição (uso na Etapa 3).
+                      Define quais etapas de ensino podem receber a competição.
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -738,22 +738,8 @@ export function CreateCompetitionModal({
                         ))}
                       </SelectContent>
                     </Select>
-                    <div className="rounded-md border border-muted bg-muted/30 p-3 text-xs text-muted-foreground space-y-2">
-                      <p className="font-medium text-foreground/90">O que é escopo?</p>
-                      <p>
-                        O escopo define <strong>quem vai ver</strong> essa competição e <strong>quem pode se inscrever</strong>.
-                        Escolha conforme o público que você quer atingir:
-                      </p>
-                      <ul className="list-disc list-inside space-y-0.5 ml-1">
-                        <li><strong>Nenhum / Individual:</strong> a competição fica disponível para todo o sistema (qualquer aluno que tiver acesso).</li>
-                        <li><strong>Turma:</strong> só os alunos de uma ou mais turmas que você escolher.</li>
-                        <li><strong>Escola:</strong> só os alunos de uma ou mais escolas que você escolher.</li>
-                        <li><strong>Município:</strong> só os alunos de um município (cidade) que você escolher.</li>
-                        <li><strong>Estado:</strong> todos os alunos de um estado inteiro.</li>
-                      </ul>
-                      <p className="pt-0.5">
-                        Se não tiver certeza, deixe em <strong>Nenhum</strong> — a competição ficará aberta para todo o sistema.
-                      </p>
+                    <div className="rounded-md border border-muted bg-muted/30 p-3 text-xs text-muted-foreground">
+                      <p>Define quem pode ver e se inscrever nesta competição.</p>
                     </div>
                   </div>
                   {/* Filtro de escopo: modal de seleção múltipla com cards e filtros */}
@@ -827,7 +813,7 @@ export function CreateCompetitionModal({
                                   <Badge key={formData.scope === 'estado' && ids.length === 0 ? `n-${i}` : idOrName} variant="secondary" className="text-xs font-normal">
                                     {formData.scope === 'estado' && ids.length === 0
                                       ? idOrName
-                                      : scopeFilterOptions.find((o) => o.id === idOrName)?.name ?? scopeMunicipalities.find((m) => m.id === idOrName)?.name ?? idOrName.slice(0, 8)}
+                                      : scopeFilterOptions.find((o) => o.id === idOrName)?.name ?? scopeMunicipalities.find((m) => m.id === idOrName)?.name ?? 'Sem nome'}
                                   </Badge>
                                 ))}
                                 {count > 10 && (
@@ -931,7 +917,7 @@ export function CreateCompetitionModal({
                     <RadioGroupItem value="auto_random" id="mode-auto" />
                     <Label htmlFor="mode-auto" className="flex items-center gap-2 cursor-pointer flex-1">
                       <Shuffle className="h-4 w-4" />
-                      Aleatório — sortear por quantidade e dificuldade (usa disciplina e nível já definidos)
+                      Sorteio automático — por quantidade e dificuldade (usa disciplina e nível já definidos)
                     </Label>
                   </div>
                 </RadioGroup>
@@ -1191,7 +1177,7 @@ export function CreateCompetitionModal({
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Visualizar Questão</DialogTitle>
-            <DialogDescription>Prévia em modo somente leitura.</DialogDescription>
+            <DialogDescription>Pré-visualização</DialogDescription>
           </DialogHeader>
           {previewQuestion && (
             <QuestionPreview

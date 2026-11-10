@@ -780,8 +780,8 @@ export default function AnswerSheetCreateGabarito() {
                   )}
                   <p className="text-xs text-muted-foreground">
                     {specialEducation
-                      ? 'Um gabarito por nível. ADAP 1, 2 e 3 são provas diferentes; o cartão vai só para a subturma desse nível.'
-                      : 'Obrigatório. Define as séries do gabarito (não é inferido pelo título).'}
+                      ? 'Um gabarito por nível. ADAP 1, 2 e 3 são provas diferentes; o cartão vai só para a turma ADAP desse nível.'
+                      : 'Selecione as séries. O título da avaliação não define a série automaticamente.'}
                   </p>
                 </div>
                 {canControlAvailability ? (

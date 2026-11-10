@@ -12,6 +12,8 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { UI_MSG } from '@/constants/uiMessages';
+import { toUserFacingErrorMessage } from '@/utils/userFacingError';
 import { MultiSelect } from '@/components/ui/multi-select';
 import {
   FileText,
@@ -804,7 +806,7 @@ export default function AnswerSheetGenerateCards() {
 
           const nextJobId = (data.job_id ?? '').trim();
           if (!nextJobId) {
-            toast({ title: 'Erro', description: 'job_id não retornou do servidor.', variant: 'destructive' });
+            toast({ title: 'Erro', description: UI_MSG.GENERATION_FAILED, variant: 'destructive' });
             setRecalcStatus('idle');
             return;
           }
@@ -870,21 +872,24 @@ export default function AnswerSheetGenerateCards() {
           if (status === 422 && data.reason === 'has_corrections') {
             toast({
               title: 'Estrutura bloqueada',
-              description:
+              description: toUserFacingErrorMessage(
                 [data.error, data.hint].filter(Boolean).join(' ') ||
-                'Este cartão já possui correções. É permitido editar título, habilidades e respostas corretas.',
+                  'Este cartão já possui correções. É permitido editar título, habilidades e respostas corretas.'
+              ),
               variant: 'destructive',
             });
           } else if (status === 400) {
             toast({
               title: 'Erro de validação',
-              description: data.message || data.error || 'Dados inválidos.',
+              description: toUserFacingErrorMessage(data.message || data.error || 'Dados inválidos.'),
               variant: 'destructive',
             });
           } else {
             toast({
               title: 'Erro',
-              description: data.message || data.error || 'Não foi possível salvar as alterações.',
+              description: toUserFacingErrorMessage(
+                data.message || data.error || 'Não foi possível salvar as alterações.'
+              ),
               variant: 'destructive',
             });
           }
@@ -1030,7 +1035,7 @@ export default function AnswerSheetGenerateCards() {
 
         const nextJobId = (data.job_id ?? '').trim();
         if (!nextJobId) {
-          toast({ title: 'Erro', description: 'job_id não retornou do servidor.', variant: 'destructive' });
+          toast({ title: 'Erro', description: UI_MSG.GENERATION_FAILED, variant: 'destructive' });
           return;
         }
 
@@ -1078,21 +1083,24 @@ export default function AnswerSheetGenerateCards() {
         if (status === 422 && data.reason === 'has_corrections') {
           toast({
             title: 'Estrutura bloqueada',
-            description:
+            description: toUserFacingErrorMessage(
               [data.error, data.hint].filter(Boolean).join(' ') ||
-              'Este cartão já possui correções. É permitido editar título, habilidades e respostas corretas.',
+                'Este cartão já possui correções. É permitido editar título, habilidades e respostas corretas.'
+            ),
             variant: 'destructive',
           });
         } else if (status === 400) {
           toast({
             title: 'Erro de validação',
-            description: data.message || data.error || 'Dados inválidos.',
+            description: toUserFacingErrorMessage(data.message || data.error || 'Dados inválidos.'),
             variant: 'destructive',
           });
         } else {
           toast({
             title: 'Erro',
-            description: data.message || data.error || 'Não foi possível salvar a estrutura.',
+            description: toUserFacingErrorMessage(
+              data.message || data.error || 'Não foi possível salvar a estrutura.'
+            ),
             variant: 'destructive',
           });
         }
@@ -2113,7 +2121,10 @@ export default function AnswerSheetGenerateCards() {
 
       toast({
         title: 'Geração iniciada',
-        description: data.note || `Gerando cartões para ${data.total_students ?? 0} alunos.`,
+        description: toUserFacingErrorMessage(
+          data.note || `Gerando cartões para ${data.total_students ?? 0} alunos.`,
+          `Gerando cartões para ${data.total_students ?? 0} alunos.`
+        ),
       });
 
       const statusPath = `/answer-sheets/jobs/${data.job_id}/status`;
@@ -2137,7 +2148,11 @@ export default function AnswerSheetGenerateCards() {
           : 'Não foi possível iniciar a geração.';
       const details = isAxiosError(err) ? (err.response?.data as { details?: unknown } | undefined)?.details : undefined;
       const detailText = Array.isArray(details) && details.length ? ` (${details.join(', ')})` : '';
-      toast({ title: 'Erro', description: `${msg}${detailText}`, variant: 'destructive' });
+      toast({
+        title: 'Erro',
+        description: toUserFacingErrorMessage(`${msg}${detailText}`, UI_MSG.GENERATION_FAILED),
+        variant: 'destructive',
+      });
     }
   };
 

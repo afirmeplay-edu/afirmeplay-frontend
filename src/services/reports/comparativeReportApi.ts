@@ -1,5 +1,6 @@
 import { api } from '@/lib/api';
 import type { ComparativeIndicador } from '@/constants/comparativeReport';
+import { toUserFacingErrorMessage } from '@/utils/userFacingError';
 
 export type ComparativeFilterEntity = { id: string; nome: string };
 
@@ -123,17 +124,7 @@ function normalizeAvaliacoes(
 }
 
 export function getComparativeApiErrorMessage(error: unknown, fallback: string): string {
-  const err = error as {
-    response?: { data?: { error?: string; details?: string; message?: string } };
-    message?: string;
-  };
-  return (
-    err?.response?.data?.error ||
-    err?.response?.data?.message ||
-    err?.response?.data?.details ||
-    err?.message ||
-    fallback
-  );
+  return toUserFacingErrorMessage(error, fallback);
 }
 
 export const ComparativeReportApiService = {
