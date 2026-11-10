@@ -177,6 +177,12 @@ export interface SubjectiveCorrectionStudent {
   results: Record<string, SubjectiveRubricValue>;
   /** Presente após finalizar; null se ainda não gravado. Preview ao vivo também pode preencher. */
   evaluation?: SubjectiveStudentEvaluation | null;
+  /** Opcionais — usados pelo PDF de respostas quando vierem do dashboard. */
+  school_id?: string | null;
+  school_name?: string | null;
+  class_id?: string | null;
+  class_name?: string | null;
+  subclass_name?: string | null;
 }
 
 /** Resposta de GET /subjective-tests/:id/turmas/:classId/correcao */
@@ -300,8 +306,18 @@ export interface SubjectiveDashboardPerQuestion {
   saeb_label: string;
 }
 
+/** Localização (escola/turma) aditiva nos alunos do dashboard. */
+export interface SubjectiveDashboardStudentLocation {
+  school_id?: string | null;
+  school_name?: string | null;
+  class_id?: string | null;
+  class_name?: string | null;
+  /** Preenchido quando o aluno está no recorte ADAP. */
+  subclass_name?: string | null;
+}
+
 /** Aluno classificado no nível SAEB simplificado do dashboard. */
-export interface SubjectiveDashboardStudentByLevel {
+export interface SubjectiveDashboardStudentByLevel extends SubjectiveDashboardStudentLocation {
   id: string;
   name: string;
   registration?: string | null;
@@ -311,7 +327,7 @@ export interface SubjectiveDashboardStudentByLevel {
 }
 
 /** Linha da tabelinha de alunos (inclui ausentes / sem lançamento). */
-export interface SubjectiveDashboardStudentRow {
+export interface SubjectiveDashboardStudentRow extends SubjectiveDashboardStudentLocation {
   id: string;
   name: string;
   registration?: string | null;
@@ -320,6 +336,21 @@ export interface SubjectiveDashboardStudentRow {
   saeb_level: SubjectiveSaebLevel | string | null;
   saeb_label: string | null;
   results: Record<string, SubjectiveRubricValue>;
+}
+
+/** Contexto do recorte retornado por GET /subjective-tests/:id/dashboard */
+export interface SubjectiveDashboardScope {
+  evaluation_title?: string | null;
+  municipality?: { id?: string | null; name?: string | null } | null;
+  schools?: Array<{ id: string; name?: string | null }>;
+  grades?: Array<{ id: string; name?: string | null }>;
+  classes?: Array<{
+    id?: string | null;
+    name?: string | null;
+    class_name?: string | null;
+    subturma_id?: string | null;
+    school_id?: string | null;
+  }>;
 }
 
 /** Resposta de GET /subjective-tests/:id/dashboard */
@@ -332,8 +363,11 @@ export interface SubjectiveDashboardResponse {
   };
   filters: {
     class_id: string | null;
+    subturma_id?: string | null;
+    school_id?: string | null;
     classes: SubjectiveTestEntityRef[];
   };
+  scope?: SubjectiveDashboardScope;
   kpis: SubjectiveDashboardKpis;
   totals: Record<string, number>;
   distribution: SubjectiveDashboardDistributionItem[];
@@ -675,11 +709,13 @@ export const subjectiveTestApi = {
     testId: string,
     classId?: string | null,
     cityId?: string | null,
-    subturmaId?: string | null
+    subturmaId?: string | null,
+    schoolId?: string | null
   ): Promise<SubjectiveDashboardResponse> {
     const params: Record<string, string> = {};
     if (classId && !isFilterAll(classId)) params.class_id = classId;
     if (subturmaId && !isFilterAll(subturmaId)) params.subturma_id = subturmaId;
+    if (schoolId && !isFilterAll(schoolId)) params.school_id = schoolId;
     const response = await api.get<SubjectiveDashboardResponse>(`/subjective-tests/${testId}/dashboard`, {
       params: Object.keys(params).length > 0 ? params : undefined,
       ...(cityId && !isFilterAll(cityId) ? { meta: { cityId } } : {}),

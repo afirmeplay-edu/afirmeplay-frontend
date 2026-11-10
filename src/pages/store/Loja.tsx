@@ -31,12 +31,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { StoreCategory } from "@/types/store";
 import { getStoreIcon, getStoreIconGradient } from "@/constants/storeIcons";
+import { UI_MSG } from "@/constants/uiMessages";
 
 const CATEGORY_TABS: { value: '' | StoreCategory; label: string }[] = [
   { value: '', label: 'Todas' },
   { value: 'frame', label: 'Molduras' },
   { value: 'stamp', label: 'Selos' },
-  { value: 'sidebar_theme', label: 'Temas da sidebar' },
+  { value: 'sidebar_theme', label: 'Temas do menu' },
   { value: 'physical', label: 'Itens físicos' },
 ];
 
@@ -128,8 +129,8 @@ const Loja: React.FC = () => {
         await addOwnedFrame(data.reward_data);
       }
       toast({
-        title: 'Compra realizada!',
-        description: `${data.message || 'Item adquirido.'} Novo saldo: ${formatCoins(data.new_balance)} moedas.`,
+        title: UI_MSG.STORE_ITEM_PURCHASED,
+        description: `Novo saldo: ${formatCoins(data.new_balance)} moedas.`,
       });
     } catch (err: unknown) {
       const res = err && typeof err === 'object' && 'response' in err

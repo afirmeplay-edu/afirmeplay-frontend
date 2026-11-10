@@ -10,7 +10,7 @@ export default function RelatoriosRelatorioGeralHub() {
       defaultTab="avaliacao"
       title="Relatório Geral"
       titleIcon={Layers}
-      description="Consolide múltiplas avaliações ou cartões resposta do município em um único relatório com frequência, médias, habilidades e distribuição de níveis."
+      description="Consolide avaliações ou cartões resposta em um único relatório."
       avaliacao={<RelatorioGeral flow="digital" hidePageHeading />}
       cartao={<RelatorioGeral flow="cartao" hidePageHeading />}
     />

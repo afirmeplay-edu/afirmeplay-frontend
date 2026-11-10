@@ -500,7 +500,7 @@ const AVISO_SEM_VINCULO_PROFESSOR =
   'Não foi possível identificar as turmas do seu vínculo para listar as séries sob sua responsabilidade.';
 
 const AVISO_SEM_PROFESSORES =
-  'Nenhum professor vinculado às séries e turmas deste recorte.';
+  'Nenhum professor vinculado às séries e turmas deste filtro.';
 
 export async function fetchProfessoresResponsaveis(params: {
   escolas: EscolaRef[];
@@ -512,7 +512,7 @@ export async function fetchProfessoresResponsaveis(params: {
   if (escolas.length === 0) {
     return {
       professores: [],
-      aviso: 'Nenhuma escola no recorte para localizar os professores responsáveis.',
+      aviso: 'Nenhuma escola no filtro para localizar os professores responsáveis.',
     };
   }
 

@@ -40,7 +40,15 @@ export function AdapStudentCard({ aluno }: { aluno: TabelaAdapLinha }) {
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge className="border-teal-300 bg-teal-100 text-teal-900">{rotulo}</Badge>
-          <Badge variant="outline" className={`bg-white/95 ${classeBadgeSituacaoAdap(aluno.situacao)}`}>
+          <Badge
+            variant="outline"
+            className={`bg-white/95 ${classeBadgeSituacaoAdap(aluno.situacao)}`}
+            title={
+              aluno.situacao === "inconsistente"
+                ? "Verifique o vínculo deste aluno com a prova regular."
+                : undefined
+            }
+          >
             {labelSituacaoAdap(aluno.situacao)}
           </Badge>
         </div>
@@ -80,7 +88,7 @@ export function AdapStudentCard({ aluno }: { aluno: TabelaAdapLinha }) {
         </div>
 
         <div className="border-t border-border pt-2 text-xs">
-          <div className="mb-1 text-muted-foreground">Prova de origem</div>
+          <div className="mb-1 text-muted-foreground">Prova regular correspondente</div>
           <div className="truncate font-medium text-foreground" title={aluno.prova_origem_titulo || undefined}>
             {aluno.prova_origem_titulo?.trim() || "—"}
           </div>

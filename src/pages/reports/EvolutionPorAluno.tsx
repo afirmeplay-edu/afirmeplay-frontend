@@ -41,6 +41,7 @@ import {
   MAX_STUDENT_EVOLUTION_EVALUATIONS,
 } from '@/utils/studentComparisonAdapter';
 import { formatEvolutionMetric } from '@/utils/evolution/formatEvolutionMetric';
+import { UI_MSG } from '@/constants/uiMessages';
 
 type SourceMode = 'avaliacao' | 'cartao';
 
@@ -235,7 +236,7 @@ export default function EvolutionPorAluno() {
           console.error('Erro no login automático:', error);
           toast({
             title: 'Erro de Autenticação',
-            description: 'Não foi possível fazer login automático. Verifique suas credenciais.',
+            description: UI_MSG.LOAD_FAILED,
             variant: 'destructive',
           });
           return;
@@ -1061,7 +1062,7 @@ export default function EvolutionPorAluno() {
             </CardHeader>
             <CardContent className="space-y-4">
               {orderedStudentEvaluations.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Sem avaliações neste recorte.</p>
+                <p className="text-sm text-muted-foreground">Sem avaliações nestes filtros.</p>
               ) : (
                 <>
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1167,7 +1168,7 @@ export default function EvolutionPorAluno() {
                 <p className="font-medium text-foreground mb-1">Sem comparação para gráficos</p>
                 <p className="text-sm max-w-md mx-auto">
                   {orderedStudentEvaluations.length < 2
-                    ? `Este aluno precisa de pelo menos 2 ${instrumentLabel} com resultado neste recorte.`
+                    ? `Este aluno precisa de pelo menos 2 ${instrumentLabel} com resultado nestes filtros.`
                     : `Selecione pelo menos 2 ${instrumentLabel} acima para exibir os gráficos de evolução.`}
                 </p>
               </CardContent>

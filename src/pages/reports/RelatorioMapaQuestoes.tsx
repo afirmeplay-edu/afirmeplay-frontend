@@ -673,7 +673,7 @@ export default function RelatorioMapaQuestoes({
       if (!data.por_disciplina?.some((d) => d.questoes?.length) && data.metricas.total_alunos_realizaram === 0) {
         toast({
           title: 'Relatório gerado',
-          description: 'Não há respostas no escopo selecionado.',
+          description: 'Não há respostas nos filtros selecionados.',
         });
       }
     } catch (error) {
@@ -1202,7 +1202,7 @@ export default function RelatorioMapaQuestoes({
                   </Table>
                 ) : (
                   <p className="text-sm text-muted-foreground px-6 py-8">
-                    Não há questões para esta disciplina no escopo selecionado.
+                    Não há questões para esta disciplina nos filtros selecionados.
                   </p>
                 )}
               </CardContent>

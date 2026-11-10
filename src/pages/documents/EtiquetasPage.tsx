@@ -1526,7 +1526,7 @@ export default function EtiquetasPage() {
                                 </p>
                               ) : !textoTemMarcadorQuantidade(label.textoLivre) ? (
                                 <p className="text-amber-700 dark:text-amber-400">
-                                  Texto sem {"{quantidade}"}: a quantidade não vai aparecer nesta etiqueta.
+                                  O texto não mostra a quantidade de provas. Use o botão Inserir quantidade.
                                 </p>
                               ) : null}
                             </div>
@@ -1732,7 +1732,7 @@ export default function EtiquetasPage() {
                                     <button
                                       type="button"
                                       className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                      aria-label="Diferença: aplicar a todos da escola"
+                                      aria-label="Como funciona: aplicar a todos da escola"
                                     >
                                       <Info className="h-4 w-4" />
                                     </button>
@@ -1763,7 +1763,7 @@ export default function EtiquetasPage() {
                                     <button
                                       type="button"
                                       className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                      aria-label="Diferença: aplicar a todas as escolas"
+                                      aria-label="Como funciona: aplicar a todas as escolas"
                                     >
                                       <Info className="h-4 w-4" />
                                     </button>

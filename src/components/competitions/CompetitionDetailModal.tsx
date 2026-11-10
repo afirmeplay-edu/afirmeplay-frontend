@@ -10,7 +10,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, Calendar, Clock, Trophy, BookOpen, Hash } from 'lucide-react';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { Loader2, Calendar, Clock, Trophy, BookOpen, Hash, ChevronDown } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { getCompetition } from '@/services/competition/competitionsApi';
@@ -116,15 +121,6 @@ export function CompetitionDetailModal({
                 )}
               </div>
 
-              {competition.scope_filter && Object.keys(competition.scope_filter).length > 0 && (
-                <div className="rounded-lg border p-3 space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">Filtro de escopo</p>
-                  <pre className="text-xs font-mono bg-muted/50 p-2 rounded overflow-x-auto">
-                    {JSON.stringify(competition.scope_filter, null, 2)}
-                  </pre>
-                </div>
-              )}
-
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex items-start gap-2 rounded-lg border p-3">
                   <Calendar className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
@@ -153,15 +149,8 @@ export function CompetitionDetailModal({
                     <p className="text-sm">
                       <strong>Modo:</strong>{' '}
                       {competition.question_mode === 'auto_random'
-                        ? 'Aleatório'
+                        ? 'Sorteio automático'
                         : competition.question_mode}
-                    </p>
-                  )}
-                  {competition.question_rules && (
-                    <p className="text-sm whitespace-pre-wrap">
-                      {typeof competition.question_rules === 'string'
-                        ? competition.question_rules
-                        : JSON.stringify(competition.question_rules, null, 2)}
                     </p>
                   )}
                   {competition.question_mode === 'auto_random' &&
@@ -207,6 +196,38 @@ export function CompetitionDetailModal({
                     );
                   })()}
                 </div>
+              )}
+
+              {((competition.scope_filter && Object.keys(competition.scope_filter).length > 0) ||
+                competition.question_rules) && (
+                <Collapsible defaultOpen={false} className="rounded-lg border">
+                  <CollapsibleTrigger className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-medium hover:bg-muted/40 [&[data-state=open]>svg]:rotate-180">
+                    Configurações avançadas
+                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform" />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="space-y-3 border-t px-3 py-3">
+                      {competition.scope_filter && Object.keys(competition.scope_filter).length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Filtro de escopo</p>
+                          <pre className="text-xs font-mono bg-muted/50 p-2 rounded overflow-x-auto">
+                            {JSON.stringify(competition.scope_filter, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                      {competition.question_rules && (
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Regras de questões</p>
+                          <pre className="text-xs font-mono bg-muted/50 p-2 rounded overflow-x-auto whitespace-pre-wrap">
+                            {typeof competition.question_rules === 'string'
+                              ? competition.question_rules
+                              : JSON.stringify(competition.question_rules, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               )}
 
               {(competition.reward_config?.participation_coins != null ||

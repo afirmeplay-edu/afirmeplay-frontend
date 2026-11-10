@@ -45,7 +45,7 @@ const SCOPE_LABELS: Record<string, string> = {
 const CATEGORY_LABELS: Record<string, string> = {
   frame: 'Moldura',
   stamp: 'Selo',
-  sidebar_theme: 'Tema sidebar',
+  sidebar_theme: 'Tema do menu',
   physical: 'Físico',
 };
 

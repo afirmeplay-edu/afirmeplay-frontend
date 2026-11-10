@@ -20,6 +20,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { AlunosFiltroSelect } from '@/components/filters/AlunosFiltroSelect';
 import { RESULTADOS_ALUNOS_FILTRO_PADRAO } from '@/constants/resultadosAlunosFiltro';
+import { UI_MSG } from '@/constants/uiMessages';
 import { RelatorioConsolidadoItensPicker } from '@/components/reports/relatorio-geral/RelatorioConsolidadoItensPicker';
 import type { RelatorioConsolidadoItemOption } from '@/components/reports/relatorio-geral/RelatorioConsolidadoItensModal';
 import { RelatorioConsolidadoReportSections } from '@/components/reports/relatorio-geral/RelatorioConsolidadoReportSections';
@@ -353,7 +354,7 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
       ) {
         toast({
           title: 'Relatório gerado',
-          description: 'Não há dados de aplicação no escopo selecionado.',
+          description: UI_MSG.NO_DATA_FOR_FILTER,
         });
       }
     } catch (error) {

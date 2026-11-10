@@ -226,13 +226,18 @@ export function CompetitionTemplateForm({
             <div className="space-y-2">
               <Label>Modo de questões</Label>
               <Input
-                value={values.question_mode}
+                value={
+                  !values.question_mode || values.question_mode === 'auto_random'
+                    ? 'Sorteio automático'
+                    : values.question_mode === 'manual'
+                      ? 'Manual'
+                      : values.question_mode
+                }
                 disabled
                 className="bg-muted/40"
               />
               <p className="text-xs text-muted-foreground">
-                Atualmente fixo em <code>auto_random</code>. As regras de sorteio são
-                configuradas no backend.
+                Sorteio automático configurado pelo sistema.
               </p>
             </div>
             <div className="space-y-2">
@@ -260,11 +265,11 @@ export function CompetitionTemplateForm({
               value={values.reward_config_json}
               onChange={(e) => handleChange('reward_config_json', e.target.value)}
               rows={4}
-              placeholder='Ex.: { "participation_coins": 50, "ranking_rewards": [{ "position": 1, "coins": 200 }] }'
+              placeholder="Ex.: configuração de moedas de participação e ranking"
               disabled={readOnly}
             />
             <p className="text-xs text-muted-foreground">
-              Se vazio, o backend usará a configuração padrão. Use JSON válido.
+              Se vazio, o sistema usa a configuração padrão.
             </p>
           </div>
 

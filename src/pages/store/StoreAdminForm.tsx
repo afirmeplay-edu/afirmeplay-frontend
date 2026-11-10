@@ -62,7 +62,7 @@ import { BAND_COLORS, type CompetitionBand } from '@/utils/competition/competiti
 import { PROFICIENCY_LEVELS } from '@/pages/reports/niveis-proficiencia/lib/proficiencyLevelTokens';
 
 const CATEGORIES = [
-  { value: 'sidebar_theme', label: 'Tema da sidebar', description: 'Cor e estilo do menu lateral', icon: Palette, color: 'from-violet-400 to-purple-600', inDevelopment: false },
+  { value: 'sidebar_theme', label: 'Tema do menu', description: 'Cor e estilo do menu lateral', icon: Palette, color: 'from-violet-400 to-purple-600', inDevelopment: false },
   { value: 'physical', label: 'Item físico', description: 'Prêmio entregue fora do sistema', icon: Package, color: 'from-emerald-400 to-teal-600', inDevelopment: false },
   { value: 'frame', label: 'Moldura', description: 'Moldura para foto de perfil do aluno', icon: Sparkles, color: 'from-amber-400 to-yellow-500', inDevelopment: true },
   { value: 'stamp', label: 'Selo', description: 'Selo exibido no perfil ou conquistas', icon: Shield, color: 'from-slate-400 to-slate-600', inDevelopment: true },
@@ -86,7 +86,7 @@ const FRAME_OPTIONS = [
 const STAMP_OPTIONS = [
   { value: 'participation', label: 'Selo de participação', rewardData: 'participation' },
   { value: 'highlight', label: 'Selo destaque', rewardData: 'highlight' },
-  { value: 'custom', label: 'Outro selo (informe o identificador abaixo)', rewardData: '' },
+  { value: 'custom', label: 'Outro selo (informe o nome abaixo)', rewardData: '' },
 ];
 
 const THEME_OPTIONS = [
@@ -507,6 +507,9 @@ export default function StoreAdminForm() {
   };
 
   const scopeOptions = SCOPE_OPTIONS.filter((o) => allowedScopes.includes(o.value));
+  const isAdmin = user?.role === 'admin';
+  const canSeeDevCategories = user?.role === 'admin' || user?.role === 'tecadm';
+  const visibleCategories = CATEGORIES.filter((c) => !c.inDevelopment || canSeeDevCategories);
   const effectiveCityId = user?.role === 'admin' ? selectedCityId : hierarchyContext?.municipality?.id;
 
   if (loadingScopes || (isEdit && loadingItem)) {
@@ -545,10 +548,10 @@ export default function StoreAdminForm() {
           </CardHeader>
           <CardContent className="pt-0">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {CATEGORIES.map((c) => {
+              {visibleCategories.map((c) => {
                 const Icon = c.icon;
                 const selected = category === c.value;
-                const inDev = (c as { inDevelopment?: boolean }).inDevelopment === true;
+                const inDev = c.inDevelopment === true;
                 return (
                   <button
                     key={c.value}
@@ -573,7 +576,7 @@ export default function StoreAdminForm() {
                   >
                     {inDev && (
                       <span className="absolute top-1.5 right-1.5 z-10 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium leading-tight text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">
-                        Em dev.
+                        Em breve
                       </span>
                     )}
                     <div className={cn('flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br text-white shrink-0', c.color, inDev && 'opacity-80')}>
@@ -1082,20 +1085,20 @@ export default function StoreAdminForm() {
                     <SelectContent>
                       <SelectItem value="participation">Selo de participação</SelectItem>
                       <SelectItem value="highlight">Selo destaque</SelectItem>
-                      <SelectItem value="custom">Outro (informe o identificador abaixo)</SelectItem>
+                      <SelectItem value="custom">Outro (informe o nome abaixo)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 {rewardData !== 'participation' && rewardData !== 'highlight' && (
                   <div className="space-y-2">
-                    <Label htmlFor="stampCustomId">Identificador do selo</Label>
+                    <Label htmlFor="stampCustomId">Nome do selo</Label>
                     <Input
                       id="stampCustomId"
                       value={rewardData}
                       onChange={(e) => { setRewardType('stamp'); setRewardData(e.target.value); }}
-                      placeholder="Ex.: participacao, destaque"
+                      placeholder="Ex.: participação, destaque"
                     />
-                    <p className="text-xs text-muted-foreground">Código que identifica este selo no sistema.</p>
+                    <p className="text-xs text-muted-foreground">Informe o nome deste selo.</p>
                   </div>
                 )}
                 <p className="text-xs text-muted-foreground">O selo poderá ser exibido no perfil do aluno.</p>
@@ -1154,29 +1157,29 @@ export default function StoreAdminForm() {
                     type="button"
                     className="flex w-full items-center justify-between py-2 text-left text-sm text-muted-foreground hover:text-foreground transition-colors"
                   >
-                    <span>Para equipe técnica (valores internos)</span>
+                    <span>Configurações avançadas</span>
                     {advancedOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                   </button>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <div className="space-y-4 pt-4">
-                    <p className="text-xs text-muted-foreground">Só preencha se precisar informar um código diferente do que foi escolhido acima.</p>
+                    <p className="text-xs text-muted-foreground">Só preencha se precisar informar um valor diferente do que foi escolhido acima.</p>
                     <div className="space-y-2">
-                      <Label htmlFor="rewardType">Tipo (código interno)</Label>
+                      <Label htmlFor="rewardType">Tipo do item</Label>
                       <Input
                         id="rewardType"
                         value={rewardType}
                         onChange={(e) => setRewardType(e.target.value)}
-                        placeholder="Ex.: frame, stamp, sidebar_theme"
+                        placeholder="Tipo do item"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="rewardData">Valor (ID ou código)</Label>
+                      <Label htmlFor="rewardData">Variante</Label>
                       <Input
                         id="rewardData"
                         value={rewardData}
                         onChange={(e) => setRewardData(e.target.value)}
-                        placeholder="Ex.: gold, blue, participation"
+                        placeholder="Variante"
                       />
                   </div>
                 </div>

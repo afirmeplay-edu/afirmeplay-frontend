@@ -311,7 +311,7 @@ export default function Competitions() {
                       <SelectContent>
                         <SelectItem value="all">Todas</SelectItem>
                         <SelectItem value="rascunho">Rascunho</SelectItem>
-                        <SelectItem value="draft">Rascunho (draft)</SelectItem>
+                        <SelectItem value="draft">Rascunho</SelectItem>
                         <SelectItem value="aberta">Abertas</SelectItem>
                         <SelectItem value="enrollment_open">Inscrições abertas</SelectItem>
                         <SelectItem value="active">Ativa</SelectItem>

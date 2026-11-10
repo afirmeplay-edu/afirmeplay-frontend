@@ -8,7 +8,112 @@ import { SAEB_LEVELS, saebFromLevel } from "@/lib/subjectiveSaeb";
 import type {
   SubjectiveDashboardResponse,
   SubjectiveDashboardPerQuestion,
+  SubjectiveDashboardStudentRow,
 } from "@/services/evaluation/subjectiveTestApi";
+
+/** Modo de ordenação da tabelinha de alunos (UI + PDF). */
+export type SubjectiveStudentSortMode = "name" | "ranking" | "ranking_by_school";
+
+export type SubjectiveDashboardTableItem =
+  | { kind: "group"; key: string; label: string }
+  | { kind: "student"; student: SubjectiveDashboardStudentRow; position: number | null };
+
+function compareStudentName(a: string, b: string): number {
+  return String(a || "").localeCompare(String(b || ""), "pt-BR", { sensitivity: "base" });
+}
+
+function isRankableStudent(student: SubjectiveDashboardStudentRow): boolean {
+  return Boolean(student.present) && student.score_percentage != null;
+}
+
+function schoolGroupKey(student: SubjectiveDashboardStudentRow): string {
+  return String(student.school_id || student.school_name || "").trim() || "__sem_escola__";
+}
+
+function schoolGroupLabel(student: SubjectiveDashboardStudentRow): string {
+  return String(student.school_name || "").trim() || "Sem escola";
+}
+
+/** Ranking competitivo: 1, 2, 2, 4. Empate → mesma posição; ausentes/pendentes no fim com null. */
+function rankStudents(students: SubjectiveDashboardStudentRow[]): Array<{
+  student: SubjectiveDashboardStudentRow;
+  position: number | null;
+}> {
+  const rankable = students.filter(isRankableStudent).sort((a, b) => {
+    const scoreDiff = (b.score_percentage || 0) - (a.score_percentage || 0);
+    if (scoreDiff !== 0) return scoreDiff;
+    return compareStudentName(a.name, b.name);
+  });
+  const pending = students
+    .filter((s) => !isRankableStudent(s))
+    .sort((a, b) => compareStudentName(a.name, b.name));
+
+  const ranked: Array<{ student: SubjectiveDashboardStudentRow; position: number | null }> = [];
+  let i = 0;
+  while (i < rankable.length) {
+    const score = rankable[i].score_percentage;
+    let j = i + 1;
+    while (j < rankable.length && rankable[j].score_percentage === score) j += 1;
+    const position = i + 1;
+    for (let k = i; k < j; k += 1) {
+      ranked.push({ student: rankable[k], position });
+    }
+    i = j;
+  }
+  for (const student of pending) {
+    ranked.push({ student, position: null });
+  }
+  return ranked;
+}
+
+/** Monta linhas da tabelinha conforme o modo (inclui grupos no ranking por escola). */
+export function buildSubjectiveDashboardTableItems(
+  students: SubjectiveDashboardStudentRow[] | undefined | null,
+  mode: SubjectiveStudentSortMode = "name"
+): SubjectiveDashboardTableItem[] {
+  const list = [...(students || [])];
+  if (mode === "name") {
+    return list
+      .sort((a, b) => compareStudentName(a.name, b.name))
+      .map((student) => ({ kind: "student" as const, student, position: null }));
+  }
+
+  if (mode === "ranking") {
+    return rankStudents(list).map(({ student, position }) => ({
+      kind: "student" as const,
+      student,
+      position,
+    }));
+  }
+
+  // ranking_by_school
+  const bySchool = new Map<string, SubjectiveDashboardStudentRow[]>();
+  for (const student of list) {
+    const key = schoolGroupKey(student);
+    const bucket = bySchool.get(key) || [];
+    bucket.push(student);
+    bySchool.set(key, bucket);
+  }
+
+  const schoolEntries = [...bySchool.entries()].sort((a, b) => {
+    const labelA = schoolGroupLabel(a[1][0] || ({ name: "" } as SubjectiveDashboardStudentRow));
+    const labelB = schoolGroupLabel(b[1][0] || ({ name: "" } as SubjectiveDashboardStudentRow));
+    return compareStudentName(labelA, labelB);
+  });
+
+  const items: SubjectiveDashboardTableItem[] = [];
+  for (const [key, groupStudents] of schoolEntries) {
+    items.push({
+      kind: "group",
+      key,
+      label: schoolGroupLabel(groupStudents[0]),
+    });
+    for (const row of rankStudents(groupStudents)) {
+      items.push({ kind: "student", student: row.student, position: row.position });
+    }
+  }
+  return items;
+}
 
 const C = {
   primary: [124, 62, 237] as [number, number, number],
@@ -50,11 +155,28 @@ export type SubjectiveDashboardPdfMeta = {
   estado?: string;
   municipio?: string;
   municipioId?: string | null;
+  /** Escola selecionada (filtro único). */
   escola?: string;
+  /** Lista de escolas do escopo quando o filtro é "Todas". */
+  escolas?: string[];
   serie?: string;
   turma?: string;
   avaliacaoTitulo?: string;
+  /** Ordenação da tabelinha; padrão "name" quando omitido. */
+  sortMode?: SubjectiveStudentSortMode;
 };
+
+function studentTurmaLabel(student: {
+  subclass_name?: string | null;
+  class_name?: string | null;
+}): string {
+  return String(student.subclass_name || student.class_name || "—").trim() || "—";
+}
+
+function questionShortLabel(q: { number?: number | null }): string {
+  const n = Number(q.number);
+  return Number.isFinite(n) && n > 0 ? `Q${n}` : "Q?";
+}
 
 function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace("#", "").trim();
@@ -145,19 +267,23 @@ function drawSectionTitle(
   doc: import("jspdf").jsPDF,
   title: string,
   subtitle: string | undefined,
-  y: number
+  y: number,
+  pageWidth?: number
 ): number {
+  const maxW = (pageWidth || 210) - MARGIN * 2;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.setTextColor(...C.textDark);
-  doc.text(title, MARGIN, y);
-  y += 5;
+  const titleLines = doc.splitTextToSize(title, maxW);
+  doc.text(titleLines, MARGIN, y);
+  y += titleLines.length * 4.5 + 1;
   if (subtitle) {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(...C.textGray);
-    doc.text(subtitle, MARGIN, y);
-    y += 5;
+    const subLines = doc.splitTextToSize(subtitle, maxW);
+    doc.text(subLines, MARGIN, y);
+    y += subLines.length * 3.8 + 1.5;
   }
   return y;
 }
@@ -289,7 +415,8 @@ function drawSaebLevels(
     doc,
     "Niveis de Proficiencia",
     "Distribuicao dos alunos por nivel (passe o mouse na tela para ver os nomes)",
-    y
+    y,
+    pageWidth
   );
 
   const counts = dash.student_saeb_levels || dash.saeb_levels || {
@@ -362,7 +489,7 @@ function drawStudentsByLevelLists(
   if (!byLevel) return y;
 
   y = ensureSpace(doc, y, 24, pageWidth, pageHeight, title);
-  y = drawSectionTitle(doc, "Alunos por nivel", "Lista de alunos em cada faixa de proficiencia", y);
+  y = drawSectionTitle(doc, "Alunos por nivel", "Lista de alunos em cada faixa de proficiencia", y, pageWidth);
 
   for (const level of SAEB_LEVELS) {
     const students = byLevel[level.level] || [];
@@ -386,10 +513,13 @@ function drawStudentsByLevelLists(
     doc.setFontSize(8);
     doc.setTextColor(...C.textDark);
     for (const student of students) {
-      y = ensureSpace(doc, y, 5, pageWidth, pageHeight, title);
-      const line = `${student.name} — ${student.score_percentage}%`;
-      doc.text(line, MARGIN + 2, y);
-      y += 4;
+      y = ensureSpace(doc, y, 10, pageWidth, pageHeight, title);
+      const school = String(student.school_name || "—").trim() || "—";
+      const turma = studentTurmaLabel(student);
+      const line = `${student.name} — ${student.score_percentage}% · ${school} · ${turma}`;
+      const wrapped = doc.splitTextToSize(line, pageWidth - MARGIN * 2 - 2);
+      doc.text(wrapped, MARGIN + 2, y);
+      y += wrapped.length * 3.6 + 1.2;
     }
     y += 2;
   }
@@ -403,28 +533,44 @@ function drawStudentsTable(
   y: number,
   pageWidth: number,
   pageHeight: number,
-  title: string
+  title: string,
+  sortMode: SubjectiveStudentSortMode = "name"
 ): number {
-  const students = dash.students || [];
-  if (students.length === 0) return y;
+  const items = buildSubjectiveDashboardTableItems(dash.students, sortMode);
+  if (items.length === 0) return y;
+
+  const showPosition = sortMode === "ranking" || sortMode === "ranking_by_school";
+  const modeLabel =
+    sortMode === "ranking"
+      ? "Ordenacao: ranking por acerto"
+      : sortMode === "ranking_by_school"
+        ? "Ordenacao: ranking por escola"
+        : "Ordenacao: por nome";
 
   y = ensureSpace(doc, y, 28, pageWidth, pageHeight, title);
   y = drawSectionTitle(
     doc,
     "Tabelinha de alunos",
-    "Presenca, acerto e nivel SAEB simplificado",
-    y
+    `Presenca, acerto e nivel SAEB simplificado · ${modeLabel}`,
+    y,
+    pageWidth
   );
 
   const contentW = pageWidth - MARGIN * 2;
+  const posW = showPosition ? contentW * 0.08 : 0;
+  const rest = contentW - posW;
   const cols = [
-    { key: "name", label: "Aluno", w: contentW * 0.42 },
-    { key: "present", label: "Presenca", w: contentW * 0.16 },
-    { key: "score", label: "Acerto", w: contentW * 0.16 },
-    { key: "level", label: "Nivel", w: contentW * 0.26 },
+    ...(showPosition ? [{ key: "pos", label: "Pos.", w: posW }] : []),
+    { key: "name", label: "Aluno", w: rest * (showPosition ? 0.22 : 0.22) },
+    { key: "school", label: "Escola", w: rest * (showPosition ? 0.2 : 0.22) },
+    { key: "class", label: "Turma", w: rest * (showPosition ? 0.16 : 0.16) },
+    { key: "present", label: "Presenca", w: rest * (showPosition ? 0.12 : 0.12) },
+    { key: "score", label: "Acerto", w: rest * (showPosition ? 0.12 : 0.1) },
+    { key: "level", label: "Nivel", w: rest * (showPosition ? 0.18 : 0.18) },
   ];
-  const rowH = 6;
   const headerH = 7;
+  const lineH = 3.4;
+  const groupH = 7;
 
   const drawHeader = () => {
     doc.setFillColor(...C.bgLight);
@@ -442,7 +588,43 @@ function drawStudentsTable(
 
   drawHeader();
 
-  students.forEach((student, idx) => {
+  let studentIdx = 0;
+  items.forEach((item) => {
+    if (item.kind === "group") {
+      if (y + groupH > pageHeight - FOOTER_H - 4) {
+        doc.addPage();
+        drawTopBand(doc, pageWidth, title);
+        y = MARGIN + TOP_BAND_H + 4;
+        drawHeader();
+      }
+      doc.setFillColor(...C.bgLight);
+      doc.setDrawColor(...C.borderLight);
+      doc.rect(MARGIN, y, contentW, groupH, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(...C.primary);
+      const groupLines = doc.splitTextToSize(`Escola: ${item.label}`, contentW - 4);
+      doc.text(groupLines[0], MARGIN + 2, y + 4.6);
+      y += groupH;
+      return;
+    }
+
+    const { student, position } = item;
+    const values = [
+      ...(showPosition ? [position != null ? String(position) : "—"] : []),
+      student.name || "—",
+      student.school_name || "—",
+      studentTurmaLabel(student),
+      student.present ? "Presente" : "Ausente",
+      student.score_percentage != null ? `${student.score_percentage}%` : "—",
+      student.saeb_label || "—",
+    ];
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    const wrappedCols = values.map((val, i) => doc.splitTextToSize(String(val), cols[i].w - 2));
+    const maxLines = Math.max(1, ...wrappedCols.map((lines) => lines.length));
+    const rowH = Math.max(6.5, maxLines * lineH + 2.2);
+
     if (y + rowH > pageHeight - FOOTER_H - 4) {
       doc.addPage();
       drawTopBand(doc, pageWidth, title);
@@ -450,30 +632,20 @@ function drawStudentsTable(
       drawHeader();
     }
 
-    if (idx % 2 === 1) {
+    if (studentIdx % 2 === 1) {
       doc.setFillColor(...C.bgCard);
       doc.setDrawColor(...C.borderLight);
       doc.rect(MARGIN, y, contentW, rowH, "F");
     }
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
     doc.setTextColor(...C.textDark);
-
-    const values = [
-      student.name || "—",
-      student.present ? "Presente" : "Ausente",
-      student.score_percentage != null ? `${student.score_percentage}%` : "—",
-      student.saeb_label || "—",
-    ];
-
     let x = MARGIN;
-    values.forEach((val, i) => {
-      const clipped = doc.splitTextToSize(String(val), cols[i].w - 2);
-      doc.text(clipped.slice(0, 1), x + 1.5, y + 4);
+    wrappedCols.forEach((lines, i) => {
+      doc.text(lines, x + 1.5, y + 4);
       x += cols[i].w;
     });
     y += rowH;
+    studentIdx += 1;
   });
 
   return y + 4;
@@ -485,7 +657,7 @@ function drawDistributionChart(
   y: number,
   pageWidth: number
 ): number {
-  y = drawSectionTitle(doc, "Distribuição geral", "Quantidade e % por marcação", y);
+  y = drawSectionTitle(doc, "Distribuição geral", "Quantidade e % por marcação", y, pageWidth);
 
   const dist = buildDistribution(dash);
   const maxVal = Math.max(...dist.map((d) => d.value), 1);
@@ -522,30 +694,51 @@ function drawQuestionRow(
   doc: import("jspdf").jsPDF,
   q: SubjectiveDashboardPerQuestion,
   y: number,
-  pageWidth: number
+  pageWidth: number,
+  pageHeight: number,
+  title: string
 ): number {
   const contentW = pageWidth - MARGIN * 2;
   const info = saebFromLevel(q.saeb_level, q.saeb_label);
   const total = q.total || 1;
-  const code = q.code || `Q${q.number}`;
-  const skillLines = doc.splitTextToSize(q.skill_description || "—", contentW - 42);
-  const skillH = Math.min(skillLines.length, 3) * 3.5;
-  const rowH = Math.max(22, 10 + skillH + 10);
+  const shortCode = questionShortLabel(q);
+  const skillName = String(q.code || "").trim() || shortCode;
+  const skillDesc = String(q.skill_description || "").trim();
+  const textMaxW = contentW - 42;
 
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  const nameLines = doc.splitTextToSize(skillName, textMaxW);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  const descLines = skillDesc ? doc.splitTextToSize(skillDesc, textMaxW) : [];
+  const textBlockH = nameLines.length * 3.6 + (descLines.length ? 1.2 + descLines.length * 3.2 : 0);
+  const rowH = Math.max(24, 8 + textBlockH + 12);
+
+  y = ensureSpace(doc, y, rowH + 2, pageWidth, pageHeight, title);
   drawRoundedRect(doc, MARGIN, y, contentW, rowH, C.bgCard);
 
-  // badge código
+  // badge curto Qn
   doc.setFillColor(...C.primary);
   doc.roundedRect(MARGIN + 2.5, y + 2.5, 14, 5.5, 1, 1, "F");
   doc.setFont("helvetica", "bold");
   doc.setFontSize(7);
   doc.setTextColor(...C.white);
-  doc.text(code, MARGIN + 9.5, y + 6.2, { align: "center" });
+  doc.text(shortCode, MARGIN + 9.5, y + 6.2, { align: "center" });
 
-  doc.setFont("helvetica", "normal");
+  let textY = y + 6.5;
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
   doc.setTextColor(...C.textDark);
-  doc.text(skillLines.slice(0, 3), MARGIN + 19, y + 6.5);
+  doc.text(nameLines, MARGIN + 19, textY);
+  textY += nameLines.length * 3.6;
+  if (descLines.length) {
+    textY += 1.2;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(...C.textGray);
+    doc.text(descLines, MARGIN + 19, textY);
+  }
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
@@ -575,12 +768,13 @@ function drawQuestionRow(
   doc.setFontSize(6);
   doc.setTextColor(...C.textGray);
   const legend = [
-    `Sim ${q.SIM} (${Math.round((q.SIM / total) * 100)}%)`,
-    `Parcial ${q.PARCIAL} (${Math.round((q.PARCIAL / total) * 100)}%)`,
-    `Não ${q.NAO} (${Math.round((q.NAO / total) * 100)}%)`,
-    `Branco ${q.BRANCO} (${Math.round((q.BRANCO / total) * 100)}%)`,
+    `Sim ${q.SIM} (${Math.round(((q.SIM || 0) / total) * 100)}%)`,
+    `Parcial ${q.PARCIAL} (${Math.round(((q.PARCIAL || 0) / total) * 100)}%)`,
+    `Não ${q.NAO} (${Math.round(((q.NAO || 0) / total) * 100)}%)`,
+    `Branco ${q.BRANCO} (${Math.round(((q.BRANCO || 0) / total) * 100)}%)`,
   ].join("   ");
-  doc.text(legend, barX, barY + 6.5);
+  const legendLines = doc.splitTextToSize(legend, barW);
+  doc.text(legendLines, barX, barY + 6.5);
 
   return y + rowH + 3;
 }
@@ -662,10 +856,21 @@ export async function generateSubjectiveDashboardPdf(
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(...C.textGray);
+  const scopeSchools =
+    meta.escolas && meta.escolas.length > 0
+      ? meta.escolas
+      : (dash.scope?.schools || [])
+          .map((s) => String(s.name || "").trim())
+          .filter(Boolean);
+  const escolaLine = meta.escola
+    ? `Escola: ${meta.escola}`
+    : scopeSchools.length > 0
+      ? `Escolas: ${scopeSchools.join("; ")}`
+      : null;
   const metaLines = [
     meta.estado ? `Estado: ${meta.estado}` : null,
     meta.municipio ? `Município: ${meta.municipio}` : null,
-    meta.escola ? `Escola: ${meta.escola}` : null,
+    escolaLine,
     meta.serie ? `Série: ${meta.serie}` : null,
     meta.turma ? `Turma: ${meta.turma}` : null,
     dash.subjective_test?.test_type ? `Tipo: ${dash.subjective_test.test_type}` : null,
@@ -687,7 +892,7 @@ export async function generateSubjectiveDashboardPdf(
   y = ensureSpace(doc, y, 85, pageWidth, pageHeight, title);
   y = drawSaebLevels(doc, dash, y, pageWidth);
   y = drawStudentsByLevelLists(doc, dash, y, pageWidth, pageHeight, title);
-  y = drawStudentsTable(doc, dash, y, pageWidth, pageHeight, title);
+  y = drawStudentsTable(doc, dash, y, pageWidth, pageHeight, title, meta.sortMode || "name");
   y = ensureSpace(doc, y, 70, pageWidth, pageHeight, title);
   y = drawDistributionChart(doc, dash, y, pageWidth);
 
@@ -696,7 +901,8 @@ export async function generateSubjectiveDashboardPdf(
     doc,
     "Questões / Habilidades avaliadas",
     "Desempenho por habilidade (rubrica SIM / PARCIAL / NÃO / BRANCO)",
-    y
+    y,
+    pageWidth
   );
 
   const questions = dash.per_question || [];
@@ -707,8 +913,7 @@ export async function generateSubjectiveDashboardPdf(
     doc.text("Sem dados para exibir.", MARGIN, y);
   } else {
     for (const q of questions) {
-      y = ensureSpace(doc, y, 28, pageWidth, pageHeight, title);
-      y = drawQuestionRow(doc, q, y, pageWidth);
+      y = drawQuestionRow(doc, q, y, pageWidth, pageHeight, title);
     }
   }
 

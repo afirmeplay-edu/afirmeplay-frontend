@@ -30,6 +30,8 @@ import {
   getResultsPeriodYearMax,
   normalizeResultsPeriodYm,
 } from "@/utils/resultsPeriod";
+import { toUserFacingErrorMessage } from "@/utils/userFacingError";
+import { UI_MSG } from "@/constants/uiMessages";
 
 type FilterOption = { id: string; name: string };
 type RankingItemOption = { id: string; label: string };
@@ -400,7 +402,7 @@ export default function RankingGeral() {
     } catch (error) {
       toast({
         title: "Erro ao gerar PDF",
-        description: error instanceof Error ? error.message : "Falha inesperada ao exportar relatório.",
+        description: toUserFacingErrorMessage(error, UI_MSG.GENERIC_ACTION_FAILED),
         variant: "destructive",
       });
     } finally {

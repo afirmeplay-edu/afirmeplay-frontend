@@ -13,6 +13,7 @@ import { getVideoThumbnail } from '@/lib/utils';
 import { RewardBadge } from '@/components/rewards/RewardBadge';
 import { getMyContentRewards } from '@/services/contentRewardsApi';
 import { CONTENT_REWARD_UI } from '@/constants/contentRewards';
+import { toUserFacingErrorMessage } from '@/utils/userFacingError';
 
 interface ApiError {
   response?: {
@@ -73,7 +74,7 @@ export default function PlayTvStudent() {
       
       toast({
         title: 'Erro',
-        description: error.response?.data?.message || error.message || 'Não foi possível carregar os vídeos.',
+        description: toUserFacingErrorMessage(error, 'Não foi possível carregar os vídeos.'),
         variant: 'destructive',
       });
       setVideos([]);

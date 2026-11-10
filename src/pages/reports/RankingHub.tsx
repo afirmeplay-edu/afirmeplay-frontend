@@ -35,6 +35,8 @@ import { cn } from "@/lib/utils";
 import { format, parse } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { RESULTS_MONTH_NAMES_PT, RESULTS_PERIOD_YEAR_MIN, getResultsPeriodYearMax, normalizeResultsPeriodYm } from "@/utils/resultsPeriod";
+import { toUserFacingErrorMessage } from "@/utils/userFacingError";
+import { UI_MSG } from "@/constants/uiMessages";
 
 type RankingTab = "visao-geral" | "escola-turma" | "professores";
 type RankingEntityTab = "avaliacao" | "cartao";
@@ -824,7 +826,7 @@ export default function RankingHub() {
     } catch (error) {
       toast({
         title: "Erro ao gerar PDF",
-        description: error instanceof Error ? error.message : "Falha inesperada ao exportar relatório.",
+        description: toUserFacingErrorMessage(error, UI_MSG.GENERIC_ACTION_FAILED),
         variant: "destructive",
       });
     } finally {
@@ -860,10 +862,10 @@ export default function RankingHub() {
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground">
-          Visão geral, escola/turma e ranking de professores com o mesmo recorte de filtros.
+          Visão geral, escola/turma e ranking de professores com os mesmos filtros.
         </p>
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <span>{recorteLabel || "Sem recorte municipal"}</span>
+          <span>{recorteLabel || "Sem filtros municipais"}</span>
           <span className="text-border">•</span>
           <span className="capitalize">{periodoLabel}</span>
         </div>

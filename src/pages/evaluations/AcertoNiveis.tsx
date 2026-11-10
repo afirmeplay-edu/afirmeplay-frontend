@@ -1569,7 +1569,7 @@ export default function AcertoNiveis({ hidePageHeading = false }: { hidePageHead
       if (!pdfHasData) {
         toast({
           title: "Atenção",
-          description: "Nenhum dado encontrado para o escopo selecionado.",
+          description: "Nenhum dado encontrado para os filtros selecionados.",
           variant: "destructive",
         });
         return;

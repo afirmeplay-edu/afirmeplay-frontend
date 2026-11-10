@@ -391,8 +391,7 @@ export default function FolhaRascunhoPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Folha de rascunho</h1>
           <p className="text-sm text-muted-foreground">
-            Gere folhas em branco por aluno (PDF no navegador). Todos os modos incluem todos os alunos
-            matriculados nas turmas do recorte selecionado.
+            Gere folhas em branco por aluno em PDF. Inclui todos os alunos matriculados nas turmas do filtro.
           </p>
         </div>
       </div>

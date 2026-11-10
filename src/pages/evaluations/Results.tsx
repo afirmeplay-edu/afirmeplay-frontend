@@ -48,6 +48,8 @@ import {
   isResultadosAlunosFiltro,
   labelResultadosAlunosFiltro,
 } from "@/constants/resultadosAlunosFiltro";
+import { UI_MSG } from "@/constants/uiMessages";
+import { toUserFacingErrorMessage } from "@/utils/userFacingError";
 import { getUserHierarchyContext, type UserHierarchyContext } from "@/utils/userHierarchy";
 import { ResultsCharts } from "@/components/evaluations/results/ResultsCharts";
 import { ClassStatistics } from "@/components/evaluations/results/ClassStatistics";
@@ -811,10 +813,17 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
       const ax = error as { response?: { status?: number; data?: { error?: string; details?: string } } };
       if (ax.response?.status !== 400) return;
       const d = ax.response.data;
-      const description = d?.details ? `${d.error ?? ''}${d.error ? ' ' : ''}(${d.details})`.trim() : d?.error;
+      const rawParts = [d?.error, d?.details].filter((p): p is string => typeof p === 'string' && !!p.trim());
+      const raw = rawParts.join(' ').trim();
+      const sanitized = raw
+        ? toUserFacingErrorMessage(raw, UI_MSG.FILTER_APPLY_FAILED)
+        : UI_MSG.FILTER_APPLY_FAILED;
+      const looksLikePeriod =
+        /\b(per[ií]odo|period|AAAA-MM|m[eê]s|ano)\b/i.test(raw) ||
+        /\b(per[ií]odo|period|AAAA-MM|m[eê]s|ano)\b/i.test(sanitized);
       toast({
         title: 'Filtro inválido',
-        description: description || 'Verifique o período (formato AAAA-MM).',
+        description: looksLikePeriod ? UI_MSG.PERIOD_INVALID : sanitized,
         variant: 'destructive',
       });
     },
@@ -875,7 +884,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
           console.error("Erro no login automático:", error);
           toast({
             title: "Erro de Autenticação",
-            description: "Não foi possível fazer login automático. Verifique suas credenciais.",
+            description: UI_MSG.LOAD_FAILED,
             variant: "destructive",
           });
           return;
@@ -2691,18 +2700,9 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
           {/* Informação sobre filtros */}
           <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
             <p className="text-sm text-blue-700 dark:text-blue-400">
-              💡 <strong>Hierarquia dos Filtros:</strong> Estado → Município → Período (opcional) → Avaliação → Escola → Série → Turma → Alunos
-            </p>
-            <p className="text-sm text-blue-700 mt-1">
-              {isRestrictedUser ? (
-                <>
-                  <strong>Estado</strong>, <strong>Município</strong>, <strong>Avaliação</strong> e <strong>Escola</strong> são obrigatórios para {isProfessor ? 'professores' : 'diretores e coordenadores'}. <strong>Período</strong>, Série e Turma são opcionais.
-                </>
-              ) : (
-                <>
-                  <strong>Estado</strong>, <strong>Município</strong> e <strong>Avaliação</strong> são obrigatórios. <strong>Período</strong> restringe listas ao mês de aplicação (AAAA-MM). Escola, Série e Turma são opcionais e podem ser "Todos".
-                </>
-              )}
+              {isRestrictedUser
+                ? "Estado, Município, Avaliação e Escola são obrigatórios. Período filtra pelo mês de aplicação."
+                : "Estado, Município e Avaliação são obrigatórios. Período filtra pelo mês de aplicação."}
             </p>
           </div>
         </CardContent>
@@ -2716,19 +2716,10 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
               <Filter className="h-8 w-8 text-muted-foreground" />
             </div>
             <h3 className="text-lg font-medium text-foreground mb-2">
-              Selecione os filtros obrigatórios para continuar
+              {isRestrictedUser
+                ? "Selecione Estado, Município, Avaliação e Escola."
+                : UI_MSG.SELECT_REQUIRED_FILTERS}
             </h3>
-            <p className="text-gray-600 text-center max-w-md">
-              {isRestrictedUser ? (
-                <>
-                  Para visualizar os resultados das avaliações, você precisa selecionar: <strong>Estado</strong>, <strong>Município</strong>, <strong>Avaliação</strong> e <strong>Escola</strong>. Os filtros Série e Turma são opcionais e podem ser "Todos".
-                </>
-              ) : (
-                <>
-                  Para visualizar os resultados das avaliações, você precisa selecionar: <strong>Estado</strong>, <strong>Município</strong> e <strong>Avaliação</strong>. Os filtros Escola, Série e Turma são opcionais e podem ser "Todos".
-                </>
-              )}
-            </p>
           </CardContent>
         </Card>
       )}
@@ -3367,7 +3358,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground rounded-lg border border-border bg-muted/50 p-4">
-                    O total de pendentes foi informado nas estatísticas, mas a lista detalhada de alunos não veio nesta resposta.
+                    {UI_MSG.PENDING_LIST_FAILED}
                   </p>
                 )}
               </div>
@@ -3378,7 +3369,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                 </div>
                 <h3 className="text-lg font-semibold text-foreground mb-2">Nenhum pendente</h3>
                 <p className="text-muted-foreground">
-                  Todos os alunos do escopo já têm resultado concluído.
+                  Todos os alunos já têm resultado.
                 </p>
               </div>
             )}

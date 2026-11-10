@@ -356,7 +356,7 @@ export async function generateUsersMunicipioCountsPdf(args: {
           ["DIRETORES:", String(n(g.directors))],
           ["COORDENADORES:", String(n(g.coordinators))],
         ];
-    if (!modoAdap && scope.type === "city") rows.push(["TEC. ADM:", String(n(g.tecadm))]);
+    if (!modoAdap && scope.type === "city") rows.push(["Técnico administrativo:", String(n(g.tecadm))]);
 
     doc.setFontSize(11);
     for (const [label, value] of rows) {

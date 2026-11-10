@@ -100,7 +100,7 @@ export const RewardsPreferencesSection: React.FC = () => {
           <div>
             <h4 className="text-sm font-medium flex items-center gap-2 mb-2">
               <Palette className="h-4 w-4" />
-              Tema da sidebar
+              Tema do menu
             </h4>
             <div className="flex flex-wrap gap-2">
               {themes.map((p) => {

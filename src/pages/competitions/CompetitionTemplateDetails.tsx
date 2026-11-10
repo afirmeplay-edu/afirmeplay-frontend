@@ -27,7 +27,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ArrowLeft, Layers, Loader2, PenSquare, Trophy } from 'lucide-react';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { ArrowLeft, ChevronDown, Layers, Loader2, PenSquare, Trophy } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
   getCompetitionTemplateById,
@@ -45,6 +50,19 @@ function formatRecurrence(rec: string | undefined): string {
   if (r === 'biweekly') return 'Quinzenal';
   if (r === 'monthly') return 'Mensal';
   return rec ?? '—';
+}
+
+function formatQuestionMode(mode: string | undefined): string {
+  const m = (mode ?? 'auto_random').toLowerCase();
+  if (m === 'auto_random') return 'Sorteio automático';
+  if (m === 'manual') return 'Manual';
+  return mode ?? '—';
+}
+
+function formatScope(scope: string | undefined): string {
+  const s = (scope ?? 'global').toLowerCase();
+  if (s === 'global') return 'Todas as escolas';
+  return scope ?? '—';
 }
 
 function formatDate(date: string | undefined): string {
@@ -168,7 +186,7 @@ export default function CompetitionTemplateDetails() {
             </Badge>
             <span>Nível {template.level}</span>
             <span>· {formatRecurrence(template.recurrence)}</span>
-            <span>· Escopo {template.scope ?? 'global'}</span>
+            <span>· Escopo {formatScope(template.scope)}</span>
             <Badge
               variant={template.active ? 'default' : 'outline'}
               className={template.active ? 'bg-emerald-500 text-white' : ''}
@@ -216,14 +234,14 @@ export default function CompetitionTemplateDetails() {
               </div>
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground">Escopo</p>
-                <p className="font-medium capitalize">
-                  {template.scope ?? 'global'}
+                <p className="font-medium">
+                  {formatScope(template.scope)}
                 </p>
               </div>
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground">Modo de questões</p>
                 <p className="font-medium">
-                  {template.question_mode ?? 'auto_random'}
+                  {formatQuestionMode(template.question_mode)}
                 </p>
               </div>
               <div className="space-y-1">
@@ -241,16 +259,24 @@ export default function CompetitionTemplateDetails() {
             </div>
 
             {template.reward_config && (
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">
-                  Configuração de recompensas (JSON)
-                </p>
-                <ScrollArea className="max-h-44 rounded-md border bg-muted/40 p-2">
-                  <pre className="whitespace-pre-wrap break-words text-[11px] leading-relaxed">
-                    {JSON.stringify(template.reward_config, null, 2)}
-                  </pre>
-                </ScrollArea>
-              </div>
+              <Collapsible defaultOpen={false} className="space-y-1">
+                <CollapsibleTrigger className="flex w-full items-center justify-between rounded-md border bg-muted/30 px-3 py-2 text-left text-sm font-medium hover:bg-muted/50 [&[data-state=open]>svg]:rotate-180">
+                  Configurações avançadas
+                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform" />
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="space-y-1 pt-2">
+                    <p className="text-xs text-muted-foreground">
+                      Configuração de recompensas
+                    </p>
+                    <ScrollArea className="max-h-44 rounded-md border bg-muted/40 p-2">
+                      <pre className="whitespace-pre-wrap break-words text-[11px] leading-relaxed">
+                        {JSON.stringify(template.reward_config, null, 2)}
+                      </pre>
+                    </ScrollArea>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
             )}
           </CardContent>
         </Card>

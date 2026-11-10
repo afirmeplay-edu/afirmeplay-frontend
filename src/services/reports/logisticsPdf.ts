@@ -6,6 +6,7 @@ import { jsPDF } from 'jspdf';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { loadCityBrandingForReportPdf } from '@/utils/pdfCityBranding';
+import { labelLogisticsSourceBadge } from '@/utils/logisticsSourceBadge';
 import type {
   LogisticsGradeCards,
   LogisticsGradeItem,
@@ -88,7 +89,7 @@ function tableFinalY(doc: jsPDF, fallback: number): number {
 }
 
 function statusSuffix(status: LogisticsSchedule['status']): string {
-  if (status === 'rascunho') return ' — RASCUNHO';
+  if (status === 'rascunho') return ' — Não publicado';
   if (status === 'cancelado') return ' — CANCELADO';
   return '';
 }
@@ -200,7 +201,7 @@ async function drawHeaderBlock(
 
   const instrumentLabel = schedule.display_title || schedule.test_title || schedule.title || '—';
   const originLabel =
-    schedule.source_badge ||
+    labelLogisticsSourceBadge(schedule.source_badge) ||
     (schedule.source === 'cartao_resposta'
       ? 'Cartão-resposta'
       : schedule.source === 'personalizada'
@@ -232,7 +233,7 @@ async function drawHeaderBlock(
     const bg = isDraft ? C.draftBg : C.cancelBg;
     const fg = isDraft ? C.draftText : C.cancelText;
     const msg = isDraft
-      ? 'RASCUNHO — cronograma ainda não publicado. Datas e quantidades podem mudar.'
+      ? 'Não publicado — datas e quantidades podem mudar.'
       : `CANCELADO${schedule.cancelled_at ? ` em ${fmtDate(schedule.cancelled_at)}` : ''} — esta aplicação não ocorrerá conforme abaixo.`;
     doc.setFillColor(...bg);
     doc.roundedRect(MARGIN, y, pageW - MARGIN * 2, 9, 1.2, 1.2, 'F');
@@ -469,7 +470,8 @@ function groupGradeByEvaluation(items: LogisticsGradeItem[]) {
   for (const item of items) {
     const testKey = item.instrument_key || item.test_id || item.schedule_id || 'sem-avaliacao';
     const title = item.display_title || item.test_title || 'Avaliação';
-    const titled = item.source_badge ? `${title} (${item.source_badge})` : title;
+    const sourceLabel = labelLogisticsSourceBadge(item.source_badge);
+    const titled = sourceLabel ? `${title} (${sourceLabel})` : title;
     const evalGroup = groups.get(testKey) ?? {
       testId: testKey,
       title: titled,

@@ -33,7 +33,7 @@ const THEME_OPTIONS = [
 ];
 
 const BATCH_CATEGORIES = [
-  { value: 'sidebar_theme', label: 'Tema da sidebar', icon: Palette },
+  { value: 'sidebar_theme', label: 'Tema do menu', icon: Palette },
   { value: 'physical', label: 'Item físico', icon: Package },
 ];
 

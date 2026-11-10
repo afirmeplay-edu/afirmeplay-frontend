@@ -31,17 +31,13 @@ import {
   type SubturmaGrade,
   type SubturmaItem,
 } from "@/lib/subturma";
+import { toUserFacingErrorMessage } from "@/utils/userFacingError";
 
 const LEVELS = [1, 2, 3] as const;
 
 interface ClassStudent {
   id: string;
   name: string;
-}
-
-function apiError(error: unknown, fallback: string): string {
-  const data = (error as { response?: { data?: { error?: string; message?: string } } })?.response?.data;
-  return data?.error || data?.message || fallback;
 }
 
 function foldName(value: string): string {
@@ -99,7 +95,7 @@ export function SubturmasAdapSection({ classId, grade, students, canManage, onBa
       } else {
         toast({
           title: "Subturmas ADAP",
-          description: apiError(error, "Não foi possível carregar as subturmas."),
+          description: toUserFacingErrorMessage(error, "Não foi possível carregar as subturmas."),
           variant: "destructive",
         });
       }
@@ -148,7 +144,7 @@ export function SubturmasAdapSection({ classId, grade, students, canManage, onBa
     } catch (error) {
       toast({
         title: "Subturma",
-        description: apiError(error, "Não foi possível criar a subturma."),
+        description: toUserFacingErrorMessage(error, "Não foi possível criar a subturma."),
         variant: "destructive",
       });
     } finally {
@@ -209,7 +205,7 @@ export function SubturmasAdapSection({ classId, grade, students, canManage, onBa
     } catch (error) {
       toast({
         title: "Subturma",
-        description: apiError(error, "Não foi possível remover o aluno."),
+        description: toUserFacingErrorMessage(error, "Não foi possível remover o aluno."),
         variant: "destructive",
       });
     } finally {
@@ -227,7 +223,7 @@ export function SubturmasAdapSection({ classId, grade, students, canManage, onBa
     } catch (error) {
       toast({
         title: "Subturma",
-        description: apiError(error, "Não foi possível excluir a subturma."),
+        description: toUserFacingErrorMessage(error, "Não foi possível excluir a subturma."),
         variant: "destructive",
       });
     } finally {
@@ -241,7 +237,7 @@ export function SubturmasAdapSection({ classId, grade, students, canManage, onBa
         <div>
           <h3 className="text-sm font-medium">Nível de suporte ADAP</h3>
           <p className="text-xs text-muted-foreground">
-            O aluno continua nesta turma. Outro nível substitui o anterior.
+            O aluno permanece na turma; outro nível substitui o anterior.
           </p>
         </div>
         {canManage && (

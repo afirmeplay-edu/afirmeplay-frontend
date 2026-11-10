@@ -23,6 +23,8 @@ import { RESULTADOS_ALUNOS_FILTRO_PADRAO } from '@/constants/resultadosAlunosFil
 import { InstrumentPickerModal } from '@/components/filters/InstrumentPickerModal';
 import { buildPickerContextLines, toInstrumentPickerItems } from '@/components/filters/instrumentPickerHelpers';
 import { formatTurmasFromRefs } from '@/utils/evolution/formatTurmasAgrupadas';
+import { UI_MSG } from '@/constants/uiMessages';
+import { toUserFacingErrorMessage } from '@/utils/userFacingError';
 
 // Interfaces para os filtros
 interface State {
@@ -213,7 +215,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
           console.error("Erro no login automático:", error);
           toast({
             title: "Erro de Autenticação",
-            description: "Não foi possível fazer login automático. Verifique suas credenciais.",
+            description: UI_MSG.LOAD_FAILED,
             variant: "destructive",
           });
           return;
@@ -250,7 +252,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
       if (prev.length >= MAX_EVALUATIONS) {
         toast({
           title: 'Limite de avaliações atingido',
-          description: `Você pode comparar no máximo ${MAX_EVALUATIONS} pontos por vez. Remova um antes de adicionar outro.`,
+          description: `Você pode comparar no máximo ${MAX_EVALUATIONS} avaliações por vez. Remova um antes de adicionar outro.`,
           variant: 'destructive',
         });
         return prev;
@@ -267,10 +269,10 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
       const point: EvolutionPoint = { ids, members };
       const remaining = MAX_EVALUATIONS - (prev.length + 1);
       toast({
-        title: ids.length > 1 ? 'Avaliações mescladas' : 'Avaliação adicionada',
+        title: ids.length > 1 ? 'Avaliações agrupadas' : 'Avaliação adicionada',
         description:
           ids.length > 1
-            ? `${pointTitle(point)} entrou como um único ponto.${remaining > 0 ? ` (${remaining} restantes)` : ''}`
+            ? `${pointTitle(point)} entrou como um único grupo.${remaining > 0 ? ` (${remaining} restantes)` : ''}`
             : `"${pointTitle(point)}" foi adicionada à comparação.${remaining > 0 ? ` (${remaining} restantes)` : ''}`,
       });
       return [...prev, point];
@@ -652,7 +654,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
 
       toast({
         title: "Comparação realizada com sucesso!",
-        description: `Comparando ${comparison.total_evaluations} avaliações com ${comparison.total_comparisons} comparações.`,
+        description: UI_MSG.COMPARISON_READY,
       });
     } catch (error: unknown) {
       console.error('Erro ao comparar avaliações:', error);
@@ -671,17 +673,18 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
       
       if (errorMessage) rememberInvalidIds(errorMessage);
       if (errorMessage.includes('não possui resultados calculados')) {
-        setComparisonError('Avaliação sem resultados calculados');
+        setComparisonError(UI_MSG.RESULTS_NOT_READY_SHORT);
         toast({
           title: "Avaliação sem resultados",
-          description: "Uma ou mais avaliações selecionadas ainda não possuem resultados calculados. Selecione apenas avaliações finalizadas.",
+          description: UI_MSG.RESULTS_NOT_READY,
           variant: "destructive",
         });
       } else if (errorMessage.includes('Avaliação')) {
-        setComparisonError(errorMessage);
+        const safeMessage = toUserFacingErrorMessage(errorMessage, UI_MSG.COMPARISON_LOAD_FAILED);
+        setComparisonError(safeMessage);
         toast({
           title: "Erro na avaliação",
-          description: errorMessage,
+          description: safeMessage,
           variant: "destructive",
         });
       } else {
@@ -769,7 +772,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
 
         toast({
           title: "Comparação atualizada",
-          description: `Comparando ${comparison.total_evaluations} avaliações com ${comparison.total_comparisons} comparações.`,
+          description: UI_MSG.COMPARISON_READY,
         });
       } catch (error: unknown) {
         console.error('Erro na comparação automática:', error);
@@ -793,22 +796,23 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
         if (selectedIdsRef.current !== requestedKey) return;
         if (errorMessage) rememberInvalidIds(errorMessage);
         if (errorMessage.includes('não possui resultados calculados')) {
-          setComparisonError('Avaliação sem resultados calculados');
+          setComparisonError(UI_MSG.RESULTS_NOT_READY_SHORT);
           toast({
             title: "Avaliação sem resultados",
-            description: "Uma ou mais avaliações selecionadas ainda não possuem resultados calculados.",
+            description: UI_MSG.RESULTS_NOT_READY,
             variant: "destructive",
           });
         } else if (errorMessage.includes('não possui resultados no escopo')) {
-          setComparisonError('Sem resultados no escopo selecionado (escola/série/turma).');
+          setComparisonError(UI_MSG.NO_RESULTS_FOR_FILTER);
           toast({
-            title: "Sem resultados no escopo",
+            title: "Sem resultados no filtro",
             description: "As avaliações não têm resultados para o filtro atual. Ajuste escola, série ou turma.",
             variant: "destructive",
           });
         } else if (errorMessage) {
-          setComparisonError(errorMessage);
-          toast({ title: "Erro na comparação", description: errorMessage, variant: "destructive" });
+          const safeMessage = toUserFacingErrorMessage(errorMessage, UI_MSG.COMPARISON_LOAD_FAILED);
+          setComparisonError(safeMessage);
+          toast({ title: "Erro na comparação", description: safeMessage, variant: "destructive" });
         } else {
           setComparisonError('Erro ao carregar dados de comparação');
           toast({
@@ -931,7 +935,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
             Análise de Evolução
           </h1>
           <p className="text-muted-foreground text-sm sm:text-base">
-            Compare múltiplas avaliações e acompanhe a evolução dos resultados ao longo do tempo com insights detalhados.
+            Compare múltiplas avaliações e acompanhe a evolução dos resultados ao longo do tempo.
           </p>
         </div>
       </div>
@@ -1144,7 +1148,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
 
                     toast({
                       title: "Erro ao exportar Excel",
-                      description: errorMessage,
+                      description: toUserFacingErrorMessage(errorMessage, "Não foi possível exportar as avaliações."),
                       variant: "destructive",
                     });
                   } finally {
@@ -1364,7 +1368,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
             </div>
             {comparisonPoints.length > 0 && comparisonPoints.length < 2 && (
               <p className="mt-3 text-sm text-muted-foreground">
-                Selecione pelo menos 2 pontos para iniciar a comparação. Avaliações da mesma série e de disciplinas diferentes podem ser mescladas em um único ponto.
+                Selecione pelo menos 2 avaliações para iniciar a comparação. Avaliações da mesma série e de disciplinas diferentes podem ser agrupadas.
               </p>
             )}
             {selectedGrade !== 'all' && (
@@ -1390,9 +1394,9 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
               </div>
               <div className="absolute -inset-2 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full opacity-20 animate-pulse"></div>
             </div>
-            <h3 className="text-xl font-semibold text-foreground mb-2">Processando Análise</h3>
+            <h3 className="text-xl font-semibold text-foreground mb-2">Carregando comparação…</h3>
             <p className="text-muted-foreground text-center max-w-md">
-              Estamos comparando suas avaliações e gerando insights detalhados. Isso pode levar alguns momentos...
+              Isso pode levar alguns momentos…
             </p>
             <div className="w-full max-w-sm">
               <Progress value={comparisonProgress} className="h-2" aria-label="Carregando comparação" />
@@ -1466,14 +1470,14 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                           {index + 1}. {pointTitle(point)}
                         </p>
                         {point.ids.length > 1 && (
-                          <Badge variant="secondary" className="mt-1">Mesclada</Badge>
+                          <Badge variant="secondary" className="mt-1">Agrupada</Badge>
                         )}
                         <EvolutionScopeMetaLines evaluation={scopeMeta ?? localScope} />
                         {point.ids.length > 1 && (
                           <Input
                             className="mt-2 h-8 max-w-xs text-sm"
-                            placeholder="Nome do ponto (opcional)"
-                            aria-label="Nome do ponto (opcional)"
+                            placeholder="Nome do grupo (opcional)"
+                            aria-label="Nome do grupo (opcional)"
                             maxLength={120}
                             defaultValue={point.name ?? ''}
                             onBlur={(e) => handleRenamePoint(index, e.target.value)}

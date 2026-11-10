@@ -1696,8 +1696,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
               </Select>
               {isAdapGabarito && (
                 <p className="text-xs text-muted-foreground">
-                  Cartão de {(publicoGabarito?.adap_niveis ?? []).map((n) => `ADAP ${n}`).join(', ') || 'ADAP'}:
-                  o público são só os alunos das subturmas geradas.
+                  Este cartão é só para alunos {(publicoGabarito?.adap_niveis ?? []).map((n) => `ADAP ${n}`).join(', ') || 'ADAP N'} das turmas em que foi gerado.
                 </p>
               )}
             </div>

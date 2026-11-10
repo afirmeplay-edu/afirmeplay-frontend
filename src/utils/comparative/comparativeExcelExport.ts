@@ -48,7 +48,7 @@ export async function exportComparativeExcel(report: ComparativeResumo): Promise
       )
     ).filter(Boolean);
     const rows: Array<Array<string | number>> = [
-      ['Escopo', ...headers],
+      ['Filtro', ...headers],
       [
         'Geral',
         ...report.avaliacoes.map((a) => Number(a.indicadores.proficiencia_media?.geral ?? 0)),

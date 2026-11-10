@@ -38,6 +38,7 @@ import {
 } from '@/services/reports/comparativeReportApi';
 import { exportComparativeExcel } from '@/utils/comparative/comparativeExcelExport';
 import { generateComparativePdf } from '@/utils/comparative/comparativePdfService';
+import { UI_MSG } from '@/constants/uiMessages';
 
 const ALL = 'all';
 
@@ -240,7 +241,7 @@ export default function RelatorioComparativo() {
       } catch (err) {
         if (!cancelled) {
           toast({
-            title: 'Erro ao carregar recorte',
+            title: 'Erro ao carregar escola, série ou turma',
             description: getComparativeApiErrorMessage(err, 'Falha ao carregar escola/série/turma'),
             variant: 'destructive',
           });
@@ -270,7 +271,7 @@ export default function RelatorioComparativo() {
         indicadores,
       });
       setReport(data);
-      toast({ title: 'Relatório gerado', description: 'Comparativo descritivo pronto.' });
+      toast({ title: UI_MSG.REPORT_READY });
     } catch (err) {
       const message = getComparativeApiErrorMessage(err, 'Não foi possível gerar o relatório');
       setError(message);
@@ -346,7 +347,7 @@ export default function RelatorioComparativo() {
         <CardHeader>
           <CardTitle>Filtros</CardTitle>
           <CardDescription>
-            Selecione o município, ao menos duas avaliações, o recorte opcional e os indicadores.
+            Selecione o município, ao menos duas avaliações, os filtros opcionais e os indicadores.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -578,7 +579,7 @@ export default function RelatorioComparativo() {
         <Card>
           <CardContent className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Calculando indicadores com a mesma lógica de Resultados…
+            Calculando indicadores…
           </CardContent>
         </Card>
       )}
@@ -588,7 +589,7 @@ export default function RelatorioComparativo() {
           <Card>
             <CardHeader>
               <CardTitle>Tabelas comparativas</CardTitle>
-              <CardDescription>Uma coluna por avaliação — sem variação ou delta.</CardDescription>
+              <CardDescription>Uma coluna por avaliação.</CardDescription>
             </CardHeader>
             <CardContent>
               <ComparativeTables report={report} />
