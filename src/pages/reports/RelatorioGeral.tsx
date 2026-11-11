@@ -592,6 +592,10 @@ export default function RelatorioGeral({ flow, hidePageHeading = false }: Relato
                 placeholder="Selecione mês/ano"
                 className="h-10"
               />
+              <p className="text-xs text-muted-foreground">
+                Restringe apenas a lista de {instrumentLabel.toLowerCase()} disponíveis. Os números do
+                relatório consolidado não são filtrados por período.
+              </p>
               {periodoLabel && (
                 <p className="text-xs text-muted-foreground">
                   {periodoLabel}

@@ -529,7 +529,11 @@ async function resultsFetchEvaluationsList(
   if (filters.estado && filters.estado !== "all") params.append("estado", filters.estado);
   if (filters.municipio && filters.municipio !== "all") params.append("municipio", filters.municipio);
   appendAvaliacaoQuery(params, filters.avaliacao);
-  if (filters.escola && filters.escola !== "all") params.append("escola", filters.escola);
+  if (filters.escola && filters.escola !== "all") {
+    params.append("escola", filters.escola);
+  } else if (filters.municipio && filters.municipio !== "all") {
+    params.append("escola", "all");
+  }
   if (filters.serie && filters.serie !== "all") params.append("serie", filters.serie);
   if (filters.turma && filters.turma !== "all") params.append("turma", filters.turma);
   if (filters.alunos) params.append("alunos", filters.alunos);
@@ -1235,7 +1239,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
         estado: selectedState,
         municipio: selectedMunicipality,
         avaliacao: selectedEvaluation !== 'all' ? selectedEvaluation : undefined,
-        escola: selectedSchool !== 'all' ? selectedSchool : undefined,
+        escola: selectedSchool !== 'all' ? selectedSchool : 'all',
         serie: selectedGrade !== 'all' ? selectedGrade : undefined,
         turma: selectedClass !== 'all' ? selectedClass : undefined,
         alunos: selectedAlunos,

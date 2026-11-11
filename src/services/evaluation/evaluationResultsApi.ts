@@ -962,6 +962,9 @@ export class EvaluationResultsApiService {
       }
       if (filters.escola && filters.escola !== 'all') {
         params.append('escola', filters.escola);
+      } else if (filters.municipio && filters.municipio !== 'all') {
+        // Simetria com /relatorio-consolidado: município sem escola específica → escola=all
+        params.append('escola', 'all');
       }
       if (filters.serie && filters.serie !== 'all') {
         params.append('serie', filters.serie);
@@ -972,10 +975,8 @@ export class EvaluationResultsApiService {
       if (filters.tipo_area && filters.tipo_area !== 'all') {
         params.append('tipo_area', filters.tipo_area);
       }
-      if (
-        !filters.report_entity_type &&
-        isResultadosAlunosFiltro(filters.alunos)
-      ) {
+      // Sempre enviar alunos quando válido (default UI = regular), inclusive com report_entity_type.
+      if (isResultadosAlunosFiltro(filters.alunos)) {
         params.append('alunos', filters.alunos);
       }
       if (filters.report_entity_type) {
@@ -1077,6 +1078,8 @@ export class EvaluationResultsApiService {
       }
       if (filters.escola && filters.escola !== 'all') {
         params.append('escola', filters.escola);
+      } else if (filters.municipio && filters.municipio !== 'all') {
+        params.append('escola', 'all');
       }
       if (filters.serie && filters.serie !== 'all') {
         params.append('serie', filters.serie);
