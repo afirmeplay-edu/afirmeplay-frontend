@@ -40,10 +40,15 @@ import {
   REPORT_ENTITY_TYPE_ANSWER_SHEET,
   type AnaliseIaRouteResponse,
 } from "@/services/evaluation/evaluationResultsApi";
-import { readResultadosAlunosFiltroSalvo } from "@/constants/resultadosAlunosFiltro";
+import {
+  RESULTADOS_ALUNOS_FILTRO_PADRAO,
+  readResultadosAlunosFiltroSalvo,
+  type ResultadosAlunosFiltro,
+} from "@/constants/resultadosAlunosFiltro";
 import { RelatorioCompleto } from "@/types/evaluation-results";
 import { useAuth } from "@/context/authContext";
 import { FilterComponentAnalise, ResultsPeriodMonthYearPicker, InstrumentPickerField } from "@/components/filters";
+import { AlunosFiltroSelect } from "@/components/filters/AlunosFiltroSelect";
 import {
   buildPickerContextLines,
   toInstrumentPickerItems,
@@ -1243,6 +1248,9 @@ export default function RelatorioEscolar({
   const [selectedAreaType, setSelectedAreaType] = useState<string>('all');
   const [selectedEvaluation, setSelectedEvaluation] = useState<string>('all');
   const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
+  const [selectedAlunos, setSelectedAlunos] = useState<ResultadosAlunosFiltro>(
+    () => readResultadosAlunosFiltroSalvo() || RESULTADOS_ALUNOS_FILTRO_PADRAO
+  );
   const reportEntityTypeParam =
     reportAnswerSheet && !isAnswerSheetAgregados ? REPORT_ENTITY_TYPE_ANSWER_SHEET : undefined;
 
@@ -1258,6 +1266,13 @@ export default function RelatorioEscolar({
     series_do_gabarito: GabaritoGradeRef[];
     por_serie: ResultadoAgregadoPorSerie[];
   } | null>(null);
+
+  const handleAlunosChange = useCallback((value: ResultadosAlunosFiltro) => {
+    setSelectedAlunos(value);
+    setApiData(null);
+    setAsMultiSeriePending(null);
+    setIaRequestSeq(0);
+  }, []);
   const [asOpcoes, setAsOpcoes] = useState<{
     estados?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
     municipios?: Array<{ id: string; nome?: string; name?: string; titulo?: string }>;
@@ -1924,16 +1939,10 @@ export default function RelatorioEscolar({
         );
         const totalAlunos = avaliacao.total_alunos ?? 0;
         const participantes = avaliacao.alunos_participantes ?? 0;
-        const pctAgregados = readOptionalFiniteNumber(
+        // Sem recálculo client-side: só o percentual oficial do backend.
+        const comparecimento = readOptionalFiniteNumber(
           (avaliacao as { percentual_comparecimento?: number }).percentual_comparecimento
         );
-        const comparecimento =
-          pctAgregados ??
-          (
-            avaliacao.total_alunos && avaliacao.total_alunos > 0
-              ? (Number(avaliacao.alunos_participantes ?? 0) / Number(avaliacao.total_alunos)) * 100
-              : undefined
-          );
         const proficienciaMedia = avaliacao.media_proficiencia;
         const mediaGeral = avaliacao.media_nota;
 
@@ -4398,7 +4407,8 @@ export default function RelatorioEscolar({
             estado: selectedState,
             municipio: selectedMunicipality,
             avaliacao: selectedEvaluation !== 'all' ? selectedEvaluation : undefined,
-            escola: selectedSchool !== 'all' ? selectedSchool : undefined,
+            escola: selectedSchool !== 'all' ? selectedSchool : 'all',
+            alunos: selectedAlunos,
             ...(adminCityIdQuery ? { city_id: adminCityIdQuery } : {}),
             ...(reportEntityTypeParam ? { report_entity_type: reportEntityTypeParam } : {}),
             ...(periodoYmRelatorio ? { periodo: periodoYmRelatorio } : {}),
@@ -4425,7 +4435,8 @@ export default function RelatorioEscolar({
                     estado: filters.estado,
                     municipio: filters.municipio,
                     avaliacao: filters.avaliacao,
-                    escola: undefined,
+                    escola: 'all' as const,
+                    alunos: selectedAlunos,
                     ...(adminCityIdQuery ? { city_id: adminCityIdQuery } : {}),
                     ...(reportEntityTypeParam ? { report_entity_type: reportEntityTypeParam } : {}),
                     ...(periodoYmRelatorio ? { periodo: periodoYmRelatorio } : {}),
@@ -4545,6 +4556,7 @@ export default function RelatorioEscolar({
     selectedSchool,
     selectedAreaType,
     selectedEvaluation,
+    selectedAlunos,
     periodoYmRelatorio,
     adminCityIdQuery,
     reportEntityTypeParam,
@@ -4573,12 +4585,12 @@ export default function RelatorioEscolar({
       estado: selectedState,
       municipio: selectedMunicipality,
       avaliacao: selectedEvaluation !== 'all' ? selectedEvaluation : undefined,
-      escola: selectedSchool !== 'all' ? selectedSchool : undefined,
+      escola: selectedSchool !== 'all' ? selectedSchool : 'all',
       ...(adminCityIdQuery ? { city_id: adminCityIdQuery } : {}),
       ...(reportEntityTypeParam ? { report_entity_type: reportEntityTypeParam } : {}),
       ...(periodoYmRelatorio ? { periodo: periodoYmRelatorio } : {}),
       ...(selectedAreaType !== 'all' ? { tipo_area: selectedAreaType } : {}),
-      alunos: readResultadosAlunosFiltroSalvo(),
+      alunos: selectedAlunos,
     };
 
     const applyIaErrorMessage = (ia: AnaliseIaRouteResponse) => {
@@ -4659,6 +4671,7 @@ export default function RelatorioEscolar({
     selectedSchool,
     selectedAreaType,
     selectedEvaluation,
+    selectedAlunos,
     periodoYmRelatorio,
     adminCityIdQuery,
     reportEntityTypeParam,
@@ -4694,8 +4707,9 @@ export default function RelatorioEscolar({
         params.set('estado', asEstado);
         params.set('municipio', asMunicipio);
         params.set('gabarito', asGabarito);
+        params.set('escola', asEscola !== 'all' ? asEscola : 'all');
+        params.set('alunos', selectedAlunos);
         if (selectedAreaType !== 'all') params.set('tipo_area', selectedAreaType);
-        if (asEscola !== 'all') params.set('escola', asEscola);
         if (asSerie !== 'all') params.set('serie', asSerie);
         if (asTurma !== 'all') params.set('turma', asTurma);
         if (periodoYmRelatorio) params.set('periodo', periodoYmRelatorio);
@@ -4756,6 +4770,7 @@ export default function RelatorioEscolar({
     selectedAreaType,
     asSerie,
     asTurma,
+    selectedAlunos,
     periodoYmRelatorio,
     clearAiPollingTimeout,
     toast,
@@ -4782,8 +4797,9 @@ export default function RelatorioEscolar({
     iaParams.set('estado', asEstado);
     iaParams.set('municipio', asMunicipio);
     iaParams.set('gabarito', asGabarito);
+    iaParams.set('escola', asEscola !== 'all' ? asEscola : 'all');
+    iaParams.set('alunos', selectedAlunos);
     if (selectedAreaType !== 'all') iaParams.set('tipo_area', selectedAreaType);
-    if (asEscola !== 'all') iaParams.set('escola', asEscola);
     if (asSerie !== 'all') iaParams.set('serie', asSerie);
     if (asTurma !== 'all') iaParams.set('turma', asTurma);
     if (periodoYmRelatorio) iaParams.set('periodo', periodoYmRelatorio);
@@ -4882,6 +4898,7 @@ export default function RelatorioEscolar({
     selectedAreaType,
     asSerie,
     asTurma,
+    selectedAlunos,
     periodoYmRelatorio,
     iaRequestSeq,
     clearAiPollingTimeout,
@@ -5608,6 +5625,11 @@ export default function RelatorioEscolar({
                   </SelectContent>
                 </Select>
               </div>
+              <AlunosFiltroSelect
+                value={selectedAlunos}
+                onChange={handleAlunosChange}
+                disabled={isLoadingFilters}
+              />
             </div>
           </CardContent>
         </Card>
@@ -5650,6 +5672,13 @@ export default function RelatorioEscolar({
             setSelectedPeriod(p);
             setApiData(null);
           }}
+          extraFilters={
+            <AlunosFiltroSelect
+              value={selectedAlunos}
+              onChange={handleAlunosChange}
+              disabled={isLoadingFilters}
+            />
+          }
         />
       )}
 

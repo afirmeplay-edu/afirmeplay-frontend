@@ -39,6 +39,17 @@ import { formatDecimal1PtBr, formatPercent1PtBr } from "@/utils/numberFormat";
 import { isDisciplinaGeralAggregateKey } from "@/utils/reports/presentation19/presentation19MunicipalMedia";
 import { UI_MSG } from "@/constants/uiMessages";
 
+/** Totais oficiais do backend — sem somar por_escola/por_turma no client. */
+function nivelTotalFromApi(
+  dados: {
+    total_geral?: Partial<Record<"abaixo_do_basico" | "basico" | "adequado" | "avancado" | "total", number>>;
+    geral?: Partial<Record<"abaixo_do_basico" | "basico" | "adequado" | "avancado" | "total", number>>;
+  },
+  field: "abaixo_do_basico" | "basico" | "adequado" | "avancado" | "total"
+): number {
+  return dados.total_geral?.[field] ?? dados.geral?.[field] ?? 0;
+}
+
 // Interfaces para os dados da API
 interface EvaluationResult {
   id: string;
@@ -552,6 +563,13 @@ export default function AnaliseAvaliacoes({
       </div>
       )}
 
+      <p className="text-xs text-muted-foreground max-w-3xl">
+        Fonte: relatório institucional (<code className="text-xs">/reports/dados-json</code>).
+        Os números podem diferir de Resultados e do Relatório Geral (
+        <code className="text-xs">/evaluation-results/avaliacoes</code> e{" "}
+        <code className="text-xs">/relatorio-consolidado</code>).
+      </p>
+
       {/* Filtros */}
       <FilterComponentAnalise
         selectedState={selectedState}
@@ -816,34 +834,19 @@ export default function AnaliseAvaliacoes({
                            <tr className="bg-muted dark:bg-muted/50 font-semibold">
                              <td className="border border-border px-4 py-2">TOTAL GERAL</td>
                              <td className="border border-border px-4 py-2 text-center bg-red-100 dark:bg-red-950/30">
-                               {dadosDisciplina.total_geral?.abaixo_do_basico ?? dadosDisciplina.geral?.abaixo_do_basico ?? 
-                                (renderMode === 'escola' 
-                                  ? dadosDisciplina.por_escola?.reduce((sum, e) => sum + (e.abaixo_do_basico || 0), 0) ?? 0
-                                  : dadosDisciplina.por_turma?.reduce((sum, t) => sum + (t.abaixo_do_basico || 0), 0) ?? 0)}
+                               {nivelTotalFromApi(dadosDisciplina, "abaixo_do_basico")}
                              </td>
                              <td className="border border-border px-4 py-2 text-center bg-yellow-100 dark:bg-yellow-950/30">
-                               {dadosDisciplina.total_geral?.basico ?? dadosDisciplina.geral?.basico ?? 
-                                (renderMode === 'escola' 
-                                  ? dadosDisciplina.por_escola?.reduce((sum, e) => sum + (e.basico || 0), 0) ?? 0
-                                  : dadosDisciplina.por_turma?.reduce((sum, t) => sum + (t.basico || 0), 0) ?? 0)}
+                               {nivelTotalFromApi(dadosDisciplina, "basico")}
                              </td>
                              <td className="border border-border px-4 py-2 text-center bg-green-100 dark:bg-green-700/35 text-green-900 dark:text-green-200">
-                               {dadosDisciplina.total_geral?.adequado ?? dadosDisciplina.geral?.adequado ?? 
-                                (renderMode === 'escola' 
-                                  ? dadosDisciplina.por_escola?.reduce((sum, e) => sum + (e.adequado || 0), 0) ?? 0
-                                  : dadosDisciplina.por_turma?.reduce((sum, t) => sum + (t.adequado || 0), 0) ?? 0)}
+                               {nivelTotalFromApi(dadosDisciplina, "adequado")}
                              </td>
                              <td className="border border-border px-4 py-2 text-center bg-green-600/25 dark:bg-green-950/55 text-green-900 dark:text-green-100">
-                               {dadosDisciplina.total_geral?.avancado ?? dadosDisciplina.geral?.avancado ?? 
-                                (renderMode === 'escola' 
-                                  ? dadosDisciplina.por_escola?.reduce((sum, e) => sum + (e.avancado || 0), 0) ?? 0
-                                  : dadosDisciplina.por_turma?.reduce((sum, t) => sum + (t.avancado || 0), 0) ?? 0)}
+                               {nivelTotalFromApi(dadosDisciplina, "avancado")}
                              </td>
                              <td className="border border-border px-4 py-2 text-center">
-                               {dadosDisciplina.total_geral?.total ?? dadosDisciplina.geral?.total ?? 
-                                (renderMode === 'escola' 
-                                  ? dadosDisciplina.por_escola?.reduce((sum, e) => sum + (e.total || 0), 0) ?? 0
-                                  : dadosDisciplina.por_turma?.reduce((sum, t) => sum + (t.total || 0), 0) ?? 0)}
+                               {nivelTotalFromApi(dadosDisciplina, "total")}
                              </td>
                            </tr>
                          </tbody>
