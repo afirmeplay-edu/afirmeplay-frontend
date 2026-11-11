@@ -481,6 +481,7 @@ export async function generateParticipationReportPdf(opts: {
   flow?: ParticipationReportFlow;
 }): Promise<void> {
   const { report, labels, cityId, flow = 'digital' } = opts;
+  const { metricas } = report;
   const { default: autoTable } = await import('jspdf-autotable');
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
@@ -491,23 +492,23 @@ export async function generateParticipationReportPdf(opts: {
       ? `Relatório de Participação — Cartão-resposta — Alunos: ${alunosNoCabecalho}`
       : `Relatório de Participação — Avaliação online — Alunos: ${alunosNoCabecalho}`;
 
-  await drawCoverPage(doc, labels, report.metricas, cityId, flow);
+  await drawCoverPage(doc, labels, metricas, cityId, flow);
 
   doc.addPage();
   drawTopBand(doc, pageW, bandTitle);
   let y = TOP_BAND_H + 12;
 
   y = drawSectionTitle(doc, y, pageW, 'Indicadores gerais', bandTitle);
-  y = drawKpiCards(doc, y, pageW, report.metricas);
+  y = drawKpiCards(doc, y, pageW, metricas);
 
   y = drawSectionTitle(doc, y, pageW, 'Gráficos', bandTitle);
   y = ensureSpace(doc, y, 78, bandTitle);
 
-  const barImg = renderBarChartImage(report.metricas.matriculados, report.metricas.avaliados);
+  const barImg = renderBarChartImage(metricas.matriculados, metricas.avaliados);
   const donutImg = renderDonutChartImage(
-    report.metricas.avaliados,
-    report.metricas.matriculados,
-    report.metricas.percentual_participacao
+    metricas.avaliados,
+    metricas.matriculados,
+    metricas.percentual_participacao
   );
 
   const chartH = 62;
