@@ -11,6 +11,13 @@ import {
 } from '@/services/reports/rankingPdf';
 import { normalizeProficiencyLevelLabel, type ReportProficiencyLabel } from '@/utils/report/reportTagStyles';
 import { formatDecimal1PtBr, formatPercent1PtBr } from '@/utils/numberFormat';
+import {
+  DISCIPLINA_AUSENTE_LABEL,
+  formatarNivelDisciplina,
+  formatarNotaDisciplina,
+  formatarProficienciaDisciplina,
+  isDisciplinaAusente,
+} from '@/utils/answer-sheet/disciplinaAusente';
 import { labelSituacaoAdap } from '@/utils/evaluation/tabelaAdap';
 
 type RGB = [number, number, number];
@@ -394,21 +401,27 @@ function drawStudentCard(
     doc.text(fitText(doc, second, nameMaxW), nameX, y + 9.1);
   }
 
-  const status = student.status === 'concluida' ? 'concluida' : 'pendente';
-  const level = normalizeProficiencyLevelLabel(student.classificacao);
+  const ausente = isDisciplinaAusente(student) || student.status === 'ausente';
+  const status = ausente ? 'pendente' : student.status === 'concluida' ? 'concluida' : 'pendente';
+  const level = ausente
+    ? DISCIPLINA_AUSENTE_LABEL
+    : formatarNivelDisciplina(student, normalizeProficiencyLevelLabel);
   let bx = x + pad;
-  bx += drawPill(doc, bx, y + 11.8, status === 'concluida' ? 'Concluída' : 'Pendente', {
+  bx += drawPill(doc, bx, y + 11.8, ausente ? DISCIPLINA_AUSENTE_LABEL : status === 'concluida' ? 'Concluída' : 'Pendente', {
     fill: STATUS_COLORS[status],
     text: C.white,
   });
-  drawPill(doc, bx + 1.5, y + 11.8, level, { fill: LEVEL_COLORS[level], text: C.white });
+  drawPill(doc, bx + 1.5, y + 11.8, level, {
+    fill: ausente ? C.mutedBg : LEVEL_COLORS[level as keyof typeof LEVEL_COLORS] || C.mutedBg,
+    text: ausente ? C.textDark : C.white,
+  });
 
   const innerX = x + pad;
   const innerW = w - pad * 2;
   let cy = y + HEADER_H + 3;
 
   const halfW = (innerW - 2) / 2;
-  drawStatBox(doc, innerX, cy, halfW, 8.5, formatDecimal1PtBr(student.nota), 'Nota', {
+  drawStatBox(doc, innerX, cy, halfW, 8.5, formatarNotaDisciplina(student), 'Nota', {
     fill: C.mutedBg,
     border: C.border,
     value: C.textDark,
@@ -416,7 +429,7 @@ function drawStudentCard(
     valueSize: 10,
     align: 'left',
   });
-  drawStatBox(doc, innerX + halfW + 2, cy, halfW, 8.5, formatDecimal1PtBr(student.proficiencia), 'Proficiência', {
+  drawStatBox(doc, innerX + halfW + 2, cy, halfW, 8.5, formatarProficienciaDisciplina(student), 'Proficiência', {
     fill: C.profBg,
     border: C.profBorder,
     value: C.profValue,

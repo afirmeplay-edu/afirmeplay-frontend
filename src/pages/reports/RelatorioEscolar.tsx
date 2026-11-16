@@ -920,7 +920,18 @@ function alunoRowId(aluno: { id?: string; aluno_id?: string }): string {
 function alunoDisciplinaRespondeu(aluno: {
   status?: string;
   total_respondidas?: number;
+  nivel_proficiencia?: string | null;
+  classificacao?: string | null;
+  absent?: boolean | null;
+  nota?: number | null;
+  proficiencia?: number | null;
 }): boolean {
+  const nivel = String(aluno.nivel_proficiencia || aluno.classificacao || "")
+    .trim()
+    .toLowerCase();
+  if (aluno.absent === true || aluno.status === "ausente" || nivel === "ausente") {
+    return false;
+  }
   return (
     (aluno.status ?? "") === "concluida" ||
     ((aluno.total_respondidas ?? 0) > 0)
@@ -2354,10 +2365,9 @@ export default function RelatorioEscolar({
           (avaliacao as { media_nota_matematica?: number | null }).media_nota_matematica
         );
 
-        // `tabela_detalhada.geral.alunos` traz TODOS os alunos do escopo,
-        // inclusive ausentes (com `nota_geral=0` e `proficiencia_geral=0`).
-        // Para evitar inflar/zerar médias, contabilizamos separadamente
-        // todos os alunos da linha vs. apenas quem efetivamente fez.
+        // `tabela_detalhada.geral.alunos` traz TODOS os alunos do escopo.
+        // Disciplina ausente chega com nota/prof null (nao 0). Contabilizamos
+        // separadamente matriculados vs. quem efetivamente fez a disciplina.
         const alunosLinhaTodos =
           apiData.tabela_detalhada?.geral?.alunos?.filter((aluno) =>
             alunoRowId(aluno) && alunoPertenceLinhaAvaliacao(aluno, avaliacao, granularidade)

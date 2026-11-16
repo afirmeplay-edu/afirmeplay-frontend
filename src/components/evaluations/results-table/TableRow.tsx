@@ -5,6 +5,12 @@ import { getReportProficiencyTagClass } from '@/utils/report/reportTagStyles';
 import { ContextMenu } from '../../ui/context-menu';
 import { formatCoins } from '@/utils/coins';
 import { formatDecimal1PtBr, formatPercent1PtBr } from '@/utils/numberFormat';
+import {
+  formatarNivelDisciplina,
+  formatarNotaDisciplina,
+  formatarProficienciaDisciplina,
+  isDisciplinaAusente,
+} from '@/utils/answer-sheet/disciplinaAusente';
 import { Badge } from '@/components/ui/badge';
 
 // Interface para questões da tabela_detalhada
@@ -179,23 +185,37 @@ export const TableRow: React.FC<TableRowProps> = ({
 
       {useDisciplineSummary ? (
         <>
-          {disciplineMetrics!.map((dm) => (
-            <React.Fragment key={`dm-${dm.disciplina}`}>
-              <td className="px-2 py-3 text-sm text-center border border-border text-foreground tabular-nums">
-                {formatDecimal1PtBr(dm.nota)}
-              </td>
-              <td className="px-2 py-3 text-sm text-center border border-border text-foreground tabular-nums">
-                {formatDecimal1PtBr(dm.proficiencia)}
-              </td>
-              <td className="px-2 py-3 text-sm text-center border border-border">
-                <span
-                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${getReportProficiencyTagClass(dm.nivel)}`}
-                >
-                  {dm.nivel?.trim() || '—'}
-                </span>
-              </td>
-            </React.Fragment>
-          ))}
+          {disciplineMetrics!.map((dm) => {
+            const entry = {
+              nota: dm.nota,
+              proficiencia: dm.proficiencia,
+              nivel: dm.nivel,
+              status: dm.ausente ? 'ausente' : undefined,
+              absent: dm.ausente,
+            };
+            const nivelLabel = formatarNivelDisciplina(entry);
+            return (
+              <React.Fragment key={`dm-${dm.disciplina}`}>
+                <td className="px-2 py-3 text-sm text-center border border-border text-foreground tabular-nums">
+                  {formatarNotaDisciplina(entry)}
+                </td>
+                <td className="px-2 py-3 text-sm text-center border border-border text-foreground tabular-nums">
+                  {formatarProficienciaDisciplina(entry)}
+                </td>
+                <td className="px-2 py-3 text-sm text-center border border-border">
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                      isDisciplinaAusente(entry)
+                        ? 'bg-muted text-muted-foreground border border-border'
+                        : getReportProficiencyTagClass(nivelLabel)
+                    }`}
+                  >
+                    {nivelLabel}
+                  </span>
+                </td>
+              </React.Fragment>
+            );
+          })}
           <td className="px-2 py-3 text-sm text-center border border-border text-foreground font-medium tabular-nums bg-purple-50/50 dark:bg-purple-950/20">
             {formatDecimal1PtBr(geralMetrics?.nota ?? student.nota)}
           </td>

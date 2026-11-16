@@ -31,19 +31,31 @@ export function RankingAnswerSheetPanel({ data, isLoading, errorMessage }: Props
     );
   }
 
-  const students = (data?.items || []).map((item) => ({
-    id: String(item.student_id || ""),
-    nome: String(item.name || ""),
-    turma: String(item.class_name || "Sem turma"),
-    shift: String(item.shift || ""),
-    escola: String(item.school_name || ""),
-    serie: String(item.serie || ""),
-    nota: Number(item.average_score || 0),
-    proficiencia: Number(item.average_proficiency || 0),
-    classificacao: String(item.classification || ""),
-    status: "concluida" as const,
-    posicao: Number(item.position || 0),
-  }));
+  const students = (data?.items || []).map((item) => {
+    const classification = String(item.classification || "");
+    const ausente = classification.trim().toLowerCase() === "ausente";
+    return {
+      id: String(item.student_id || ""),
+      nome: String(item.name || ""),
+      turma: String(item.class_name || "Sem turma"),
+      shift: String(item.shift || ""),
+      escola: String(item.school_name || ""),
+      serie: String(item.serie || ""),
+      nota: ausente
+        ? null
+        : item.average_score == null
+          ? null
+          : Number(item.average_score),
+      proficiencia: ausente
+        ? null
+        : item.average_proficiency == null
+          ? null
+          : Number(item.average_proficiency),
+      classificacao: ausente ? "Ausente" : classification,
+      status: (ausente ? "ausente" : "concluida") as "concluida" | "ausente",
+      posicao: Number(item.position || 0),
+    };
+  });
 
   return (
     <div className="space-y-4">
