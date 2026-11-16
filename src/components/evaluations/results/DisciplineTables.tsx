@@ -901,7 +901,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                 <span className="text-sm font-bold">A</span>
               </div>
               <div className="min-w-0">
-                <h2 className="text-lg sm:text-xl font-bold">Alunos ADAP</h2>
+                <h2 className="text-lg sm:text-xl font-bold">Alunos ADAP 1 e 2</h2>
                 <p className="text-teal-100 text-xs sm:text-sm">
                   {resumoTabelaAdap(tabelaAdap)}
                 </p>

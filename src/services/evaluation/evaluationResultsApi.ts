@@ -67,7 +67,7 @@ export interface AlunoPendenteDetalheEstatisticas {
   escola?: string;
   serie?: string;
   turma?: string;
-  /** Presente quando o pendente é ADAP 1, 2 ou 3. */
+  /** Presente quando o pendente é ADAP 1 ou 2. */
   adap_nivel?: number;
   adap_rotulo?: string;
 }
@@ -479,7 +479,7 @@ export interface NovaRespostaAPI {
     };
   };
   tabela_detalhada?: TabelaDetalhada;
-  /** Alunos ADAP 1, 2 ou 3 do pareamento. Ausente quando a query não envia `alunos`. */
+  /** Alunos ADAP 1 ou 2 do pareamento. Ausente quando a query não envia `alunos`. */
   tabela_adap?: TabelaAdapAluno[];
   ranking?: RankingItem[];
   opcoes_proximos_filtros: OpcoesProximosFiltros;
