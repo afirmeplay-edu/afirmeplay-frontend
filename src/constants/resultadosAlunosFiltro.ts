@@ -1,10 +1,11 @@
 /** Opção inicial do filtro Alunos no menu Resultados. Troque só este valor. */
 export const RESULTADOS_ALUNOS_FILTRO_PADRAO = "regular";
 
+/** ADAP no filtro = só níveis 1 e 2 (ADAP 3 não faz prova objetiva/impressa). */
 export const RESULTADOS_ALUNOS_OPCOES = [
   { value: "regular", label: "Regular" },
-  { value: "regular_adap", label: "Regular + ADAP" },
-  { value: "adap", label: "ADAP" },
+  { value: "regular_adap", label: "Regular + ADAP 1 e 2" },
+  { value: "adap", label: "ADAP 1 e 2" },
   { value: "todos", label: "Todos" },
 ] as const;
 

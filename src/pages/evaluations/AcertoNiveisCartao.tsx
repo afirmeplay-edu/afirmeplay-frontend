@@ -22,6 +22,15 @@ import type { CellHookData, Styles } from "jspdf-autotable";
 import { normalizeProficiencyLevelLabel } from "@/utils/report/reportTagStyles";
 import type { ReportProficiencyLabel } from "@/utils/report/reportTagStyles";
 import {
+  DISCIPLINA_AUSENTE_LABEL,
+  formatarNivelDisciplina,
+  formatarNotaDisciplina,
+  formatarProficienciaDisciplina,
+  isDisciplinaAusente,
+  valorNotaParaMedia,
+  valorProficienciaParaMedia,
+} from "@/utils/answer-sheet/disciplinaAusente";
+import {
   isAnswerSheetMultiSeriePendingFilter,
   type AnswerSheetResultadosAgregadosRaw,
 } from "@/utils/answer-sheet/mapAnswerSheetResultadosAgregadosToNovaResposta";
@@ -59,13 +68,13 @@ type StudentResult = {
   turma: string;
   escola?: string;
   serie?: string;
-  nota: number;
-  proficiencia: number;
-  classificacao: 'Abaixo do Básico' | 'Básico' | 'Adequado' | 'Avançado';
+  nota: number | null;
+  proficiencia: number | null;
+  classificacao: 'Abaixo do Básico' | 'Básico' | 'Adequado' | 'Avançado' | 'Ausente';
   acertos: number;
   erros: number;
   questoes_respondidas: number;
-  status: 'concluida' | 'pendente';
+  status: 'concluida' | 'pendente' | 'ausente';
   // Removidos campos específicos de disciplinas (LP/MAT)
   respostas?: Record<string, boolean | null>;
 };
@@ -472,10 +481,18 @@ const mapUnifiedStudents = (tabela: TabelaDetalhadaPorDisciplina): StudentResult
     nivel_proficiencia?: string;
     nivel_proficiencia_geral?: string;
     classificacao?: string;
-  }): StudentResult["classificacao"] =>
-    normalizeProficiencyLevelLabel(
+    status?: string;
+    absent?: boolean;
+    nota?: number | null;
+    nota_geral?: number | null;
+    proficiencia?: number | null;
+    proficiencia_geral?: number | null;
+  }): StudentResult["classificacao"] => {
+    if (isDisciplinaAusente(aluno)) return DISCIPLINA_AUSENTE_LABEL;
+    return normalizeProficiencyLevelLabel(
       aluno.nivel_proficiencia_geral || aluno.nivel_proficiencia || aluno.classificacao || ""
     );
+  };
 
   tabela?.geral?.alunos?.forEach((aluno) => {
     const rowId = alunoRowId(aluno);
@@ -546,19 +563,24 @@ const mapUnifiedStudents = (tabela: TabelaDetalhadaPorDisciplina): StudentResult
         const totalEmBranco = Math.max(0, totalQuestoesDisciplina - totalRespondidas);
         const totalErros = aluno.total_erros ?? Math.max(0, totalRespondidas - totalAcertos - totalEmBranco);
 
+        const ausente = isDisciplinaAusente(aluno);
         student = {
           id: rowId,
           nome: aluno.nome,
           turma: aluno.turma || "",
           escola: aluno.escola,
           serie: aluno.serie,
-          nota: Number(aluno.nota ?? 0),
-          proficiencia: Number(aluno.proficiencia ?? 0),
+          nota: ausente ? null : aluno.nota == null ? null : Number(aluno.nota),
+          proficiencia: ausente
+            ? null
+            : aluno.proficiencia == null
+              ? null
+              : Number(aluno.proficiencia),
           classificacao: classifFromRow(aluno),
           acertos: totalAcertos,
           erros: totalErros,
           questoes_respondidas: totalRespondidas,
-          status: hasAnsweredAny ? "concluida" : "pendente",
+          status: ausente ? "ausente" : hasAnsweredAny ? "concluida" : "pendente",
           respostas: {},
         };
         studentsMap.set(rowId, student);
@@ -2793,18 +2815,28 @@ export default function AcertoNiveis({
           useScopedStats && typeof pdfEstatisticas.alunos_participantes === "number"
             ? pdfEstatisticas.alunos_participantes
             : concluidos.length;
+        const notasValidas = concluidos
+          .map((s) => valorNotaParaMedia(s))
+          .filter((n): n is number => n != null);
+        const profsValidas = concluidos
+          .map((s) => valorProficienciaParaMedia(s))
+          .filter((n): n is number => n != null);
         const mediaNota =
           useScopedStats && typeof pdfEstatisticas.media_nota_geral === "number"
             ? formatOneDecimalStable(Number(pdfEstatisticas.media_nota_geral))
-            : concluidos.length > 0
-              ? formatOneDecimalStable(concluidos.reduce((sum, s) => sum + s.nota, 0) / concluidos.length)
-              : "0.0";
+            : notasValidas.length > 0
+              ? formatOneDecimalStable(
+                  notasValidas.reduce((sum, n) => sum + n, 0) / notasValidas.length
+                )
+              : "—";
         const mediaProficiencia =
           useScopedStats && typeof pdfEstatisticas.media_proficiencia_geral === "number"
             ? formatOneDecimalStable(Number(pdfEstatisticas.media_proficiencia_geral))
-            : concluidos.length > 0
-              ? (concluidos.reduce((sum, s) => sum + s.proficiencia, 0) / concluidos.length).toFixed(1)
-              : "0.0";
+            : profsValidas.length > 0
+              ? (
+                  profsValidas.reduce((sum, n) => sum + n, 0) / profsValidas.length
+                ).toFixed(1)
+              : "—";
         const taxaParticipacao =
           useScopedStats && pdfEstatisticas.percentual_comparecimento != null
             ? formatOneDecimalStable(Number(pdfEstatisticas.percentual_comparecimento))
@@ -3423,8 +3455,8 @@ export default function AcertoNiveis({
           const row = [
             `${i + 1}. ${s.nome}`,
             `${acertos}/${total}`,
-            formatOneDecimalStable(s.nota),
-            s.proficiencia.toFixed(1),
+            formatarNotaDisciplina(s),
+            formatarProficienciaDisciplina(s),
             normalizeProficiencyLevelLabel(s.classificacao),
           ];
           bodyRows.push(row);
@@ -3533,9 +3565,9 @@ export default function AcertoNiveis({
             });
             if (isLastChunk) {
               row.push(`${acertosPorAluno[idx]}/${totalQuestoes}`);
-              row.push(formatOneDecimalStable(s.nota));
-              row.push(s.proficiencia.toFixed(1));
-              row.push(normalizeProficiencyLevelLabel(s.classificacao));
+              row.push(formatarNotaDisciplina(s));
+              row.push(formatarProficienciaDisciplina(s));
+              row.push(formatarNivelDisciplina(s, normalizeProficiencyLevelLabel));
             }
             bodyRows.push(row);
           });
@@ -3983,7 +4015,8 @@ export default function AcertoNiveis({
             const bodyRows: (string | number)[][] = [];
             alunosTurmaDisciplina.forEach(al => {
               const hasAnsweredAny = Array.isArray(al.respostas_por_questao) && al.respostas_por_questao.some(r => r.respondeu);
-              if (!hasAnsweredAny) return;
+              const ausente = isDisciplinaAusente(al);
+              if (!hasAnsweredAny && !ausente) return;
               const row: (string | number)[] = [al.nome];
               let acertosChunk = 0;
               chunk.forEach(q => {
@@ -3995,10 +4028,10 @@ export default function AcertoNiveis({
                 } else row.push('—');
               });
               if (isLastChunk) {
-                row.push(`${al.total_acertos ?? 0}/${totalQuestoesDisc}`);
-                row.push(formatOneDecimalStable(Number(al.nota ?? 0)));
-                row.push(Number(al.proficiencia ?? 0).toFixed(1));
-                row.push(normalizeProficiencyLevelLabel(al.nivel_proficiencia));
+                row.push(ausente ? DISCIPLINA_AUSENTE_LABEL : `${al.total_acertos ?? 0}/${totalQuestoesDisc}`);
+                row.push(formatarNotaDisciplina(al));
+                row.push(formatarProficienciaDisciplina(al));
+                row.push(formatarNivelDisciplina(al, normalizeProficiencyLevelLabel));
               }
               bodyRows.push(row);
             });
@@ -4340,19 +4373,26 @@ export default function AcertoNiveis({
             const totalAcertos = aluno.total_acertos ?? 0;
             const totalEmBranco = Math.max(0, totalQuestoesDisciplina - totalRespondidas);
             const totalErros = aluno.total_erros ?? Math.max(0, totalRespondidas - totalAcertos - totalEmBranco);
+            const ausente = isDisciplinaAusente(aluno);
             addToMap(turmaNorm, {
               id: rowId,
               nome: aluno.nome,
               turma: aluno.turma || '',
-              nota: Number(aluno.nota ?? 0),
-              proficiencia: Number(aluno.proficiencia ?? 0),
-              classificacao: normalizeProficiencyLevelLabel(
-                aluno.nivel_proficiencia || aluno.classificacao || ""
-              ),
+              nota: ausente ? null : aluno.nota == null ? null : Number(aluno.nota),
+              proficiencia: ausente
+                ? null
+                : aluno.proficiencia == null
+                  ? null
+                  : Number(aluno.proficiencia),
+              classificacao: ausente
+                ? DISCIPLINA_AUSENTE_LABEL
+                : normalizeProficiencyLevelLabel(
+                    aluno.nivel_proficiencia || aluno.classificacao || ""
+                  ),
               acertos: totalAcertos,
               erros: totalErros,
               questoes_respondidas: totalRespondidas,
-              status: hasAnsweredAny ? 'concluida' : 'pendente',
+              status: ausente ? 'ausente' : hasAnsweredAny ? 'concluida' : 'pendente',
               respostas: {}
             });
           });

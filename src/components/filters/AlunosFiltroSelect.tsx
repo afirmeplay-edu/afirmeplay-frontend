@@ -21,7 +21,7 @@ type AlunosFiltroSelectProps = {
 export function AlunosFiltroSelect({ value, onChange, disabled, id }: AlunosFiltroSelectProps) {
   return (
     <div className="space-y-2">
-      <label htmlFor={id} className="text-sm font-medium">
+      <label htmlFor={id} className="text-sm font-medium" title="ADAP 3 não entra em prova objetiva/impressa">
         Alunos
       </label>
       <Select
@@ -31,7 +31,7 @@ export function AlunosFiltroSelect({ value, onChange, disabled, id }: AlunosFilt
         }}
         disabled={disabled}
       >
-        <SelectTrigger id={id} className="w-full min-w-0">
+        <SelectTrigger id={id} className="w-full min-w-0" title="ADAP = ADAP 1 e 2; ADAP 3 fica de fora inclusive em Todos">
           <SelectValue placeholder="Selecione os alunos" />
         </SelectTrigger>
         <SelectContent>

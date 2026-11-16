@@ -11,6 +11,11 @@ import {
 import { getReportProficiencyTagClass } from "@/utils/report/reportTagStyles";
 import { getClassShiftLabel } from "@/lib/classShift";
 import { formatDecimal1PtBr } from "@/utils/numberFormat";
+import {
+  formatarNivelDisciplina,
+  formatarNotaDisciplina,
+  formatarProficienciaDisciplina,
+} from "@/utils/answer-sheet/disciplinaAusente";
 
 interface Student {
   id: string;
@@ -209,12 +214,16 @@ export function StudentRanking({
                         <div className="flex items-center gap-2">
                           <TrendingUp className="h-4 w-4 text-blue-500 dark:text-blue-400" />
                           <span className="font-medium">Nota:</span>
-                          <span className="font-semibold text-foreground">{formatDecimal1PtBr(student.nota)}</span>
+                          <span className="font-semibold text-foreground">
+                            {formatarNotaDisciplina(student)}
+                          </span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Star className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                           <span className="font-medium">Proficiência:</span>
-                          <span className="font-semibold text-foreground">{formatDecimal1PtBr(student.proficiencia)}</span>
+                          <span className="font-semibold text-foreground">
+                            {formatarProficienciaDisciplina(student)}
+                          </span>
                           <span className="text-xs text-muted-foreground">
                             {`(Proficiência máx. do ${student.serie || 'série'}: ${formatDecimal1PtBr(
                               maxProficiencyBySerie[String(student.serie || '').trim() || 'Sem série']
@@ -237,8 +246,8 @@ export function StudentRanking({
                     <div className="flex flex-col items-start sm:items-end gap-2">
                       <div className="flex flex-col items-end gap-1">
                         <div className="text-xs text-muted-foreground font-medium">Nível</div>
-                        <Badge className={getReportProficiencyTagClass(student.classificacao)}>
-                          {student.classificacao?.trim() ? student.classificacao : '—'}
+                        <Badge className={getReportProficiencyTagClass(formatarNivelDisciplina(student))}>
+                          {formatarNivelDisciplina(student)}
                         </Badge>
                       </div>
                       {showCoins && student.moedas_ganhas !== undefined && student.moedas_ganhas > 0 && (

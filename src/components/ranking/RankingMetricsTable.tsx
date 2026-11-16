@@ -76,8 +76,20 @@ export function RankingMetricsTableRow({
       {showParticipation ? (
         <td className="px-3 py-2 text-center text-sm">{formatParticipationCell(row)}</td>
       ) : null}
-      <td className="px-3 py-2 text-right font-semibold">{formatPt(Number(row.average_proficiency || 0))}</td>
-      <td className="px-3 py-2 text-right font-semibold text-primary">{formatPt(Number(row.average_score || 0))}</td>
+      <td className="px-3 py-2 text-right font-semibold">
+        {String(row.classification || row.level_tag || "").trim().toLowerCase() === "ausente"
+          ? "Ausente"
+          : row.average_proficiency == null
+            ? "—"
+            : formatPt(Number(row.average_proficiency))}
+      </td>
+      <td className="px-3 py-2 text-right font-semibold text-primary">
+        {String(row.classification || row.level_tag || "").trim().toLowerCase() === "ausente"
+          ? "Ausente"
+          : row.average_score == null
+            ? "—"
+            : formatPt(Number(row.average_score))}
+      </td>
       <td className="px-3 py-2">
         <NivelBar value={adequadoPct} count={adequadoCount} />
       </td>

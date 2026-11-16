@@ -191,8 +191,12 @@ export function ClassStatistics({
     return apiData.resultados_detalhados.avaliacoes.map((avaliacao, index) => {
       const totalStudents = avaliacao.total_alunos || 0;
       const participatingStudents = avaliacao.alunos_participantes || 0;
-      const averageGrade = avaliacao.media_nota || 0;
-      const proficiency = avaliacao.media_proficiencia || 0;
+      const averageGrade =
+        avaliacao.media_nota == null ? Number.NaN : Number(avaliacao.media_nota);
+      const proficiency =
+        avaliacao.media_proficiencia == null
+          ? Number.NaN
+          : Number(avaliacao.media_proficiencia);
       const distribution =
         avaliacao.distribuicao_classificacao || {
           abaixo_do_basico: 0,
@@ -316,8 +320,12 @@ export function ClassStatistics({
     const stats = apiData.estatisticas_gerais;
     const totalStudents = stats.total_alunos || 0;
     const participatingStudents = stats.alunos_participantes || 0;
-    const averageGrade = stats.media_nota_geral || 0;
-    const proficiency = stats.media_proficiencia_geral || 0;
+    const averageGrade =
+      stats.media_nota_geral == null ? Number.NaN : Number(stats.media_nota_geral);
+    const proficiency =
+      stats.media_proficiencia_geral == null
+        ? Number.NaN
+        : Number(stats.media_proficiencia_geral);
     
     // Usar distribuição do backend se disponível; senão, fallbacks somando dados detalhados
     let distribution = stats.distribuicao_classificacao || { ...emptyDistribution };
@@ -386,8 +394,10 @@ export function ClassStatistics({
         name: String(row.disciplina),
         totalStudents: apiData?.estatisticas_gerais?.total_alunos ?? 0,
         participatingStudents: apiData?.estatisticas_gerais?.alunos_participantes ?? 0,
-        averageGrade: Number(row.media_nota ?? 0),
-        proficiency: Number(row.media_proficiencia ?? 0),
+        averageGrade:
+          row.media_nota == null ? Number.NaN : Number(row.media_nota),
+        proficiency:
+          row.media_proficiencia == null ? Number.NaN : Number(row.media_proficiencia),
         distribution: row.distribuicao_classificacao ?? { ...emptyDistribution },
       }));
   }, [apiData?.estatisticas_gerais]);
@@ -420,12 +430,20 @@ export function ClassStatistics({
           
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Média Nota:</span>
-            <span className="font-medium">{formatDecimal1PtBr(statisticsItem.averageGrade)}</span>
+            <span className="font-medium">
+              {Number.isFinite(statisticsItem.averageGrade)
+                ? formatDecimal1PtBr(statisticsItem.averageGrade)
+                : "—"}
+            </span>
           </div>
           
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Proficiência:</span>
-            <span className="font-medium">{formatDecimal1PtBr(statisticsItem.proficiency)}</span>
+            <span className="font-medium">
+              {Number.isFinite(statisticsItem.proficiency)
+                ? formatDecimal1PtBr(statisticsItem.proficiency)
+                : "—"}
+            </span>
           </div>
 
           {statisticsItem.proficiencyLabel ? (

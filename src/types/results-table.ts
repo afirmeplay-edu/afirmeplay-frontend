@@ -103,9 +103,11 @@ export interface DetailedReport {
 
 export interface DisciplineMetricCell {
   disciplina: string;
-  nota: number;
-  proficiencia: number;
+  nota: number | null;
+  proficiencia: number | null;
   nivel: string;
+  /** Disciplina ausente no cartão (bloco em branco). */
+  ausente?: boolean;
 }
 
 export interface VisibleFields {
