@@ -14,6 +14,10 @@ import { getSubjectColors } from '@/utils/competition/competitionSubjectColors';
 import { getReportProficiencyTagClass, normalizeProficiencyLevelLabel } from '@/utils/report/reportTagStyles';
 import { formatDecimal1PtBr } from '@/utils/numberFormat';
 import {
+  formatarNivelDisciplina,
+  isDisciplinaAusente,
+} from '@/utils/answer-sheet/disciplinaAusente';
+import {
   adapTemResultado,
   classeBadgeSituacaoAdap,
   labelSituacaoAdap,
@@ -293,15 +297,26 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
     const baseStudents = tabelaDetalhada.disciplinas[0].alunos ?? [];
     const answersOf = (aluno: TabelaDetalhadaAluno) => aluno.respostas_por_questao ?? [];
 
+    // Manter aluno mesmo se uma disciplina estiver ausente (nota/prof null).
     const studentsWithAnswers = baseStudents.filter((aluno) => {
       if (!aluno?.nome && !aluno?.id) return false;
-      return tabelaDetalhada.disciplinas.some((disciplina) => {
-        const disciplinaAluno = (disciplina.alunos ?? []).find((a) => a.id === aluno.id);
-        if (!disciplinaAluno) return false;
-        const answers = answersOf(disciplinaAluno);
-        if (answers.some((resposta) => resposta?.respondeu || resposta?.acertou)) return true;
-        return (disciplinaAluno.total_respondidas ?? 0) > 0 || (disciplinaAluno.nota ?? 0) > 0;
-      }) || answersOf(aluno).length > 0 || Boolean(aluno.nome);
+      return (
+        tabelaDetalhada.disciplinas.some((disciplina) => {
+          const disciplinaAluno = (disciplina.alunos ?? []).find((a) => a.id === aluno.id);
+          if (!disciplinaAluno) return false;
+          if (
+            disciplinaAluno.status === "ausente" ||
+            String(disciplinaAluno.nivel_proficiencia || "").toLowerCase() === "ausente"
+          ) {
+            return true;
+          }
+          const answers = answersOf(disciplinaAluno);
+          if (answers.some((resposta) => resposta?.respondeu || resposta?.acertou)) return true;
+          return (disciplinaAluno.total_respondidas ?? 0) > 0 || disciplinaAluno.nota != null;
+        }) ||
+        answersOf(aluno).length > 0 ||
+        Boolean(aluno.nome)
+      );
     });
     
     return studentsWithAnswers.map(aluno => {
@@ -332,26 +347,34 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
         .filter((d) => d.nome && !isNomeDisciplinaGeral(d.nome))
         .map((disciplina) => {
           const da = disciplina.alunos.find((a) => a.id === aluno.id);
+          const isAusente = isDisciplinaAusente(da);
           return {
             disciplina: disciplina.nome,
-            nota: Number(da?.nota ?? 0),
-            proficiencia: Number(da?.proficiencia ?? 0),
-            nivel: normalizeProficiencyLevelLabel(da?.nivel_proficiencia ?? ''),
+            nota: isAusente ? null : da?.nota == null ? null : Number(da.nota),
+            proficiencia: isAusente ? null : da?.proficiencia == null ? null : Number(da.proficiencia),
+            nivel: formatarNivelDisciplina(da, normalizeProficiencyLevelLabel),
+            ausente: isAusente,
           };
         });
 
-      let nota = 0;
-      let proficiencia = 0;
-      let nivelProficiencia = 'Abaixo do Básico';
+      let nota: number | null = null;
+      let proficiencia: number | null = null;
+      let nivelProficiencia = "—";
 
       const alunoGeral = tabelaDetalhada.geral?.alunos?.find((a) => a.id === aluno.id);
       if (alunoGeral) {
-        nota = Number(alunoGeral.nota_geral ?? 0);
-        proficiencia = Number(alunoGeral.proficiencia_geral ?? 0);
-        nivelProficiencia = normalizeProficiencyLevelLabel(alunoGeral.nivel_proficiencia_geral ?? '');
+        nota = alunoGeral.nota_geral == null ? null : Number(alunoGeral.nota_geral);
+        proficiencia =
+          alunoGeral.proficiencia_geral == null ? null : Number(alunoGeral.proficiencia_geral);
+        nivelProficiencia = normalizeProficiencyLevelLabel(
+          alunoGeral.nivel_proficiencia_geral ?? ""
+        );
       } else {
         const primeiraComDados = disciplineMetrics.find(
-          (dm) => dm.nota > 0 || dm.proficiencia > 0 || (dm.nivel && dm.nivel !== 'Abaixo do Básico')
+          (dm) =>
+            !dm.ausente &&
+            ((dm.nota != null && Number.isFinite(dm.nota)) ||
+              (dm.proficiencia != null && Number.isFinite(dm.proficiencia)))
         );
         if (primeiraComDados) {
           nota = primeiraComDados.nota;
@@ -878,7 +901,7 @@ export const DisciplineTables: React.FC<DisciplineTablesProps> = ({
                 <span className="text-sm font-bold">A</span>
               </div>
               <div className="min-w-0">
-                <h2 className="text-lg sm:text-xl font-bold">Alunos ADAP</h2>
+                <h2 className="text-lg sm:text-xl font-bold">Alunos ADAP 1 e 2</h2>
                 <p className="text-teal-100 text-xs sm:text-sm">
                   {resumoTabelaAdap(tabelaAdap)}
                 </p>

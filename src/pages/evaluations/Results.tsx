@@ -3160,7 +3160,7 @@ export default function Results({ hidePageHeading = false }: ResultsProps = {}) 
                               {tabelaAdapRows.length > 0 && (
                                 <div className="space-y-3">
                                   <div>
-                                    <h3 className="text-base font-semibold text-foreground">Alunos ADAP</h3>
+                                    <h3 className="text-base font-semibold text-foreground">Alunos ADAP 1 e 2</h3>
                                     <p className="text-sm text-muted-foreground">{resumoTabelaAdap(tabelaAdapRows)}</p>
                                   </div>
                                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5">

@@ -2070,8 +2070,14 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
                                     <td className="py-3 px-4 text-muted-foreground">{a.escola ?? '—'}</td>
                                     <td className="py-3 px-4 text-muted-foreground">{a.turma ?? '—'}</td>
                                     <td className="py-3 px-4 text-muted-foreground">{a.serie ?? '—'}</td>
-                                    <td className="py-3 px-4">{formatDecimal1PtBr(a.nota_geral)}</td>
-                                    <td className="py-3 px-4">{formatDecimal1PtBr(a.proficiencia_geral)}</td>
+                                    <td className="py-3 px-4">
+                                      {a.nota_geral == null ? "—" : formatDecimal1PtBr(a.nota_geral)}
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      {a.proficiencia_geral == null
+                                        ? "—"
+                                        : formatDecimal1PtBr(a.proficiencia_geral)}
+                                    </td>
                                     <td className="py-3 px-4">
                                       <Badge
                                         variant="outline"
