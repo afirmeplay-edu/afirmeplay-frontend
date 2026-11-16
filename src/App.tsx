@@ -62,6 +62,7 @@ const RelatorioComparativo = React.lazy(() => import("@/pages/reports/RelatorioC
 const LogisticaAvaliacao = React.lazy(() => import("@/pages/logistics/LogisticaAvaliacao"));
 const RelatorioTempoProva = React.lazy(() => import("@/pages/reports/RelatorioTempoProva"));
 const RelatoriosMapaQuestoesHub = React.lazy(() => import("@/pages/reports/RelatoriosMapaQuestoesHub"));
+const RelatoriosHabilidadeGabaritoHub = React.lazy(() => import("@/pages/reports/RelatoriosHabilidadeGabaritoHub"));
 const RelatoriosBoletimAlunoHub = React.lazy(() => import("@/pages/reports/RelatoriosBoletimAlunoHub"));
 const RelatoriosUnificadoHub = React.lazy(() => import("@/pages/reports/RelatoriosUnificadoHub"));
 const RelatorioApresentacao19Slides = React.lazy(() => import("@/pages/reports/RelatorioApresentacao19Slides"));
@@ -480,6 +481,7 @@ const App = () => {
               />
               <Route path="/app/relatorios/mapa-habilidades" element={<PrivateRoute><SkillsHeatMapPage /></PrivateRoute>} />
               <Route path="/app/relatorios/mapa-questoes" element={<PrivateRoute><RelatoriosMapaQuestoesHub /></PrivateRoute>} />
+              <Route path="/app/relatorios/habilidade-gabarito" element={<PrivateRoute><RelatoriosHabilidadeGabaritoHub /></PrivateRoute>} />
               <Route path="/app/relatorios/boletim-aluno" element={<PrivateRoute><RelatoriosBoletimAlunoHub /></PrivateRoute>} />
               <Route path="/app/relatorios/relatorio-unificado" element={<PrivateRoute><RelatoriosUnificadoHub /></PrivateRoute>} />
               <Route path="/app/relatorios/relatorio-apresentacao-19-slides" element={<PrivateRoute><RelatorioApresentacao19Slides /></PrivateRoute>} />
