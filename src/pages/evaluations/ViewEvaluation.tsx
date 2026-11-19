@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Pencil, Trash2, ArrowLeft, Eye, Users, BookOpen, FileText, Calendar, User, MapPin, School, Play, Download, Loader2, ImagePlus } from "lucide-react";
+import { Pencil, Trash2, ArrowLeft, Eye, Users, BookOpen, FileText, Calendar, User, MapPin, School, Play, Download, Loader2, ImagePlus, ScanLine } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { downloadEvaluationExamPdf } from "@/services/reports/evaluationExamPdf";
@@ -1263,7 +1263,7 @@ export default function ViewEvaluation({
                           {[student.turma, student.escola].filter(Boolean).join(" · ") || "Sem turma/escola informada"}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 shrink-0">
                         <Badge
                           variant="outline"
                           className={
@@ -1274,6 +1274,21 @@ export default function ViewEvaluation({
                         >
                           {student.status === 'realizado' ? 'Realizou' : 'Pendente'}
                         </Badge>
+                        {user?.role && user.role !== 'aluno' && id && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1.5"
+                            title="Escanear respostas deste aluno"
+                            onClick={() =>
+                              navigate(`/app/correcao-foto?prova=${id}&aluno=${student.id}`)
+                            }
+                          >
+                            <ScanLine className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">Escanear</span>
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}
