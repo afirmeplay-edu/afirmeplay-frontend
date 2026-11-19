@@ -62,12 +62,14 @@ export function PrivateRoute({ children }: PrivateRouteProps) {
       pathname === '/app/cartao-resposta/gerar' ||
       pathname === '/app/cartao-resposta/cadastrar' ||
       pathname === '/app/cartao-resposta/corrigir' ||
+      pathname === '/app/correcao-foto' ||
       pathname === '/app/resultados' ||
       pathname === '/app/cartao-resposta/resultados' ||
       pathname.startsWith('/app/cartao-resposta/resultados/') ||
       pathname === '/app/configuracoes' ||
       pathname.startsWith('/app/configuracoes/') ||
       (pathname.startsWith('/app/avaliacao/') && pathname.endsWith('/fisica')) ||
+      (pathname.startsWith('/app/avaliacao/') && pathname.includes('/aluno/') && pathname.endsWith('/escanear')) ||
       pathname.startsWith('/app/provas-fisicas/') ||
       (isAplicadorRole(user?.role) &&
         (pathname === '/app/modo-offline' ||
