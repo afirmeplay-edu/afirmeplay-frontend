@@ -4,7 +4,7 @@ import { ToastContainer } from 'react-toastify'
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useParams } from "react-router-dom";
 import { useAuth } from "./context/authContext";
 import { StudentPreferencesProvider } from "./context/StudentPreferencesContext";
 import { PlanProvider } from "./context/PlanContext";
@@ -33,6 +33,11 @@ const CreateEvaluation = React.lazy(() => import("@/pages/evaluations/CreateEval
 const EditEvaluation = React.lazy(() => import("@/pages/evaluations/EditEvaluation"));
 const EvaluationCorrection = React.lazy(() => import("@/pages/evaluations/EvaluationCorrection"));
 const ViewEvaluation = React.lazy(() => import("@/pages/evaluations/ViewEvaluation"));
+const LegacyScanRedirect = () => {
+  const { id, studentId } = useParams();
+  return <Navigate to={`/app/correcao-foto?prova=${id}&aluno=${studentId}`} replace />;
+};
+const PhotoCorrectionPage = React.lazy(() => import("@/pages/evaluations/PhotoCorrectionPage"));
 const CoverTemplatePage = React.lazy(() => import("@/pages/evaluations/CoverTemplatePage"));
 const SkillsHeatMapPage = React.lazy(() => import("@/pages/evaluations/SkillsHeatMapPage"));
 const SubjectiveEvaluations = React.lazy(() => import("@/pages/evaluations/subjective/SubjectiveEvaluations"));
@@ -310,6 +315,8 @@ const App = () => {
               <Route path="/app/avaliacao/:id/resultados" element={<PrivateRoute><EvaluationResults /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id/resultados-detalhados" element={<PrivateRoute><DetailedResultsView onBack={() => window.history.back()} /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id/aluno/:studentId/resultados" element={<PrivateRoute><StudentDetailedResults onBack={() => window.history.back()} /></PrivateRoute>} />
+              <Route path="/app/avaliacao/:id/aluno/:studentId/escanear" element={<PrivateRoute><LegacyScanRedirect /></PrivateRoute>} />
+              <Route path="/app/correcao-foto" element={<PrivateRoute><PhotoCorrectionPage /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id" element={<PrivateRoute><ViewEvaluation /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id/editar" element={<PrivateRoute><EditEvaluation /></PrivateRoute>} />
               <Route path="/app/avaliacao/:id/capa" element={<PrivateRoute><CoverTemplatePage /></PrivateRoute>} />

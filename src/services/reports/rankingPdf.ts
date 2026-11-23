@@ -62,7 +62,19 @@ function formatCoverInfoValue(value: string): string {
   return String(value ?? '').trim().toLocaleUpperCase('pt-BR');
 }
 
-/** Nome da disciplina do filtro ativo, ou lista das disciplinas do instrumento (média geral). */
+/** Junta nomes em português: "A", "A e B", "A, B e C". */
+export function formatPtNameList(names: string[]): string {
+  const clean = names.map((n) => String(n || '').trim()).filter(Boolean);
+  if (clean.length === 0) return '';
+  if (clean.length === 1) return clean[0];
+  if (clean.length === 2) return `${clean[0]} e ${clean[1]}`;
+  return `${clean.slice(0, -1).join(', ')} e ${clean[clean.length - 1]}`;
+}
+
+/**
+ * Nome da disciplina do filtro ativo, ou média igual-peso das disciplinas do instrumento (Geral).
+ * Ex.: "Matemática" | "Média de Língua Portuguesa e Matemática"
+ */
 export function formatRankingDisciplinaLabel(
   data: Pick<RankingResponse, 'discipline_options'>,
   filters: Pick<RankingFilters, 'disciplina'>,
@@ -77,8 +89,11 @@ export function formatRankingDisciplinaLabel(
   const names = (data.discipline_options || [])
     .map((item) => String(item.name || '').trim())
     .filter(Boolean);
-  if (names.length) {
-    return names.join(', ');
+  if (names.length > 1) {
+    return `Média de ${formatPtNameList(names)}`;
+  }
+  if (names.length === 1) {
+    return names[0];
   }
 
   const fallback = String(explicitLabel || '').trim();
@@ -1425,7 +1440,7 @@ export async function generateRankingReportPdf(opts: RankingApiPdfOptions): Prom
         doc.setFontSize(9);
         doc.setTextColor(...C.textGray);
         const intro = doc.splitTextToSize(
-          `Resultados detalhados do recorte "${scopeTitle}" (disciplina: ${volumeDisciplineLabel}).`,
+          `Resultados detalhados do recorte "${scopeTitle}" — ${volumeDisciplineLabel}.`,
           pageW - margin * 2
         ) as string[];
         doc.text(intro, margin, y);

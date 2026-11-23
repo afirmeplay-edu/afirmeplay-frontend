@@ -12,7 +12,6 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FormFiltersApiService } from "@/services/formFiltersApi";
 import { EvaluationResultsApiService, REPORT_ENTITY_TYPE_ANSWER_SHEET } from "@/services/evaluation/evaluationResultsApi";
-import { EvaluationInstrumentPicker } from "@/components/filters";
 import { AlunosFiltroSelect } from "@/components/filters/AlunosFiltroSelect";
 import { RESULTADOS_ALUNOS_FILTRO_PADRAO } from "@/constants/resultadosAlunosFiltro";
 import { RelatorioConsolidadoItensPicker } from "@/components/reports/relatorio-geral/RelatorioConsolidadoItensPicker";
@@ -23,6 +22,7 @@ import {
   type RankingScope,
 } from "@/services/reports/rankingApi";
 import {
+  formatPtNameList,
   formatRankingDisciplinaLabel,
   generateRankingReportPdf,
 } from "@/services/reports/rankingPdf";
@@ -70,18 +70,6 @@ function parseCsvIds(value: string | null): string[] {
     out.push(id);
   }
   return out;
-}
-
-/** 1º/2º ano do EF. Exclui Ensino Médio (ex.: "1º Ano EM"). */
-function isEnsinoFundamental1ou2(serieName: string): boolean {
-  const raw = (serieName || "").trim();
-  if (!raw) return false;
-  const n = raw
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-  if (/\bem\b/.test(n) || n.includes("medio")) return false;
-  return /(?:^|[\s])[12][ºo°]?\s*ano\b/.test(` ${n}`);
 }
 
 function deriveScope(filters: RankingFilters): RankingScope {
@@ -185,22 +173,14 @@ export default function RankingHub() {
       delete base.escola;
       base.scope = filters.turma ? "turma" : "municipio";
     }
-    // CSV unifica as duas partes da prova (1º/2º) — mesmo contrato da aba Professores.
+    // Preferir evaluation_ids (CSV); evaluation_id = primeiro (compat).
     if (selectedEvaluationIds.length > 0) {
       base.evaluation_id = selectedEvaluationIds[0];
-      if (selectedEvaluationIds.length > 1) {
-        base.evaluation_ids = selectedEvaluationIds.join(",");
-      } else {
-        delete base.evaluation_ids;
-      }
+      base.evaluation_ids = selectedEvaluationIds.join(",");
     }
     if (selectedAnswerSheetIds.length > 0) {
       base.answer_sheet_id = selectedAnswerSheetIds[0];
-      if (selectedAnswerSheetIds.length > 1) {
-        base.answer_sheet_ids = selectedAnswerSheetIds.join(",");
-      } else {
-        delete base.answer_sheet_ids;
-      }
+      base.answer_sheet_ids = selectedAnswerSheetIds.join(",");
     }
     if (disciplinaForSharedQuery) {
       base.disciplina = disciplinaForSharedQuery;
@@ -656,23 +636,7 @@ export default function RankingHub() {
     series.find((item) => item.id === filters.serie)?.name ||
     rankingQuery.data?.classes_ranking?.grade_name ||
     "";
-  const isSerie1ou2Ano = isEnsinoFundamental1ou2(serieNome);
-  const allowMultiInstruments =
-    tab === "professores" || (tab === "visao-geral" && isSerie1ou2Ano);
   const turmaNome = turmas.find((item) => item.id === filters.turma)?.name || "";
-
-  useEffect(() => {
-    if (tab !== "visao-geral") return;
-    if (filters.serie && !serieNome) return;
-    if (isSerie1ou2Ano) return;
-    if (selectedEvaluationIds.length > 1) {
-      setSelectedEvaluationIds(selectedEvaluationIds.slice(0, 1));
-    }
-    if (selectedAnswerSheetIds.length > 1) {
-      setSelectedAnswerSheetIds(selectedAnswerSheetIds.slice(0, 1));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, filters.serie, serieNome, isSerie1ou2Ano, selectedEvaluationIds.length, selectedAnswerSheetIds.length]);
   const recorteLabel = [estadoNome, municipioNome].filter(Boolean).join(" / ");
   const periodoLabel =
     normalizedSelectedPeriod !== "all" && periodCalendarSelected
@@ -716,7 +680,7 @@ export default function RankingHub() {
       if (!hasEntitySelection) {
         toast({
           title: "Seleção obrigatória",
-          description: "Selecione uma avaliação ou um cartão-resposta para visualizar e exportar o ranking.",
+          description: "Selecione uma ou mais avaliações ou cartões-resposta para visualizar e exportar o ranking.",
           variant: "destructive",
         });
         return;
@@ -733,10 +697,16 @@ export default function RankingHub() {
 
       const entityTitle =
         selectedEvaluationIds.length > 0
-          ? selectedEvaluationIds
-              .map((id) => evaluationItems.find((item) => item.id === id)?.label || id)
-              .join(" · ")
-          : answerSheetItems.find((item) => item.id === filters.answer_sheet_id)?.label;
+          ? formatPtNameList(
+              selectedEvaluationIds.map(
+                (id) => evaluationItems.find((item) => item.id === id)?.label || id
+              )
+            )
+          : formatPtNameList(
+              selectedAnswerSheetIds.map(
+                (id) => answerSheetItems.find((item) => item.id === id)?.label || id
+              )
+            );
 
       setExportingPdf(true);
 
@@ -820,7 +790,7 @@ export default function RankingHub() {
         title: "PDF gerado",
         description:
           reportSections.length > 1
-            ? `Relatório com ${reportSections.length - 1} disciplina(s) e seção Geral ao final.`
+            ? `Relatório com ${reportSections.length - 1} disciplina(s) e a seção Geral ao final.`
             : "O relatório de ranking foi exportado com sucesso.",
       });
     } catch (error) {
@@ -1085,52 +1055,23 @@ export default function RankingHub() {
           ) : null}
 
           {rankingEntityTab === "avaliacao" ? (
-            allowMultiInstruments ? (
-              <RelatorioConsolidadoItensPicker
-                label="Avaliações"
-                items={evaluationItems.map((item) => ({ id: item.id, titulo: item.label }))}
-                selected={selectedEvaluationIds}
-                onChange={setSelectedEvaluationIds}
-                disabled={!filters.municipio}
-                loading={loadingFilters.avaliacao}
-                placeholder={
-                  loadingFilters.avaliacao
-                    ? "Carregando avaliações..."
-                    : tab === "visao-geral"
-                      ? "Selecione as duas partes da prova (1º/2º ano)"
-                      : "Selecione uma ou mais avaliações"
-                }
-                modalTitle="Selecionar avaliações"
-                entityLabel="avaliações"
-                emptyMessage="Nenhuma avaliação encontrada."
-              />
-            ) : (
-              <EvaluationInstrumentPicker
-                id="evaluation_id"
-                label="Avaliação"
-                estado={filters.estado || "all"}
-                municipio={filters.municipio || "all"}
-                escola={schoolIdForOtherTabs}
-                periodo={filters.periodo}
-                estadoLabel={estadoNome}
-                municipioLabel={municipioNome}
-                periodoLabel={filters.periodo}
-                value={filters.evaluation_id || "all"}
-                onChange={(value) => {
-                  if (value === "all" || !value) {
-                    setSelectedEvaluationIds([]);
-                    return;
-                  }
-                  setSelectedEvaluationIds([value]);
-                }}
-                disabled={!filters.municipio}
-                loading={loadingFilters.avaliacao}
-                allowAll
-                allLabel="Todas as avaliações"
-                placeholder={loadingFilters.avaliacao ? "Carregando avaliações..." : "Selecione a avaliação"}
-              />
-            )
-          ) : allowMultiInstruments ? (
+            <RelatorioConsolidadoItensPicker
+              label="Avaliações"
+              items={evaluationItems.map((item) => ({ id: item.id, titulo: item.label }))}
+              selected={selectedEvaluationIds}
+              onChange={setSelectedEvaluationIds}
+              disabled={!filters.municipio}
+              loading={loadingFilters.avaliacao}
+              placeholder={
+                loadingFilters.avaliacao
+                  ? "Carregando avaliações..."
+                  : "Selecione uma ou mais avaliações"
+              }
+              modalTitle="Selecionar avaliações"
+              entityLabel="avaliações"
+              emptyMessage="Nenhuma avaliação encontrada."
+            />
+          ) : (
             <RelatorioConsolidadoItensPicker
               label="Cartões resposta"
               items={answerSheetItems.map((item) => ({ id: item.id, titulo: item.label }))}
@@ -1141,39 +1082,11 @@ export default function RankingHub() {
               placeholder={
                 loadingFilters.cartao
                   ? "Carregando cartões..."
-                  : tab === "visao-geral"
-                    ? "Selecione as duas partes da prova (1º/2º ano)"
-                    : "Selecione um ou mais cartões"
+                  : "Selecione um ou mais cartões-resposta"
               }
-              modalTitle="Selecionar cartões resposta"
+              modalTitle="Selecionar cartões-resposta"
               entityLabel="cartões"
               emptyMessage="Nenhum cartão encontrado."
-            />
-          ) : (
-            <EvaluationInstrumentPicker
-              id="answer_sheet_id"
-              label="Cartão resposta"
-              estado={filters.estado || "all"}
-              municipio={filters.municipio || "all"}
-              escola={schoolIdForOtherTabs}
-              periodo={filters.periodo}
-              reportEntityType={REPORT_ENTITY_TYPE_ANSWER_SHEET}
-              estadoLabel={estadoNome}
-              municipioLabel={municipioNome}
-              periodoLabel={filters.periodo}
-              value={filters.answer_sheet_id || "all"}
-              onChange={(value) => {
-                if (value === "all" || !value) {
-                  setSelectedAnswerSheetIds([]);
-                  return;
-                }
-                setSelectedAnswerSheetIds([value]);
-              }}
-              disabled={!filters.municipio}
-              loading={loadingFilters.cartao}
-              allowAll
-              allLabel="Todos os cartões"
-              placeholder={loadingFilters.cartao ? "Carregando cartões..." : "Selecione o cartão resposta"}
             />
           )}
 
@@ -1358,20 +1271,20 @@ export default function RankingHub() {
             </div>
             {selectedDisciplineIds.length === 0 ? (
               <p className="text-xs text-muted-foreground">
-                Ranking Geral na tela (média combinada de{" "}
-                {(rankingQuery.data?.discipline_options || []).map((d) => d.name).join(" · ") ||
-                  "todas as disciplinas"}
-                ). No PDF: uma capa por disciplina e a capa Geral por último.
+                Geral:{" "}
+                {formatRankingDisciplinaLabel(rankingQuery.data || {}, { disciplina: "" })}
+                . No PDF: uma seção por disciplina e a seção Geral (mesma média) ao final.
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
                 Tela com{" "}
-                {(rankingQuery.data?.discipline_options || [])
-                  .filter((d) => selectedDisciplineIds.includes(d.id))
-                  .map((d) => d.name)
-                  .join(" · ") || "disciplinas selecionadas"}
-                {selectedDisciplineIds.length > 1 ? " lado a lado" : ""}. No PDF: capa de cada disciplina
-                selecionada + capa Geral ao final.
+                {formatPtNameList(
+                  (rankingQuery.data?.discipline_options || [])
+                    .filter((d) => selectedDisciplineIds.includes(d.id))
+                    .map((d) => d.name)
+                ) || "disciplinas escolhidas"}
+                {selectedDisciplineIds.length > 1 ? " lado a lado" : ""}. No PDF: seção de cada
+                disciplina escolhida e a Geral ao final.
               </p>
             )}
           </div>
@@ -1381,7 +1294,7 @@ export default function RankingHub() {
           <div className="mt-6">
             <Card className="border border-dashed border-border/70">
               <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                Selecione uma avaliação ou um cartão-resposta para exibir as informações do ranking.
+                Selecione uma ou mais avaliações ou cartões-resposta para exibir o ranking.
               </CardContent>
             </Card>
           </div>
