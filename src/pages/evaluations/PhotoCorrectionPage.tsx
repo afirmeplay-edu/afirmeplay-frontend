@@ -6,6 +6,7 @@ import {
   DetectedAnswer,
   DetectAnswersResponse,
   PhotoScanClass,
+  PhotoScanKind,
   PhotoScanStudent,
   PhotoScanTest,
   ScanAnswersApiService,
@@ -78,7 +79,20 @@ const ERROR_HINTS: Record<string, string> = {
   bubbles_not_found:
     "Não encontramos as bolhas. Enquadre toda a área de respostas com boa luz e foco.",
   no_questions: "Avaliação sem questões para escanear.",
+  missing_topology:
+    "Este cartão não tem topologia (blocos/questões) ou gabarito configurados para leitura por foto.",
 };
+
+const KIND_LABELS: Record<PhotoScanKind, string> = {
+  cartao: "Cartão-resposta",
+  physical: "Prova física",
+  virtual: "Prova online",
+};
+const KIND_ORDER: PhotoScanKind[] = ["cartao", "physical", "virtual"];
+
+function isKind(value: string | null): value is PhotoScanKind {
+  return value === "cartao" || value === "physical" || value === "virtual";
+}
 
 function statusBadge(status: DetectedAnswer["status"]) {
   switch (status) {
@@ -115,6 +129,9 @@ function SearchCombobox<T extends { id: string }>(props: {
   onChange: (id: string) => void;
   getLabel: (item: T) => string;
   renderItem?: (item: T) => React.ReactNode;
+  /** Quando informado, agrupa os itens por rótulo (na ordem de `groupOrder`). */
+  getGroup?: (item: T) => string;
+  groupOrder?: string[];
   placeholder: string;
   searchPlaceholder: string;
   emptyText: string;
@@ -122,6 +139,22 @@ function SearchCombobox<T extends { id: string }>(props: {
 }) {
   const [open, setOpen] = useState(false);
   const selected = props.items.find((i) => i.id === props.value);
+  const groups = useMemo<[string, T[]][]>(() => {
+    if (!props.getGroup) return [["", props.items]];
+    const map = new Map<string, T[]>();
+    props.items.forEach((item) => {
+      const key = props.getGroup!(item);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(item);
+    });
+    const order = props.groupOrder || [];
+    return Array.from(map.entries()).sort(
+      (a, b) =>
+        (order.indexOf(a[0]) === -1 ? 99 : order.indexOf(a[0])) -
+        (order.indexOf(b[0]) === -1 ? 99 : order.indexOf(b[0]))
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.items, props.getGroup, props.groupOrder]);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -141,20 +174,22 @@ function SearchCombobox<T extends { id: string }>(props: {
           <CommandInput placeholder={props.searchPlaceholder} />
           <CommandList>
             <CommandEmpty>{props.emptyText}</CommandEmpty>
-            <CommandGroup>
-              {props.items.map((item) => (
-                <CommandItem
-                  key={item.id}
-                  value={`${props.getLabel(item)} ${item.id}`}
-                  onSelect={() => {
-                    props.onChange(item.id);
-                    setOpen(false);
-                  }}
-                >
-                  {props.renderItem ? props.renderItem(item) : props.getLabel(item)}
-                </CommandItem>
-              ))}
-            </CommandGroup>
+            {groups.map(([heading, groupItems]) => (
+              <CommandGroup key={heading || "all"} heading={heading || undefined}>
+                {groupItems.map((item) => (
+                  <CommandItem
+                    key={item.id}
+                    value={`${props.getLabel(item)} ${item.id}`}
+                    onSelect={() => {
+                      props.onChange(item.id);
+                      setOpen(false);
+                    }}
+                  >
+                    {props.renderItem ? props.renderItem(item) : props.getLabel(item)}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            ))}
           </CommandList>
         </Command>
       </PopoverContent>
@@ -221,6 +256,8 @@ export default function PhotoCorrectionPage() {
   const [tests, setTests] = useState<PhotoScanTest[]>([]);
   const [loadingTests, setLoadingTests] = useState(true);
   const [testId, setTestId] = useState<string>(searchParams.get("prova") || "");
+  const urlTipo = searchParams.get("tipo");
+  const [urlKind] = useState<PhotoScanKind | null>(isKind(urlTipo) ? urlTipo : null);
 
   const [classes, setClasses] = useState<PhotoScanClass[]>([]);
   const [students, setStudents] = useState<PhotoScanStudent[]>([]);
@@ -263,11 +300,15 @@ export default function PhotoCorrectionPage() {
     };
   }, [isStaff, toast]);
 
+  const currentTest = tests.find((t) => t.id === testId) || null;
+  // Tipo do instrumento selecionado; antes de a lista carregar, vale o `tipo` da URL.
+  const kind: PhotoScanKind | null = currentTest?.kind ?? (testId ? urlKind : null);
+
   const loadStudents = useCallback(
-    async (id: string) => {
+    async (id: string, k: PhotoScanKind) => {
       setLoadingStudents(true);
       try {
-        const res = await ScanAnswersApiService.listStudents(id);
+        const res = await ScanAnswersApiService.listStudents(id, k);
         setClasses(res.classes || []);
         setStudents(res.students || []);
       } catch (err: any) {
@@ -291,8 +332,10 @@ export default function PhotoCorrectionPage() {
       setStudents([]);
       return;
     }
-    void loadStudents(testId);
-  }, [testId, loadStudents]);
+    // Aguarda o tipo (lista de avaliações ou `tipo` da URL); sem ele cai em prova online.
+    if (!kind && loadingTests) return;
+    void loadStudents(testId, kind ?? "virtual");
+  }, [testId, kind, loadingTests, loadStudents]);
 
   const resetCapture = useCallback(() => {
     setFile(null);
@@ -303,20 +346,22 @@ export default function PhotoCorrectionPage() {
     setFocusQ(null);
   }, []);
 
-  const syncUrl = (nextTest: string, nextStudent: string) => {
+  const syncUrl = (nextTest: string, nextStudent: string, nextKind: PhotoScanKind | null = kind) => {
     const params: Record<string, string> = {};
     if (nextTest) params.prova = nextTest;
+    if (nextTest && nextKind) params.tipo = nextKind;
     if (nextStudent) params.aluno = nextStudent;
     setSearchParams(params, { replace: true });
   };
 
   const onSelectTest = (id: string) => {
+    const picked = tests.find((t) => t.id === id);
     setTestId(id);
     setStudentId("");
     setClassId(ALL_CLASSES);
     setSavedInfo(null);
     resetCapture();
-    syncUrl(id, "");
+    syncUrl(id, "", picked?.kind ?? null);
   };
 
   const onSelectStudent = (id: string) => {
@@ -337,7 +382,6 @@ export default function PhotoCorrectionPage() {
   );
 
   const currentStudent = students.find((s) => s.id === studentId) || null;
-  const currentTest = tests.find((t) => t.id === testId) || null;
 
   const nextPending = useMemo(() => {
     const idx = visibleStudents.findIndex((s) => s.id === studentId);
@@ -373,7 +417,7 @@ export default function PhotoCorrectionPage() {
     setDetectError(null);
     setSavedInfo(null);
     try {
-      const result = await ScanAnswersApiService.detectAnswers(testId, studentId, file);
+      const result = await ScanAnswersApiService.detectAnswers(testId, studentId, file, kind ?? "virtual");
       setDetection(result);
       setEditable(
         (result.answers || []).map((a) => ({
@@ -452,7 +496,13 @@ export default function PhotoCorrectionPage() {
     if (!testId || !studentId) return false;
     setSaving(true);
     try {
-      const result = await ScanAnswersApiService.saveAnswers(testId, studentId, answersPayload, overwrite);
+      const result = await ScanAnswersApiService.saveAnswers(
+        testId,
+        studentId,
+        answersPayload,
+        overwrite,
+        kind ?? "virtual"
+      );
       toast({
         title: "Respostas salvas",
         description:
@@ -462,7 +512,7 @@ export default function PhotoCorrectionPage() {
       });
       setSavedInfo({ name: result.student_name || currentStudent?.name || "Aluno", score: result.score_percentage });
       resetCapture();
-      await loadStudents(testId);
+      await loadStudents(testId, kind ?? "virtual");
       return true;
     } catch (err: any) {
       const status = err?.response?.status;
@@ -510,7 +560,7 @@ export default function PhotoCorrectionPage() {
           Correção por Foto
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Escolha a prova e o aluno, fotografe a área das bolhas, revise e salve. Funciona com cartões
+          Escolha a avaliação ou cartão e o aluno, fotografe a área das bolhas, revise e salve. Funciona com cartões
           de A–D ou A–E com bolhas circulares.
         </p>
       </div>
@@ -520,21 +570,23 @@ export default function PhotoCorrectionPage() {
         <CardHeader>
           <CardTitle className="text-lg">1. Prova e aluno</CardTitle>
           <CardDescription>
-            Apenas avaliações objetivas (múltipla escolha) com turmas aplicadas aparecem aqui.
+            Aparecem cartões-resposta, provas físicas e provas online objetivas (múltipla escolha) com turmas aplicadas.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Prova</label>
+              <label className="text-sm font-medium">Avaliação / cartão</label>
               <SearchCombobox
                 items={tests}
                 value={testId}
                 onChange={onSelectTest}
                 getLabel={(t) => t.title}
-                placeholder={loadingTests ? "Carregando..." : "Selecione a prova"}
-                searchPlaceholder="Buscar prova..."
-                emptyText="Nenhuma prova objetiva encontrada."
+                getGroup={(t) => KIND_LABELS[t.kind] || KIND_LABELS.virtual}
+                groupOrder={KIND_ORDER.map((k) => KIND_LABELS[k])}
+                placeholder={loadingTests ? "Carregando..." : "Selecione a prova ou o cartão"}
+                searchPlaceholder="Buscar prova ou cartão..."
+                emptyText="Nenhuma prova objetiva ou cartão encontrado."
                 disabled={loadingTests}
               />
             </div>
@@ -603,7 +655,12 @@ export default function PhotoCorrectionPage() {
                 />
                 Mostrar só pendentes
               </label>
-              {currentTest && <span>Prova: {currentTest.title}</span>}
+              {currentTest && (
+                <span className="flex items-center gap-2">
+                  <Badge variant="secondary">{KIND_LABELS[currentTest.kind]}</Badge>
+                  {currentTest.title}
+                </span>
+              )}
             </div>
           )}
 
@@ -666,7 +723,7 @@ export default function PhotoCorrectionPage() {
                   <p className="text-center text-sm text-muted-foreground">
                     {canCapture
                       ? "Arraste uma imagem ou clique para selecionar / tirar foto"
-                      : "Selecione a prova e o aluno primeiro"}
+                      : "Selecione a avaliação ou cartão e o aluno primeiro"}
                   </p>
                 </>
               )}
