@@ -43,6 +43,7 @@ import {
   NotebookPen,
   MapPin,
   ScanLine,
+  Camera,
   Sparkles,
   Medal,
   Star,
@@ -335,6 +336,7 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
             { icon: FilePlus, label: "Cadastrar Cartão Resposta", href: "/app/cartao-resposta/cadastrar", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
             { icon: Ticket, label: "Gerar cartões", href: "/app/cartao-resposta/gerar", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
             { icon: ScanLine, label: "Corrigir cartões", href: "/app/cartao-resposta/corrigir", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
+            { icon: Camera, label: "Correção por foto", href: "/app/correcao-foto", role: ["admin", "professor", "diretor", "coordenador", "tecadm"] },
           ]
         },
         {
@@ -472,6 +474,12 @@ export default function Sidebar({ onMobileMenuClose, isMobileOpen = false }: Sid
       icon: ScanLine,
       label: "Corrigir cartões",
       href: "/app/cartao-resposta/corrigir",
+      role: [restrictedNavRole],
+    },
+    {
+      icon: Camera,
+      label: "Correção por Foto",
+      href: "/app/correcao-foto",
       role: [restrictedNavRole],
     },
     ...(isAplicadorRole(user.role)
