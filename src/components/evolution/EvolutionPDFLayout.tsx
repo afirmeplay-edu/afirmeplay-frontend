@@ -483,51 +483,62 @@ export const EvolutionPDFLayout = ({
           <h2 style={{ fontSize: 13, fontWeight: 'bold', marginBottom: 12, color: '#1f2937', marginTop: 0 }}>
             Notas por escola e turma
           </h2>
-          {schoolsWithTurmas.map((school) => (
-            <div key={school.schoolKey}>
-              <div
-                data-pdf-section={`group-school-${school.schoolKey.replace(/[^a-zA-Z0-9_-]/g, '-')}`}
-                style={{
-                  marginBottom: 12,
-                  marginTop: 16,
-                  padding: '12px 14px',
-                  backgroundColor: '#f5f3ff',
-                  borderLeft: '4px solid #7c3aed',
-                  pageBreakInside: 'avoid',
-                }}
-              >
-                <p style={{ fontSize: 10, color: '#6b7280', margin: '0 0 4px 0', textTransform: 'uppercase' }}>
-                  Escola
-                </p>
-                <h3 style={{ fontSize: 14, fontWeight: 'bold', color: '#1f2937', margin: 0 }}>
-                  {school.schoolName}
-                </h3>
-              </div>
-              {school.turmas.map((turma) => {
-                const turmaLabel = [turma.grade_name, turma.name || turma.class_name]
-                  .filter(Boolean)
-                  .join(' · ');
-                return (
-                  <div
-                    key={turma.id}
-                    data-pdf-section={`group-turma-${turma.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`}
-                    style={{
-                      marginBottom: 16,
-                      padding: 14,
-                      border: '1px solid #e5e7eb',
-                      borderRadius: 6,
-                      pageBreakInside: 'avoid',
-                    }}
-                  >
-                    <h4 style={{ fontSize: 13, fontWeight: 'bold', color: '#1f2937', margin: '0 0 10px 0' }}>
-                      Turma: {turmaLabel || turma.name}
-                    </h4>
-                    <PdfGroupRecorteTable group={turma} evaluations={groupEvaluations} />
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+          {schoolsWithTurmas.map((school) =>
+            school.turmas.map((turma, turmaIndex) => {
+              const turmaLabel = [turma.grade_name, turma.name || turma.class_name]
+                .filter(Boolean)
+                .join(' · ');
+              // Escola + turma + tabela na mesma captura: evita título órfão numa página
+              // e a tabela na seguinte.
+              return (
+                <div
+                  key={turma.id}
+                  data-pdf-section={`group-turma-${turma.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`}
+                  style={{
+                    marginBottom: 16,
+                    marginTop: turmaIndex === 0 ? 16 : 0,
+                    padding: 14,
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 6,
+                    pageBreakInside: 'avoid',
+                  }}
+                >
+                  {turmaIndex === 0 ? (
+                    <div
+                      style={{
+                        marginBottom: 12,
+                        padding: '10px 12px',
+                        backgroundColor: '#f5f3ff',
+                        borderLeft: '4px solid #7c3aed',
+                      }}
+                    >
+                      <p
+                        style={{
+                          fontSize: 10,
+                          color: '#6b7280',
+                          margin: '0 0 4px 0',
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        Escola
+                      </p>
+                      <h3 style={{ fontSize: 14, fontWeight: 'bold', color: '#1f2937', margin: 0 }}>
+                        {school.schoolName}
+                      </h3>
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: 10, color: '#6b7280', margin: '0 0 6px 0' }}>
+                      Escola: {school.schoolName}
+                    </p>
+                  )}
+                  <h4 style={{ fontSize: 13, fontWeight: 'bold', color: '#1f2937', margin: '0 0 10px 0' }}>
+                    Turma: {turmaLabel || turma.name}
+                  </h4>
+                  <PdfGroupRecorteTable group={turma} evaluations={groupEvaluations} />
+                </div>
+              );
+            })
+          )}
         </div>
       )}
     </div>

@@ -27,12 +27,16 @@ export interface DetectedBubble {
   marked: boolean;
 }
 
+/** Tipo do instrumento: prova online, prova física ou cartão-resposta avulso. */
+export type PhotoScanKind = "virtual" | "physical" | "cartao";
+
 export interface PhotoScanTest {
   id: string;
   title: string;
+  kind: PhotoScanKind;
   evaluation_mode?: string | null;
   created_at?: string | null;
-  students_total: number;
+  students_total: number | null;
 }
 
 export interface PhotoScanClass {
@@ -124,32 +128,45 @@ function fileToBase64DataUrl(file: File): Promise<string> {
   });
 }
 
+/** Cartão-resposta usa rotas por gabarito; prova (online/física) usa rotas por test. */
+function instrumentBase(kind: PhotoScanKind, id: string): string {
+  return kind === "cartao"
+    ? `/physical-tests/gabarito/${id}`
+    : `/physical-tests/test/${id}`;
+}
+
 export class ScanAnswersApiService {
   static async listTests(search?: string): Promise<PhotoScanTest[]> {
     const { data } = await api.get<{ tests: PhotoScanTest[] }>(
       "/physical-tests/photo-scan/tests",
       { params: search ? { search } : undefined }
     );
-    return data.tests || [];
+    return (data.tests || []).map((t) => ({ ...t, kind: t.kind || "virtual" }));
   }
 
-  static async listStudents(testId: string): Promise<PhotoScanStudentsResponse> {
-    const { data } = await api.get<PhotoScanStudentsResponse>(
-      `/physical-tests/photo-scan/tests/${testId}/students`
-    );
+  static async listStudents(
+    testId: string,
+    kind: PhotoScanKind = "virtual"
+  ): Promise<PhotoScanStudentsResponse> {
+    const url =
+      kind === "cartao"
+        ? `/physical-tests/photo-scan/gabaritos/${testId}/students`
+        : `/physical-tests/photo-scan/tests/${testId}/students`;
+    const { data } = await api.get<PhotoScanStudentsResponse>(url);
     return data;
   }
 
   static async detectAnswers(
     testId: string,
     studentId: string,
-    image: File | string
+    image: File | string,
+    kind: PhotoScanKind = "virtual"
   ): Promise<DetectAnswersResponse> {
     const imagePayload =
       typeof image === "string" ? image : await fileToBase64DataUrl(image);
 
     const { data } = await api.post<DetectAnswersResponse>(
-      `/physical-tests/test/${testId}/student/${studentId}/detect-answers`,
+      `${instrumentBase(kind, testId)}/student/${studentId}/detect-answers`,
       { image: imagePayload }
     );
     return data;
@@ -159,10 +176,11 @@ export class ScanAnswersApiService {
     testId: string,
     studentId: string,
     answers: Record<string, string | null>,
-    overwrite = false
+    overwrite = false,
+    kind: PhotoScanKind = "virtual"
   ): Promise<SaveAnswersResponse> {
     const { data } = await api.post<SaveAnswersResponse>(
-      `/physical-tests/test/${testId}/student/${studentId}/save-answers`,
+      `${instrumentBase(kind, testId)}/student/${studentId}/save-answers`,
       { answers, overwrite }
     );
     return data;
