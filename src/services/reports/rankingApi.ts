@@ -13,12 +13,12 @@ export interface RankingFilters {
   periodo?: string;
   disciplina?: string;
   evaluation_id?: string;
-  /** CSV de IDs — unifica LP+MAT no ranking de professores (1º/2º ano). */
+  /** CSV de IDs — preferir este; ranking general une as provas (média igual-peso no Geral). */
   evaluation_ids?: string;
   answer_sheet_id?: string;
   /** CSV de IDs de cartão — equivalente a evaluation_ids. */
   answer_sheet_ids?: string;
-  /** Só com evaluation_id na aba online. */
+  /** Recorte/pareamento do pacote (avaliação online). */
   alunos?: string;
 }
 
