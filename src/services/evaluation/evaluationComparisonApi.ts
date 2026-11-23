@@ -195,6 +195,33 @@ export interface EvolutionGroupTransition {
   grade_pp_delta: number | null;
 }
 
+/** Nota por avaliação dentro de um recorte (disciplina ou Geral). */
+export interface EvolutionGroupRecorteValue {
+  evaluation_id: string;
+  order: number;
+  average_grade: number | null;
+}
+
+/** Transição de nota entre pares consecutivos de um recorte. */
+export interface EvolutionGroupRecorteTransition {
+  from_order: number;
+  to_order: number;
+  /** null quando falta nota em alguma das edições do par. */
+  evolution: EvolutionMetrics | null;
+}
+
+/**
+ * Breakdown de notas por disciplina (+ Geral) em cada grupo de compare-groups.
+ * Usado na tabela da aba Escola / Série / Turma.
+ */
+export interface EvolutionGroupGradeByRecorte {
+  recorte: string;
+  subject_id?: string | null;
+  is_geral: boolean;
+  values: EvolutionGroupRecorteValue[];
+  transitions: EvolutionGroupRecorteTransition[];
+}
+
 export interface EvolutionGroupCard {
   id: string;
   name: string;
@@ -207,6 +234,8 @@ export interface EvolutionGroupCard {
   current_level?: string | null;
   points: EvolutionGroupPoint[];
   transitions: EvolutionGroupTransition[];
+  /** Notas por disciplina (+ Geral). Ausente em backends antigos. */
+  grade_by_recorte?: EvolutionGroupGradeByRecorte[];
 }
 
 export interface EvolutionGroupsResponse {
