@@ -1,5 +1,10 @@
+import type { CSSProperties } from 'react';
 import type { ProcessedEvolutionData } from './EvolutionCharts';
-import type { ComparisonResponse } from '@/services/evaluation/evaluationComparisonApi';
+import type {
+  ComparisonResponse,
+  EvolutionGroupCard,
+  EvolutionGroupsResponse,
+} from '@/services/evaluation/evaluationComparisonApi';
 import { EvolutionComboChart } from '@/components/evolution/EvolutionComboChart';
 import {
   getEvolutionColorByIndex,
@@ -21,6 +26,12 @@ import {
   rowHasAllEvaluations,
   type EvolutionComboSeries,
 } from '@/utils/evolution/evolutionSeries';
+import {
+  buildGroupEvaluationColumns,
+  buildVariationHeaders,
+  groupTurmasBySchool,
+  sortGradeByRecorte,
+} from '@/utils/evolution/evolutionGroupsRecorte';
 
 export interface EvolutionPDFLayoutProps {
   processedData: ProcessedEvolutionData;
@@ -33,6 +44,113 @@ export interface EvolutionPDFLayoutProps {
     grade?: string;
     class?: string;
   };
+  /** compare-groups (visualizar_por=turma) para seção escola → turma → tabela */
+  groupsData?: EvolutionGroupsResponse | null;
+  /** Aba Escola/Série/Turma: só tabelas, sem gráficos */
+  groupsOnly?: boolean;
+}
+
+function percentColor(percentage: number | null | undefined): string {
+  if (percentage == null || Number.isNaN(Number(percentage))) return '#6b7280';
+  if (percentage > 0) return '#059669';
+  if (percentage < 0) return '#dc2626';
+  return '#6b7280';
+}
+
+function PdfGroupRecorteTable({
+  group,
+  evaluations,
+}: {
+  group: EvolutionGroupCard;
+  evaluations: EvolutionGroupsResponse['evaluations'];
+}) {
+  const rows = sortGradeByRecorte(group.grade_by_recorte ?? []);
+  const columns = buildGroupEvaluationColumns(group, evaluations);
+  const variationCols = buildVariationHeaders(columns.map((column) => column.order));
+  if (rows.length === 0 || columns.length < 2) return null;
+
+  const th: CSSProperties = {
+    border: '1px solid #e5e7eb',
+    padding: '10px 8px',
+    textAlign: 'center',
+    backgroundColor: '#f3f4f6',
+    fontWeight: 'bold',
+    fontSize: 11,
+  };
+  const td: CSSProperties = {
+    border: '1px solid #e5e7eb',
+    padding: '10px 8px',
+    textAlign: 'center',
+    fontSize: 12,
+  };
+
+  return (
+    <div>
+      <p style={{ fontSize: 10, color: '#6b7280', margin: '0 0 8px 0' }}>
+        Nota na escala de 0 a 10 · variação relativa (%)
+      </p>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, color: '#1f2937' }}>
+        <thead>
+          <tr>
+            <th style={{ ...th, textAlign: 'left' }}>Recorte</th>
+            {columns.map((column) => (
+              <th key={`h-${group.id}-${column.order}`} style={th}>
+                {column.title}
+              </th>
+            ))}
+            {variationCols.map((pair) => (
+              <th key={`hv-${group.id}-${pair.from}-${pair.to}`} style={th}>
+                {pair.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const valueByOrder = new Map(
+              (row.values ?? []).map((value) => [value.order, value.average_grade])
+            );
+            const transitionByPair = new Map(
+              (row.transitions ?? []).map((transition) => [
+                `${transition.from_order}-${transition.to_order}`,
+                transition.evolution,
+              ])
+            );
+            return (
+              <tr key={`${group.id}-${row.recorte}-${row.is_geral ? 'g' : row.subject_id ?? 'x'}`}>
+                <td
+                  style={{
+                    ...td,
+                    textAlign: 'left',
+                    fontWeight: row.is_geral ? 'bold' : 500,
+                  }}
+                >
+                  {row.recorte}
+                </td>
+                {columns.map((column) => (
+                  <td key={`g-${group.id}-${row.recorte}-${column.order}`} style={td}>
+                    {formatEvolutionMetric(valueByOrder.get(column.order) ?? null, 'nota')}
+                  </td>
+                ))}
+                {variationCols.map((pair) => {
+                  const evolution = transitionByPair.get(`${pair.from}-${pair.to}`) ?? null;
+                  const percentage = evolution?.percentage ?? null;
+                  return (
+                    <td
+                      key={`v-${group.id}-${row.recorte}-${pair.from}-${pair.to}`}
+                      style={{ ...td, color: percentColor(percentage), fontWeight: 'bold' }}
+                    >
+                      {formatSignedEvolutionPercent(percentage)}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 const chartBoxStyle = {
@@ -106,6 +224,8 @@ export const EvolutionPDFLayout = ({
   evaluationNames,
   reportKind = 'aggregate',
   studentLabel,
+  groupsData = null,
+  groupsOnly = false,
 }: EvolutionPDFLayoutProps) => {
   const isStudentReport = reportKind === 'student';
   const generalStats = readGeneralGradeStats(processedData.generalData || []);
@@ -120,12 +240,18 @@ export const EvolutionPDFLayout = ({
     getEvolutionProficiencyColorByIndex
   );
 
-  const subjects = Object.entries(processedData.subjectData || {}).filter(([, rows]) =>
-    rowHasAllEvaluations(mergeEvolutionRows(rows)[0], evaluationNames.length)
-  );
-  const levels = Object.entries(processedData.levelsData || {}).filter(([, rows]) =>
-    rowHasAllEvaluations(mergeEvolutionRows(rows)[0], evaluationNames.length)
-  );
+  const subjects = groupsOnly
+    ? []
+    : Object.entries(processedData.subjectData || {}).filter(([, rows]) =>
+        rowHasAllEvaluations(mergeEvolutionRows(rows)[0], evaluationNames.length)
+      );
+  const levels = groupsOnly
+    ? []
+    : Object.entries(processedData.levelsData || {}).filter(([, rows]) =>
+        rowHasAllEvaluations(mergeEvolutionRows(rows)[0], evaluationNames.length)
+      );
+  const schoolsWithTurmas = groupTurmasBySchool(groupsData?.groups ?? []);
+  const groupEvaluations = groupsData?.evaluations ?? [];
 
   const variationColor =
     generalStats?.variacaoTotal == null
@@ -154,7 +280,11 @@ export const EvolutionPDFLayout = ({
         style={{ marginBottom: 20, marginTop: '15mm', textAlign: 'center', borderBottom: '2px solid #2563eb', paddingBottom: 12 }}
       >
         <h1 style={{ fontSize: 20, fontWeight: 'bold', color: '#2563eb', marginBottom: 8, marginTop: 0 }}>
-          {isStudentReport ? 'EVOLUÇÃO INDIVIDUAL DO ALUNO' : 'ANÁLISE DE EVOLUÇÃO'}
+          {isStudentReport
+            ? 'EVOLUÇÃO INDIVIDUAL DO ALUNO'
+            : groupsOnly
+              ? 'EVOLUÇÃO POR ESCOLA E TURMA'
+              : 'ANÁLISE DE EVOLUÇÃO'}
         </h1>
         {isStudentReport && studentLabel?.name && (
           <p style={{ fontSize: 14, fontWeight: 'bold', color: '#1f2937', margin: '0 0 6px 0' }}>{studentLabel.name}</p>
@@ -211,7 +341,7 @@ export const EvolutionPDFLayout = ({
         </div>
       )}
 
-      {generalStats && (
+      {!groupsOnly && generalStats && (
         <div data-pdf-section="summary" style={{ marginBottom: 18, pageBreakInside: 'avoid' }}>
           <h2 style={{ fontSize: 13, fontWeight: 'bold', marginBottom: 10, color: '#1f2937', marginTop: 0 }}>
             Resumo Estatístico
@@ -240,6 +370,7 @@ export const EvolutionPDFLayout = ({
         </div>
       )}
 
+      {!groupsOnly && (
       <div data-pdf-section="general-charts" style={{ marginBottom: 20 }}>
         <h2 style={{ fontSize: 13, fontWeight: 'bold', marginBottom: 12, color: '#1f2937', marginTop: 0 }}>
           Gráficos Gerais
@@ -254,8 +385,9 @@ export const EvolutionPDFLayout = ({
           seriesName="Proficiência"
         />
       </div>
+      )}
 
-      {subjects.length > 0 && (
+      {!groupsOnly && subjects.length > 0 && (
         <div style={{ marginTop: 20 }}>
           <h2 style={{ fontSize: 13, fontWeight: 'bold', marginBottom: 12, color: '#1f2937', marginTop: 0 }}>
             Gráficos por Disciplina
@@ -289,7 +421,8 @@ export const EvolutionPDFLayout = ({
         </div>
       )}
 
-      {((processedData.subjectsWithoutComparison?.length ?? 0) > 0 || processedData.seriesDiferentes) && (
+      {!groupsOnly &&
+        ((processedData.subjectsWithoutComparison?.length ?? 0) > 0 || processedData.seriesDiferentes) && (
         <div data-pdf-section="subject-sem-comparacao" style={{ marginTop: 12, pageBreakInside: 'avoid' }}>
           {(processedData.subjectsWithoutComparison?.length ?? 0) > 0 && (
             <>
@@ -318,7 +451,7 @@ export const EvolutionPDFLayout = ({
         </div>
       )}
 
-      {levels.length > 0 && (
+      {!groupsOnly && levels.length > 0 && (
         <div style={{ marginTop: 20 }}>
           <h2 style={{ fontSize: 13, fontWeight: 'bold', marginBottom: 12, color: '#1f2937', marginTop: 0 }}>
             Níveis de Proficiência
@@ -342,6 +475,59 @@ export const EvolutionPDFLayout = ({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {schoolsWithTurmas.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <h2 style={{ fontSize: 13, fontWeight: 'bold', marginBottom: 12, color: '#1f2937', marginTop: 0 }}>
+            Notas por escola e turma
+          </h2>
+          {schoolsWithTurmas.map((school) => (
+            <div key={school.schoolKey}>
+              <div
+                data-pdf-section={`group-school-${school.schoolKey.replace(/[^a-zA-Z0-9_-]/g, '-')}`}
+                style={{
+                  marginBottom: 12,
+                  marginTop: 16,
+                  padding: '12px 14px',
+                  backgroundColor: '#f5f3ff',
+                  borderLeft: '4px solid #7c3aed',
+                  pageBreakInside: 'avoid',
+                }}
+              >
+                <p style={{ fontSize: 10, color: '#6b7280', margin: '0 0 4px 0', textTransform: 'uppercase' }}>
+                  Escola
+                </p>
+                <h3 style={{ fontSize: 14, fontWeight: 'bold', color: '#1f2937', margin: 0 }}>
+                  {school.schoolName}
+                </h3>
+              </div>
+              {school.turmas.map((turma) => {
+                const turmaLabel = [turma.grade_name, turma.name || turma.class_name]
+                  .filter(Boolean)
+                  .join(' · ');
+                return (
+                  <div
+                    key={turma.id}
+                    data-pdf-section={`group-turma-${turma.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`}
+                    style={{
+                      marginBottom: 16,
+                      padding: 14,
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 6,
+                      pageBreakInside: 'avoid',
+                    }}
+                  >
+                    <h4 style={{ fontSize: 13, fontWeight: 'bold', color: '#1f2937', margin: '0 0 10px 0' }}>
+                      Turma: {turmaLabel || turma.name}
+                    </h4>
+                    <PdfGroupRecorteTable group={turma} evaluations={groupEvaluations} />
+                  </div>
+                );
+              })}
+            </div>
+          ))}
         </div>
       )}
     </div>

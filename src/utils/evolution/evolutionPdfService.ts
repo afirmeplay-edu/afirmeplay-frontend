@@ -1,5 +1,8 @@
 import type { ProcessedEvolutionData } from '@/components/evolution/EvolutionCharts';
-import type { ComparisonResponse } from '@/services/evaluation/evaluationComparisonApi';
+import type {
+  ComparisonResponse,
+  EvolutionGroupsResponse,
+} from '@/services/evaluation/evaluationComparisonApi';
 import { EvolutionPDFLayout, type EvolutionPDFLayoutProps } from '@/components/evolution/EvolutionPDFLayout';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -28,6 +31,14 @@ export interface FilterInfo {
   studentSchoolName?: string;
   studentGradeName?: string;
   studentClassName?: string;
+  /** Capa/subtítulo da aba Escola · Série · Turma */
+  groupsReport?: boolean;
+}
+
+export interface EvolutionPdfOptions {
+  instrumentLabel?: string;
+  /** compare-groups por turma — seção Escola → Turma → tabela no PDF */
+  groupsData?: EvolutionGroupsResponse | null;
 }
 
 function isStudentReport(filterInfo: FilterInfo | null | undefined): boolean {
@@ -488,7 +499,9 @@ async function addCoverPage(
   pdf.setFontSize(11);
   const subtitle = isStudentReport(filterInfo)
     ? 'RELATÓRIO INDIVIDUAL DO ALUNO'
-    : 'RELATÓRIO DE COMPARAÇÃO DE AVALIAÇÕES';
+    : filterInfo?.groupsReport
+      ? 'RELATÓRIO POR ESCOLA E TURMA'
+      : 'RELATÓRIO DE COMPARAÇÃO DE AVALIAÇÕES';
   pdf.text(subtitle, centerX, titleY + 8, { align: 'center' });
 
   let y = BAND_H + 13;
@@ -1026,8 +1039,17 @@ export async function generateEvolutionPDFFromHTML(
   comparisonData: ComparisonResponse | null,
   evaluationNames: string[],
   filterInfo?: FilterInfo | null,
-  instrumentLabel = 'avaliações'
+  instrumentLabelOrOptions: string | EvolutionPdfOptions = 'avaliações'
 ): Promise<void> {
+  const options: EvolutionPdfOptions =
+    typeof instrumentLabelOrOptions === 'string'
+      ? { instrumentLabel: instrumentLabelOrOptions }
+      : instrumentLabelOrOptions ?? {};
+  const instrumentLabel = options.instrumentLabel ?? 'avaliações';
+  const groupsData = options.groupsData ?? null;
+  /** Aba Escola/Série/Turma: PDF só com tabelas, sem gráficos */
+  const groupsOnly = Boolean(filterInfo?.groupsReport);
+
   try {
     // Importar bibliotecas dinamicamente
     const html2canvas = (await import('html2canvas')).default;
@@ -1058,6 +1080,8 @@ export async function generateEvolutionPDFFromHTML(
         processedData,
         comparisonData,
         evaluationNames,
+        groupsData,
+        groupsOnly,
       };
       if (isStudentReport(filterInfo ?? null)) {
         layoutProps.reportKind = 'student';
@@ -1148,6 +1172,7 @@ export async function generateEvolutionPDFFromHTML(
     const generalSections: HTMLElement[] = [];
     const subjectSections: HTMLElement[] = [];
     const levelSections: HTMLElement[] = [];
+    const groupSections: HTMLElement[] = [];
     const otherSections: HTMLElement[] = [];
 
     allSections.forEach((section) => {
@@ -1159,6 +1184,8 @@ export async function generateEvolutionPDFFromHTML(
         subjectSections.push(section);
       } else if (sectionId.startsWith('level-')) {
         levelSections.push(section);
+      } else if (sectionId.startsWith('group-')) {
+        groupSections.push(section);
       } else {
         otherSections.push(section);
       }
@@ -1213,8 +1240,8 @@ export async function generateEvolutionPDFFromHTML(
       await addSectionsToPDF(studentComparisonSections);
     }
 
-    // Adicionar gráficos gerais com página divisória
-    if (generalSections.length > 0) {
+    // Gráficos só fora da aba Escola/Série/Turma
+    if (!groupsOnly && generalSections.length > 0) {
       // Criar página divisória
       pdf.addPage();
       await addCategoryDivider(
@@ -1236,8 +1263,7 @@ export async function generateEvolutionPDFFromHTML(
       await addSectionsToPDF(generalSections);
     }
 
-    // Adicionar gráficos por disciplina com página divisória
-    if (subjectSections.length > 0) {
+    if (!groupsOnly && subjectSections.length > 0) {
       pdf.addPage();
       await addCategoryDivider(
         pdf,
@@ -1257,8 +1283,7 @@ export async function generateEvolutionPDFFromHTML(
       await addSectionsToPDF(subjectSections);
     }
 
-    // Adicionar gráficos por nível com página divisória (não aplicável ao relatório individual)
-    if (levelSections.length > 0 && !studentReport) {
+    if (!groupsOnly && levelSections.length > 0 && !studentReport) {
       pdf.addPage();
       await addCategoryDivider(
         pdf,
@@ -1278,6 +1303,28 @@ export async function generateEvolutionPDFFromHTML(
       await addSectionsToPDF(levelSections);
     }
 
+    // Escola → Turma → tabela de notas por recorte (aba grupos)
+    if (groupSections.length > 0 && !studentReport) {
+      pdf.addPage();
+      await addCategoryDivider(
+        pdf,
+        imgWidth,
+        pageHeight,
+        'Escola, Série e Turma',
+        'Notas por recorte em cada turma, agrupadas por escola',
+        filterInfo || null,
+        evaluationNames,
+        icoAsset,
+        reportLogo,
+        processedData,
+        instrumentLabel
+      );
+      pdf.addPage();
+      currentY =
+        addHeader(pdf, imgWidth, filterInfo || null, 'NOTAS POR ESCOLA E TURMA', icoAsset) || marginTop;
+      await addSectionsToPDF(groupSections);
+    }
+
     // Remover elemento temporário
     document.body.removeChild(container);
     root.unmount();
@@ -1293,7 +1340,9 @@ export async function generateEvolutionPDFFromHTML(
       '';
     const fileName = studentSlug
       ? `relatorio-evolucao-aluno-${studentSlug}-${datePart}.pdf`
-      : `relatorio-evolucao-${evaluationNames.join('-').replace(/[^a-zA-Z0-9]/g, '-')}-${datePart}.pdf`;
+      : groupsData
+        ? `relatorio-evolucao-escolas-turmas-${datePart}.pdf`
+        : `relatorio-evolucao-${evaluationNames.join('-').replace(/[^a-zA-Z0-9]/g, '-')}-${datePart}.pdf`;
     pdf.save(fileName);
   } catch (error) {
     console.error('Erro ao gerar PDF:', error);

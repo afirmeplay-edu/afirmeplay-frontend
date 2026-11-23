@@ -11,9 +11,14 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/authContext';
 import { api } from '@/lib/api';
 import { EvaluationResultsApiService } from '@/services/evaluation/evaluationResultsApi';
-import { EvaluationComparisonApiService, ComparisonResponse } from '@/services/evaluation/evaluationComparisonApi';
+import {
+  EvaluationComparisonApiService,
+  ComparisonResponse,
+  type EvolutionGroupsResponse,
+} from '@/services/evaluation/evaluationComparisonApi';
 import { EvolutionCharts } from '@/components/evolution/EvolutionCharts';
 import type { ProcessedEvolutionData } from '@/components/evolution/EvolutionCharts';
+import { EvolutionGroupsView } from '@/components/evolution/EvolutionGroupsView';
 import { processComparisonData } from '@/utils/evolution/evolutionDataProcessor';
 import { generateEvolutionPDFFromHTML } from '@/utils/evolution/evolutionPdfService';
 import { AREA_TYPE_FILTER_OPTIONS, areaTypeFilterLabel, canFilterByAreaType } from '@/lib/schoolAreaType';
@@ -1019,14 +1024,37 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                         : undefined,
                       periodStart: periodStart || undefined,
                       periodEnd: periodEnd || undefined,
+                      groupsReport: includeGroupsTab,
                     };
                     
+                    let groupsData: EvolutionGroupsResponse | null = null;
+                    if (includeGroupsTab && comparisonPoints.length >= 2) {
+                      try {
+                        groupsData = await EvaluationComparisonApiService.compareEvaluationsByGroups(
+                          comparisonPoints.flatMap((point) => point.ids),
+                          'turma',
+                          scopeFilters,
+                          comparisonPoints.map((point) => point.ids)
+                        );
+                      } catch (groupsError) {
+                        console.error('Erro ao carregar grupos para o PDF:', groupsError);
+                        toast({
+                          title: 'Aviso',
+                          description:
+                            'O PDF será gerado sem a seção por escola e turma. Tente novamente se precisar dessa parte.',
+                        });
+                      }
+                    }
+
                     await generateEvolutionPDFFromHTML(
                       processedData,
                       comparisonData,
                       processedData.evaluationNames,
                       filterInfo,
-                      'avaliações'
+                      {
+                        instrumentLabel: 'avaliações',
+                        groupsData,
+                      }
                     );
                     toast({
                       title: "PDF gerado com sucesso!",
@@ -1512,19 +1540,22 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
         }
       />
 
-      {/* Mesmos gráficos da Avaliação online; com includeGroupsTab, inclui sub-aba Escola/Série/Turma */}
-      {processedData && !isLoadingComparison && (
-        <EvolutionCharts
-          data={processedData}
-          isLoading={false}
-          instrumentLabel="avaliações"
-          defaultTab={includeGroupsTab ? 'groups' : 'general'}
-          groupTestIds={groupTestIds}
-          groupPoints={groupPoints}
-          groupScopeFilters={includeGroupsTab ? scopeFilters : undefined}
-          groupRefreshKey={includeGroupsTab ? comparisonRequestKey : undefined}
-        />
-      )}
+      {/* Aba Escola/Série/Turma: só tabelas. Demais abas: gráficos da Evolução. */}
+      {includeGroupsTab
+        ? !isLoadingComparison &&
+          groupTestIds &&
+          groupTestIds.length >= 2 && (
+            <EvolutionGroupsView
+              testIds={groupTestIds}
+              grupos={groupPoints}
+              scopeFilters={scopeFilters}
+              refreshKey={comparisonRequestKey}
+            />
+          )
+        : processedData &&
+          !isLoadingComparison && (
+            <EvolutionCharts data={processedData} isLoading={false} instrumentLabel="avaliações" />
+          )}
     </div>
   );
 }

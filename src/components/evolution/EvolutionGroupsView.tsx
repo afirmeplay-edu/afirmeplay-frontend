@@ -4,8 +4,17 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
   EvaluationComparisonApiService,
   type EvolutionCompareScopeFilters,
+  type EvolutionGroupCard,
   type EvolutionGroupsResponse,
   type EvolutionGroupViewBy,
 } from '@/services/evaluation/evaluationComparisonApi';
@@ -15,6 +24,15 @@ import {
   EVOLUTION_LEVEL_SOFT,
   isEvolutionLevelLabel,
 } from '@/utils/evolution/evolutionLevelColors';
+import {
+  formatEvolutionMetric,
+  formatSignedEvolutionPercent,
+} from '@/utils/evolution/formatEvolutionMetric';
+import {
+  buildGroupEvaluationColumns,
+  buildVariationHeaders,
+  sortGradeByRecorte,
+} from '@/utils/evolution/evolutionGroupsRecorte';
 
 interface EvolutionGroupsViewProps {
   testIds: string[];
@@ -32,6 +50,114 @@ function levelStyles(level: string | null | undefined) {
     };
   }
   return { hex: EVOLUTION_LEVEL_COLORS[level], soft: EVOLUTION_LEVEL_SOFT[level] };
+}
+
+function gradeToneClass(percentage: number | null | undefined): string {
+  if (percentage == null || Number.isNaN(Number(percentage))) return 'text-muted-foreground';
+  if (percentage > 0) return 'text-emerald-600 dark:text-emerald-400';
+  if (percentage < 0) return 'text-red-600 dark:text-red-400';
+  return 'text-muted-foreground';
+}
+
+function GroupGradeByRecorteTable({
+  group,
+  evaluations,
+}: {
+  group: EvolutionGroupCard;
+  evaluations: EvolutionGroupsResponse['evaluations'];
+}) {
+  const rows = useMemo(
+    () => sortGradeByRecorte(group.grade_by_recorte ?? []),
+    [group.grade_by_recorte]
+  );
+  const columns = useMemo(
+    () => buildGroupEvaluationColumns(group, evaluations),
+    [group, evaluations]
+  );
+  const variationCols = useMemo(
+    () => buildVariationHeaders(columns.map((column) => column.order)),
+    [columns]
+  );
+
+  if (rows.length === 0 || columns.length < 2) return null;
+
+  return (
+    <div className="mt-5 border-t border-border pt-5">
+      <div className="mb-3 flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between">
+        <p className="text-base font-semibold text-foreground">Notas por recorte</p>
+        <p className="text-sm text-muted-foreground">Nota na escala de 0 a 10 · variação relativa (%)</p>
+      </div>
+      <Table className="text-base">
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="min-w-[160px] h-12 px-4 text-sm font-semibold">Recorte</TableHead>
+            {columns.map((column) => (
+              <TableHead
+                key={`${group.id}-h-${column.order}`}
+                className="h-12 px-4 text-center text-sm font-semibold whitespace-nowrap"
+              >
+                {column.title}
+              </TableHead>
+            ))}
+            {variationCols.map((pair) => (
+              <TableHead
+                key={`${group.id}-hv-${pair.from}-${pair.to}`}
+                className="h-12 px-4 text-center text-sm font-semibold whitespace-nowrap"
+              >
+                {pair.label}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => {
+            const valueByOrder = new Map(
+              (row.values ?? []).map((value) => [value.order, value.average_grade])
+            );
+            const transitionByPair = new Map(
+              (row.transitions ?? []).map((transition) => [
+                `${transition.from_order}-${transition.to_order}`,
+                transition.evolution,
+              ])
+            );
+
+            return (
+              <TableRow key={`${group.id}-${row.recorte}-${row.is_geral ? 'geral' : row.subject_id ?? 'x'}`}>
+                <TableCell
+                  className={`px-4 py-3 text-base text-foreground ${row.is_geral ? 'font-semibold' : 'font-medium'}`}
+                >
+                  {row.recorte}
+                </TableCell>
+                {columns.map((column) => {
+                  const grade = valueByOrder.get(column.order) ?? null;
+                  return (
+                    <TableCell
+                      key={`${group.id}-${row.recorte}-g-${column.order}`}
+                      className="px-4 py-3 text-center text-base tabular-nums"
+                    >
+                      {formatEvolutionMetric(grade, 'nota')}
+                    </TableCell>
+                  );
+                })}
+                {variationCols.map((pair) => {
+                  const evolution = transitionByPair.get(`${pair.from}-${pair.to}`) ?? null;
+                  const percentage = evolution?.percentage ?? null;
+                  return (
+                    <TableCell
+                      key={`${group.id}-${row.recorte}-v-${pair.from}-${pair.to}`}
+                      className={`px-4 py-3 text-center text-base tabular-nums font-semibold ${gradeToneClass(percentage)}`}
+                    >
+                      {formatSignedEvolutionPercent(percentage)}
+                    </TableCell>
+                  );
+                })}
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
 }
 
 export function EvolutionGroupsView({ testIds, grupos, scopeFilters, refreshKey }: EvolutionGroupsViewProps) {
@@ -287,6 +413,8 @@ export function EvolutionGroupsView({ testIds, grupos, scopeFilters, refreshKey 
                       )}
                     </div>
                   </div>
+
+                  <GroupGradeByRecorteTable group={group} evaluations={data.evaluations} />
                 </CardContent>
               </Card>
             );
