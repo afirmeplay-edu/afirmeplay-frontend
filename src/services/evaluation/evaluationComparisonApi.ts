@@ -183,6 +183,11 @@ export interface EvolutionGroupPoint {
   average_proficiency: number | null;
   level: string | null;
   total_students: number;
+  total_alunos?: number;
+  alunos_participantes?: number;
+  alunos_ausentes?: number;
+  percentual_comparecimento?: number;
+  requer_filtro_serie?: boolean;
 }
 
 export interface EvolutionGroupTransition {
@@ -222,6 +227,16 @@ export interface EvolutionGroupGradeByRecorte {
   transitions: EvolutionGroupRecorteTransition[];
 }
 
+export interface EvolutionGroupBySerie {
+  serie_id?: string | null;
+  serie_name: string;
+  course_name?: string | null;
+  current_level?: string | null;
+  points: EvolutionGroupPoint[];
+  transitions: EvolutionGroupTransition[];
+  grade_by_recorte?: EvolutionGroupGradeByRecorte[];
+}
+
 export interface EvolutionGroupCard {
   id: string;
   name: string;
@@ -236,20 +251,27 @@ export interface EvolutionGroupCard {
   transitions: EvolutionGroupTransition[];
   /** Notas por disciplina (+ Geral). Ausente em backends antigos. */
   grade_by_recorte?: EvolutionGroupGradeByRecorte[];
+  /** Visão escola multi-série (cartão-resposta): média da escola omitida e séries em by_serie. */
+  requer_filtro_serie?: boolean;
+  by_serie?: EvolutionGroupBySerie[];
 }
 
 export interface EvolutionGroupsResponse {
   view_by: EvolutionGroupViewBy | string;
+  origem?: 'cartao_resposta' | 'avaliacao_online' | string;
   filtros_aplicados?: EvolutionCompareScopeFilters;
   evaluations: Array<{
     order: number;
     id: string;
     title: string;
-    application_date?: string;
+    application_date?: string | null;
+    series?: Array<{ id: string; name: string }>;
+    origem?: string;
   }>;
   total_evaluations: number;
   total_groups: number;
   summary_by_level: Record<string, number>;
+  requer_filtro_serie?: boolean;
   groups: EvolutionGroupCard[];
 }
 

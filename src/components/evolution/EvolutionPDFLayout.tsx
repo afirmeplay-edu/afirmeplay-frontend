@@ -44,10 +44,12 @@ export interface EvolutionPDFLayoutProps {
     grade?: string;
     class?: string;
   };
-  /** compare-groups (visualizar_por=turma) para seção escola → turma → tabela */
+  /** compare-groups (visualizar_por=turma|serie|escola) para seção de tabelas por grupo */
   groupsData?: EvolutionGroupsResponse | null;
   /** Aba Escola/Série/Turma: só tabelas, sem gráficos */
   groupsOnly?: boolean;
+  /** Rótulo do instrumento ("avaliações" | "gabaritos") */
+  instrumentLabel?: string;
 }
 
 function percentColor(percentage: number | null | undefined): string {
@@ -58,14 +60,20 @@ function percentColor(percentage: number | null | undefined): string {
 }
 
 function PdfGroupRecorteTable({
-  group,
+  rowKeyPrefix,
+  points,
+  gradeByRecorte,
   evaluations,
+  columnPrefix = 'Avaliação',
 }: {
-  group: EvolutionGroupCard;
+  rowKeyPrefix: string;
+  points: EvolutionGroupCard['points'];
+  gradeByRecorte?: EvolutionGroupCard['grade_by_recorte'];
   evaluations: EvolutionGroupsResponse['evaluations'];
+  columnPrefix?: string;
 }) {
-  const rows = sortGradeByRecorte(group.grade_by_recorte ?? []);
-  const columns = buildGroupEvaluationColumns(group, evaluations);
+  const rows = sortGradeByRecorte(gradeByRecorte ?? []);
+  const columns = buildGroupEvaluationColumns({ points }, evaluations, columnPrefix);
   const variationCols = buildVariationHeaders(columns.map((column) => column.order));
   if (rows.length === 0 || columns.length < 2) return null;
 
@@ -94,12 +102,12 @@ function PdfGroupRecorteTable({
           <tr>
             <th style={{ ...th, textAlign: 'left' }}>Recorte</th>
             {columns.map((column) => (
-              <th key={`h-${group.id}-${column.order}`} style={th}>
+              <th key={`h-${rowKeyPrefix}-${column.order}`} style={th}>
                 {column.title}
               </th>
             ))}
             {variationCols.map((pair) => (
-              <th key={`hv-${group.id}-${pair.from}-${pair.to}`} style={th}>
+              <th key={`hv-${rowKeyPrefix}-${pair.from}-${pair.to}`} style={th}>
                 {pair.label}
               </th>
             ))}
@@ -117,7 +125,7 @@ function PdfGroupRecorteTable({
               ])
             );
             return (
-              <tr key={`${group.id}-${row.recorte}-${row.is_geral ? 'g' : row.subject_id ?? 'x'}`}>
+              <tr key={`${rowKeyPrefix}-${row.recorte}-${row.is_geral ? 'g' : row.subject_id ?? 'x'}`}>
                 <td
                   style={{
                     ...td,
@@ -128,7 +136,7 @@ function PdfGroupRecorteTable({
                   {row.recorte}
                 </td>
                 {columns.map((column) => (
-                  <td key={`g-${group.id}-${row.recorte}-${column.order}`} style={td}>
+                  <td key={`g-${rowKeyPrefix}-${row.recorte}-${column.order}`} style={td}>
                     {formatEvolutionMetric(valueByOrder.get(column.order) ?? null, 'nota')}
                   </td>
                 ))}
@@ -137,7 +145,7 @@ function PdfGroupRecorteTable({
                   const percentage = evolution?.percentage ?? null;
                   return (
                     <td
-                      key={`v-${group.id}-${row.recorte}-${pair.from}-${pair.to}`}
+                      key={`v-${rowKeyPrefix}-${row.recorte}-${pair.from}-${pair.to}`}
                       style={{ ...td, color: percentColor(percentage), fontWeight: 'bold' }}
                     >
                       {formatSignedEvolutionPercent(percentage)}
@@ -226,8 +234,11 @@ export const EvolutionPDFLayout = ({
   studentLabel,
   groupsData = null,
   groupsOnly = false,
+  instrumentLabel = 'avaliações',
 }: EvolutionPDFLayoutProps) => {
   const isStudentReport = reportKind === 'student';
+  const groupColumnPrefix = instrumentLabel === 'gabaritos' ? 'Gabarito' : 'Avaliação';
+  const groupViewBy = groupsData?.view_by ?? 'turma';
   const generalStats = readGeneralGradeStats(processedData.generalData || []);
   const generalNota = readEvolutionComboSeries(
     mergeEvolutionRows(processedData.generalData || [])[0],
@@ -481,14 +492,21 @@ export const EvolutionPDFLayout = ({
       {schoolsWithTurmas.length > 0 && (
         <div style={{ marginTop: 20 }}>
           <h2 style={{ fontSize: 13, fontWeight: 'bold', marginBottom: 12, color: '#1f2937', marginTop: 0 }}>
-            Notas por escola e turma
+            {groupViewBy === 'escola'
+              ? 'Notas por escola'
+              : groupViewBy === 'serie'
+                ? 'Notas por escola e série'
+                : 'Notas por escola e turma'}
           </h2>
           {schoolsWithTurmas.map((school) =>
             school.turmas.map((turma, turmaIndex) => {
+              const hasMultiSerieSplit = Boolean(
+                turma.requer_filtro_serie && turma.by_serie && turma.by_serie.length > 0
+              );
               const turmaLabel = [turma.grade_name, turma.name || turma.class_name]
                 .filter(Boolean)
                 .join(' · ');
-              // Escola + turma + tabela na mesma captura: evita título órfão numa página
+              // Escola + turma/série + tabela na mesma captura: evita título órfão numa página
               // e a tabela na seguinte.
               return (
                 <div
@@ -531,10 +549,59 @@ export const EvolutionPDFLayout = ({
                       Escola: {school.schoolName}
                     </p>
                   )}
-                  <h4 style={{ fontSize: 13, fontWeight: 'bold', color: '#1f2937', margin: '0 0 10px 0' }}>
-                    Turma: {turmaLabel || turma.name}
-                  </h4>
-                  <PdfGroupRecorteTable group={turma} evaluations={groupEvaluations} />
+
+                  {hasMultiSerieSplit ? (
+                    <div>
+                      <p
+                        style={{
+                          fontSize: 10,
+                          color: '#92400e',
+                          backgroundColor: '#fffbeb',
+                          border: '1px solid #fde68a',
+                          borderRadius: 4,
+                          padding: '6px 10px',
+                          margin: '0 0 12px 0',
+                        }}
+                      >
+                        Esta escola tem mais de uma série nesta avaliação; os resultados aparecem por série.
+                      </p>
+                      {turma.by_serie!.map((serie, serieIdx) => (
+                        <div
+                          key={`${turma.id}-serie-${serie.serie_id ?? serie.serie_name}`}
+                          style={{ marginTop: serieIdx > 0 ? 14 : 0 }}
+                        >
+                          <h4 style={{ fontSize: 12, fontWeight: 'bold', color: '#1f2937', margin: '0 0 8px 0' }}>
+                            Série: {serie.serie_name}
+                            {serie.current_level ? ` (${serie.current_level})` : ''}
+                          </h4>
+                          <PdfGroupRecorteTable
+                            rowKeyPrefix={`${turma.id}-s-${serie.serie_id ?? serieIdx}`}
+                            points={serie.points}
+                            gradeByRecorte={serie.grade_by_recorte}
+                            evaluations={groupEvaluations}
+                            columnPrefix={groupColumnPrefix}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                      {groupViewBy !== 'escola' && (
+                        <h4 style={{ fontSize: 13, fontWeight: 'bold', color: '#1f2937', margin: '0 0 10px 0' }}>
+                          {groupViewBy === 'serie'
+                            ? `Série: ${turma.grade_name || turma.name}`
+                            : `Turma: ${turmaLabel || turma.name}`}
+                        </h4>
+                      )}
+                      <PdfGroupRecorteTable
+                        rowKeyPrefix={turma.id}
+                        points={turma.points}
+                        gradeByRecorte={turma.grade_by_recorte}
+                        evaluations={groupEvaluations}
+                        columnPrefix={groupColumnPrefix}
+                      />
+                    </>
+                  )}
                 </div>
               );
             })
