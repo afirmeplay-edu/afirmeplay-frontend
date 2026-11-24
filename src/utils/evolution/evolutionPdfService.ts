@@ -457,7 +457,8 @@ async function addCoverPage(
   evaluationNames: string[],
   comparisonData: ComparisonResponse | null,
   filterInfo: FilterInfo | null,
-  logoAsset: PdfImageAsset | null
+  logoAsset: PdfImageAsset | null,
+  instrumentLabel = 'avaliações'
 ): Promise<void> {
   // Garantir fundo branco limpo
   pdf.setFillColor(...COLORS.white);
@@ -725,11 +726,11 @@ async function addCoverPage(
     cardY += 7;
   }
 
-  // TOTAL DE AVALIAÇÕES
+  // TOTAL DE AVALIAÇÕES / GABARITOS
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(...COLORS.primary);
   pdf.setFontSize(9);
-  pdf.text('TOTAL DE AVALIAÇÕES:', leftColX, cardY);
+  pdf.text(instrumentLabel === 'gabaritos' ? 'TOTAL DE GABARITOS:' : 'TOTAL DE AVALIAÇÕES:', leftColX, cardY);
   pdf.setFont('helvetica', 'normal');
   pdf.setTextColor(...COLORS.textDark);
   pdf.text(`${evaluationNames.length}`, leftColX + labelWidth, cardY);
@@ -1082,6 +1083,7 @@ export async function generateEvolutionPDFFromHTML(
         evaluationNames,
         groupsData,
         groupsOnly,
+        instrumentLabel,
       };
       if (isStudentReport(filterInfo ?? null)) {
         layoutProps.reportKind = 'student';
@@ -1155,7 +1157,8 @@ export async function generateEvolutionPDFFromHTML(
       evaluationNames,
       comparisonData,
       filterInfo || null,
-      reportLogo
+      reportLogo,
+      instrumentLabel
     );
     
     // Adicionar página de informações sobre filtros e avaliações

@@ -26,7 +26,12 @@ export type InstrumentPickerItem = {
   badge?: string;
   badges?: string[];
   gradeId?: string;
+  gradeIds?: string[];
   gradeName?: string;
+  /** Rótulo de origem (ex.: "Cartão-resposta"), exibido como selo no card. */
+  sourceBadge?: string;
+  /** Ícone opcional para substituir o padrão no card. */
+  icon?: ReactNode;
 };
 
 export type InstrumentPickerSeriesOption = {
@@ -129,6 +134,7 @@ function groupDisableReason(
 function EvaluationCard({
   label,
   badges = [],
+  sourceBadge,
   subtitle,
   isSelected,
   onClick,
@@ -139,6 +145,7 @@ function EvaluationCard({
 }: {
   label: string;
   badges?: string[];
+  sourceBadge?: string;
   subtitle?: string;
   isSelected: boolean;
   onClick: () => void;
@@ -173,8 +180,16 @@ function EvaluationCard({
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold leading-snug line-clamp-3">{label}</p>
-        {badges.length > 0 ? (
+        {sourceBadge || badges.length > 0 ? (
           <div className="mt-1.5 flex flex-wrap gap-1">
+            {sourceBadge && (
+              <Badge
+                variant="outline"
+                className="text-xs px-2 py-0.5 font-medium border-primary/40 bg-primary/10 text-primary"
+              >
+                {sourceBadge}
+              </Badge>
+            )}
             {badges.map((disciplina) => (
               <Badge
                 key={disciplina}
@@ -296,7 +311,11 @@ export function InstrumentPickerModal({
       );
     }
     if (seriesFilterMode === "local" && selectedSerie !== "all") {
-      list = list.filter((item) => item.gradeId === selectedSerie);
+      list = list.filter(
+        (item) =>
+          item.gradeId === selectedSerie ||
+          (item.gradeIds?.includes(selectedSerie) ?? false)
+      );
     }
     return [...list].sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
   }, [items, searchTerm, seriesFilterMode, selectedSerie]);
@@ -523,12 +542,15 @@ export function InstrumentPickerModal({
                       })
                     : invalidIds.includes(item.id)
                       ? "Sem resultados"
-                      : undefined;
+                      : excludeIds.includes(item.id)
+                        ? "Já selecionada"
+                        : undefined;
                   return (
                     <EvaluationCard
                       key={item.id}
                       label={item.label}
                       badges={item.badges ?? (item.badge ? [item.badge] : [])}
+                      sourceBadge={item.sourceBadge}
                       subtitle={item.subtitle}
                       isSelected={multiple ? draftIds.includes(item.id) : value === item.id}
                       onClick={() =>
@@ -537,7 +559,7 @@ export function InstrumentPickerModal({
                       disabled={Boolean(reason)}
                       disabledReason={reason}
                       onView={onViewItem ? () => onViewItem(item.id) : undefined}
-                      icon={<FileText className="h-4 w-4" />}
+                      icon={item.icon ?? <FileText className="h-4 w-4" />}
                     />
                   );
                 })

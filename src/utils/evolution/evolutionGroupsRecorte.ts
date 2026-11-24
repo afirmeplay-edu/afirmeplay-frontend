@@ -15,8 +15,9 @@ export function sortGradeByRecorte(
 
 /** Colunas = pontos da comparação (ordem), sem evaluation_title de disciplinas. */
 export function buildGroupEvaluationColumns(
-  group: EvolutionGroupCard,
-  fallbackEvaluations?: EvolutionGroupsResponse['evaluations']
+  group: Pick<EvolutionGroupCard, 'points'>,
+  fallbackEvaluations?: EvolutionGroupsResponse['evaluations'],
+  columnPrefix = 'Avaliação'
 ): Array<{ order: number; id: string; title: string }> {
   if (group.points?.length) {
     return [...group.points]
@@ -24,7 +25,7 @@ export function buildGroupEvaluationColumns(
       .map((point) => ({
         order: point.order,
         id: point.evaluation_id,
-        title: `Avaliação ${point.order}`,
+        title: `${columnPrefix} ${point.order}`,
       }));
   }
   return [...(fallbackEvaluations ?? [])]
@@ -32,7 +33,7 @@ export function buildGroupEvaluationColumns(
     .map((evaluation) => ({
       order: evaluation.order,
       id: evaluation.id,
-      title: `Avaliação ${evaluation.order}`,
+      title: `${columnPrefix} ${evaluation.order}`,
     }));
 }
 
