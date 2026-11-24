@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { TrendingUp, Filter, RefreshCw, Download, X, AlertCircle, List, Table } from 'lucide-react';
+import { TrendingUp, Filter, RefreshCw, Download, X, AlertCircle, List, Table, ScanLine } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/authContext';
 import { api } from '@/lib/api';
@@ -15,7 +15,9 @@ import {
   EvaluationComparisonApiService,
   ComparisonResponse,
   type EvolutionGroupsResponse,
+  type EvolutionGroupViewBy,
 } from '@/services/evaluation/evaluationComparisonApi';
+import { AnswerSheetComparisonApiService } from '@/services/answer-sheet/answerSheetComparisonApi';
 import { EvolutionCharts } from '@/components/evolution/EvolutionCharts';
 import type { ProcessedEvolutionData } from '@/components/evolution/EvolutionCharts';
 import { EvolutionGroupsView } from '@/components/evolution/EvolutionGroupsView';
@@ -75,8 +77,19 @@ interface Evaluation {
   serie?: string | null;
   serieId?: string | null;
   serieNome?: string | null;
+  series?: Array<{ id: string; name: string }>;
+  multiSerie?: boolean;
   turma?: string | null;
   turmas: EvaluationTurma[];
+  origem?: 'cartao_resposta' | 'avaliacao_online';
+}
+
+type SourceMode = 'avaliacao' | 'cartao';
+
+function isoDateToBR(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  if (!y || !m || !d) return iso;
+  return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
 }
 
 interface EvolutionPoint {
@@ -128,6 +141,12 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
   const { autoLogin, user } = useAuth();
   const { toast } = useToast();
 
+  const [sourceMode, setSourceMode] = useState<SourceMode>('avaliacao');
+  const isCartaoMode = includeGroupsTab && sourceMode === 'cartao';
+  const [groupsViewBy, setGroupsViewBy] = useState<EvolutionGroupViewBy>('turma');
+  const [cartaoGroupsData, setCartaoGroupsData] = useState<EvolutionGroupsResponse | null>(null);
+  const [isLoadingCartaoGroups, setIsLoadingCartaoGroups] = useState(false);
+
   // Estados dos filtros (simplificados)
   const [selectedState, setSelectedState] = useState<string>('all');
   const [selectedMunicipality, setSelectedMunicipality] = useState<string>('all');
@@ -172,6 +191,17 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
   const prevMunicipalityRef = useRef<string>(selectedMunicipality);
   const prevSchoolRef = useRef<string>(selectedSchool);
   const prevGradeRef = useRef<string>(selectedGrade);
+  const prevSourceModeRef = useRef<SourceMode>(sourceMode);
+
+  const fetchOpcoesFiltros = useCallback(
+    async (params: { estado?: string; municipio?: string; escola?: string; serie?: string; tipo_area?: string }) => {
+      if (isCartaoMode) {
+        return AnswerSheetComparisonApiService.getEvolucaoOpcoesFiltros(params);
+      }
+      return EvaluationResultsApiService.getEvolucaoOpcoesFiltros(params);
+    },
+    [isCartaoMode]
+  );
 
   // Barra de carregamento ao adicionar avaliação à comparação
   useEffect(() => {
@@ -186,11 +216,11 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     return () => clearInterval(t);
   }, [isLoadingComparison]);
 
-  // Carregar estados via GET /evaluation-results/evolucao/opcoes-filtros (sem params)
+  // Carregar estados via opcoes-filtros (sem params) conforme a origem ativa
   const loadInitialFilters = useCallback(async () => {
     try {
       setIsLoadingFilters(true);
-      const response = await EvaluationResultsApiService.getEvolucaoOpcoesFiltros({});
+      const response = await fetchOpcoesFiltros({});
       const list = response.estados ?? [];
       setStates(list.map((s: { id: string; nome?: string; name?: string }) => ({
         id: s.id,
@@ -208,7 +238,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
       setIsLoadingFilters(false);
       setIsLoading(false);
     }
-  }, [toast]);
+  }, [fetchOpcoesFiltros, toast]);
 
   useEffect(() => {
     const initializeData = async () => {
@@ -231,6 +261,34 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
 
     initializeData();
   }, [autoLogin, loadInitialFilters, toast]);
+
+  // Reset ao trocar origem (Avaliação online ↔ Cartão-resposta) — não roda no mount
+  useEffect(() => {
+    if (prevSourceModeRef.current === sourceMode) return;
+    prevSourceModeRef.current = sourceMode;
+    setSelectedState('all');
+    setSelectedMunicipality('all');
+    setSelectedSchool('all');
+    setSelectedAreaType('all');
+    setSelectedGrade('all');
+    setSelectedClass('all');
+    setPeriodStart('');
+    setPeriodEnd('');
+    setEvaluationSearch('');
+    setMunicipalities([]);
+    setSchools([]);
+    setGrades([]);
+    setClasses([]);
+    setAvailableEvaluationsForPicker([]);
+    setComparisonPoints([]);
+    setInvalidEvaluationIds(new Set());
+    setComparisonData(null);
+    setProcessedData(null);
+    setComparisonError(null);
+    setCartaoGroupsData(null);
+    setIsLoadingCartaoGroups(false);
+    lastComparisonIdsRef.current = '';
+  }, [sourceMode]);
 
   // Limite máximo de avaliações para comparação (suportado pelo sistema)
   const MAX_EVALUATIONS = 10;
@@ -310,12 +368,12 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     });
   }, [toast]);
 
-  // Carregar municípios: GET /evolucao/opcoes-filtros?estado=X. Ao mudar estado, limpar municipio → escola → serie → turma.
+  // Carregar municípios via opcoes-filtros conforme a origem ativa. Ao mudar estado, limpar municipio → escola → serie → turma.
   useEffect(() => {
     const loadMunicipalities = async () => {
       if (selectedState !== 'all') {
         try {
-          const response = await EvaluationResultsApiService.getEvolucaoOpcoesFiltros({ estado: selectedState });
+          const response = await fetchOpcoesFiltros({ estado: selectedState });
           const list = response.municipios ?? [];
           const newMunicipalities = list.map((m: { id: string; nome?: string; name?: string }) => ({
             id: m.id,
@@ -351,7 +409,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     };
 
     loadMunicipalities();
-  }, [selectedState, toast]);
+  }, [selectedState, fetchOpcoesFiltros, toast]);
 
   // Ao mudar município: limpar escola, série, turma e carrinho de provas
   useEffect(() => {
@@ -389,7 +447,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     }
   }, [selectedGrade]);
 
-  // Carregar avaliações: GET /evaluation-results/evolucao/avaliacoes (estado, municipio obrigatórios; escola, serie, turma, nome, data_inicio, data_fim opcionais)
+  // Carregar avaliações (online) ou gabaritos (cartão-resposta)
   useEffect(() => {
     const loadEvaluations = async () => {
       const estadoValido = selectedState && selectedState !== 'all';
@@ -400,6 +458,80 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
       }
       setIsLoadingFilters(true);
       try {
+        if (isCartaoMode) {
+          const response = await AnswerSheetComparisonApiService.getEvolucaoGabaritos({
+            estado: selectedState,
+            municipio: selectedMunicipality,
+            escola: selectedSchool === 'all' ? undefined : selectedSchool,
+            ...(selectedAreaType !== 'all' ? { tipo_area: selectedAreaType } : {}),
+            serie: selectedGrade === 'all' ? undefined : selectedGrade,
+            turma: selectedClass === 'all' ? undefined : selectedClass,
+            data_inicio: periodStart ? isoDateToBR(periodStart) : undefined,
+            data_fim: periodEnd ? isoDateToBR(periodEnd) : undefined,
+            nome: evaluationSearch.trim() || undefined,
+          });
+          const seen = new Set<string>();
+          const list: Evaluation[] = (response.gabaritos ?? [])
+            .filter((g) => {
+              if (!g?.id) return false;
+              const key = String(g.id).trim();
+              if (!key || seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            })
+            .map((g) => {
+              const disciplinas = (g.disciplinas ?? [])
+                .map((d) => String(d.nome ?? '').trim())
+                .filter(Boolean);
+              const series = (g.series ?? [])
+                .map((s) => ({
+                  id: String(s.id ?? '').trim(),
+                  name: String(s.name ?? '').trim(),
+                }))
+                .filter((s) => s.id || s.name);
+              const serieId = series.length === 1 && series[0].id ? series[0].id : null;
+              const serieNome = series.map((s) => s.name).filter(Boolean).join(', ') || null;
+              const turmas = (g.turmas ?? [])
+                .map((turma) => ({
+                  id: String(turma.id ?? '').trim(),
+                  nome: String(turma.nome ?? '').trim(),
+                }))
+                .filter((turma) => turma.nome);
+              let dataAplicacao: string | null = g.data_iso ?? null;
+              if (!dataAplicacao && g.data) {
+                const match = String(g.data).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+                if (match) {
+                  const [, d, m, y] = match;
+                  let year = parseInt(y!, 10);
+                  if (year < 100) year += 2000;
+                  const parsed = new Date(year, parseInt(m!, 10) - 1, parseInt(d!, 10));
+                  if (!Number.isNaN(parsed.getTime())) dataAplicacao = parsed.toISOString();
+                } else {
+                  dataAplicacao = String(g.data).trim();
+                }
+              }
+              return {
+                id: String(g.id),
+                titulo: (g.titulo ?? 'Sem título').toString(),
+                disciplina: disciplinas[0] ?? '',
+                disciplinas,
+                status: 'concluida',
+                data_aplicacao: dataAplicacao,
+                escola: null,
+                serie: serieNome,
+                serieId,
+                serieNome,
+                series,
+                multiSerie: Boolean(g.multi_serie ?? series.length > 1),
+                turma: null,
+                turmas,
+                origem: 'cartao_resposta',
+              };
+            });
+          setAvailableEvaluationsForPicker(list);
+          return;
+        }
+
         const response = await EvaluationResultsApiService.getEvolucaoAvaliacoes(
           {
             estado: selectedState,
@@ -506,8 +638,10 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
         console.error('Erro ao carregar avaliações:', error);
         setAvailableEvaluationsForPicker([]);
         toast({
-          title: 'Erro ao carregar avaliações',
-          description: 'Não foi possível carregar as avaliações. Tente novamente.',
+          title: isCartaoMode ? 'Erro ao carregar gabaritos' : 'Erro ao carregar avaliações',
+          description: isCartaoMode
+            ? 'Não foi possível carregar os gabaritos. Tente novamente.'
+            : 'Não foi possível carregar as avaliações. Tente novamente.',
           variant: 'destructive',
         });
       } finally {
@@ -516,15 +650,15 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     };
 
     loadEvaluations();
-  }, [selectedState, selectedMunicipality, selectedSchool, selectedAreaType, selectedGrade, selectedClass, periodStart, periodEnd, evaluationSearch, toast]);
+  }, [isCartaoMode, selectedState, selectedMunicipality, selectedSchool, selectedAreaType, selectedGrade, selectedClass, periodStart, periodEnd, evaluationSearch, toast]);
 
-  // Carregar escolas: GET /evolucao/opcoes-filtros?estado=X&municipio=id (só escolas com avaliações)
+  // Carregar escolas via opcoes-filtros conforme a origem ativa
   useEffect(() => {
     const loadSchools = async () => {
       if (selectedState !== 'all' && selectedMunicipality !== 'all') {
         try {
           setIsLoadingFilters(true);
-          const response = await EvaluationResultsApiService.getEvolucaoOpcoesFiltros({
+          const response = await fetchOpcoesFiltros({
             estado: selectedState,
             municipio: selectedMunicipality,
             ...(selectedAreaType !== 'all' ? { tipo_area: selectedAreaType } : {}),
@@ -548,15 +682,15 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     };
 
     loadSchools();
-  }, [selectedState, selectedMunicipality, selectedAreaType]);
+  }, [selectedState, selectedMunicipality, selectedAreaType, fetchOpcoesFiltros]);
 
-  // Carregar séries: GET /evolucao/opcoes-filtros?estado=X&municipio=id&escola=id (só séries com avaliações)
+  // Carregar séries via opcoes-filtros conforme a origem ativa
   useEffect(() => {
     const loadGrades = async () => {
       if (selectedState !== 'all' && selectedMunicipality !== 'all' && selectedSchool !== 'all') {
         try {
           setIsLoadingFilters(true);
-          const response = await EvaluationResultsApiService.getEvolucaoOpcoesFiltros({
+          const response = await fetchOpcoesFiltros({
             estado: selectedState,
             municipio: selectedMunicipality,
             escola: selectedSchool,
@@ -578,15 +712,15 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     };
 
     loadGrades();
-  }, [selectedState, selectedMunicipality, selectedSchool]);
+  }, [selectedState, selectedMunicipality, selectedSchool, fetchOpcoesFiltros]);
 
-  // Carregar turmas: GET /evolucao/opcoes-filtros?estado=X&municipio=id&escola=id&serie=id (só turmas com avaliações)
+  // Carregar turmas via opcoes-filtros conforme a origem ativa
   useEffect(() => {
     const loadClasses = async () => {
       if (selectedState !== 'all' && selectedMunicipality !== 'all' && selectedSchool !== 'all' && selectedGrade !== 'all') {
         try {
           setIsLoadingFilters(true);
-          const response = await EvaluationResultsApiService.getEvolucaoOpcoesFiltros({
+          const response = await fetchOpcoesFiltros({
             estado: selectedState,
             municipio: selectedMunicipality,
             escola: selectedSchool,
@@ -609,7 +743,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     };
 
     loadClasses();
-  }, [selectedState, selectedMunicipality, selectedSchool, selectedGrade]);
+  }, [selectedState, selectedMunicipality, selectedSchool, selectedGrade, fetchOpcoesFiltros]);
 
   // Função para comparar avaliações
   const scopeFilters = useMemo(
@@ -626,6 +760,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
   );
 
   const handleCompareEvaluations = useCallback(async () => {
+    if (isCartaoMode) return;
     if (comparisonPoints.length < 2) {
       toast({
         title: "Selecione pelo menos 2 avaliações",
@@ -734,8 +869,18 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
 
   // Carregar gráficos automaticamente quando a seleção ou o escopo mudarem (2+ avaliações).
   // Debounce evita cascata de compares ao marcar várias provas rapidamente.
+  // No modo cartão-resposta da aba Escola · Série · Turma, nunca chama POST /test/compare.
   useEffect(() => {
     selectedIdsRef.current = comparisonRequestKey;
+
+    if (isCartaoMode) {
+      setComparisonData(null);
+      setProcessedData(null);
+      setComparisonError(null);
+      setIsLoadingComparison(false);
+      lastComparisonIdsRef.current = '';
+      return;
+    }
 
     if (comparisonPoints.length < 2) {
       setComparisonData(null);
@@ -836,7 +981,7 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     return () => window.clearTimeout(timer);
     // A chave já resume pontos e escopo. Arrays novos com o mesmo conteúdo não podem reiniciar o spinner.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [comparisonRequestKey]);
+  }, [comparisonRequestKey, isCartaoMode]);
 
   // Controles de visibilidade agora são por gráfico, definidos em EvolutionCharts
 
@@ -882,12 +1027,27 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
         const turmas = formatTurmasFromRefs(
           evaluation.turmas.map((turma) => ({ id: turma.id, name: turma.nome }))
         );
+        if (isCartaoMode) {
+          const dataFmt = evaluation.data_aplicacao ? formatDate(evaluation.data_aplicacao) : null;
+          const parts = [
+            evaluation.serieNome ? `Série: ${evaluation.serieNome}` : null,
+            dataFmt && dataFmt !== 'Data não disponível' ? dataFmt : null,
+            turmas ? `Turmas: ${turmas}` : null,
+          ].filter(Boolean);
+          return {
+            ...base,
+            gradeIds: (evaluation.series ?? []).map((s) => s.id).filter(Boolean),
+            sourceBadge: 'Cartão-resposta',
+            icon: <ScanLine className="h-4 w-4" />,
+            subtitle: parts.length > 0 ? parts.join(' · ') : base.subtitle,
+          };
+        }
         return {
           ...base,
           subtitle: turmas ? `Turmas: ${turmas}` : base.subtitle,
         };
       }),
-    [availableEvaluationsForPicker]
+    [availableEvaluationsForPicker, isCartaoMode]
   );
 
   const pickerContextLines = useMemo(
@@ -915,10 +1075,28 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
     if (grades.length > 0) return grades.map((grade) => ({ id: grade.id, name: grade.name }));
     const unique = new Map<string, string>();
     for (const evaluation of availableEvaluationsForPicker) {
-      if (evaluation.serieId && evaluation.serieNome) unique.set(evaluation.serieId, evaluation.serieNome);
+      if (evaluation.series && evaluation.series.length > 0) {
+        for (const s of evaluation.series) {
+          if (s.id && s.name) unique.set(s.id, s.name);
+        }
+      } else if (evaluation.serieId && evaluation.serieNome) {
+        unique.set(evaluation.serieId, evaluation.serieNome);
+      }
     }
     return [...unique.entries()].map(([id, name]) => ({ id, name }));
   }, [grades, availableEvaluationsForPicker]);
+
+  const handleCartaoGroupsDataChange = useCallback(
+    (data: EvolutionGroupsResponse | null, loading: boolean) => {
+      setCartaoGroupsData(data);
+      setIsLoadingCartaoGroups(loading);
+    },
+    []
+  );
+
+  const canShowExportActions = isCartaoMode
+    ? comparisonPoints.length >= 2 && Boolean(cartaoGroupsData && cartaoGroupsData.groups.length > 0)
+    : Boolean(comparisonData && processedData);
 
   const geoReady = selectedState !== 'all' && selectedMunicipality !== 'all';
   const groupTestIds = useMemo(
@@ -956,11 +1134,20 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
             Atualizar
           </Button>
         
-          {comparisonData && processedData && (
+          {canShowExportActions && (
             <>
               <Button 
                 onClick={async () => {
-                  if (!processedData || !comparisonData) {
+                  if (isCartaoMode) {
+                    if (!cartaoGroupsData || cartaoGroupsData.groups.length === 0) {
+                      toast({
+                        title: "Dados insuficientes",
+                        description: "Não há dados disponíveis para gerar o relatório.",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                  } else if (!processedData || !comparisonData) {
                     toast({
                       title: "Dados insuficientes",
                       description: "Não há dados disponíveis para gerar o relatório.",
@@ -1026,6 +1213,48 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                       periodEnd: periodEnd || undefined,
                       groupsReport: includeGroupsTab,
                     };
+
+                    if (isCartaoMode && cartaoGroupsData) {
+                      const evaluationNames = comparisonPoints.map((point) => pointTitle(point));
+                      const cartaoProcessedData: ProcessedEvolutionData = {
+                        generalData: [],
+                        proficiencyData: [],
+                        approvalData: [],
+                        subjectData: {},
+                        subjectProficiencyData: {},
+                        classificationData: {},
+                        levelsData: {},
+                        evaluationNames,
+                        evaluations: comparisonPoints.map((point, index) => {
+                          const member = point.members[0];
+                          const classesList = pointClasses(point);
+                          return {
+                            id: member?.id ?? point.ids[0] ?? String(index + 1),
+                            title: pointTitle(point),
+                            application_date: member?.data_aplicacao ?? '',
+                            order: index + 1,
+                            grade_id: member?.serieId ?? null,
+                            grade_name: member?.serieNome ?? null,
+                            classes: classesList,
+                          };
+                        }),
+                      };
+                      await generateEvolutionPDFFromHTML(
+                        cartaoProcessedData,
+                        null,
+                        evaluationNames,
+                        filterInfo,
+                        {
+                          instrumentLabel: 'gabaritos',
+                          groupsData: cartaoGroupsData,
+                        }
+                      );
+                      toast({
+                        title: "PDF gerado com sucesso!",
+                        description: "O relatório foi salvo no seu dispositivo.",
+                      });
+                      return;
+                    }
                     
                     let groupsData: EvolutionGroupsResponse | null = null;
                     if (includeGroupsTab && comparisonPoints.length >= 2) {
@@ -1047,9 +1276,9 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                     }
 
                     await generateEvolutionPDFFromHTML(
-                      processedData,
+                      processedData!,
                       comparisonData,
-                      processedData.evaluationNames,
+                      processedData!.evaluationNames,
                       filterInfo,
                       {
                         instrumentLabel: 'avaliações',
@@ -1071,7 +1300,11 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                     setIsGeneratingPDF(false);
                   }
                 }}
-                disabled={isGeneratingPDF || isExportingExcel || !processedData || !comparisonData}
+                disabled={
+                  isGeneratingPDF ||
+                  isExportingExcel ||
+                  (isCartaoMode ? isLoadingCartaoGroups || !cartaoGroupsData : !processedData || !comparisonData)
+                }
                 className="w-full sm:w-auto bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
               >
                 <Download className={`h-4 w-4 mr-2 ${isGeneratingPDF ? 'animate-spin' : ''}`} />
@@ -1080,11 +1313,13 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
               
               <Button 
                 onClick={async () => {
-                  // Validar se há avaliações selecionadas
+                  // Validar se há avaliações/gabaritos selecionados
                   if (comparisonPoints.length < 2) {
                     toast({
-                      title: "Selecione pelo menos 2 avaliações",
-                      description: "Para exportar, você precisa ter pelo menos 2 avaliações selecionadas.",
+                      title: isCartaoMode ? "Selecione pelo menos 2 gabaritos" : "Selecione pelo menos 2 avaliações",
+                      description: isCartaoMode
+                        ? "Para exportar, você precisa ter pelo menos 2 gabaritos selecionados."
+                        : "Para exportar, você precisa ter pelo menos 2 avaliações selecionadas.",
                       variant: "destructive",
                     });
                     return;
@@ -1093,38 +1328,62 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                   try {
                     setIsExportingExcel(true);
 
-                    // Preparar payload com os IDs das avaliações selecionadas
-                    // Remover duplicatas usando Set para garantir IDs únicos
-                    const uniqueTestIds = comparisonPoints.flatMap((point) => point.ids);
-                    const grupos = comparisonPoints.map((point) => point.ids);
-                    const nomes = comparisonPoints.map((point) => point.name?.trim() || null);
-                    
-                    const payload = {
-                      test_ids: uniqueTestIds,
-                      grupos,
-                      ...(nomes.some(Boolean) ? { nomes } : {}),
-                      estado: selectedState !== 'all' ? selectedState : null,
-                      municipio: selectedMunicipality !== 'all' ? selectedMunicipality : null,
-                      escola: selectedSchool !== 'all' ? selectedSchool : null,
-                      serie: selectedGrade !== 'all' ? selectedGrade : null,
-                      turma: selectedClass !== 'all' ? selectedClass : null,
-                      tipo_area: selectedAreaType !== 'all' ? selectedAreaType : null,
-                    };
+                    let responseData: Blob;
+                    let responseHeaders: Record<string, string>;
+                    let defaultFileName = `exportacao-evolucao-${new Date().toISOString().split('T')[0]}.xlsx`;
 
-                    // Fazer requisição POST para o backend
-                    const exportConfig = selectedMunicipality !== 'all'
-                      ? { responseType: 'blob' as const, meta: { cityId: selectedMunicipality } }
-                      : { responseType: 'blob' as const };
-                    const response = await api.post('/test/evolution/export-excel', payload, exportConfig);
+                    if (isCartaoMode) {
+                      const gabaritoIds = comparisonPoints.flatMap((point) => point.ids);
+                      const municipalityName = municipalities.find((m) => m.id === selectedMunicipality)?.name;
+                      const stateName = states.find((s) => s.id === selectedState)?.name;
+                      const res = await AnswerSheetComparisonApiService.exportAnswerSheetsGroupsExcel(
+                        gabaritoIds,
+                        groupsViewBy,
+                        scopeFilters,
+                        {
+                          municipality: municipalityName,
+                          state: stateName,
+                        }
+                      );
+                      responseData = res.data;
+                      responseHeaders = res.headers;
+                      defaultFileName = `relatorio-evolucao-grupos-cartoes-${new Date().toISOString().split('T')[0]}.xlsx`;
+                    } else {
+                      // Preparar payload com os IDs das avaliações selecionadas
+                      // Remover duplicatas usando Set para garantir IDs únicos
+                      const uniqueTestIds = comparisonPoints.flatMap((point) => point.ids);
+                      const grupos = comparisonPoints.map((point) => point.ids);
+                      const nomes = comparisonPoints.map((point) => point.name?.trim() || null);
+                      
+                      const payload = {
+                        test_ids: uniqueTestIds,
+                        grupos,
+                        ...(nomes.some(Boolean) ? { nomes } : {}),
+                        estado: selectedState !== 'all' ? selectedState : null,
+                        municipio: selectedMunicipality !== 'all' ? selectedMunicipality : null,
+                        escola: selectedSchool !== 'all' ? selectedSchool : null,
+                        serie: selectedGrade !== 'all' ? selectedGrade : null,
+                        turma: selectedClass !== 'all' ? selectedClass : null,
+                        tipo_area: selectedAreaType !== 'all' ? selectedAreaType : null,
+                      };
+
+                      // Fazer requisição POST para o backend
+                      const exportConfig = selectedMunicipality !== 'all'
+                        ? { responseType: 'blob' as const, meta: { cityId: selectedMunicipality } }
+                        : { responseType: 'blob' as const };
+                      const response = await api.post('/test/evolution/export-excel', payload, exportConfig);
+                      responseData = response.data;
+                      responseHeaders = response.headers as Record<string, string>;
+                    }
 
                     // Criar blob a partir da resposta
-                    const blob = new Blob([response.data], {
+                    const blob = new Blob([responseData], {
                       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                     });
 
                     // Extrair nome do arquivo do header Content-Disposition ou usar padrão
-                    const contentDisposition = response.headers['content-disposition'];
-                    let fileName = `exportacao-evolucao-${new Date().toISOString().split('T')[0]}.xlsx`;
+                    const contentDisposition = responseHeaders['content-disposition'];
+                    let fileName = defaultFileName;
                     
                     if (contentDisposition) {
                       const fileNameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
@@ -1145,8 +1404,9 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
 
                     toast({
                       title: "Excel exportado com sucesso!",
-                      description:
-                        comparisonPoints.length === 1
+                      description: isCartaoMode
+                        ? `Arquivo gerado com sucesso para ${comparisonPoints.length} gabaritos.`
+                        : comparisonPoints.length === 1
                           ? 'Arquivo gerado com sucesso para 1 avaliação.'
                           : `Arquivo gerado com sucesso para ${comparisonPoints.length} avaliações.`,
                     });
@@ -1154,18 +1414,20 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                     console.error('Erro ao exportar Excel:', error);
 
                     // Tratar erro que pode vir como blob
-                    let errorMessage = "Não foi possível exportar as avaliações.";
+                    let errorMessage = isCartaoMode
+                      ? "Não foi possível exportar os gabaritos."
+                      : "Não foi possível exportar as avaliações.";
 
                     if (error.response?.data instanceof Blob) {
                       try {
                         const text = await error.response.data.text();
                         const errorData = JSON.parse(text);
-                        errorMessage = errorData.message || errorMessage;
+                        errorMessage = errorData.error || errorData.message || errorMessage;
                       } catch {
                         // Se não conseguir parsear, usar mensagem padrão
                       }
-                    } else if (error.response?.data?.message) {
-                      errorMessage = error.response.data.message;
+                    } else if (error.response?.data?.error || error.response?.data?.message) {
+                      errorMessage = error.response.data.error || error.response.data.message;
                     } else if (error.response?.status === 400) {
                       errorMessage = "Dados inválidos para exportação.";
                     } else if (error.response?.status === 404) {
@@ -1176,14 +1438,17 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
 
                     toast({
                       title: "Erro ao exportar Excel",
-                      description: toUserFacingErrorMessage(errorMessage, "Não foi possível exportar as avaliações."),
+                      description: toUserFacingErrorMessage(
+                        errorMessage,
+                        isCartaoMode ? "Não foi possível exportar os gabaritos." : "Não foi possível exportar as avaliações."
+                      ),
                       variant: "destructive",
                     });
                   } finally {
                     setIsExportingExcel(false);
                   }
                 }}
-                disabled={isGeneratingPDF || isExportingExcel || comparisonPoints.length < 2}
+                disabled={isGeneratingPDF || isExportingExcel || comparisonPoints.length < 2 || (isCartaoMode && isLoadingCartaoGroups)}
                 className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
               >
                 <Table className={`h-4 w-4 mr-2 ${isExportingExcel ? 'animate-spin' : ''}`} />
@@ -1202,6 +1467,26 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
           </CardTitle>
         </CardHeader>
         <CardContent>
+          {includeGroupsTab && (
+            <div className="mb-6 space-y-2">
+              <label className="text-sm font-medium">Fonte dos resultados</label>
+              <Tabs
+                value={sourceMode}
+                onValueChange={(v) => setSourceMode(v as SourceMode)}
+                className="w-full max-w-md"
+              >
+                <TabsList className="w-full">
+                  <TabsTrigger value="avaliacao" className="flex-1">
+                    Avaliação online
+                  </TabsTrigger>
+                  <TabsTrigger value="cartao" className="flex-1">
+                    Cartão-resposta
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             {/* Estado */}
             <div className="space-y-2">
@@ -1378,10 +1663,10 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                 className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
               >
                 <List className="h-4 w-4 mr-2" />
-                Selecionar avaliações
+                {isCartaoMode ? 'Selecionar gabaritos' : 'Selecionar avaliações'}
               </Button>
               <Badge variant="outline">
-                {comparisonPoints.length}/{MAX_EVALUATIONS} selecionada(s)
+                {comparisonPoints.length}/{MAX_EVALUATIONS} {isCartaoMode ? 'selecionado(s)' : 'selecionada(s)'}
               </Badge>
               {pickerContextLines.map((line) => (
                 <Badge key={line} variant="secondary" className="font-normal">
@@ -1396,7 +1681,9 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
             </div>
             {comparisonPoints.length > 0 && comparisonPoints.length < 2 && (
               <p className="mt-3 text-sm text-muted-foreground">
-                Selecione pelo menos 2 avaliações para iniciar a comparação. Avaliações da mesma série e de disciplinas diferentes podem ser agrupadas.
+                {isCartaoMode
+                  ? 'Selecione pelo menos 2 gabaritos para iniciar a comparação.'
+                  : 'Selecione pelo menos 2 avaliações para iniciar a comparação. Avaliações da mesma série e de disciplinas diferentes podem ser agrupadas.'}
               </p>
             )}
             {selectedGrade !== 'all' && (
@@ -1460,26 +1747,38 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
       <InstrumentPickerModal
         open={pickerOpen}
         onOpenChange={setPickerOpen}
-        title="Selecionar avaliações"
+        title={isCartaoMode ? "Selecionar gabaritos" : "Selecionar avaliações"}
         items={pickerItems}
         value=""
-        multiple
+        multiple={!isCartaoMode}
         maxSelection={MAX_EVALUATIONS}
         excludeIds={comparisonPoints.flatMap((point) => point.ids)}
         invalidIds={[...invalidEvaluationIds]}
         seriesOptions={pickerSeries}
         seriesFilterMode="local"
         loading={isLoadingFilters}
-        emptyMessage="Nenhuma avaliação encontrada."
+        emptyMessage={isCartaoMode ? "Nenhum gabarito encontrado." : "Nenhuma avaliação encontrada."}
         contextLines={geoReady ? pickerContextLines : []}
-        contextRequiredMessage="Selecione estado e município antes de buscar avaliações."
+        contextRequiredMessage={
+          isCartaoMode
+            ? "Selecione estado e município antes de buscar gabaritos."
+            : "Selecione estado e município antes de buscar avaliações."
+        }
         onSelect={confirmComparisonPoint}
-        onViewItem={(id) => window.open(`/app/avaliacao/${id}`, "_blank", "noopener,noreferrer")}
+        onViewItem={
+          isCartaoMode
+            ? undefined
+            : (id) => window.open(`/app/avaliacao/${id}`, "_blank", "noopener,noreferrer")
+        }
         onFiltersChange={({ nome }) => setEvaluationSearch(nome)}
         committedSection={
           comparisonPoints.length === 0 ? undefined : (
             <div className="mb-4 space-y-2">
-              <p className="text-sm font-medium">Selecionadas ({comparisonPoints.length})</p>
+              <p className="text-sm font-medium">
+                {isCartaoMode
+                  ? `Selecionados (${comparisonPoints.length})`
+                  : `Selecionadas (${comparisonPoints.length})`}
+              </p>
               {comparisonPoints.map((point, index) => {
                 const scopeMeta =
                   comparisonData?.evaluations?.find((item) => item.id === point.ids.join(",")) ??
@@ -1494,14 +1793,25 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                   <div key={point.ids.join(",")} className="rounded-lg border border-border bg-background p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold">
-                          {index + 1}. {pointTitle(point)}
-                        </p>
-                        {point.ids.length > 1 && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold">
+                            {index + 1}. {pointTitle(point)}
+                          </p>
+                          {isCartaoMode && (
+                            <Badge
+                              variant="outline"
+                              className="inline-flex items-center gap-1 border-primary/40 bg-primary/10 text-primary text-xs font-medium"
+                            >
+                              <ScanLine className="h-3 w-3" />
+                              Cartão-resposta
+                            </Badge>
+                          )}
+                        </div>
+                        {!isCartaoMode && point.ids.length > 1 && (
                           <Badge variant="secondary" className="mt-1">Agrupada</Badge>
                         )}
                         <EvolutionScopeMetaLines evaluation={scopeMeta ?? localScope} />
-                        {point.ids.length > 1 && (
+                        {!isCartaoMode && point.ids.length > 1 && (
                           <Input
                             className="mt-2 h-8 max-w-xs text-sm"
                             placeholder="Nome do grupo (opcional)"
@@ -1516,17 +1826,18 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
                         )}
                       </div>
                       <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                        {point.members.map((member) => (
-                          <Button
-                            key={member.id}
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => window.open(`/app/avaliacao/${member.id}`, "_blank", "noopener,noreferrer")}
-                          >
-                            Ver avaliação
-                          </Button>
-                        ))}
+                        {!isCartaoMode &&
+                          point.members.map((member) => (
+                            <Button
+                              key={member.id}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(`/app/avaliacao/${member.id}`, "_blank", "noopener,noreferrer")}
+                            >
+                              Ver avaliação
+                            </Button>
+                          ))}
                         <Button type="button" variant="ghost" size="sm" onClick={() => handleRemovePoint(index)} aria-label="Remover da comparação">
                           <X className="h-4 w-4" />
                         </Button>
@@ -1542,14 +1853,18 @@ export default function Evolution({ hidePageHeading = false, includeGroupsTab = 
 
       {/* Aba Escola/Série/Turma: só tabelas. Demais abas: gráficos da Evolução. */}
       {includeGroupsTab
-        ? !isLoadingComparison &&
+        ? (isCartaoMode || !isLoadingComparison) &&
           groupTestIds &&
           groupTestIds.length >= 2 && (
             <EvolutionGroupsView
               testIds={groupTestIds}
-              grupos={groupPoints}
+              grupos={isCartaoMode ? undefined : groupPoints}
               scopeFilters={scopeFilters}
               refreshKey={comparisonRequestKey}
+              sourceMode={isCartaoMode ? 'cartao' : 'avaliacao'}
+              viewBy={groupsViewBy}
+              onViewByChange={setGroupsViewBy}
+              onDataChange={isCartaoMode ? handleCartaoGroupsDataChange : undefined}
             />
           )
         : processedData &&

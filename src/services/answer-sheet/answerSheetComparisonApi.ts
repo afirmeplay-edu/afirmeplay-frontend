@@ -1,7 +1,10 @@
 import { api } from '@/lib/api';
+import { isResultadosAlunosFiltro } from '@/constants/resultadosAlunosFiltro';
 import type {
   ComparisonResponse,
   EvolutionCompareScopeFilters,
+  EvolutionGroupsResponse,
+  EvolutionGroupViewBy,
   StudentComparisonResponse,
 } from '@/services/evaluation/evaluationComparisonApi';
 import type {
@@ -42,13 +45,30 @@ export interface AnswerSheetEvolucaoGabaritosFilters {
   tipo_area?: string;
 }
 
+export interface AnswerSheetEvolucaoGabaritoItem {
+  id: string;
+  titulo: string;
+  data?: string | null;
+  data_iso?: string | null;
+  origem?: 'cartao_resposta' | string;
+  disciplinas?: Array<{ id: string; nome: string }>;
+  series?: Array<{ id: string; name: string }>;
+  multi_serie?: boolean;
+  etapas?: string[];
+  turmas?: Array<{
+    id: string;
+    nome: string;
+    serie_id?: string | null;
+    serie?: string | null;
+    escola_id?: string | null;
+    escola?: string | null;
+  }>;
+  total_turmas?: number;
+}
+
 export interface AnswerSheetEvolucaoGabaritosResponse {
   source_type?: 'cartao_resposta';
-  gabaritos?: Array<{
-    id: string;
-    titulo: string;
-    data?: string | null;
-  }>;
+  gabaritos?: AnswerSheetEvolucaoGabaritoItem[];
   total?: number;
 }
 
@@ -200,6 +220,78 @@ export class AnswerSheetComparisonApiService {
       requestConfig
     );
     return response.data;
+  }
+
+  /**
+   * POST /answer-sheets/compare-groups — evolução por grupos (turma / série / escola).
+   * Mesmo contrato de POST /test/compare-groups, com suporte a by_serie na visão escola.
+   */
+  static async compareAnswerSheetsByGroups(
+    gabaritoIds: string[],
+    viewBy: EvolutionGroupViewBy,
+    scopeFilters?: EvolutionCompareScopeFilters
+  ): Promise<EvolutionGroupsResponse> {
+    if (gabaritoIds.length < 2) {
+      throw new Error('Mínimo de 2 gabaritos necessário para comparação');
+    }
+
+    const municipio = scopeFilters?.municipio ?? null;
+    const payload = {
+      gabarito_ids: gabaritoIds,
+      visualizar_por: viewBy,
+      estado: scopeFilters?.estado ?? null,
+      municipio,
+      escola: scopeFilters?.escola ?? null,
+      serie: scopeFilters?.serie ?? null,
+      turma: scopeFilters?.turma ?? null,
+      tipo_area:
+        scopeFilters?.tipo_area && scopeFilters.tipo_area !== 'all' ? scopeFilters.tipo_area : null,
+      ...(isResultadosAlunosFiltro(scopeFilters?.alunos) ? { alunos: scopeFilters.alunos } : {}),
+    };
+    const requestConfig = municipio ? { meta: { cityId: municipio } } : {};
+    const response = await api.post<EvolutionGroupsResponse>(
+      '/answer-sheets/compare-groups',
+      payload,
+      requestConfig
+    );
+    return response.data;
+  }
+
+  /**
+   * POST /answer-sheets/compare-groups/export-excel — Excel por grupos (cartão-resposta).
+   */
+  static async exportAnswerSheetsGroupsExcel(
+    gabaritoIds: string[],
+    viewBy: EvolutionGroupViewBy,
+    scopeFilters?: EvolutionCompareScopeFilters,
+    extra?: { municipality?: string; state?: string; department?: string }
+  ): Promise<{ data: Blob; headers: Record<string, string> }> {
+    if (gabaritoIds.length < 2) {
+      throw new Error('Mínimo de 2 gabaritos necessário para exportação');
+    }
+
+    const municipio = scopeFilters?.municipio ?? null;
+    const payload = {
+      gabarito_ids: gabaritoIds,
+      visualizar_por: viewBy,
+      estado: scopeFilters?.estado ?? null,
+      municipio,
+      escola: scopeFilters?.escola ?? null,
+      serie: scopeFilters?.serie ?? null,
+      turma: scopeFilters?.turma ?? null,
+      tipo_area:
+        scopeFilters?.tipo_area && scopeFilters.tipo_area !== 'all' ? scopeFilters.tipo_area : null,
+      ...(isResultadosAlunosFiltro(scopeFilters?.alunos) ? { alunos: scopeFilters.alunos } : {}),
+      ...(extra?.municipality ? { municipality: extra.municipality } : {}),
+      ...(extra?.state ? { state: extra.state } : {}),
+      ...(extra?.department ? { department: extra.department } : {}),
+    };
+    const requestConfig = {
+      responseType: 'blob' as const,
+      ...(municipio ? { meta: { cityId: municipio } } : {}),
+    };
+    const response = await api.post('/answer-sheets/compare-groups/export-excel', payload, requestConfig);
+    return { data: response.data, headers: response.headers as Record<string, string> };
   }
 
   static async exportEvolutionExcel(
