@@ -25,7 +25,7 @@ export function alunoAusenteMessage(value: unknown): string {
 
 export function findOmrResultForBatchItem(
   results: unknown[] | undefined,
-  item: { student_id?: string },
+  item: { student_id?: string; status?: string },
   index: string | number
 ): OmrCorrectionResult | undefined {
   if (!Array.isArray(results) || results.length === 0) return undefined;
@@ -34,6 +34,9 @@ export function findOmrResultForBatchItem(
     const byId = typed.find((r) => r.student_id && r.student_id === item.student_id);
     if (byId) return byId;
   }
+  // `results` costuma trazer só os cartões corrigidos (sem a posição dos que falharam),
+  // então o índice fica deslocado. Itens com erro nunca devem herdar dados de outro cartão.
+  if (item.status === 'error') return undefined;
   const idx = Number(index);
   if (Number.isFinite(idx) && typed[idx]) return typed[idx];
   return undefined;
