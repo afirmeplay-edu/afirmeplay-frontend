@@ -427,6 +427,8 @@ interface ResultadosAgregadosResponse {
     geral?: { alunos: GeralAluno[] };
   };
   ranking?: RankingItem[];
+  /** Lista de ausentes (raiz do payload), ordenada por escola, turma e nome. Sem motivo. */
+  alunos_ausentes_lista?: AlunoPendenteDetalhe[];
 }
 
 const norm = (o: FilterOption) => o.nome ?? o.name ?? o.titulo ?? o.id;
@@ -1024,9 +1026,20 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
     };
   }, [apiData?.estatisticas_gerais]);
 
-  // Alunos faltosos/pendentes — fonte oficial: `estatisticas_gerais.alunos_pendentes_detalhe` (backend).
-  // Fallback (compatibilidade): filtrar `tabela_detalhada.geral.alunos` por `status_geral !== 'concluida'`.
+  // Alunos faltosos/pendentes — fonte oficial: `alunos_ausentes_lista` (raiz do payload, já ordenada
+  // por escola, turma e nome). Fallbacks (compatibilidade): `estatisticas_gerais.alunos_pendentes_detalhe`
+  // e, por fim, filtrar `tabela_detalhada.geral.alunos` por `status_geral !== 'concluida'`.
   const absentStudents = useMemo<AlunoPendenteDetalhe[]>(() => {
+    const lista = apiData?.alunos_ausentes_lista;
+    if (Array.isArray(lista)) {
+      return lista.map((a, i) => ({
+        id: String(a.id ?? `sem-id-${i}`),
+        nome: String(a.nome ?? ''),
+        escola: a.escola,
+        serie: a.serie,
+        turma: a.turma,
+      }));
+    }
     const detalhe = apiData?.estatisticas_gerais?.alunos_pendentes_detalhe;
     if (Array.isArray(detalhe) && detalhe.length > 0) {
       return detalhe.map((a, i) => ({
@@ -1046,7 +1059,7 @@ export default function AnswerSheetResults({ hidePageHeading = false }: AnswerSh
         serie: a.serie,
         turma: a.turma,
       }));
-  }, [apiData?.estatisticas_gerais?.alunos_pendentes_detalhe, geralAlunos]);
+  }, [apiData?.alunos_ausentes_lista, apiData?.estatisticas_gerais?.alunos_pendentes_detalhe, geralAlunos]);
 
   const filteredAbsentStudents = useMemo(() => {
     const q = absentStudentsModalSearch.trim();
