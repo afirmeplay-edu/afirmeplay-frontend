@@ -47,10 +47,12 @@ import {
   CheckCircle2,
   ChevronsUpDown,
   ImageIcon,
+  Info,
   Loader2,
   ScanLine,
   SkipForward,
   Upload,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -81,7 +83,76 @@ const ERROR_HINTS: Record<string, string> = {
   no_questions: "Avaliação sem questões para escanear.",
   missing_topology:
     "Este cartão não tem topologia (blocos/questões) ou gabarito configurados para leitura por foto.",
+  identity_not_found:
+    "Não foi possível ler o aluno na foto. Selecione o aluno no filtro.",
+  missing_student:
+    "Não há aluno para gravar. Se a foto não identificou a folha, selecione o aluno no filtro.",
 };
+
+const HELP_FRAMING =
+  "Se possível, enquadre cabeçalho (QR/faixa) + grade; senão selecione o aluno no filtro.";
+
+/** O que a foto identificou, sem ecoar o que já estava no filtro. */
+type PhotoRead = {
+  studentId: string | null;
+  studentName: string | null;
+  testId: string | null;
+  testTitle: string | null;
+  /** Filtro de aluno que divergiu da folha quando a API não devolve o nome lido. */
+  studentConflictFilterId: string | null;
+};
+
+function sameId(a?: string | null, b?: string | null): boolean {
+  if (!a || !b) return false;
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+function extractPhotoRead(
+  result: DetectAnswersResponse,
+  sentStudentId: string,
+  sentTestId: string,
+  kind: PhotoScanKind | null
+): PhotoRead {
+  const identity = result.identity;
+  const source = identity?.source;
+  const readStudent =
+    identity?.detected === true ||
+    source === "qr" ||
+    source === "idgrid" ||
+    source === "qr+idgrid";
+  const returnedId = identity?.student_id || result.student_id || null;
+  const returnedName = identity?.student_name || result.student_name || null;
+  const returnedIsFilter = Boolean(sentStudentId && sameId(returnedId, sentStudentId));
+  const mismatch = identity?.mismatch === true;
+
+  let studentId: string | null = readStudent ? returnedId : null;
+  let studentName: string | null = readStudent ? returnedName : null;
+  let studentConflictFilterId: string | null = null;
+
+  if (mismatch && sentStudentId && (!studentId || sameId(studentId, sentStudentId) || returnedIsFilter)) {
+    studentConflictFilterId = sentStudentId;
+    if (!readStudent || returnedIsFilter) {
+      studentId = null;
+      studentName = null;
+    }
+  }
+
+  // No cartão, o id da folha é o gabarito. Na prova, gabarito_id é o cartão ligado a ela,
+  // não outra avaliação — comparar esse id com o filtro gerava falso "outra prova ou cartão".
+  const sheetId = kind === "cartao" ? identity?.gabarito_id || identity?.test_id : identity?.test_id;
+  const testId = sheetId ? (sameId(sheetId, sentTestId) ? sentTestId : sheetId) : null;
+  const testTitle = sameId(result.test_id, sentTestId) || sameId(result.test_id, testId) ? result.test_title || null : null;
+
+  return { studentId, studentName, testId, testTitle, studentConflictFilterId };
+}
+
+/** No conflito, grava o filtro. Sem conflito, usa o aluno lido na foto. */
+function studentIdForSave(read: PhotoRead | null, filterStudentId: string, detection: DetectAnswersResponse | null): string {
+  const detectedId = read?.studentId || "";
+  if (filterStudentId && detectedId && filterStudentId !== detectedId) return filterStudentId;
+  if (read?.studentConflictFilterId && filterStudentId === read.studentConflictFilterId) return filterStudentId;
+  return detectedId || detection?.identity?.student_id || detection?.student_id || filterStudentId || "";
+}
 
 const KIND_LABELS: Record<PhotoScanKind, string> = {
   cartao: "Cartão-resposta",
@@ -136,6 +207,7 @@ function SearchCombobox<T extends { id: string }>(props: {
   searchPlaceholder: string;
   emptyText: string;
   disabled?: boolean;
+  invalid?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const selected = props.items.find((i) => i.id === props.value);
@@ -163,7 +235,11 @@ function SearchCombobox<T extends { id: string }>(props: {
           role="combobox"
           aria-expanded={open}
           disabled={props.disabled}
-          className="w-full justify-between font-normal"
+          aria-invalid={props.invalid || undefined}
+          className={cn(
+            "w-full justify-between font-normal",
+            props.invalid && "border-red-500 focus-visible:ring-red-500"
+          )}
         >
           <span className="truncate">{selected ? props.getLabel(selected) : props.placeholder}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -271,7 +347,9 @@ export default function PhotoCorrectionPage() {
   const [detecting, setDetecting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [detectError, setDetectError] = useState<string | null>(null);
+  const [filterHint, setFilterHint] = useState<string | null>(null);
   const [detection, setDetection] = useState<DetectAnswersResponse | null>(null);
+  const [photoRead, setPhotoRead] = useState<PhotoRead | null>(null);
   const [editable, setEditable] = useState<EditableAnswer[]>([]);
   const [focusQ, setFocusQ] = useState<number | null>(null);
   const [confirmOverwriteOpen, setConfirmOverwriteOpen] = useState(false);
@@ -337,14 +415,24 @@ export default function PhotoCorrectionPage() {
     void loadStudents(testId, kind ?? "virtual");
   }, [testId, kind, loadingTests, loadStudents]);
 
-  const resetCapture = useCallback(() => {
-    setFile(null);
-    setPreview(null);
+  const resetDetection = useCallback(() => {
     setDetection(null);
     setEditable([]);
     setDetectError(null);
     setFocusQ(null);
   }, []);
+
+  useEffect(() => {
+    if (testId) setFilterHint(null);
+  }, [testId]);
+
+  const resetCapture = useCallback(() => {
+    setFile(null);
+    setPreview(null);
+    setFilterHint(null);
+    setPhotoRead(null);
+    resetDetection();
+  }, [resetDetection]);
 
   const syncUrl = (nextTest: string, nextStudent: string, nextKind: PhotoScanKind | null = kind) => {
     const params: Record<string, string> = {};
@@ -360,15 +448,23 @@ export default function PhotoCorrectionPage() {
     setStudentId("");
     setClassId(ALL_CLASSES);
     setSavedInfo(null);
-    resetCapture();
+    resetDetection();
     syncUrl(id, "", picked?.kind ?? null);
   };
 
   const onSelectStudent = (id: string) => {
     setStudentId(id);
     setSavedInfo(null);
-    resetCapture();
     syncUrl(testId, id);
+  };
+
+  const clearFilters = () => {
+    setTestId("");
+    setStudentId("");
+    setClassId(ALL_CLASSES);
+    setSavedInfo(null);
+    resetDetection();
+    syncUrl("", "", null);
   };
 
   const visibleStudents = useMemo(
@@ -403,6 +499,7 @@ export default function PhotoCorrectionPage() {
       setFile(next);
       setDetectError(null);
       setDetection(null);
+      setPhotoRead(null);
       setEditable([]);
       const reader = new FileReader();
       reader.onload = () => setPreview(String(reader.result));
@@ -412,13 +509,43 @@ export default function PhotoCorrectionPage() {
   );
 
   const runDetect = async () => {
-    if (!testId || !studentId || !file) return;
+    if (!file) return;
+    if (!testId) {
+      const hint = "Selecione a avaliação ou o cartão para detectar.";
+      setFilterHint(hint);
+      toast({ title: "Informe a avaliação", description: hint });
+      return;
+    }
+    setFilterHint(null);
     setDetecting(true);
     setDetectError(null);
     setSavedInfo(null);
     try {
-      const result = await ScanAnswersApiService.detectAnswers(testId, studentId, file, kind ?? "virtual");
+      const result = await ScanAnswersApiService.detectAnswers(
+        testId,
+        studentId || null,
+        file,
+        kind ?? "virtual"
+      );
+      const read = extractPhotoRead(result, studentId, testId, kind);
       setDetection(result);
+      setPhotoRead(read);
+      const detectedTest = read.testId ? tests.find((t) => sameId(t.id, read.testId)) : undefined;
+      const testChanged = Boolean(detectedTest && !sameId(detectedTest.id, testId));
+      const nextStudentId = read.studentId || studentId;
+      if (testChanged && detectedTest) {
+        setTestId(detectedTest.id);
+        setClassId(ALL_CLASSES);
+      }
+      if (read.studentId) {
+        setStudentId(read.studentId);
+        if (!testChanged) {
+          const known = students.find((s) => s.id === read.studentId);
+          if (known?.class_id) setClassId(known.class_id);
+          else setClassId(ALL_CLASSES);
+        }
+      }
+      syncUrl(detectedTest?.id || testId, nextStudentId, detectedTest?.kind ?? kind);
       setEditable(
         (result.answers || []).map((a) => ({
           question_number: a.question_number,
@@ -486,6 +613,37 @@ export default function PhotoCorrectionPage() {
     (r) => r.status === "multiple" || r.status === "low_confidence"
   ).length;
 
+  const detectedTestLabel = photoRead?.testId
+    ? tests.find((t) => sameId(t.id, photoRead.testId))?.title || photoRead.testTitle || "outra prova ou cartão"
+    : null;
+  const detectedStudentLabel = photoRead?.studentId ? photoRead.studentName || "identificado na foto" : null;
+
+  const testMismatch = Boolean(photoRead?.testId && testId && !sameId(photoRead.testId, testId));
+  const studentMismatch = Boolean(
+    studentId &&
+      ((photoRead?.studentId && !sameId(photoRead.studentId, studentId)) ||
+        (photoRead?.studentConflictFilterId && photoRead.studentConflictFilterId === studentId))
+  );
+
+  const photoReadLines = photoRead
+    ? [
+        photoRead.testId
+          ? `Prova ou cartão: ${detectedTestLabel}.`
+          : testId
+            ? "Prova ou cartão: não identificado na foto. Vale o que está no filtro."
+            : "Prova ou cartão: não identificado na foto. Selecione no filtro.",
+        detectedStudentLabel
+          ? `Aluno: ${detectedStudentLabel}.`
+          : studentMismatch
+            ? "Aluno: a foto indica alguém diferente do selecionado."
+            : studentId
+              ? "Aluno: não identificado na foto. Vale o que está no filtro."
+              : "Aluno: não identificado na foto. Selecione no filtro.",
+      ]
+    : [];
+
+  const resolvedStudentId = studentIdForSave(photoRead, studentId, detection);
+
   const goToStudent = (s: PhotoScanStudent) => {
     setStudentId(s.id);
     resetCapture();
@@ -493,12 +651,19 @@ export default function PhotoCorrectionPage() {
   };
 
   const doSave = async (overwrite: boolean): Promise<boolean> => {
-    if (!testId || !studentId) return false;
+    if (!testId || !resolvedStudentId) {
+      toast({
+        title: "Aluno não identificado",
+        description: ERROR_HINTS.missing_student,
+        variant: "destructive",
+      });
+      return false;
+    }
     setSaving(true);
     try {
       const result = await ScanAnswersApiService.saveAnswers(
         testId,
-        studentId,
+        resolvedStudentId,
         answersPayload,
         overwrite,
         kind ?? "virtual"
@@ -521,6 +686,14 @@ export default function PhotoCorrectionPage() {
         setConfirmOverwriteOpen(true);
         return false;
       }
+      if (status === 400 && data?.code === "missing_student") {
+        toast({
+          title: "Aluno não identificado",
+          description: ERROR_HINTS.missing_student,
+          variant: "destructive",
+        });
+        return false;
+      }
       toast({
         title: "Erro ao salvar",
         description: data?.error || err?.message || "Falha ao gravar respostas",
@@ -532,9 +705,19 @@ export default function PhotoCorrectionPage() {
     }
   };
 
+  const studentBeingSaved =
+    students.find((s) => s.id === resolvedStudentId) ||
+    (currentStudent?.id === resolvedStudentId ? currentStudent : null);
+
+  const shownStudentName =
+    studentBeingSaved?.name ||
+    (photoRead?.studentId && photoRead.studentId === resolvedStudentId ? photoRead.studentName : null) ||
+    currentStudent?.name ||
+    null;
+
   const handleSaveClick = () => {
     if (!editable.length) return;
-    if (detection?.has_existing_answers || currentStudent?.status === "corrigido") {
+    if (detection?.has_existing_answers || studentBeingSaved?.status === "corrigido") {
       setConfirmOverwriteOpen(true);
       return;
     }
@@ -550,7 +733,7 @@ export default function PhotoCorrectionPage() {
   }
   if (!isStaff) return <Navigate to="/app" replace />;
 
-  const canCapture = Boolean(testId && studentId);
+  const filtersActive = Boolean(testId || studentId || classId !== ALL_CLASSES);
 
   return (
     <div className="container mx-auto max-w-7xl space-y-6 p-4 pb-16">
@@ -559,18 +742,16 @@ export default function PhotoCorrectionPage() {
           <Camera className="h-6 w-6" />
           Correção por Foto
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Escolha a avaliação ou cartão e o aluno, fotografe a área das bolhas, revise e salve. Funciona com cartões
-          de A–D ou A–E com bolhas circulares.
-        </p>
+        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{HELP_FRAMING}</p>
       </div>
 
-      {/* Passo 1: prova e aluno */}
+      {/* Filtros opcionais: fallback quando a foto não traz QR / faixa hexadecimal */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">1. Prova e aluno</CardTitle>
+          <CardTitle className="text-lg">Prova e aluno</CardTitle>
           <CardDescription>
-            Aparecem cartões-resposta, provas físicas e provas online objetivas (múltipla escolha) com turmas aplicadas.
+            Escolha a avaliação ou o cartão. O aluno é opcional. {HELP_FRAMING} A lista reúne cartões-resposta,
+            provas físicas e provas online objetivas.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -588,7 +769,13 @@ export default function PhotoCorrectionPage() {
                 searchPlaceholder="Buscar prova ou cartão..."
                 emptyText="Nenhuma prova objetiva ou cartão encontrado."
                 disabled={loadingTests}
+                invalid={testMismatch}
               />
+              {testMismatch && (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  Não corresponde à foto: {detectedTestLabel}.
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Turma</label>
@@ -597,7 +784,6 @@ export default function PhotoCorrectionPage() {
                 onValueChange={(v) => {
                   setClassId(v);
                   setStudentId("");
-                  resetCapture();
                   syncUrl(testId, "");
                 }}
                 disabled={!testId || loadingStudents}
@@ -634,11 +820,25 @@ export default function PhotoCorrectionPage() {
                     )}
                   </div>
                 )}
-                placeholder={loadingStudents ? "Carregando..." : "Selecione o aluno"}
+                placeholder={
+                  loadingStudents
+                    ? "Carregando..."
+                    : testId
+                      ? "Selecione o aluno"
+                      : "Selecione a avaliação para listar"
+                }
                 searchPlaceholder="Buscar aluno..."
                 emptyText="Nenhum aluno encontrado."
                 disabled={!testId || loadingStudents}
+                invalid={studentMismatch}
               />
+              {studentMismatch && (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {detectedStudentLabel
+                    ? `Não corresponde à foto: ${detectedStudentLabel}.`
+                    : "Não corresponde ao aluno indicado na foto."}
+                </p>
+              )}
             </div>
           </div>
 
@@ -660,6 +860,12 @@ export default function PhotoCorrectionPage() {
                   <Badge variant="secondary">{KIND_LABELS[currentTest.kind]}</Badge>
                   {currentTest.title}
                 </span>
+              )}
+              {filtersActive && (
+                <Button variant="ghost" size="sm" className="ml-auto" onClick={clearFilters}>
+                  <X className="mr-2 h-4 w-4" />
+                  Limpar filtros
+                </Button>
               )}
             </div>
           )}
@@ -685,13 +891,12 @@ export default function PhotoCorrectionPage() {
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* Passo 2: foto */}
-        <Card className={cn(!canCapture && "opacity-60")}>
+        <Card>
           <CardHeader>
-            <CardTitle className="text-lg">2. Foto das respostas</CardTitle>
+            <CardTitle className="text-lg">Foto do cartão</CardTitle>
             <CardDescription>
-              Enquadre só a área de bolhas, sem cortar blocos. Boa luz e foco ajudam.
-              {currentStudent ? ` Aluno: ${currentStudent.name}.` : ""}
+              {HELP_FRAMING}
+              {currentStudent ? ` Filtro de aluno: ${currentStudent.name}.` : ""}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -708,11 +913,11 @@ export default function PhotoCorrectionPage() {
             />
             <div
               className="flex min-h-[220px] cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 p-4 transition hover:bg-muted/50"
-              onClick={() => canCapture && fileInputRef.current?.click()}
+              onClick={() => fileInputRef.current?.click()}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
-                if (canCapture) handleFile(e.dataTransfer.files?.[0] || null);
+                handleFile(e.dataTransfer.files?.[0] || null);
               }}
             >
               {preview ? (
@@ -721,20 +926,18 @@ export default function PhotoCorrectionPage() {
                 <>
                   <ImageIcon className="h-10 w-10 text-muted-foreground" />
                   <p className="text-center text-sm text-muted-foreground">
-                    {canCapture
-                      ? "Arraste uma imagem ou clique para selecionar / tirar foto"
-                      : "Selecione a avaliação ou cartão e o aluno primeiro"}
+                    Arraste uma imagem ou clique para selecionar / tirar foto
                   </p>
                 </>
               )}
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" disabled={!canCapture} onClick={() => fileInputRef.current?.click()}>
+              <Button variant="secondary" onClick={() => fileInputRef.current?.click()}>
                 <Upload className="mr-2 h-4 w-4" />
                 Escolher imagem
               </Button>
-              <Button onClick={runDetect} disabled={!canCapture || !file || detecting}>
+              <Button onClick={runDetect} disabled={!file || detecting}>
                 {detecting ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -744,6 +947,14 @@ export default function PhotoCorrectionPage() {
               </Button>
             </div>
 
+            {filterHint && (
+              <Alert>
+                <Info className="h-4 w-4" />
+                <AlertTitle>Selecione a avaliação</AlertTitle>
+                <AlertDescription>{filterHint}</AlertDescription>
+              </Alert>
+            )}
+
             {detectError && (
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
@@ -752,7 +963,19 @@ export default function PhotoCorrectionPage() {
               </Alert>
             )}
 
-            {(detection?.has_existing_answers || currentStudent?.status === "corrigido") && editable.length > 0 && (
+            {photoRead && (
+              <Alert>
+                <Info className="h-4 w-4" />
+                <AlertTitle>Dados lidos na foto</AlertTitle>
+                <AlertDescription className="space-y-1">
+                  {photoReadLines.map((line) => (
+                    <p key={line}>{line}</p>
+                  ))}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {(detection?.has_existing_answers || studentBeingSaved?.status === "corrigido") && editable.length > 0 && (
               <Alert>
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>Este aluno já foi corrigido</AlertTitle>
@@ -792,11 +1015,11 @@ export default function PhotoCorrectionPage() {
           </CardContent>
         </Card>
 
-        {/* Passo 3: revisão */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">3. Revisão e salvar</CardTitle>
+            <CardTitle className="text-lg">Revisão e salvar</CardTitle>
             <CardDescription>
+              {shownStudentName ? `Aluno: ${shownStudentName}. ` : ""}
               Corrija qualquer leitura incorreta antes de salvar. Itens ambíguos ou de baixa confiança estão
               destacados.
               {pendingReview > 0 && ` ${pendingReview} para revisar.`}
@@ -889,8 +1112,8 @@ export default function PhotoCorrectionPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Sobrescrever respostas existentes?</AlertDialogTitle>
             <AlertDialogDescription>
-              Este aluno já possui respostas nesta avaliação. Ao confirmar, elas serão substituídas pelas
-              respostas revisadas e o resultado será recalculado.
+              {shownStudentName ?? "Este aluno"} já possui respostas nesta avaliação. Ao confirmar, elas serão
+              substituídas pelas respostas revisadas e o resultado será recalculado.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

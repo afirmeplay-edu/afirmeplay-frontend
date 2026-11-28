@@ -73,12 +73,33 @@ export interface QuestionMeta {
   subject_name?: string | null;
 }
 
+/** Identidade lida do cartão (QR e/ou faixa hexadecimal), quando o detect devolver. */
+export type DetectedIdentitySource = "qr" | "idgrid" | "qr+idgrid";
+
+export interface DetectedIdentity {
+  source?: DetectedIdentitySource | null;
+  /** true quando o aluno foi lido da folha (QR ou faixa hexadecimal). */
+  detected?: boolean | null;
+  /** true quando o student_id enviado no filtro foi aplicado. */
+  filter_applied?: boolean | null;
+  /** true quando o aluno do filtro não é o da folha. O backend grava o do filtro. */
+  mismatch?: boolean | null;
+  student_id?: string | null;
+  student_name?: string | null;
+  gabarito_id?: string | null;
+  test_id?: string | null;
+  confidence?: number | null;
+  idgrid_checksum_ok?: boolean | null;
+}
+
 export interface DetectAnswersResponse {
   success: boolean;
   test_id: string;
   test_title?: string | null;
-  student_id: string;
+  student_id?: string | null;
   student_name?: string | null;
+  /** Aluno lido da folha e/ou vindo do filtro. */
+  identity?: DetectedIdentity | null;
   answers: DetectedAnswer[];
   summary: {
     total: number;
@@ -158,16 +179,20 @@ export class ScanAnswersApiService {
 
   static async detectAnswers(
     testId: string,
-    studentId: string,
+    studentId: string | null | undefined,
     image: File | string,
     kind: PhotoScanKind = "virtual"
   ): Promise<DetectAnswersResponse> {
     const imagePayload =
       typeof image === "string" ? image : await fileToBase64DataUrl(image);
 
+    const body: { image: string; student_id?: string } = { image: imagePayload };
+    if (studentId) body.student_id = studentId;
+
     const { data } = await api.post<DetectAnswersResponse>(
-      `${instrumentBase(kind, testId)}/student/${studentId}/detect-answers`,
-      { image: imagePayload }
+      `${instrumentBase(kind, testId)}/detect-answers`,
+      body,
+      studentId ? { params: { student_id: studentId } } : undefined
     );
     return data;
   }
